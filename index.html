@@ -7,12 +7,26 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
     <style>
+        /* CSS 樣式區 */
         #loading-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(255,255,255,0.9); z-index: 9999;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
         }
-        .color-dot { width: 24px; height: 24px; border-radius: 4px; border: 1px solid #ccc; display: inline-block; vertical-align: middle; }
+        
+        /* 月曆專用樣式 */
+        .calendar-header { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-weight: bold; margin-bottom: 5px; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .calendar-day { 
+            background: #fff; border: 1px solid #dee2e6; border-radius: 4px; 
+            min-height: 80px; /* 手機版高度 */
+            padding: 4px; cursor: pointer; position: relative;
+            transition: all 0.2s;
+        }
+        .calendar-day:active { transform: scale(0.95); background-color: #f0f0f0; }
+        .calendar-day.disabled { background: #f8f9fa; cursor: default; }
+        .day-num { font-size: 14px; margin-bottom: 2px; }
+        .day-content { font-size: 12px; text-align: center; margin-top: 5px; }
     </style>
 </head>
 <body class="bg-light">
@@ -26,40 +40,23 @@
         <div class="card shadow p-4" style="width: 100%; max-width: 400px;">
             <h3 class="text-center mb-4">系統登入</h3>
             <form id="login-form">
-                <div class="mb-3">
-                    <label>Email</label>
-                    <input type="email" id="email" class="form-control" required>
-                </div>
-                <div class="mb-3">
-                    <label>密碼</label>
-                    <input type="password" id="password" class="form-control" required>
-                </div>
+                <div class="mb-3"><label>Email</label><input type="email" id="email" class="form-control" required></div>
+                <div class="mb-3"><label>密碼</label><input type="password" id="password" class="form-control" required></div>
                 <button type="submit" class="btn btn-primary w-100">登入</button>
             </form>
         </div>
     </div>
-
+    
     <div id="setup-view" class="d-none container py-5">
         <div class="row justify-content-center">
             <div class="col-md-6">
                 <div class="card shadow">
-                    <div class="card-header bg-warning text-dark">
-                        <h4 class="mb-0">⚙️ 步驟 1：建立護理單位</h4>
-                    </div>
+                    <div class="card-header bg-warning text-dark"><h4 class="mb-0">⚙️ 建立單位</h4></div>
                     <div class="card-body">
-                        <p class="text-muted">檢測到您的帳號尚未綁定單位。請先建立單位基本資料。</p>
                         <form id="unit-setup-form">
-                            <div class="mb-3">
-                                <label class="form-label fw-bold">單位代號 (ID)</label>
-                                <input type="text" class="form-control" id="setup-unit-id" placeholder="例如: ICU (英數字)" required>
-                            </div>
-                            <div class="mb-4">
-                                <label class="form-label fw-bold">單位名稱</label>
-                                <input type="text" class="form-control" id="setup-unit-name" placeholder="例如: 內科加護病房" required>
-                            </div>
-                            <div class="d-grid">
-                                <button type="submit" class="btn btn-primary">建立單位</button>
-                            </div>
+                            <div class="mb-3"><label>單位代號</label><input type="text" id="setup-unit-id" class="form-control" required></div>
+                            <div class="mb-4"><label>單位名稱</label><input type="text" id="setup-unit-name" class="form-control" required></div>
+                            <button type="submit" class="btn btn-primary w-100">建立</button>
                         </form>
                     </div>
                 </div>
@@ -68,7 +65,7 @@
     </div>
 
     <div id="main-view" class="d-none">
-        <nav class="navbar navbar-dark bg-primary px-3 mb-4">
+        <nav class="navbar navbar-dark bg-primary px-3 mb-3">
             <span class="navbar-brand mb-0 h1" id="nav-unit-name"></span>
             <div class="d-flex align-items-center text-white">
                 <span id="nav-user-name" class="me-3"></span>
@@ -76,75 +73,62 @@
             </div>
         </nav>
 
-        <div class="container-fluid px-4">
-            <ul class="nav nav-tabs mb-4" id="mainTab" role="tablist">
-                <li class="nav-item">
-                    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#staff-container">人員管理</button>
-                </li>
-                <li class="nav-item">
-                    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#shift-container" id="tab-shift">班別管理</button>
-                </li>
-                <li class="nav-item">
-                    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#unit-info-container">單位資訊</button>
-                </li>
+        <div class="container-fluid px-2"> <ul class="nav nav-tabs mb-3" id="mainTab" role="tablist">
+                <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#pre-schedule-container" id="tab-pre">預班管理</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#staff-container">人員管理</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#shift-container" id="tab-shift">班別設定</button></li>
             </ul>
 
             <div class="tab-content">
                 
-                <div class="tab-pane fade show active" id="staff-container">
+                <div class="tab-pane fade show active" id="pre-schedule-container">
                     <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h4>人員列表</h4>
-                        <button id="btn-add-staff" class="btn btn-primary"><i class="bi bi-person-plus"></i> 新增人員</button>
-                    </div>
-                    <div class="card shadow-sm border-0">
-                        <div class="card-body p-0">
-                            <table class="table table-hover mb-0 align-middle">
-                                <thead class="table-light">
-                                    <tr><th>編號</th><th>姓名</th><th>層級</th><th>組別</th><th>註記</th><th>操作</th></tr>
-                                </thead>
-                                <tbody id="staff-table-body"></tbody>
-                            </table>
+                        <h4 id="pre-month-label">載入中...</h4>
+                        <div>
+                            <button class="btn btn-sm btn-outline-secondary" id="btn-prev-month"><i class="bi bi-chevron-left"></i></button>
+                            <button class="btn btn-sm btn-outline-secondary" id="btn-next-month"><i class="bi bi-chevron-right"></i></button>
                         </div>
                     </div>
+
+                    <div class="calendar-header">
+                        <div class="text-danger">日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div class="text-danger">六</div>
+                    </div>
+                    <div id="calendar-container" class="calendar-grid mb-3">
+                        </div>
+
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-primary btn-lg" id="btn-save-wishes">
+                            <i class="bi bi-cloud-upload"></i> 送出預班
+                        </button>
+                    </div>
+                </div>
+
+                <div class="tab-pane fade" id="staff-container">
+                    <div class="d-flex justify-content-between mb-3"><h4>人員列表</h4><button id="btn-add-staff" class="btn btn-primary">新增</button></div>
+                    <table class="table"><tbody id="staff-table-body"></tbody></table>
                 </div>
 
                 <div class="tab-pane fade" id="shift-container">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h4>班別設定</h4>
-                        <button id="btn-save-shifts" class="btn btn-success"><i class="bi bi-save"></i> 儲存設定</button>
-                    </div>
-                    <div class="card shadow-sm">
-                        <div class="card-body">
-                            <table class="table table-bordered align-middle text-center">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th style="width:15%">代號</th>
-                                        <th style="width:20%">名稱</th>
-                                        <th style="width:20%">類型 (AI判讀)</th>
-                                        <th style="width:15%">顏色</th>
-                                        <th style="width:15%">工時(hr)</th>
-                                        <th style="width:10%">刪除</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="shift-table-body"></tbody>
-                            </table>
-                            <button class="btn btn-outline-secondary w-100 mt-2" id="btn-add-shift-row">+ 新增一列</button>
-                        </div>
-                    </div>
+                    <div class="d-flex justify-content-between mb-3"><h4>班別</h4><button id="btn-save-shifts" class="btn btn-success">儲存</button></div>
+                    <table class="table"><tbody id="shift-table-body"></tbody></table>
+                    <button class="btn btn-outline-secondary w-100" id="btn-add-shift-row">新增</button>
                 </div>
+            </div>
+        </div>
+    </div>
 
-                <div class="tab-pane fade" id="unit-info-container">
-                    <div class="card shadow-sm" style="max-width: 500px;">
-                        <div class="card-body">
-                            <h5>單位基本資料</h5>
-                            <hr>
-                            <p><strong>單位代號：</strong> <span id="info-unit-id"></span></p>
-                            <p><strong>單位名稱：</strong> <span id="info-unit-name"></span></p>
-                            <p><strong>管理者：</strong> <span id="info-admin-name"></span></p>
-                        </div>
-                    </div>
+    <div class="modal fade" id="wishModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content">
+                <div class="modal-header py-2">
+                    <h5 class="modal-title fs-6" id="modal-date-title">日期</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-
+                <div class="modal-body">
+                    <p class="text-muted small mb-2">請選擇希望的班別：</p>
+                    <div id="modal-shift-options">
+                        </div>
+                </div>
             </div>
         </div>
     </div>
@@ -157,11 +141,7 @@
                     <form id="add-staff-form">
                         <div class="mb-3"><label>編號</label><input type="text" id="staff-empId" class="form-control" required></div>
                         <div class="mb-3"><label>姓名</label><input type="text" id="staff-name" class="form-control" required></div>
-                        <div class="row">
-                            <div class="col"><label>層級</label><select id="staff-level" class="form-select"><option value="N">N</option><option value="N1">N1</option><option value="N2">N2</option><option value="N3">N3</option><option value="N4">N4</option></select></div>
-                            <div class="col"><label>組別</label><select id="staff-group" class="form-select"><option value="">無</option><option value="A">A組</option><option value="B">B組</option></select></div>
-                        </div>
-                        <div class="mt-3 form-check"><input type="checkbox" class="form-check-input" id="staff-pregnant"><label class="form-check-label">懷孕/哺乳 (不排夜班)</label></div>
+                        <div class="row"><div class="col"><label>層級</label><select id="staff-level" class="form-select"><option value="N">N</option><option value="N1">N1</option></select></div></div>
                     </form>
                 </div>
                 <div class="modal-footer"><button type="button" class="btn btn-primary" id="btn-save-staff">儲存</button></div>
