@@ -1,34 +1,50 @@
 import { db } from "../firebase-init.js";
-import { doc, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+import { doc, setDoc, updateDoc, getDoc } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
 export const UnitService = {
     /**
-     * 建立全新的單位與班別設定
-     * @param {string} userId - 建立者的 UID (用於綁定)
-     * @param {string} unitId - 單位代號 (如 ICU)
-     * @param {string} unitName - 單位名稱
-     * @param {object} shiftsMap - 班別 Map
+     * 1. 建立單位 (僅基本資料)
      */
-    async createUnitConfig(userId, unitId, unitName, shiftsMap) {
+    async createUnit(userId, unitId, unitName) {
         try {
-            // 1. 建立 units 文件
+            // 檢查單位是否已存在
             const unitRef = doc(db, "units", unitId);
+            const snap = await getDoc(unitRef);
+            if(snap.exists()) {
+                throw new Error("此單位代號已存在，請使用其他代號");
+            }
+
+            // 建立單位 (shifts 給空物件)
             await setDoc(unitRef, {
                 name: unitName,
-                shifts: shiftsMap,
-                createdAt: new Date(),
-                createdBy: userId
+                shifts: {}, 
+                managers: [userId],
+                createdAt: new Date()
             });
 
-            // 2. 更新使用者的 unitId
+            // 更新使用者的 unitId
             const userRef = doc(db, "users", userId);
-            await updateDoc(userRef, {
-                unitId: unitId
-            });
+            await updateDoc(userRef, { unitId: unitId });
 
             return true;
         } catch (error) {
-            console.error("Error creating unit config:", error);
+            console.error("建立單位失敗:", error);
+            throw error;
+        }
+    },
+
+    /**
+     * 2. 更新班別設定
+     */
+    async updateShifts(unitId, shiftsMap) {
+        try {
+            const unitRef = doc(db, "units", unitId);
+            await updateDoc(unitRef, {
+                shifts: shiftsMap
+            });
+            return true;
+        } catch (error) {
+            console.error("更新班別失敗:", error);
             throw error;
         }
     }
