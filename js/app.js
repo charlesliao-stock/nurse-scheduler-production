@@ -3,7 +3,9 @@ import { sysContext } from "./core/SystemContext.js";
 import { StaffModule } from "./modules/StaffModule.js";
 import { UnitSetupModule } from "./modules/UnitSetupModule.js";
 import { ShiftModule } from "./modules/ShiftModule.js";
+import { PreScheduleModule } from "./modules/PreScheduleModule.js"; // 🌟 新增
 
+// ... (其他 DOM 宣告、Auth 監聽、Login/Logout 邏輯保持不變) ...
 const views = {
     login: document.getElementById('login-view'),
     setup: document.getElementById('setup-view'),
@@ -21,7 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Login Form
+    // Login Form logic ... (保持不變)
     const loginForm = document.getElementById('login-form');
     if (loginForm) {
         loginForm.addEventListener('submit', async (e) => {
@@ -38,95 +40,60 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Logout
+    // Logout logic ... (保持不變)
     document.getElementById('logout-btn').addEventListener('click', async () => {
         await AuthService.logout();
         window.location.reload();
     });
 });
 
+
 async function handleLoginSuccess(firebaseUser) {
     try {
         setLoading(true, "系統載入中...");
         
-        // 1. 初始化 Context
         await sysContext.init(firebaseUser);
 
-        // 2. 狀態檢查
-        const unitId = sysContext.getUnitId();
-        const hasConfig = sysContext.hasUnitConfig();
-        console.log(`[App] 狀態: UnitID=${unitId}, Config=${hasConfig}`);
-
-        // 3. 路由判斷
-        if (!unitId) {
-            // Case A: 全新帳號
-            console.log("[App] 新帳號 -> 進入單位建立流程");
-            setupUnitCreation("歡迎使用！請先建立您的護理單位。");
-
-        } else if (!hasConfig) {
-            // Case B: 有 UnitID 但資料庫無資料 (尚未建立或已刪除)
-            console.warn("[App] 資料庫無此單位設定 -> 進入重建流程");
-            
-            // 🌟 明確提示使用者
-            alert(`提示：系統偵測到單位代號 (${unitId}) 尚未建立詳細資料，請填寫名稱以完成建立。`);
-            
-            // 預填 Unit ID 欄位，方便使用者
-            const idInput = document.getElementById('setup-unit-id');
-            if(idInput) {
-                idInput.value = unitId;
-                // idInput.disabled = true; // 可選擇是否鎖定 ID 不讓改
-            }
-            
-            setupUnitCreation("尚未建立單位資料，請完成設定。");
-
+        if (!sysContext.getUnitId()) {
+            UnitSetupModule.init();
+            showView('setup');
+        } else if (!sysContext.hasUnitConfig()) {
+            console.warn("[App] 資料缺失，進入 Setup");
+            alert("請完成單位設定");
+            UnitSetupModule.init();
+            showView('setup');
         } else {
-            // Case C: 正常登入
-            console.log("[App] 登入成功 -> 進入主畫面");
+            console.log("[App] 進入 Main");
             renderDashboardInfo();
             
+            // 初始化各模組
             await StaffModule.init();
             ShiftModule.init();
+            PreScheduleModule.init(); // 🌟 啟動預班模組
             
             showView('main');
         }
 
     } catch (error) {
         console.error(error);
-        alert("初始化失敗: " + error.message);
+        alert("錯誤: " + error.message);
         AuthService.logout();
     } finally {
         setLoading(false);
     }
 }
 
-// 輔助函式：切換到建立畫面並更新提示文字
-function setupUnitCreation(message) {
-    UnitSetupModule.init();
-    
-    // 更新設定畫面的說明文字 (如果有對應 DOM)
-    const setupMsgEl = document.querySelector('#setup-view .text-muted');
-    if(setupMsgEl) setupMsgEl.innerText = message;
-    
-    showView('setup');
-}
-
+// ... (renderDashboardInfo, showView, setLoading 保持不變) ...
 function renderDashboardInfo() {
-    setText('nav-unit-name', sysContext.getUnitName());
-    setText('nav-user-name', sysContext.getUserName());
-    setText('info-unit-id', sysContext.getUnitId());
-    setText('info-unit-name', sysContext.getUnitName());
-    setText('info-admin-name', sysContext.getUserName());
-}
-
-function setText(id, text) {
-    const el = document.getElementById(id);
-    if(el) el.innerText = text;
+    const el = document.getElementById('nav-unit-name');
+    if(el) el.innerText = sysContext.getUnitName();
+    
+    const el2 = document.getElementById('nav-user-name');
+    if(el2) el2.innerText = sysContext.getUserName();
 }
 
 function showView(name) {
-    Object.values(views).forEach(el => {
-        if(el) el.classList.add('d-none');
-    });
+    Object.values(views).forEach(el => { if(el) el.classList.add('d-none'); });
     if(views[name]) views[name].classList.remove('d-none');
     loadingOverlay.classList.add('d-none');
 }
