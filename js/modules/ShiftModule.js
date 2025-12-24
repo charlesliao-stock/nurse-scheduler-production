@@ -9,10 +9,11 @@ export const ShiftModule = {
 
         if (!this.tbody) return;
 
+        // 防止重複綁定
         this.addBtn.onclick = () => this.addShiftRow();
         this.saveBtn.onclick = () => this.handleSave();
 
-        // 監聽 Tab 切換，每次切換到班別頁籤時刷新資料
+        // 監聽 Tab 切換，每次切換到班別頁籤時刷新資料 (確保資料與 Context 同步)
         const tabEl = document.getElementById('tab-shift');
         if(tabEl) {
             tabEl.addEventListener('shown.bs.tab', () => {
@@ -21,13 +22,11 @@ export const ShiftModule = {
         }
     },
 
-    // 渲染資料庫中的現有班別
     render: function() {
         const shifts = sysContext.getShifts();
         this.tbody.innerHTML = '';
 
         if (Object.keys(shifts).length === 0) {
-            // 若無班別，提示新增
             this.tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">尚無班別設定，請新增。</td></tr>';
         } else {
             Object.values(shifts).forEach(s => {
@@ -37,7 +36,6 @@ export const ShiftModule = {
     },
 
     addShiftRow: function(code='', name='', type='Day', color='#eeeeee', hours=8) {
-        // 若表格內目前顯示"尚無班別"，先清空
         if(this.tbody.innerHTML.includes('尚無班別')) {
             this.tbody.innerHTML = '';
         }
@@ -62,6 +60,13 @@ export const ShiftModule = {
     },
 
     handleSave: async function() {
+        const saveBtn = this.saveBtn;
+        const originalText = saveBtn.innerHTML;
+        
+        // UI 回饋：按鈕變更狀態
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 儲存中...';
+
         const unitId = sysContext.getUnitId();
         const rows = this.tbody.querySelectorAll('tr');
         const shiftsMap = {};
@@ -80,12 +85,20 @@ export const ShiftModule = {
         });
 
         try {
+            // 1. 寫入資料庫
             await UnitService.updateShifts(unitId, shiftsMap);
+            
+            // 2. 🌟 關鍵：更新本地 Context，不需重整網頁
+            sysContext.updateLocalShifts(shiftsMap);
+
             alert("✅ 班別設定已儲存！");
-            // 重新整理頁面以更新 Context
-            window.location.reload();
+
         } catch (error) {
             alert("❌ 儲存失敗: " + error.message);
+        } finally {
+            // 恢復按鈕
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = originalText;
         }
     }
 };
