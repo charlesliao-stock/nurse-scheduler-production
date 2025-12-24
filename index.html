@@ -5,12 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI 護理排班系統 (Production)</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
     <style>
         /* 簡易 Loading 遮罩 */
         #loading-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(255,255,255,0.9); z-index: 9999;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
+        }
+        /* 讓表格內容垂直置中 */
+        .table td, .table th {
+            vertical-align: middle;
         }
     </style>
 </head>
@@ -23,7 +28,7 @@
 
     <div id="login-view" class="container vh-100 d-flex justify-content-center align-items-center">
         <div class="card shadow p-4" style="width: 100%; max-width: 400px;">
-            <h3 class="text-center mb-4">系統登入</h3>
+            <h3 class="text-center mb-4">🏥 排班系統登入</h3>
             <form id="login-form">
                 <div class="mb-3">
                     <label>Email</label>
@@ -39,7 +44,7 @@
     </div>
 
     <div id="main-view" class="d-none">
-        <nav class="navbar navbar-dark bg-primary px-3">
+        <nav class="navbar navbar-dark bg-primary px-3 mb-4">
             <span class="navbar-brand mb-0 h1" id="unit-name">載入中...</span>
             <div class="d-flex align-items-center text-white">
                 <span id="user-name" class="me-3"></span>
@@ -47,14 +52,126 @@
             </div>
         </nav>
 
-        <div class="container py-4">
-            <div class="alert alert-success">
-                <h5><i class="bi bi-check-circle"></i> 系統連線成功</h5>
-                <p>資料庫連接：正常 (Firestore)</p>
-                <p id="shift-config-info">...</p>
+        <div class="container-fluid px-4">
+            <div class="alert alert-success py-2 mb-4 d-flex align-items-center">
+                <i class="bi bi-check-circle-fill me-2"></i>
+                <div>
+                    <strong>系統連線正常</strong> | <span id="shift-config-info">正在讀取設定...</span>
+                </div>
             </div>
+
+            <ul class="nav nav-tabs mb-4" id="mainTab" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="tab-staff" data-bs-toggle="tab" data-bs-target="#staff-module-container" type="button" role="tab">人員管理</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-pre" data-bs-toggle="tab" data-bs-target="#pre-schedule-container" type="button" role="tab">預班管理</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-schedule" data-bs-toggle="tab" data-bs-target="#schedule-container" type="button" role="tab">排班作業</button>
+                </li>
+            </ul>
+
+            <div class="tab-content" id="mainTabContent">
+                
+                <div class="tab-pane fade show active" id="staff-module-container" role="tabpanel">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h4>單位人員列表</h4>
+                        <button id="btn-add-staff" class="btn btn-primary">
+                            <i class="bi bi-person-plus"></i> 新增人員
+                        </button>
+                    </div>
+
+                    <div class="card shadow-sm border-0">
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>員工編號</th>
+                                            <th>姓名</th>
+                                            <th>層級</th>
+                                            <th>組別</th>
+                                            <th>特殊註記</th>
+                                            <th>操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="staff-table-body">
+                                        <tr><td colspan="6" class="text-center py-4 text-muted">載入中...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-pane fade" id="pre-schedule-container" role="tabpanel">
+                    <div class="text-center py-5 text-muted">預班管理功能開發中...</div>
+                </div>
+
+                <div class="tab-pane fade" id="schedule-container" role="tabpanel">
+                    <div class="text-center py-5 text-muted">排班大表功能開發中...</div>
+                </div>
             </div>
+        </div>
     </div>
+
+    <div class="modal fade" id="addStaffModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">新增人員資料</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="add-staff-form">
+                        <div class="mb-3">
+                            <label class="form-label">員工編號 (ID) <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="staff-empId" placeholder="例如: 112001" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">姓名 <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="staff-name" required>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">層級</label>
+                                <select class="form-select" id="staff-level">
+                                    <option value="N">N</option>
+                                    <option value="N1">N1</option>
+                                    <option value="N2">N2</option>
+                                    <option value="N3">N3</option>
+                                    <option value="N4">N4</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">組別</label>
+                                <select class="form-select" id="staff-group">
+                                    <option value="">無</option>
+                                    <option value="A">A組</option>
+                                    <option value="B">B組</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="staff-pregnant">
+                            <label class="form-check-label" for="staff-pregnant">懷孕/哺乳 (不排夜班)</label>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="staff-onlyDay">
+                            <label class="form-check-label" for="staff-onlyDay">僅白班</label>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="btn-save-staff">儲存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
     <script type="module" src="js/app.js"></script>
 </body>
