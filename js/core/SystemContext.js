@@ -1,4 +1,3 @@
-// js/core/SystemContext.js
 import { FirestoreService } from "../services/FirestoreService.js";
 
 class SystemContext {
@@ -8,64 +7,51 @@ class SystemContext {
         this.isReady = false;
     }
 
-    /**
-     * 系統初始化流程
-     */
     async init(user) {
         try {
-            console.log("[System] 1. 開始初始化，使用者 UID:", user.uid);
-            
-            // 1. 讀取使用者資料
+            console.log("[System] 初始化使用者:", user.uid);
             this.currentUser = await FirestoreService.getUserProfile(user.uid);
-            console.log("[System] 2. 使用者資料載入成功:", this.currentUser);
-
+            
+            // 如果使用者沒有 unitId，表示他是新用戶或尚未設定
             if (!this.currentUser || !this.currentUser.unitId) {
-                throw new Error("此帳號資料不完整，缺少 unitId 欄位");
+                console.log("[System] 此帳號尚未綁定單位");
+                this.unitConfig = null;
+                this.isReady = true;
+                return; // 正常返回，讓 App 層決定要顯示設定畫面
             }
 
-            // 2. 讀取單位設定
+            // 嘗試讀取單位設定
             const unitId = this.currentUser.unitId;
-            console.log(`[System] 3. 正在讀取單位設定 (ID: ${unitId})...`);
-            
-            this.unitConfig = await FirestoreService.getUnitConfig(unitId);
-            console.log("[System] 4. 單位設定載入成功:", this.unitConfig);
+            try {
+                this.unitConfig = await FirestoreService.getUnitConfig(unitId);
+                console.log("[System] 單位設定載入完成:", this.unitConfig);
+            } catch (err) {
+                console.warn("[System] 找不到單位設定文件:", unitId);
+                this.unitConfig = null; // 設為 null，觸發設定流程
+            }
             
             this.isReady = true;
-            return this.unitConfig;
-
         } catch (error) {
-            console.error("[System Error] 初始化過程失敗:", error);
+            console.error("[System Error]", error);
             throw error;
         }
     }
 
-    // --- 安全的資料存取方法 ---
-
-    getShifts() {
-        // 防呆：如果 unitConfig 是空的，或是 shifts 欄位不存在，回傳空物件
-        return this.unitConfig?.shifts || {};
+    hasUnitConfig() {
+        return this.unitConfig !== null && this.unitConfig.shifts !== undefined;
     }
 
-    getGroups() {
-        return this.unitConfig?.groups || {};
+    getUnitId() {
+        return this.currentUser?.unitId || null;
     }
 
     getUnitName() {
-        return this.unitConfig?.name || "未命名單位";
+        return this.unitConfig?.name || "";
     }
 
     getUserName() {
-        return this.currentUser?.name || "未知使用者";
-    }
-
-    /**
-     * 判斷是否為夜班
-     */
-    isNightShift(shiftCode) {
-        const shift = this.getShifts()[shiftCode];
-        return shift && (shift.category === 'Night' || shift.isNight === true);
+        return this.currentUser?.name || this.currentUser?.staffName || "Admin";
     }
 }
 
-// 匯出 Singleton 實例
 export const sysContext = new SystemContext();
