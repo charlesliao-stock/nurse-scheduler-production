@@ -108,11 +108,30 @@
                     <table class="table"><tbody id="staff-table-body"></tbody></table>
                 </div>
 
-                <div class="tab-pane fade" id="shift-container">
-                    <div class="d-flex justify-content-between mb-3"><h4>班別</h4><button id="btn-save-shifts" class="btn btn-success">儲存</button></div>
-                    <table class="table"><tbody id="shift-table-body"></tbody></table>
-                    <button class="btn btn-outline-secondary w-100" id="btn-add-shift-row">新增</button>
-                </div>
+<div class="tab-pane fade" id="shift-container">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4>班別設定</h4>
+        <button type="button" id="btn-save-shifts" class="btn btn-success"><i class="bi bi-save"></i> 儲存設定</button>
+    </div>
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <table class="table table-bordered align-middle text-center">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width:15%">代號</th>
+                        <th style="width:20%">名稱</th>
+                        <th style="width:20%">類型 (AI判讀)</th>
+                        <th style="width:15%">顏色</th>
+                        <th style="width:15%">工時(hr)</th>
+                        <th style="width:10%">刪除</th>
+                    </tr>
+                </thead>
+                <tbody id="shift-table-body"></tbody>
+            </table>
+            <button type="button" class="btn btn-outline-secondary w-100 mt-2" id="btn-add-shift-row">+ 新增一列</button>
+        </div>
+    </div>
+</div>
             </div>
         </div>
     </div>
@@ -153,3 +172,4 @@
     <script type="module" src="js/app.js"></script>
 </body>
 </html>
+
