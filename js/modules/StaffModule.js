@@ -1,5 +1,5 @@
 import { StaffService } from "../services/StaffService.js";
-import { UnitService } from "../services/UnitService.js"; // 引入 UnitService 取得單位列表
+import { UnitService } from "../services/UnitService.js"; // 引入 UnitService
 import { sysContext } from "../core/SystemContext.js";
 
 export const StaffModule = {
@@ -9,7 +9,7 @@ export const StaffModule = {
         sortField: 'empId',
         sortAsc: true,
         currentEditId: null,
-        unitMap: {} // 用來儲存 unitId -> unitName 的對照表 (ALL 模式用)
+        unitMap: {} // 用來儲存 unitId -> unitName 對照
     },
 
     init: async function() {
@@ -75,8 +75,8 @@ export const StaffModule = {
         const unitId = sysContext.getActiveUnitId();
         const unitName = sysContext.getUnitName();
         
-        // 更新列表上方的篩選器顯示 (僅供參考，實際控制權在 Sidebar)
         const filterSelect = document.getElementById('staff-filter-unit');
+        
         if(filterSelect) {
             let text = "未選擇";
             if (unitId === 'ALL') text = "所有單位";
@@ -87,12 +87,10 @@ export const StaffModule = {
             filterSelect.disabled = true; 
         }
         
-        // 預設更新 Modal 內的下拉 (如果是特定單位)
         this.refreshUnitOptions();
     },
 
     refreshUnitOptions: function() {
-        // 這主要是給特定單位用的，如果是 ALL 模式，Modal 打開時會另外處理
         const config = sysContext.getUnitConfig();
         const groups = config?.groups || [];
         const titles = config?.titles || [];
@@ -120,13 +118,12 @@ export const StaffModule = {
         }
 
         try {
-            // 如果是 ALL 或 UNASSIGNED，我們需要先抓取所有單位的名稱對照表
+            // 如果是 ALL 或 UNASSIGNED，先抓取單位名稱對照表
             if (unitId === 'ALL' || unitId === 'UNASSIGNED') {
                 const units = await UnitService.getAllUnits();
                 this.state.unitMap = {};
                 units.forEach(u => this.state.unitMap[u.id] = u.name);
             } else {
-                // 單一單位模式
                 this.state.unitMap = { [unitId]: sysContext.getUnitName() };
             }
 
@@ -144,7 +141,7 @@ export const StaffModule = {
         const activeUnitId = sysContext.getActiveUnitId();
         const unitSelect = document.getElementById('staff-unitId');
         
-        // 🌟 處理 Modal 內的單位選擇邏輯
+        // 🌟 處理 Modal 內的單位選擇邏輯 (關鍵修正)
         if (activeUnitId === 'ALL' || activeUnitId === 'UNASSIGNED') {
             // 模式 A: 開放選擇所有單位
             unitSelect.disabled = false;
@@ -160,7 +157,7 @@ export const StaffModule = {
             // 模式 B: 鎖定當前單位
             unitSelect.disabled = true;
             unitSelect.innerHTML = `<option value="${activeUnitId}" selected>${sysContext.getUnitName()}</option>`;
-            this.refreshUnitOptions(); // 載入該單位的組別/職稱
+            this.refreshUnitOptions(); 
         }
 
         const firstTabEl = document.querySelector('#staffTab button[data-bs-target="#tab-basic"]');
@@ -176,13 +173,10 @@ export const StaffModule = {
             
             document.getElementById('staff-empId').value = staff.empId;
             document.getElementById('staff-name').value = staff.name;
-            // 職稱與組別若是跨單位編輯，可能無法完美對應(因為下拉選單沒載入該單位設定)，暫時保留原始值顯示
-            // 若要完美支援跨單位編輯組別，需要動態 fetch 該單位的 config，這裡先簡化處理
             
-            // 嘗試回填
+            // 回填職稱 (若跨單位可能無此選項，暫時動態加入)
             const titleInput = document.getElementById('staff-title');
-            // 若下拉選單沒有該選項，臨時加入
-            if (![...titleInput.options].some(o => o.value === staff.title) && staff.title) {
+            if (staff.title && ![...titleInput.options].some(o => o.value === staff.title)) {
                 const opt = new Option(staff.title, staff.title);
                 titleInput.add(opt);
             }
@@ -193,7 +187,7 @@ export const StaffModule = {
             document.getElementById('staff-level').value = staff.level;
             
             const groupInput = document.getElementById('staff-group');
-            if (![...groupInput.options].some(o => o.value === staff.group) && staff.group) {
+            if (staff.group && ![...groupInput.options].some(o => o.value === staff.group)) {
                 const opt = new Option(staff.group, staff.group);
                 groupInput.add(opt);
             }
@@ -347,7 +341,7 @@ export const StaffModule = {
 
             const seniority = this.calcSeniority(s.hireDate);
             
-            // 🌟 顯示正確的單位名稱 (從 map 查找，若找不到則顯示 ID)
+            // 顯示單位名稱 (ALL 模式下從 unitMap 查找)
             const displayUnitName = this.state.unitMap[s.unitId] || s.unitId || '<span class="text-danger">未分發</span>';
 
             const tr = document.createElement('tr');
@@ -394,9 +388,8 @@ export const StaffModule = {
     },
 
     handleImport: function(e) { 
+        // 匯入時若為 ALL 模式，要求先選特定單位，避免資料歸屬混亂
         const activeUnitId = sysContext.getActiveUnitId();
-        
-        // 匯入時如果是 ALL 模式，會比較麻煩，這裡簡單擋一下，要求先選單位
         if(!activeUnitId || activeUnitId === 'ALL') { 
             alert("批次匯入請先選擇特定單位，以確保資料正確歸屬。"); 
             e.target.value=''; 
