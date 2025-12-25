@@ -103,6 +103,7 @@ class SystemContext {
         }
 
         this.activeUnitId = unitId;
+        // 如果是 ALL 或 UNASSIGNED，unitConfig 會是 null，這是正常的
         if (unitId && unitId !== 'ALL' && unitId !== 'UNASSIGNED') {
             try {
                 this.unitConfig = await FirestoreService.getUnitConfig(unitId);
@@ -116,7 +117,7 @@ class SystemContext {
         }
     }
 
-    // 🌟 核心權限檢查方法
+    // 🌟 核心權限檢查方法 (您的舊版缺了這個，導致 app.js 報錯)
     hasPermission(permission) {
         const role = this.currentUser?.role || 'User';
         const allowed = ROLE_MAP[role] || [];
@@ -162,6 +163,6 @@ class SystemContext {
     }
 }
 
-// 匯出常數供模組使用
+// 匯出常數供模組使用 (app.js 需要這個)
 export const PERMISSIONS_OPTS = PERMISSIONS;
 export const sysContext = new SystemContext();
