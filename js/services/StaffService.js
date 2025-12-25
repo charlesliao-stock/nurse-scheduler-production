@@ -27,8 +27,9 @@ export const StaffService = {
             unitId: data.unitId,
             empId: data.empId,
             name: data.name,
+            title: data.title || "", // 職稱
             email: data.email || "",
-            password: "123456", // 預設密碼
+            password: data.password || "123456", // 預設密碼
             level: data.level || "N",
             group: data.group || "",
             role: data.role || "User",
@@ -37,6 +38,7 @@ export const StaffService = {
                 isPregnant: data.isPregnant || false,
                 isNursing: data.isNursing || false, 
                 isSpecial: data.isSpecial || false, 
+                specialType: data.specialType || null, // 特殊類型 (dayOnly / noNight)
                 canBundle: data.canBundle || false  
             },
             updatedAt: new Date()
@@ -48,7 +50,7 @@ export const StaffService = {
     },
 
     /**
-     * 🌟 更新人員 (您原本缺失的部分)
+     * 更新人員
      */
     async updateStaff(empId, data) {
         if (!empId) throw new Error("缺少員工編號，無法更新");
