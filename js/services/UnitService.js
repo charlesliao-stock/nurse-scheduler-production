@@ -4,6 +4,9 @@ import { doc, setDoc, updateDoc, getDoc, collection, getDocs, query, orderBy, de
 export const UnitService = {
     /**
      * 建立新單位
+     * @param {string} userId 
+     * @param {string} unitId 
+     * @param {string} unitName 
      * @param {boolean} bindUser - [關鍵] 是否將使用者綁定到此單位 (Setup=true, Admin=false)
      */
     async createUnit(userId, unitId, unitName, bindUser = true) {
@@ -23,7 +26,7 @@ export const UnitService = {
             titles: []  
         });
 
-        // 系統管理員後台新增時 bindUser 為 false，不轉調
+        // 只有在 Setup 流程 (bindUser=true) 才轉調；後台新增 (false) 則不轉調
         if (bindUser) {
             const userRef = doc(db, "users", userId);
             await updateDoc(userRef, { unitId: unitId });
@@ -57,8 +60,11 @@ export const UnitService = {
         return list;
     },
 
+    /**
+     * 刪除單位 (並釋放人員)
+     */
     async deleteUnit(unitId) {
-        // 1. 釋放該單位人員
+        // 1. 釋放該單位人員 (變成未分發)
         const q = query(collection(db, "staffs"), where("unitId", "==", unitId));
         const snapshot = await getDocs(q);
         const batch = writeBatch(db);
@@ -69,7 +75,7 @@ export const UnitService = {
         });
         await batch.commit();
 
-        // 2. 刪除單位
+        // 2. 刪除單位文件
         const unitRef = doc(db, "units", unitId);
         await deleteDoc(unitRef);
     }
