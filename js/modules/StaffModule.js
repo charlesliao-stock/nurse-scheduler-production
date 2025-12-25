@@ -224,13 +224,13 @@ export const StaffModule = {
         }
 
         // 🌟 更新角色下拉選單
-        const roleSelect = document.getElementById('staff-role');
+const roleSelect = document.getElementById('staff-role');
         if (roleSelect) {
             roleSelect.innerHTML = `
-                <option value="User">一般使用者 (User)</option>
-                <option value="Scheduler">單位排班者 (Scheduler)</option>
-                <option value="UnitAdmin">單位管理者 (Unit Admin)</option>
-                <option value="SystemAdmin" class="text-danger fw-bold">系統管理者 (System Admin)</option>
+                <option value="user">一般使用者 (User)</option>
+                <option value="unit_scheduler">單位排班者 (Scheduler)</option>
+                <option value="unit_manager">單位管理者 (Unit Manager)</option>
+                <option value="system_admin" class="text-danger fw-bold">系統管理者 (System Admin)</option>
             `;
         }
 
