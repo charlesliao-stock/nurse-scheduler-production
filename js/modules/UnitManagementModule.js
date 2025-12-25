@@ -8,37 +8,39 @@ export const UnitManagementModule = {
     },
 
     init: async function() {
+        const config = sysContext.getUnitConfig();
         const activeUnitId = sysContext.getActiveUnitId();
-        const container = document.getElementById('unit-management-container');
         
-        // 🌟 分區核心：未選單位時的處理
+        // 綁定「新增單位」按鈕 (這個按鈕即使沒選單位也會顯示)
+        this.bindCreateButton();
+
+        // 檢查是否選取單位
+        const container = document.getElementById('unit-management-container');
         if (!activeUnitId) {
-            // 仍然允許使用「新增單位」按鈕 (系統管理員)，但隱藏下方的編輯區
+            // 若沒選單位，把下方 Tab 內容隱藏或替換為提示，但保留上面的新增按鈕
             const tabContent = document.querySelector('.tab-content');
             if(tabContent) {
                 tabContent.innerHTML = '<div class="alert alert-info text-center mt-5"><i class="bi bi-info-circle"></i> 請先從左上角選擇一個單位進行管理，或點擊右上角「新增單位」。</div>';
             }
-            // 綁定新增單位按鈕 (若有權限)
-            this.bindCreateButton();
             return;
         }
 
-        // 讀取當前單位的設定
-        const config = sysContext.getUnitConfig();
+        // --- 初始化參數設定 ---
         this.state.titles = config?.titles || [];
         this.state.groups = config?.groups || [];
 
-        // DOM 綁定
         this.listTitles = document.getElementById('list-titles');
         this.listGroups = document.getElementById('list-groups');
 
-        // 綁定按鈕
-        document.getElementById('btn-add-title')?.addEventListener('click', () => this.addItem('title'));
-        document.getElementById('btn-add-group')?.addEventListener('click', () => this.addItem('group'));
-        document.getElementById('btn-save-params')?.addEventListener('click', () => this.saveParams());
-        
-        this.bindCreateButton();
+        const btnAddTitle = document.getElementById('btn-add-title');
+        if (btnAddTitle) btnAddTitle.onclick = () => this.addItem('title');
 
+        const btnAddGroup = document.getElementById('btn-add-group');
+        if (btnAddGroup) btnAddGroup.onclick = () => this.addItem('group');
+
+        const btnSaveParams = document.getElementById('btn-save-params');
+        if (btnSaveParams) btnSaveParams.onclick = () => this.saveParams();
+        
         // --- 初始化基本資料 ---
         const idInput = document.getElementById('mgmt-unit-id');
         const nameInput = document.getElementById('mgmt-unit-name');
@@ -47,7 +49,7 @@ export const UnitManagementModule = {
 
         if(idInput) idInput.value = activeUnitId;
         if(nameInput) nameInput.value = sysContext.getUnitName();
-        if(adminInput) adminInput.value = "單位管理者"; // 暫時
+        if(adminInput) adminInput.value = sysContext.getUserName();
 
         if(infoForm) {
             infoForm.onsubmit = (e) => {
@@ -60,22 +62,29 @@ export const UnitManagementModule = {
     },
 
     bindCreateButton: function() {
-        // 處理新增按鈕權限
+        // 處理新增按鈕權限與綁定
         const btnCreate = document.getElementById('btn-create-new-unit');
         const isSystemAdmin = sysContext.isSystemAdmin();
+        
         if (isSystemAdmin && btnCreate) {
             btnCreate.classList.remove('d-none');
             btnCreate.onclick = () => this.openCreateModal();
         }
         
-        // Modal 事件
-        this.createModal = new bootstrap.Modal(document.getElementById('createUnitModal'));
-        document.getElementById('btn-confirm-create-unit')?.addEventListener('click', () => this.handleCreateUnit());
+        // 🌟 防呆：確保 Modal 元素存在才初始化
+        const modalEl = document.getElementById('createUnitModal');
+        if (modalEl) {
+            this.createModal = new bootstrap.Modal(modalEl);
+            
+            const btnConfirm = document.getElementById('btn-confirm-create-unit');
+            if (btnConfirm) btnConfirm.onclick = () => this.handleCreateUnit();
+        }
     },
 
     // --- 參數列表邏輯 ---
     renderParamsList: function() {
-        if(!this.listTitles) return;
+        if(!this.listTitles || !this.listGroups) return;
+
         this.listTitles.innerHTML = this.state.titles.map((t, index) => `
             <li class="list-group-item d-flex justify-content-between align-items-center">
                 ${t}
@@ -118,7 +127,6 @@ export const UnitManagementModule = {
         btn.innerHTML = '儲存中...';
 
         try {
-            // 🌟 寫入：針對 Active Unit 儲存
             const unitId = sysContext.getActiveUnitId();
             await UnitService.updateUnitSettings(unitId, {
                 titles: this.state.titles,
@@ -142,15 +150,15 @@ export const UnitManagementModule = {
         const oldText = btn.innerHTML;
         btn.disabled = true;
         btn.innerHTML = '儲存中...';
+
         const newName = document.getElementById('mgmt-unit-name').value.trim();
-        
         if(!newName) { alert("單位名稱不可為空"); return; }
 
         try {
             const unitId = sysContext.getActiveUnitId();
             await UnitService.updateUnitBasicInfo(unitId, newName);
             if(sysContext.unitConfig) sysContext.unitConfig.name = newName;
-            alert("✅ 基本資料已更新！");
+            alert("✅ 基本資料已更新！(請重整以更新選單名稱)");
         } catch (error) {
             alert("❌ 更新失敗: " + error.message);
         } finally {
@@ -161,8 +169,10 @@ export const UnitManagementModule = {
 
     // --- 新增單位邏輯 ---
     openCreateModal: function() {
-        document.getElementById('create-unit-form').reset();
-        this.createModal.show();
+        const form = document.getElementById('create-unit-form');
+        if (form) form.reset();
+        
+        if (this.createModal) this.createModal.show();
     },
 
     handleCreateUnit: async function() {
