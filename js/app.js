@@ -98,7 +98,6 @@ async function initSidebar() {
     const wrapper = document.getElementById('wrapper');
     if(toggle) toggle.onclick = () => wrapper.classList.toggle('toggled');
 
-    // 🌟 全域單位選擇器邏輯
     const unitSelect = document.getElementById('global-unit-select');
     if (unitSelect) {
         unitSelect.innerHTML = '<option value="">讀取中...</option>';
@@ -108,8 +107,9 @@ async function initSidebar() {
             
             let html = '<option value="">-- 請選擇單位 --</option>';
             
-            // 🌟 加入「未分發人員」選項，方便管理孤兒資料
-            html += '<option value="UNASSIGNED" class="text-warning fw-bold">⚠️ 未分發人員 (Unassigned)</option>';
+            // 🌟 關鍵：加入「所有單位」選項
+            html += '<option value="ALL" class="fw-bold">🌐 所有單位人員 (All Staff)</option>';
+            html += '<option value="UNASSIGNED" class="text-warning">⚠️ 未分發人員 (Unassigned)</option>';
             html += '<option disabled>----------------</option>';
 
             units.forEach(u => {
@@ -127,11 +127,9 @@ async function initSidebar() {
         unitSelect.onchange = async (e) => {
             const newUnitId = e.target.value;
             setLoading(true, "切換單位中...");
-            
-            // 這裡 switchUnit 內部會去抓設定，如果是 UNASSIGNED 會抓不到設定，這是正常的
+            // 如果是 ALL 或 UNASSIGNED，switchUnit 內部可能會找不到 config，這是預期行為
             await sysContext.switchUnit(newUnitId);
             
-            // 強制重載當前模組
             if (currentTargetKey) {
                 loadModuleContent(currentTargetKey, true);
             }
