@@ -1,167 +1,102 @@
+// js/app.js
 import { AuthService } from "./services/AuthService.js";
 import { sysContext } from "./core/SystemContext.js";
+import { ViewLoader } from "./core/ViewLoader.js";
+
+// 各功能模組
 import { StaffModule } from "./modules/StaffModule.js";
 import { UnitSetupModule } from "./modules/UnitSetupModule.js";
 import { ShiftModule } from "./modules/ShiftModule.js";
 import { PreScheduleModule } from "./modules/PreScheduleModule.js";
-import { ScheduleEditorModule } from "./modules/ScheduleEditorModule.js"; // 匯入排班大表模組
+import { ScheduleEditorModule } from "./modules/ScheduleEditorModule.js";
 
-// DOM 元素快取
-const views = {
-    login: document.getElementById('login-view'),
-    setup: document.getElementById('setup-view'),
-    main: document.getElementById('main-view')
-};
 const loadingOverlay = document.getElementById('loading-overlay');
 
+// 路由設定：定義 data-target 對應的 HTML 路徑與模組
+const routes = {
+    'staff': { view: 'views/staff.html', module: StaffModule },
+    'shift': { view: 'views/shift.html', module: ShiftModule },
+    'pre-schedule': { view: 'views/pre-schedule.html', module: PreScheduleModule },
+    'schedule-editor': { view: 'views/schedule-editor.html', module: ScheduleEditorModule },
+    'unit-info': { view: 'views/unit-info.html', module: null } // 單純顯示，無模組
+};
+
 /**
- * 應用程式初始化入口
+ * 應用程式啟動
  */
 function initApp() {
-    console.log("[App] 應用程式啟動...");
+    console.log("[App] SPA 啟動中...");
 
-    // 1. 綁定側邊欄箭頭 (Sidebar Toggle)
-    const wrapper = document.getElementById("wrapper");
-    const menuToggle = document.getElementById("menu-toggle");
-    
-    if(menuToggle && wrapper) {
-        menuToggle.addEventListener("click", (e) => {
-            e.preventDefault();
-            wrapper.classList.toggle("toggled");
-        });
-    }
-
-    // 2. 綁定側邊欄選單切換 (Navigation)
-    const links = document.querySelectorAll('.list-group-item-action');
-    const sections = document.querySelectorAll('.content-section');
-
-    links.forEach(link => {
-        link.addEventListener('click', (e) => {
-            e.preventDefault();
-            
-            // UI 切換：移除所有 active，設定當前 active
-            links.forEach(l => l.classList.remove('active'));
-            link.classList.add('active');
-
-            // 區塊切換：隱藏所有區塊
-            sections.forEach(s => s.classList.add('d-none'));
-            
-            // 顯示目標區塊
-            const targetId = link.getAttribute('data-target');
-            const targetSection = document.querySelector(targetId);
-            
-            if(targetSection) {
-                targetSection.classList.remove('d-none');
-                console.log(`[App] 切換至分頁: ${targetId}`);
-                
-                // 依據切換的頁面，觸發對應模組的刷新或初始化
-                if(targetId === '#shift-container') {
-                    ShiftModule.render();
-                }
-                else if(targetId === '#pre-schedule-container') {
-                    // 若需要切換時重新讀取預班，可在此呼叫 loadData，目前保留
-                    // PreScheduleModule.loadData();
-                }
-                else if(targetId === '#schedule-container') {
-                    // 🌟 關鍵：切換到排班作業時，初始化大表並載入最新資料
-                    ScheduleEditorModule.init();
-                }
-            }
-        });
-    });
-
-    // 3. 綁定登入/登出相關事件
-    bindAuthEvents();
-}
-
-/**
- * 綁定身分驗證事件
- */
-function bindAuthEvents() {
-    // 監聽 Firebase Auth 狀態改變
+    // 監聽 Auth
     AuthService.onAuthStateChanged(async (firebaseUser) => {
         if (firebaseUser) {
             await handleLoginSuccess(firebaseUser);
         } else {
-            showView('login');
+            // 未登入 -> 載入登入畫面
+            await loadView('app-root', 'views/login.html');
+            bindLoginEvents();
         }
     });
+}
 
-    // 登入表單提交
-    const loginForm = document.getElementById('login-form');
-    if (loginForm) {
-        loginForm.addEventListener('submit', async (e) => {
+/**
+ * 載入指定 View 並掛載到容器
+ */
+async function loadView(containerId, filePath) {
+    setLoading(true, "畫面載入中...");
+    const success = await ViewLoader.load(containerId, filePath);
+    setLoading(false);
+    return success;
+}
+
+/**
+ * 綁定登入畫面事件
+ */
+function bindLoginEvents() {
+    const form = document.getElementById('login-form');
+    if (form) {
+        form.onsubmit = async (e) => {
             e.preventDefault();
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
             try {
                 setLoading(true, "登入中...");
                 await AuthService.login(email, password);
-                // 成功後會觸發 onAuthStateChanged，不需要在此跳轉
             } catch (error) {
                 setLoading(false);
                 alert("登入失敗: " + error.message);
             }
-        });
-    }
-
-    // 登出按鈕
-    const logoutBtn = document.getElementById('logout-btn');
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', async () => {
-            await AuthService.logout();
-            window.location.reload(); // 重新整理以清除記憶體狀態
-        });
+        };
     }
 }
 
 /**
- * 處理登入成功後的邏輯
- * 包含：載入設定、判斷是否需要初始設定、初始化各模組
+ * 登入成功後處理
  */
 async function handleLoginSuccess(firebaseUser) {
     try {
-        setLoading(true, "系統載入中...");
-        
-        // 1. 初始化系統環境變數 (讀取 User & Unit Config)
+        setLoading(true, "系統初始化...");
         await sysContext.init(firebaseUser);
 
-        // 2. 判斷使用者狀態，決定導向哪個畫面
-        if (!sysContext.getUnitId()) {
-            // Case A: 全新帳號，無單位 ID -> 進入 Setup
-            console.log("[App] 新帳號 -> 進入 Unit Setup");
-            UnitSetupModule.init();
-            showView('setup');
-
-        } else if (!sysContext.hasUnitConfig()) {
-            // Case B: 有單位 ID 但無設定檔 (資料缺失) -> 進入 Setup 重建
-            console.warn("[App] 資料缺失，進入 Setup");
-            alert("系統偵測到單位資料尚未建立，請完成設定。");
-            
-            // 預填 ID 欄位
-            const idInput = document.getElementById('setup-unit-id');
-            if(idInput) idInput.value = sysContext.getUnitId();
-            
-            UnitSetupModule.init();
-            showView('setup');
-
-        } else {
-            // Case C: 正常登入 -> 進入 Main View
-            console.log("[App] 設定完整 -> 進入 Main");
-            renderDashboardInfo();
-            
-            // 初始化基礎模組
-            await StaffModule.init();     // 人員列表
-            ShiftModule.init();           // 班別設定
-            PreScheduleModule.init();     // 預班月曆
-            // ScheduleEditorModule 留待點擊分頁時再初始化，或可在此預先載入
-            
-            showView('main');
+        // 1. 判斷是否需要 Setup
+        if (!sysContext.getUnitId() || !sysContext.hasUnitConfig()) {
+            await loadView('app-root', 'views/setup.html');
+            UnitSetupModule.init(); // Setup 比較單純，直接綁定即可
+            return;
         }
 
+        // 2. 正常登入 -> 載入主框架 (Layout)
+        await loadView('app-root', 'views/layout.html');
+        
+        // 3. 初始化側邊欄功能
+        initSidebar();
+
+        // 4. 預設載入「人員管理」 (或其他首頁)
+        loadModuleContent('staff');
+
     } catch (error) {
-        console.error("[App Error]", error);
-        alert("系統初始化錯誤: " + error.message);
+        console.error(error);
+        alert("系統錯誤: " + error.message);
         AuthService.logout();
     } finally {
         setLoading(false);
@@ -169,54 +104,88 @@ async function handleLoginSuccess(firebaseUser) {
 }
 
 /**
- * 渲染側邊欄的使用者與單位資訊
+ * 初始化側邊欄邏輯
  */
-function renderDashboardInfo() {
+function initSidebar() {
+    // 顯示使用者資訊
     setText('nav-unit-name', sysContext.getUnitName());
     setText('nav-user-name', sysContext.getUserName());
-    
-    // 單位資訊頁面的內容
+
+    // 登出按鈕
+    document.getElementById('logout-btn').onclick = async () => {
+        await AuthService.logout();
+        window.location.reload();
+    };
+
+    // 側邊欄縮放 Toggle
+    const toggle = document.getElementById('menu-toggle');
+    const wrapper = document.getElementById('wrapper');
+    if(toggle) toggle.onclick = () => wrapper.classList.toggle('toggled');
+
+    // 選單點擊事件
+    const links = document.querySelectorAll('.list-group-item-action');
+    links.forEach(link => {
+        link.onclick = (e) => {
+            e.preventDefault();
+            const target = link.getAttribute('data-target');
+            
+            // UI Active 狀態切換
+            links.forEach(l => l.classList.remove('active'));
+            link.classList.add('active');
+
+            // 載入右側內容
+            loadModuleContent(target);
+        };
+    });
+}
+
+/**
+ * 核心：載入右側模組內容
+ */
+async function loadModuleContent(targetKey) {
+    const route = routes[targetKey];
+    if (!route) return;
+
+    // 1. 載入 HTML 到 dynamic-content
+    const success = await loadView('dynamic-content', route.view);
+    if (!success) return;
+
+    // 2. 若有模組，執行初始化
+    // 注意：所有 Module 的 init 現在不需要參數，因為 HTML 已經在 DOM 裡了
+    // 或者是：我們可以統一傳入 containerId (雖然大部分 Module 習慣直接用 getElementById)
+    if (route.module && typeof route.module.init === 'function') {
+        try {
+            // 對於 unit-info 這種靜態的，我們可以在這裡手動補值，或寫個簡單的 module
+            if (targetKey === 'unit-info') {
+                renderUnitInfo();
+            } else {
+                await route.module.init(); 
+            }
+        } catch (e) {
+            console.error(`模組 ${targetKey} 初始化失敗:`, e);
+        }
+    }
+}
+
+function renderUnitInfo() {
     setText('info-unit-id', sysContext.getUnitId());
     setText('info-unit-name', sysContext.getUnitName());
     setText('info-admin-name', sysContext.getUserName());
 }
 
-/**
- * 設定文字內容 helper
- */
 function setText(id, text) {
     const el = document.getElementById(id);
     if(el) el.innerText = text;
 }
 
-/**
- * 切換主要視圖 (Login / Setup / Main)
- */
-function showView(name) {
-    Object.values(views).forEach(el => { 
-        if(el) el.classList.add('d-none'); 
-    });
-    
-    if(views[name]) {
-        views[name].classList.remove('d-none');
-    }
-    
-    // 隱藏 Loading
-    loadingOverlay.classList.add('d-none');
-}
-
-/**
- * 顯示/隱藏 Loading 遮罩
- */
 function setLoading(isLoading, text) {
-    const txt = document.getElementById('loading-text');
     if(isLoading) {
-        if(txt) txt.innerText = text;
+        document.getElementById('loading-text').innerText = text;
         loadingOverlay.classList.remove('d-none');
     } else {
         loadingOverlay.classList.add('d-none');
     }
 }
 
-// 立即執行初始化
+// 啟動 App
 initApp();
