@@ -7,7 +7,7 @@ class SystemContext {
         this.isReady = false;
         this.authUid = null;
         
-        // 🌟 新增：當前檢視的單位 ID (Active Unit)
+        // 當前檢視的單位 ID (Active Unit)
         this.activeUnitId = null;
     }
 
@@ -22,7 +22,7 @@ class SystemContext {
             const role = this.currentUser?.role || 'User';
             const homeUnitId = this.currentUser?.unitId;
 
-            // 🌟 核心邏輯：決定「當前檢視單位」
+            // 核心邏輯：決定「當前檢視單位」
             if (role === 'SystemAdmin') {
                 // 系統管理員：預設不選 (null)，需手動選擇
                 this.activeUnitId = null;
@@ -32,7 +32,7 @@ class SystemContext {
                 this.activeUnitId = homeUnitId;
             }
 
-            // 如果有鎖定單位，就先讀取設定 (相容舊邏輯)
+            // 如果有鎖定單位，就先讀取設定
             if (this.activeUnitId) {
                 try {
                     this.unitConfig = await FirestoreService.getUnitConfig(this.activeUnitId);
@@ -54,8 +54,7 @@ class SystemContext {
     }
 
     /**
-     * 🌟 新增：切換當前檢視的單位
-     * 當系統管理員切換下拉選單時呼叫
+     * 切換當前檢視的單位
      */
     async switchUnit(unitId) {
         this.activeUnitId = unitId;
@@ -73,10 +72,17 @@ class SystemContext {
     }
 
     /**
-     * 取得當前「正在檢視」的單位 ID
-     * 所有模組 (Staff, Shift, Schedule) 應該改用這個！
+     * 取得當前「正在檢視」的單位 ID (新標準)
      */
     getActiveUnitId() {
+        return this.activeUnitId;
+    }
+
+    /**
+     * 🌟 [修復] 相容性方法：取得單位 ID
+     * 讓尚未更新的模組也能正常運作，回傳 activeUnitId
+     */
+    getUnitId() {
         return this.activeUnitId;
     }
 
@@ -85,7 +91,6 @@ class SystemContext {
         return this.currentUser?.unitId || null;
     }
 
-    // 取得當前檢視單位的設定
     getUnitConfig() {
         return this.unitConfig;
     }
@@ -110,12 +115,10 @@ class SystemContext {
         return this.authUid || this.currentUser?.uid;
     }
 
-    // 🌟 新增：判斷是否為系統管理員
     isSystemAdmin() {
         return this.currentUser?.role === 'SystemAdmin';
     }
 
-    // 🌟 新增：更新本地設定 (用於 SettingsModule)
     updateLocalSettings(settings) {
         if (this.unitConfig) {
             if(settings.groups) this.unitConfig.groups = settings.groups;
@@ -123,7 +126,6 @@ class SystemContext {
         }
     }
 
-    // 更新本地班別
     updateLocalShifts(shifts) {
         if(this.unitConfig) this.unitConfig.shifts = shifts;
     }
