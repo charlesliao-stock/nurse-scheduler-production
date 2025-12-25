@@ -12,7 +12,7 @@
         
         <div style="margin-left:auto;">
             <button class="btn btn-add" onclick="staffManager.openModal()"><i class="fas fa-plus"></i> 新增人員</button>
-            <button class="btn btn-import" onclick="staffManager.downloadTemplate()"><i class="fas fa-file-download"></i> 下載範例</button>
+            <button class="btn btn-import" onclick="staffManager.openImportModal()"><i class="fas fa-file-import"></i> 批次匯入</button>
         </div>
     </div>
 
@@ -103,6 +103,38 @@
         <div style="text-align:right; margin-top:25px;">
             <button class="btn btn-close" onclick="staffManager.closeModal()">取消</button>
             <button class="btn btn-add" onclick="staffManager.saveData()">儲存</button>
+        </div>
+    </div>
+</div>
+
+<div id="importModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+        <h3><i class="fas fa-file-import"></i> 批次匯入人員</h3>
+        
+        <div style="background-color: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #ffeeba;">
+            <i class="fas fa-exclamation-triangle"></i> <strong>重要提醒：</strong><br>
+            請先確認所有人員的<strong>「所屬單位」</strong>皆已在「單位管理」中建立。<br>
+            若 CSV 中的單位代碼在系統中找不到，該人員將無法正確歸屬單位。
+        </div>
+
+        <div style="margin-bottom: 20px;">
+            <label style="display:block; font-weight:bold; margin-bottom:10px;">步驟 1：下載範例檔案</label>
+            <button class="btn btn-close" style="background-color: #17a2b8; width: 100%;" onclick="staffManager.downloadTemplate()">
+                <i class="fas fa-download"></i> 下載 CSV 範例檔
+            </button>
+            <p style="font-size: 0.85rem; color: #666; margin-top: 5px;">請依照範例格式填寫，勿更動欄位順序。</p>
+        </div>
+
+        <div style="margin-bottom: 20px; border-top: 1px solid #eee; padding-top: 20px;">
+            <label style="display:block; font-weight:bold; margin-bottom:10px;">步驟 2：上傳 CSV 檔案</label>
+            <input type="file" id="csvFileInput" accept=".csv" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">
+        </div>
+
+        <div id="importResult" style="margin-bottom:15px; font-size: 0.9rem;"></div>
+
+        <div style="text-align:right;">
+            <button class="btn btn-close" onclick="staffManager.closeImportModal()">取消</button>
+            <button class="btn btn-add" onclick="staffManager.processImport()">開始匯入</button>
         </div>
     </div>
 </div>
