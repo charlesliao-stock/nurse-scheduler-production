@@ -7,9 +7,7 @@
         <select id="filterUnitSelect" style="padding:8px; border-radius:4px; border:1px solid #ccc;">
             <option value="all">載入中...</option>
         </select>
-
         <input type="text" id="searchStaffInput" placeholder="搜尋員編或姓名..." style="padding:8px; border:1px solid #ccc; border-radius:4px; width:200px;">
-        
         <div style="margin-left:auto;">
             <button class="btn btn-add" onclick="staffManager.openModal()"><i class="fas fa-plus"></i> 新增人員</button>
             <button class="btn btn-import" onclick="staffManager.openImportModal()"><i class="fas fa-file-import"></i> 批次匯入</button>
@@ -25,12 +23,10 @@
                     <th>姓名</th>
                     <th>層級</th>
                     <th>組別</th>
-                    <th>角色</th>
-                    <th>操作</th>
+                    <th>系統權限</th> <th>操作</th>
                 </tr>
             </thead>
-            <tbody id="staffTableBody">
-                </tbody>
+            <tbody id="staffTableBody"></tbody>
         </table>
     </div>
 </div>
@@ -64,10 +60,19 @@
 
         <div class="form-row">
             <div class="form-group">
-                <label>所屬單位 *</label>
-                <select id="inputUnit">
+                <label>所屬單位 * (將連動組別)</label>
+                <select id="inputUnit" onchange="staffManager.onUnitChange()">
                     </select>
             </div>
+            <div class="form-group">
+                <label>組別 (依單位設定)</label>
+                <select id="inputGroup">
+                    <option value="">(請先選擇單位)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-row">
             <div class="form-group">
                 <label>進階層級 *</label>
                 <select id="inputLevel">
@@ -78,17 +83,23 @@
                     <option value="N4">N4</option>
                 </select>
             </div>
+            <div class="form-group">
+                <label>系統權限 *</label>
+                <select id="inputRole">
+                    <option value="user">一般使用者 (預設)</option>
+                    <option value="unit_scheduler">單位排班者</option>
+                    <option value="unit_manager">單位管理者</option>
+                    </select>
+            </div>
         </div>
 
         <div class="form-row">
             <div class="form-group">
-                <label>組別</label>
-                <input type="text" id="inputGroup" placeholder="例如: A組">
-            </div>
-            <div class="form-group">
                 <label>到職日期</label>
                 <input type="date" id="inputHireDate">
             </div>
+            <div class="form-group">
+                </div>
         </div>
 
         <hr style="border:0; border-top:1px solid #eee; margin:15px 0;">
@@ -110,28 +121,15 @@
 <div id="importModal" class="modal">
     <div class="modal-content" style="max-width: 500px;">
         <h3><i class="fas fa-file-import"></i> 批次匯入人員</h3>
-        
-        <div style="background-color: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #ffeeba;">
-            <i class="fas fa-exclamation-triangle"></i> <strong>重要提醒：</strong><br>
-            請先確認所有人員的<strong>「所屬單位」</strong>皆已在「單位管理」中建立。<br>
-            若 CSV 中的單位代碼在系統中找不到，該人員將無法正確歸屬單位。
-        </div>
-
         <div style="margin-bottom: 20px;">
-            <label style="display:block; font-weight:bold; margin-bottom:10px;">步驟 1：下載範例檔案</label>
             <button class="btn btn-close" style="background-color: #17a2b8; width: 100%;" onclick="staffManager.downloadTemplate()">
                 <i class="fas fa-download"></i> 下載 CSV 範例檔
             </button>
-            <p style="font-size: 0.85rem; color: #666; margin-top: 5px;">請依照範例格式填寫，勿更動欄位順序。</p>
         </div>
-
-        <div style="margin-bottom: 20px; border-top: 1px solid #eee; padding-top: 20px;">
-            <label style="display:block; font-weight:bold; margin-bottom:10px;">步驟 2：上傳 CSV 檔案</label>
+        <div style="margin-bottom: 20px;">
             <input type="file" id="csvFileInput" accept=".csv" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">
         </div>
-
         <div id="importResult" style="margin-bottom:15px; font-size: 0.9rem;"></div>
-
         <div style="text-align:right;">
             <button class="btn btn-close" onclick="staffManager.closeImportModal()">取消</button>
             <button class="btn btn-add" onclick="staffManager.processImport()">開始匯入</button>
