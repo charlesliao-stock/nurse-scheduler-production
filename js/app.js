@@ -3,9 +3,8 @@ import { sysContext } from "./core/SystemContext.js";
 import { StaffModule } from "./modules/StaffModule.js";
 import { UnitSetupModule } from "./modules/UnitSetupModule.js";
 import { ShiftModule } from "./modules/ShiftModule.js";
-import { PreScheduleModule } from "./modules/PreScheduleModule.js"; // 🌟 新增
+import { PreScheduleModule } from "./modules/PreScheduleModule.js";
 
-// ... (其他 DOM 宣告、Auth 監聽、Login/Logout 邏輯保持不變) ...
 const views = {
     login: document.getElementById('login-view'),
     setup: document.getElementById('setup-view'),
@@ -13,8 +12,61 @@ const views = {
 };
 const loadingOverlay = document.getElementById('loading-overlay');
 
-document.addEventListener('DOMContentLoaded', () => {
-    // Auth Listener
+// 🌟 修改點：定義初始化邏輯，不依賴 DOMContentLoaded 事件
+function initApp() {
+    console.log("[App] 應用程式啟動...");
+
+    // 1. 綁定側邊欄箭頭切換
+    const wrapper = document.getElementById("wrapper");
+    const menuToggle = document.getElementById("menu-toggle");
+    
+    if(menuToggle && wrapper) {
+        console.log("[App] 側邊欄元件已鎖定");
+        menuToggle.addEventListener("click", (e) => {
+            e.preventDefault();
+            wrapper.classList.toggle("toggled");
+            console.log("[App] 側邊欄切換");
+        });
+    } else {
+        console.warn("[App] 找不到側邊欄元件 (wrapper 或 menu-toggle)");
+    }
+
+    // 2. 綁定側邊欄選單點擊切換頁面
+    const links = document.querySelectorAll('.list-group-item-action');
+    const sections = document.querySelectorAll('.content-section');
+
+    links.forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            
+            // UI 切換：移除所有 active，設定當前 active
+            links.forEach(l => l.classList.remove('active'));
+            link.classList.add('active');
+
+            // 區塊切換：隱藏所有區塊
+            sections.forEach(s => s.classList.add('d-none'));
+            
+            // 顯示目標區塊
+            const targetId = link.getAttribute('data-target');
+            const targetSection = document.querySelector(targetId);
+            
+            if(targetSection) {
+                targetSection.classList.remove('d-none');
+                console.log(`[App] 切換至分頁: ${targetId}`);
+                
+                // 若是特定模組，可能需要刷新資料 (Optional)
+                if(targetId === '#shift-container') ShiftModule.render();
+                // if(targetId === '#pre-schedule-container') PreScheduleModule.loadData();
+            }
+        });
+    });
+
+    // 3. 綁定登入與登出
+    bindAuthEvents();
+}
+
+function bindAuthEvents() {
+    // 監聽 Auth 狀態改變
     AuthService.onAuthStateChanged(async (firebaseUser) => {
         if (firebaseUser) {
             await handleLoginSuccess(firebaseUser);
@@ -23,7 +75,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Login Form logic ... (保持不變)
     const loginForm = document.getElementById('login-form');
     if (loginForm) {
         loginForm.addEventListener('submit', async (e) => {
@@ -40,18 +91,24 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Logout logic ... (保持不變)
-    document.getElementById('logout-btn').addEventListener('click', async () => {
-        await AuthService.logout();
-        window.location.reload();
-    });
-});
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+            await AuthService.logout();
+            window.location.reload();
+        });
+    }
+}
 
+// 🌟 修改點：直接執行初始化
+initApp();
+
+
+// --- 核心邏輯 ---
 
 async function handleLoginSuccess(firebaseUser) {
     try {
         setLoading(true, "系統載入中...");
-        
         await sysContext.init(firebaseUser);
 
         if (!sysContext.getUnitId()) {
@@ -69,11 +126,10 @@ async function handleLoginSuccess(firebaseUser) {
             // 初始化各模組
             await StaffModule.init();
             ShiftModule.init();
-            PreScheduleModule.init(); // 🌟 啟動預班模組
+            PreScheduleModule.init();
             
             showView('main');
         }
-
     } catch (error) {
         console.error(error);
         alert("錯誤: " + error.message);
@@ -83,13 +139,17 @@ async function handleLoginSuccess(firebaseUser) {
     }
 }
 
-// ... (renderDashboardInfo, showView, setLoading 保持不變) ...
 function renderDashboardInfo() {
-    const el = document.getElementById('nav-unit-name');
-    if(el) el.innerText = sysContext.getUnitName();
-    
-    const el2 = document.getElementById('nav-user-name');
-    if(el2) el2.innerText = sysContext.getUserName();
+    setText('nav-unit-name', sysContext.getUnitName());
+    setText('nav-user-name', sysContext.getUserName());
+    setText('info-unit-id', sysContext.getUnitId());
+    setText('info-unit-name', sysContext.getUnitName());
+    setText('info-admin-name', sysContext.getUserName());
+}
+
+function setText(id, text) {
+    const el = document.getElementById(id);
+    if(el) el.innerText = text;
 }
 
 function showView(name) {
