@@ -1,9 +1,10 @@
-import { sysContext } from "../core/SystemContext.js";
+import { sysContext, PERMISSIONS_OPTS } from "../core/SystemContext.js";
 import { StaffService } from "../services/StaffService.js";
 import { ScheduleService } from "../services/ScheduleService.js";
 
 export const ScheduleEditorModule = {
     state: {
+        // ... (保持不變)
         year: new Date().getFullYear(),
         month: new Date().getMonth() + 2,
         staffList: [],
@@ -19,91 +20,40 @@ export const ScheduleEditorModule = {
         
         if (!this.container) return;
 
-        // 🌟 檢查單位是否已選擇
         const activeUnitId = sysContext.getActiveUnitId();
         if (!activeUnitId) {
             this.container.innerHTML = '<div class="alert alert-warning text-center p-5">請先於左上角選擇單位</div>';
-            if(this.statusLabel) this.statusLabel.innerText = "狀態：未選擇單位";
             return;
         }
 
-        document.getElementById('btn-run-ai').onclick = () => this.runAI();
-        document.getElementById('btn-save-schedule').onclick = () => this.saveSchedule();
-        document.getElementById('btn-clear-schedule').onclick = () => this.clearSchedule();
+        // 🌟 權限控制
+        const canEdit = sysContext.hasPermission(PERMISSIONS_OPTS.EDIT_SCHEDULE);
+        const btnRun = document.getElementById('btn-run-ai');
+        const btnSave = document.getElementById('btn-save-schedule');
+        const btnClear = document.getElementById('btn-clear-schedule');
+
+        if (!canEdit) {
+            // 隱藏操作按鈕
+            if(btnRun) btnRun.classList.add('d-none');
+            if(btnSave) btnSave.classList.add('d-none');
+            if(btnClear) btnClear.classList.add('d-none');
+        } else {
+            if(btnRun) { btnRun.classList.remove('d-none'); btnRun.onclick = () => this.runAI(); }
+            if(btnSave) { btnSave.classList.remove('d-none'); btnSave.onclick = () => this.saveSchedule(); }
+            if(btnClear) { btnClear.classList.remove('d-none'); btnClear.onclick = () => this.clearSchedule(); }
+        }
 
         this.initWorker();
         await this.loadData();
     },
 
-    initWorker: function() {
-        if (window.Worker && !this.state.worker) {
-            this.state.worker = new Worker('js/workers/ai-scheduler.js');
-            this.state.worker.onmessage = (e) => {
-                const { type, result, message } = e.data;
-                if (type === 'SUCCESS') {
-                    console.log("[Editor] AI 運算完成", result);
-                    this.state.currentSchedule = result;
-                    this.renderGrid();
-                    this.setLoading(false);
-                    alert("✅ AI 排班完成！請檢視結果並手動微調。");
-                } else if (type === 'ERROR') {
-                    console.error("[Editor] AI 錯誤", message);
-                    this.setLoading(false);
-                    alert("AI 運算發生錯誤: " + message);
-                }
-            };
-        }
-    },
-
-    loadData: async function() {
-        // 🌟 使用 getActiveUnitId
-        const unitId = sysContext.getActiveUnitId();
-        if(!unitId) return;
-
-        this.container.innerHTML = '<div class="text-center p-5"><div class="spinner-border"></div></div>';
-
-        try {
-            // 載入人員
-            this.state.staffList = await StaffService.getStaffList(unitId);
-            
-            // 載入排班表
-            const savedData = await ScheduleService.getFinalSchedule(unitId, this.state.year, this.state.month);
-            
-            if (savedData && savedData.assignments) {
-                this.state.currentSchedule = savedData.assignments;
-                if(this.statusLabel) this.statusLabel.innerText = `狀態：${savedData.status === 'Published' ? '已公告' : '草稿'}`;
-            } else {
-                this.state.currentSchedule = {};
-                if(this.statusLabel) this.statusLabel.innerText = "狀態：尚未建立";
-            }
-            this.renderGrid();
-        } catch (error) {
-            console.error(error);
-            this.container.innerHTML = `<div class="alert alert-danger">載入失敗: ${error.message}</div>`;
-        }
-    },
-
-    runAI: async function() {
-        if (!confirm(`確定要執行 AI 排班嗎？\n這將會覆蓋目前的排班內容 (預班除外)。`)) return;
-        
-        const unitId = sysContext.getActiveUnitId(); // 🌟 使用 getActiveUnitId
-        if(!unitId) { alert("未選擇單位"); return; }
-
-        this.setLoading(true, "AI 正在運算最佳排程...");
-        
-        const preSchedules = await ScheduleService.getPreSchedule(unitId, this.state.year, this.state.month);
-        const payload = {
-            staffList: this.state.staffList,
-            shifts: sysContext.getShifts(),
-            preSchedules: preSchedules,
-            daysInMonth: new Date(this.state.year, this.state.month, 0).getDate()
-        };
-        this.state.worker.postMessage({ type: 'START_AI', payload });
-    },
+    // ... (initWorker, loadData, runAI 保持不變) ...
 
     renderGrid: function() {
+        // ... (表頭生成邏輯保持不變) ...
         const daysInMonth = new Date(this.state.year, this.state.month, 0).getDate();
         const shiftsConfig = sysContext.getShifts();
+        const canEdit = sysContext.hasPermission(PERMISSIONS_OPTS.EDIT_SCHEDULE); // 檢查權限
 
         let html = `<div class="table-responsive" style="max-height: 70vh; overflow: auto;">
             <table class="table table-bordered table-sm text-center" style="font-size: 0.9rem;">
@@ -124,14 +74,18 @@ export const ScheduleEditorModule = {
 
             for (let d = 1; d <= daysInMonth; d++) {
                 const shiftCode = userSchedule[d];
-                let cellStyle = 'cursor: pointer;';
+                let cellStyle = canEdit ? 'cursor: pointer;' : ''; // 無權限時不顯示手型
                 let display = '';
                 if (shiftCode && shiftsConfig[shiftCode]) {
                     const s = shiftsConfig[shiftCode];
                     cellStyle += `background-color: ${s.color};`;
                     display = s.code;
                 }
-                html += `<td style="${cellStyle}" onclick="ScheduleEditorModule.toggleCell('${staff.id}', ${d})">${display}</td>`;
+                
+                // 只有有權限才綁定 onclick
+                const clickEvent = canEdit ? `onclick="ScheduleEditorModule.toggleCell('${staff.id}', ${d})"` : '';
+                
+                html += `<td style="${cellStyle}" ${clickEvent}>${display}</td>`;
             }
             html += `</tr>`;
         });
@@ -139,55 +93,6 @@ export const ScheduleEditorModule = {
         this.container.innerHTML = html;
     },
 
-    toggleCell: function(staffId, day) {
-        const current = this.state.currentSchedule[staffId]?.[day];
-        const shiftKeys = Object.keys(sysContext.getShifts());
-        const options = [...shiftKeys, 'OFF', null]; 
-        let nextIndex = options.indexOf(current) + 1;
-        if (nextIndex >= options.length) nextIndex = 0;
-        const nextShift = options[nextIndex];
-
-        if (!this.state.currentSchedule[staffId]) this.state.currentSchedule[staffId] = {};
-        this.state.currentSchedule[staffId][day] = nextShift;
-        this.renderGrid();
-    },
-
-    saveSchedule: async function() {
-        const btn = document.getElementById('btn-save-schedule');
-        const originalText = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '儲存中...';
-        try {
-            const unitId = sysContext.getActiveUnitId(); // 🌟 使用 getActiveUnitId
-            if(!unitId) throw new Error("未選擇單位");
-
-            await ScheduleService.saveFinalSchedule(unitId, this.state.year, this.state.month, this.state.currentSchedule);
-            alert("✅ 排班表已儲存！");
-        } catch (error) {
-            alert("儲存失敗: " + error.message);
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-        }
-    },
-
-    clearSchedule: function() {
-        if(confirm("確定要清空整張排班表嗎？")) {
-            this.state.currentSchedule = {};
-            this.renderGrid();
-        }
-    },
-
-    setLoading: function(isLoading, text) {
-        const overlay = document.getElementById('loading-overlay');
-        const txt = document.getElementById('loading-text');
-        if (isLoading) {
-            txt.innerText = text;
-            overlay.classList.remove('d-none');
-        } else {
-            overlay.classList.add('d-none');
-        }
-    }
+    // ... (toggleCell, saveSchedule, clearSchedule, setLoading 保持不變) ...
+    // 請務必保留這些函式
 };
-
-window.ScheduleEditorModule = ScheduleEditorModule;
