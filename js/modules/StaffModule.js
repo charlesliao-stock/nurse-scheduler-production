@@ -93,9 +93,12 @@ export const StaffModule = {
      */
     handleAddClick: function() {
         const activeUnitId = sysContext.getActiveUnitId();
-        // 若未選擇單位且不是 ALL 模式，提示選擇
-        if (!activeUnitId) {
-            alert("請先於左上角選擇一個單位，或選擇「所有單位」。");
+        
+        // 修正邏輯：
+        // 1. 如果是系統管理員，無論有無選擇單位，都允許開啟視窗 (會進入 openModal 判斷是否落入未分發)
+        // 2. 如果是一般管理者，必須先選擇特定單位才能新增
+        if (!activeUnitId && !sysContext.isSystemAdmin()) {
+            alert("請先於左上角選擇一個單位。");
             return;
         }
         this.openModal();
@@ -121,7 +124,9 @@ export const StaffModule = {
         }
         
         // 預設更新 Modal 內的下拉 (如果是特定單位模式)
-        this.refreshUnitOptions();
+        if (unitId && unitId !== 'ALL' && unitId !== 'UNASSIGNED') {
+            this.refreshUnitOptions();
+        }
     },
 
     /**
@@ -153,10 +158,16 @@ export const StaffModule = {
     loadList: async function() {
         const unitId = sysContext.getActiveUnitId();
         
-        if (!unitId) {
+        // 修正：系統管理員若未選單位 (null)，視同 ALL 模式或提示選擇
+        // 但為了 UI 體驗，如果完全未選，我們可以不顯示資料或顯示全部，這裡維持原樣提示比較清楚
+        if (!unitId && !sysContext.isSystemAdmin()) {
             this.tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-5"><i class="bi bi-arrow-up-circle"></i> 請先選擇單位以檢視資料</td></tr>';
             return;
         }
+        
+        // 系統管理員未選時，若要預設顯示全部，可將 unitId 設為 'ALL' (視需求而定)
+        // 這裡假設未選單位時，系統管理員可能想看到空白或全部，我們暫時不做強制轉換，
+        // 依賴 SystemContext 的 activeUnitId 狀態。如果 activeUnitId 是 null，Service 會回傳空陣列。
 
         try {
             // 如果是 ALL 或 UNASSIGNED，先抓取所有單位的名稱對照表，以便顯示中文名稱
@@ -164,11 +175,12 @@ export const StaffModule = {
                 const units = await UnitService.getAllUnits();
                 this.state.unitMap = {};
                 units.forEach(u => this.state.unitMap[u.id] = u.name);
-            } else {
+            } else if (unitId) {
                 // 單一單位模式
                 this.state.unitMap = { [unitId]: sysContext.getUnitName() };
             }
 
+            // 若 unitId 為 null (管理員剛進來)，getStaffList 會回傳空，這裡可以接受
             this.state.allStaff = await StaffService.getStaffList(unitId);
             this.applyFilterAndSort();
         } catch (e) {
@@ -187,17 +199,22 @@ export const StaffModule = {
         const activeUnitId = sysContext.getActiveUnitId();
         const unitSelect = document.getElementById('staff-unitId');
         
-        // 🌟 處理 Modal 內的單位選擇邏輯
-        if (activeUnitId === 'ALL' || activeUnitId === 'UNASSIGNED') {
-            // 模式 A: 開放選擇所有單位
+        // 🌟 修正重點：處理單位選擇邏輯
+        // 判斷是否處於全域模式 (未選單位、全部單位、未分發區)
+        const isGlobalMode = !activeUnitId || activeUnitId === 'ALL' || activeUnitId === 'UNASSIGNED';
+
+        if (isGlobalMode) {
+            // 模式 A: 開放選擇所有單位 (若未選則落入未分發)
             unitSelect.disabled = false;
             const units = await UnitService.getAllUnits();
-            let html = '<option value="">請選擇單位...</option>';
+            
+            // 插入「未分發人員」選項，並設為 value=""
+            let html = '<option value="">(未分發人員)</option>';
             units.forEach(u => html += `<option value="${u.id}">${u.name}</option>`);
             unitSelect.innerHTML = html;
             
-            // 如果是編輯模式，回填該員的單位
-            if (staff && staff.unitId) unitSelect.value = staff.unitId;
+            // 如果是新增模式，預設選中「未分發」
+            if (!staff) unitSelect.value = "";
 
         } else {
             // 模式 B: 鎖定當前單位
@@ -236,6 +253,10 @@ export const StaffModule = {
             if(this.modalTitle) this.modalTitle.innerText = "編輯人員";
             document.getElementById('staff-empId').value = staff.empId;
             document.getElementById('staff-name').value = staff.name;
+            
+            // 回填單位 (如果是全域模式，選單已有所有選項；如果是鎖定模式，已被鎖定)
+            // 若該員是未分發 (unitId為空)，value="" 剛好對應 (未分發人員)
+            if(unitSelect) unitSelect.value = staff.unitId || "";
             
             // 回填職稱 (若下拉選單無此值，動態加入以免消失)
             const titleInput = document.getElementById('staff-title');
@@ -300,10 +321,8 @@ export const StaffModule = {
      */
     handleSave: async function() {
         const unitId = document.getElementById('staff-unitId').value;
-        if(!unitId) {
-            alert("請選擇所屬單位");
-            return;
-        }
+        // 修正：移除對 unitId 的強制檢查，允許空字串 (代表未分發)
+        // if(!unitId) { alert("請選擇所屬單位"); return; }
 
         const specialChecked = document.getElementById('staff-special').checked;
         let specialType = 'dayOnly';
@@ -311,7 +330,7 @@ export const StaffModule = {
         if(rbNoNight && rbNoNight.checked) specialType = 'noNight';
 
         const data = {
-            unitId: unitId,
+            unitId: unitId, // 空字串即為未分發
             empId: document.getElementById('staff-empId').value.trim(),
             name: document.getElementById('staff-name').value.trim(),
             title: document.getElementById('staff-title').value,
@@ -354,7 +373,10 @@ export const StaffModule = {
 
             if(this.modal) this.modal.hide();
             this.loadList();
-            alert("儲存成功");
+            
+            // 提示訊息區分
+            const msg = unitId ? "儲存成功" : "儲存成功 (人員已列入未分發區)";
+            alert(msg);
         } catch (error) {
             alert("失敗: " + error.message);
         }
@@ -451,7 +473,7 @@ export const StaffModule = {
             const seniority = this.calcSeniority(s.hireDate);
             
             // 顯示單位名稱 (ALL 模式下從 unitMap 查找)
-            const displayUnitName = this.state.unitMap[s.unitId] || s.unitId || '<span class="text-danger">未分發</span>';
+            const displayUnitName = this.state.unitMap[s.unitId] || s.unitId || '<span class="text-danger fw-bold">未分發</span>';
             
             // 角色中文
             const roleMap = { 'SystemAdmin': '系統管理', 'UnitAdmin': '單位管理', 'Scheduler': '排班者', 'User': '一般' };
