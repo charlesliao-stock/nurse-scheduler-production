@@ -19,6 +19,14 @@ export const ScheduleEditorModule = {
         
         if (!this.container) return;
 
+        // 🌟 檢查單位是否已選擇
+        const activeUnitId = sysContext.getActiveUnitId();
+        if (!activeUnitId) {
+            this.container.innerHTML = '<div class="alert alert-warning text-center p-5">請先於左上角選擇單位</div>';
+            if(this.statusLabel) this.statusLabel.innerText = "狀態：未選擇單位";
+            return;
+        }
+
         document.getElementById('btn-run-ai').onclick = () => this.runAI();
         document.getElementById('btn-save-schedule').onclick = () => this.saveSchedule();
         document.getElementById('btn-clear-schedule').onclick = () => this.clearSchedule();
@@ -48,11 +56,17 @@ export const ScheduleEditorModule = {
     },
 
     loadData: async function() {
-        const unitId = sysContext.getUnitId();
+        // 🌟 使用 getActiveUnitId
+        const unitId = sysContext.getActiveUnitId();
+        if(!unitId) return;
+
         this.container.innerHTML = '<div class="text-center p-5"><div class="spinner-border"></div></div>';
 
         try {
+            // 載入人員
             this.state.staffList = await StaffService.getStaffList(unitId);
+            
+            // 載入排班表
             const savedData = await ScheduleService.getFinalSchedule(unitId, this.state.year, this.state.month);
             
             if (savedData && savedData.assignments) {
@@ -71,8 +85,12 @@ export const ScheduleEditorModule = {
 
     runAI: async function() {
         if (!confirm(`確定要執行 AI 排班嗎？\n這將會覆蓋目前的排班內容 (預班除外)。`)) return;
+        
+        const unitId = sysContext.getActiveUnitId(); // 🌟 使用 getActiveUnitId
+        if(!unitId) { alert("未選擇單位"); return; }
+
         this.setLoading(true, "AI 正在運算最佳排程...");
-        const unitId = sysContext.getUnitId();
+        
         const preSchedules = await ScheduleService.getPreSchedule(unitId, this.state.year, this.state.month);
         const payload = {
             staffList: this.state.staffList,
@@ -140,7 +158,9 @@ export const ScheduleEditorModule = {
         btn.disabled = true;
         btn.innerHTML = '儲存中...';
         try {
-            const unitId = sysContext.getUnitId();
+            const unitId = sysContext.getActiveUnitId(); // 🌟 使用 getActiveUnitId
+            if(!unitId) throw new Error("未選擇單位");
+
             await ScheduleService.saveFinalSchedule(unitId, this.state.year, this.state.month, this.state.currentSchedule);
             alert("✅ 排班表已儲存！");
         } catch (error) {
@@ -169,4 +189,5 @@ export const ScheduleEditorModule = {
         }
     }
 };
+
 window.ScheduleEditorModule = ScheduleEditorModule;
