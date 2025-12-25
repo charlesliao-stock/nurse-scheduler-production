@@ -51,9 +51,7 @@
             <div id="sidebar-wrapper">
                 <div class="sidebar-heading"><i class="bi bi-hospital"></i> AI 護理排班</div>
                 
-                <div class="sidebar-toggle-tag" id="menu-toggle">
-                    <i class="bi bi-chevron-left"></i>
-                </div>
+                <div class="sidebar-toggle-tag" id="menu-toggle"><i class="bi bi-chevron-left"></i></div>
 
                 <div class="list-group list-group-flush flex-grow-1">
                     <a class="list-group-item list-group-item-action active" id="link-pre" data-target="#pre-schedule-container">
@@ -64,6 +62,9 @@
                     </a>
                     <a class="list-group-item list-group-item-action" id="link-shift" data-target="#shift-container">
                         <i class="bi bi-sliders"></i> 班別設定
+                    </a>
+                    <a class="list-group-item list-group-item-action" id="link-schedule" data-target="#schedule-container">
+                        <i class="bi bi-table"></i> 排班作業
                     </a>
                     <a class="list-group-item list-group-item-action" id="link-info" data-target="#unit-info-container">
                         <i class="bi bi-info-circle"></i> 單位資訊
@@ -79,24 +80,18 @@
 
             <div id="page-content-wrapper">
                 <div class="container-fluid py-4 px-4">
-                    
                     <div id="main-content-area">
                         
                         <div class="content-section" id="pre-schedule-container">
                             <div class="d-flex justify-content-between align-items-center mb-3">
                                 <h4 id="pre-month-label">月曆載入中...</h4>
-                                <div>
-                                    <button class="btn btn-sm btn-outline-secondary" id="btn-prev-month"><i class="bi bi-chevron-left"></i></button>
-                                    <button class="btn btn-sm btn-outline-secondary" id="btn-next-month"><i class="bi bi-chevron-right"></i></button>
-                                </div>
+                                <div><button class="btn btn-sm btn-outline-secondary" id="btn-prev-month"><i class="bi bi-chevron-left"></i></button><button class="btn btn-sm btn-outline-secondary" id="btn-next-month"><i class="bi bi-chevron-right"></i></button></div>
                             </div>
                             <div class="calendar-header">
                                 <div class="text-danger">日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div class="text-danger">六</div>
                             </div>
                             <div id="calendar-container" class="calendar-grid mb-3"></div>
-                            <button class="btn btn-primary btn-lg w-100" id="btn-save-wishes">
-                                <i class="bi bi-cloud-upload"></i> 送出預班
-                            </button>
+                            <button class="btn btn-primary btn-lg w-100" id="btn-save-wishes"><i class="bi bi-cloud-upload"></i> 送出預班</button>
                         </div>
 
                         <div class="content-section d-none" id="staff-container">
@@ -107,6 +102,33 @@
                         <div class="content-section d-none" id="shift-container">
                             <div class="d-flex justify-content-between mb-3"><h4>班別設定</h4><button type="button" id="btn-save-shifts" class="btn btn-success">儲存</button></div>
                             <div class="card shadow-sm"><div class="card-body"><table class="table table-bordered align-middle text-center"><thead class="table-light"><tr><th width="15%">代號</th><th width="20%">名稱</th><th width="20%">類型</th><th width="15%">顏色</th><th width="15%">工時</th><th width="10%">刪除</th></tr></thead><tbody id="shift-table-body"></tbody></table><button type="button" class="btn btn-outline-secondary w-100 mt-2" id="btn-add-shift-row">新增</button></div></div>
+                        </div>
+
+                        <div class="content-section d-none" id="schedule-container">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <div>
+                                    <h4>排班作業</h4>
+                                    <span class="badge bg-secondary" id="schedule-status-label">狀態：讀取中...</span>
+                                </div>
+                                <div>
+                                    <button class="btn btn-outline-danger me-2" id="btn-clear-schedule">清空</button>
+                                    <button class="btn btn-primary me-2" id="btn-run-ai">
+                                        <i class="bi bi-cpu"></i> AI 一鍵排班
+                                    </button>
+                                    <button class="btn btn-success" id="btn-save-schedule">
+                                        <i class="bi bi-save"></i> 儲存
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="alert alert-warning small py-2">
+                                <i class="bi bi-lightbulb"></i> 提示：點擊儲存格可手動切換班別。按下「AI 一鍵排班」將自動填入建議班表。
+                            </div>
+
+                            <div class="card shadow-sm">
+                                <div class="card-body p-0" id="schedule-grid-container">
+                                    </div>
+                            </div>
                         </div>
 
                         <div class="content-section d-none" id="unit-info-container">
