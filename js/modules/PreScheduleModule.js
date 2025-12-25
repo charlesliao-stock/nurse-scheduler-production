@@ -10,6 +10,7 @@ export const PreScheduleModule = {
     },
 
     init: async function() {
+        // 若月份超過 12，自動跨年
         if (this.state.month > 12) {
             this.state.year++;
             this.state.month = 1;
@@ -18,15 +19,26 @@ export const PreScheduleModule = {
         this.container = document.getElementById('calendar-container');
         this.monthLabel = document.getElementById('pre-month-label');
         
-        if (!this.container) return; // 防呆
+        // 防呆：DOM 不存在或未選擇單位
+        if (!this.container) return;
+        
+        // 🌟 檢查單位是否已選擇
+        const activeUnitId = sysContext.getActiveUnitId();
+        if (!activeUnitId) {
+            this.container.innerHTML = '<div class="alert alert-warning text-center">請先於左上角選擇單位</div>';
+            if(this.monthLabel) this.monthLabel.innerText = "未選擇單位";
+            return;
+        }
 
         document.getElementById('btn-prev-month').onclick = () => this.changeMonth(-1);
         document.getElementById('btn-next-month').onclick = () => this.changeMonth(1);
         document.getElementById('btn-save-wishes').onclick = () => this.saveToDB();
 
-        // Modal
+        // Modal 初始化
         const modalEl = document.getElementById('wishModal');
-        this.wishModal = new bootstrap.Modal(modalEl);
+        if (modalEl) {
+            this.wishModal = new bootstrap.Modal(modalEl);
+        }
         
         this.renderShiftOptions(); 
 
@@ -41,11 +53,16 @@ export const PreScheduleModule = {
     },
 
     loadData: async function() {
+        if (!this.monthLabel || !this.container) return;
+        
         this.monthLabel.innerText = `${this.state.year}年 ${this.state.month}月`;
         this.container.innerHTML = '<div class="text-center p-5"><div class="spinner-border"></div></div>';
 
-        const unitId = sysContext.getUnitId();
+        // 🌟 使用 getActiveUnitId
+        const unitId = sysContext.getActiveUnitId();
         const userId = sysContext.getCurrentUserId();
+
+        if(!unitId) return;
 
         try {
             const data = await ScheduleService.getPreSchedule(unitId, this.state.year, this.state.month);
@@ -101,6 +118,8 @@ export const PreScheduleModule = {
 
     renderShiftOptions: function() {
         const container = document.getElementById('modal-shift-options');
+        if (!container) return;
+
         const shifts = sysContext.getShifts();
         let html = `<button class="btn btn-outline-secondary w-100 mb-2" onclick="PreScheduleModule.selectShift(null)">清除 (無預班)</button>`;
 
@@ -118,7 +137,7 @@ export const PreScheduleModule = {
     openDay: function(day) {
         this.state.currentDay = day;
         document.getElementById('modal-date-title').innerText = `${this.state.month}月 ${day}日`;
-        this.wishModal.show();
+        if(this.wishModal) this.wishModal.show();
     },
 
     selectShift: function(shiftCode) {
@@ -128,7 +147,7 @@ export const PreScheduleModule = {
             delete this.state.userWishes[this.state.currentDay];
         }
         this.renderCalendar();
-        this.wishModal.hide();
+        if(this.wishModal) this.wishModal.hide();
     },
 
     saveToDB: async function() {
@@ -138,8 +157,12 @@ export const PreScheduleModule = {
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 儲存中...';
 
         try {
-            const unitId = sysContext.getUnitId();
+            // 🌟 使用 getActiveUnitId
+            const unitId = sysContext.getActiveUnitId();
             const userId = sysContext.getCurrentUserId();
+            
+            if(!unitId) throw new Error("未選擇單位");
+
             await ScheduleService.savePersonalWishes(
                 unitId, this.state.year, this.state.month, userId, this.state.userWishes
             );
@@ -152,4 +175,5 @@ export const PreScheduleModule = {
         }
     }
 };
+
 window.PreScheduleModule = PreScheduleModule;
