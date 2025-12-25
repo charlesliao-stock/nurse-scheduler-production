@@ -3,19 +3,21 @@ import { collection, query, where, getDocs, doc, setDoc, deleteDoc, updateDoc } 
 
 export const StaffService = {
     /**
-     * 取得指定單位的人員列表
-     * 🌟 修改：支援查詢 "UNASSIGNED" (未分發) 的人員
+     * 取得人員列表
+     * @param {string} unitId - 單位ID，'ALL' 代表全部，'UNASSIGNED' 代表未分發
      */
     async getStaffList(unitId) {
-        // 若未傳入 unitId，回傳空陣列
         if (!unitId) return [];
 
         let q;
-        if (unitId === 'UNASSIGNED') {
-            // 查詢 unitId 為空字串的人員
+        if (unitId === 'ALL') {
+            // 查詢全部 (無 where 條件)
+            q = query(collection(db, "staffs"));
+        } else if (unitId === 'UNASSIGNED') {
+            // 查詢未分發
             q = query(collection(db, "staffs"), where("unitId", "==", ""));
         } else {
-            // 正常查詢指定單位
+            // 查詢特定單位
             q = query(collection(db, "staffs"), where("unitId", "==", unitId));
         }
 
@@ -29,7 +31,7 @@ export const StaffService = {
 
     async addStaff(data) {
         const payload = {
-            unitId: data.unitId || "", // 允許空值 (未分發)
+            unitId: data.unitId || "", 
             empId: data.empId,
             name: data.name,
             title: data.title || "",
