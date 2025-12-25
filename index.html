@@ -39,69 +39,12 @@
         <main id="main-content">
             <button id="bookmark-toggle" onclick="app.toggleSidebar()"><i class="fas fa-bars"></i></button>
             
-            <div id="page-dashboard" class="page-section active">
-                <h1>儀表板</h1>
-                <p>歡迎進入排班管理系統。</p>
-            </div>
-
-            <div id="page-staff" class="page-section">
-                <h2><i class="fas fa-users"></i> 人員管理</h2>
-                <div class="toolbar">
-                    <select id="filterUnitSelect"><option value="all">載入中...</option></select>
-                    <input type="text" id="searchStaffInput" placeholder="搜尋員編或姓名..." style="padding:8px; border:1px solid #ccc;">
-                    <button class="btn btn-add" onclick="staffManager.openModal()"><i class="fas fa-plus"></i> 新增人員</button>
-                    <button class="btn btn-import" onclick="staffManager.downloadTemplate()"><i class="fas fa-file-download"></i> 範例</button>
-                </div>
-                <div class="table-container">
-                    <table id="staffTable">
-                        <thead>
-                            <tr>
-                                <th>單位</th><th>員編</th><th>姓名</th><th>層級</th><th>組別</th><th>角色</th><th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="staffTableBody"></tbody>
-                    </table>
-                </div>
-            </div>
+            <div id="content-area"></div>
         </main>
     </div>
 
-    <div id="staffModal" class="modal">
-        <div class="modal-content">
-            <h3>人員資訊</h3>
-            <input type="hidden" id="staffDocId">
-            <div class="form-row">
-                <div class="form-group"><label>員編 *</label><input type="text" id="inputEmpId"></div>
-                <div class="form-group"><label>姓名 *</label><input type="text" id="inputName"></div>
-            </div>
-            <div class="form-row">
-                <div class="form-group"><label>Email *</label><input type="email" id="inputEmail"></div>
-                <div class="form-group"><label>預設密碼</label><input type="text" value="123456" disabled style="background:#eee;"></div>
-            </div>
-            <div class="form-row">
-                <div class="form-group"><label>單位 *</label><select id="inputUnit"></select></div>
-                <div class="form-group"><label>進階層級 *</label>
-                    <select id="inputLevel"><option value="N">N</option><option value="N1">N1</option><option value="N2">N2</option><option value="N3">N3</option><option value="N4">N4</option></select>
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group"><label>組別</label><input type="text" id="inputGroup"></div>
-                <div class="form-group"><label>到職日</label><input type="date" id="inputHireDate"></div>
-            </div>
-            <hr>
-            <div style="margin:10px 0;">
-                <label><input type="checkbox" id="checkPregnant"> 懷孕</label>
-                <label style="margin-left:15px;"><input type="checkbox" id="checkBreastfeeding"> 哺乳</label>
-                <label style="margin-left:15px;"><input type="checkbox" id="checkBundle"> 可包班</label>
-            </div>
-            <div style="text-align:right; margin-top:20px;">
-                <button class="btn btn-close" onclick="staffManager.closeModal()">取消</button>
-                <button class="btn btn-add" onclick="staffManager.saveData()">儲存</button>
-            </div>
-        </div>
-    </div>
-
     <script src="js/config.js"></script>
+    <script src="js/router.js"></script> 
     <script src="js/app.js"></script>
     <script src="js/modules/staff_manager.js"></script>
 </body>
