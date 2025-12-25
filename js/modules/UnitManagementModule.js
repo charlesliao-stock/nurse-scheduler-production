@@ -10,8 +10,9 @@ export const UnitManagementModule = {
     init: async function() {
         const config = sysContext.getUnitConfig();
         const activeUnitId = sysContext.getActiveUnitId();
+        const isSystemAdmin = sysContext.isSystemAdmin(); // 取得權限狀態
         
-        // 綁定「新增單位」按鈕 (這個按鈕即使沒選單位也會顯示)
+        // 1. 綁定「新增單位」按鈕 (這個按鈕即使沒選單位也會顯示)
         this.bindCreateButton();
 
         // 檢查是否選取單位
@@ -58,6 +59,13 @@ export const UnitManagementModule = {
             };
         }
 
+        // 🌟 2. 綁定「刪除單位」按鈕 (只有系統管理員且已選單位時才顯示)
+        const btnDelete = document.getElementById('btn-delete-unit');
+        if (isSystemAdmin && btnDelete) {
+            btnDelete.classList.remove('d-none');
+            btnDelete.onclick = () => this.handleDeleteUnit();
+        }
+
         this.renderParamsList();
     },
 
@@ -71,7 +79,7 @@ export const UnitManagementModule = {
             btnCreate.onclick = () => this.openCreateModal();
         }
         
-        // 🌟 防呆：確保 Modal 元素存在才初始化
+        // 防呆：確保 Modal 元素存在才初始化
         const modalEl = document.getElementById('createUnitModal');
         if (modalEl) {
             this.createModal = new bootstrap.Modal(modalEl);
@@ -167,6 +175,31 @@ export const UnitManagementModule = {
         }
     },
 
+    // --- 🌟 新增：刪除單位邏輯 ---
+    handleDeleteUnit: async function() {
+        const unitId = sysContext.getActiveUnitId();
+        const unitName = document.getElementById('mgmt-unit-name').value;
+        
+        const confirmMsg = `⚠️ 危險操作！\n\n您確定要刪除單位「${unitName} (${unitId})」嗎？\n\n注意：這將會移除該單位的所有設定，且無法復原。`;
+        
+        if (confirm(confirmMsg)) {
+            // 二次確認防呆
+            const input = prompt(`請輸入單位代號 "${unitId}" 以確認刪除：`);
+            if(input !== unitId) {
+                alert("代號輸入錯誤，已取消刪除。");
+                return;
+            }
+
+            try {
+                await UnitService.deleteUnit(unitId);
+                alert("✅ 單位已刪除。");
+                window.location.reload(); // 重整以清除狀態
+            } catch (error) {
+                alert("刪除失敗: " + error.message);
+            }
+        }
+    },
+
     // --- 新增單位邏輯 ---
     openCreateModal: function() {
         const form = document.getElementById('create-unit-form');
@@ -188,6 +221,7 @@ export const UnitManagementModule = {
 
         try {
             const userId = sysContext.getCurrentUserId();
+            // 呼叫 Service，帶入 false 參數，代表不綁定管理者
             await UnitService.createUnit(userId, id, name, false);
             alert(`✅ 單位「${name}」建立成功！`);
             this.createModal.hide();
