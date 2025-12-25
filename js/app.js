@@ -1,9 +1,8 @@
 import { AuthService } from "./services/AuthService.js";
-import { sysContext } from "./core/SystemContext.js";
+import { sysContext, PERMISSIONS_OPTS } from "./core/SystemContext.js"; // 引入權限常數
 import { ViewLoader } from "./core/ViewLoader.js";
 import { UnitService } from "./services/UnitService.js";
 
-// 各功能模組
 import { StaffModule } from "./modules/StaffModule.js";
 import { UnitSetupModule } from "./modules/UnitSetupModule.js";
 import { ShiftModule } from "./modules/ShiftModule.js";
@@ -73,7 +72,13 @@ async function handleLoginSuccess(firebaseUser) {
 
         await loadView('app-root', 'views/layout.html');
         await initSidebar();
-        loadModuleContent('staff');
+        
+        // 預設首頁邏輯
+        if (sysContext.hasPermission(PERMISSIONS_OPTS.MANAGE_STAFF)) {
+            loadModuleContent('staff');
+        } else {
+            loadModuleContent('pre-schedule');
+        }
 
     } catch (error) {
         console.error(error);
@@ -85,8 +90,8 @@ async function handleLoginSuccess(firebaseUser) {
 }
 
 async function initSidebar() {
-    const roleText = sysContext.isSystemAdmin() ? "系統管理員 (Super Admin)" : "單位管理員";
-    setText('nav-user-role', roleText);
+    const roleName = sysContext.getRoleName();
+    setText('nav-user-role', roleName);
     setText('nav-user-name', sysContext.getUserName());
 
     document.getElementById('logout-btn').onclick = async () => {
@@ -98,23 +103,19 @@ async function initSidebar() {
     const wrapper = document.getElementById('wrapper');
     if(toggle) toggle.onclick = () => wrapper.classList.toggle('toggled');
 
+    // --- 單位選擇器 ---
     const unitSelect = document.getElementById('global-unit-select');
     if (unitSelect) {
         unitSelect.innerHTML = '<option value="">讀取中...</option>';
 
-        if (sysContext.isSystemAdmin()) {
+        // 只有具備 MANAGE_ALL_UNITS 權限者可切換
+        if (sysContext.hasPermission(PERMISSIONS_OPTS.MANAGE_ALL_UNITS)) {
             const units = await UnitService.getAllUnits();
-            
             let html = '<option value="">-- 請選擇單位 --</option>';
-            
-            // 🌟 關鍵：加入「所有單位」選項
-            html += '<option value="ALL" class="fw-bold">🌐 所有單位人員 (All Staff)</option>';
-            html += '<option value="UNASSIGNED" class="text-warning">⚠️ 未分發人員 (Unassigned)</option>';
+            html += '<option value="ALL" class="fw-bold">🌐 所有單位人員</option>';
+            html += '<option value="UNASSIGNED" class="text-warning">⚠️ 未分發人員</option>';
             html += '<option disabled>----------------</option>';
-
-            units.forEach(u => {
-                html += `<option value="${u.id}">${u.name} (${u.id})</option>`;
-            });
+            units.forEach(u => html += `<option value="${u.id}">${u.name} (${u.id})</option>`);
             unitSelect.innerHTML = html;
             unitSelect.disabled = false;
         } else {
@@ -127,25 +128,39 @@ async function initSidebar() {
         unitSelect.onchange = async (e) => {
             const newUnitId = e.target.value;
             setLoading(true, "切換單位中...");
-            // 如果是 ALL 或 UNASSIGNED，switchUnit 內部可能會找不到 config，這是預期行為
             await sysContext.switchUnit(newUnitId);
-            
-            if (currentTargetKey) {
-                loadModuleContent(currentTargetKey, true);
-            }
+            if (currentTargetKey) loadModuleContent(currentTargetKey, true);
             setLoading(false);
         };
     }
 
-    const links = document.querySelectorAll('.list-group-item-action');
-    links.forEach(link => {
-        link.onclick = (e) => {
-            e.preventDefault();
-            const target = link.getAttribute('data-target');
-            links.forEach(l => l.classList.remove('active'));
-            link.classList.add('active');
-            loadModuleContent(target);
-        };
+    // --- 🌟 選單權限過濾 ---
+    const menuItems = [
+        { id: 'nav-pre', perm: PERMISSIONS_OPTS.SUBMIT_WISHES, target: 'pre-schedule' },
+        { id: 'nav-staff', perm: PERMISSIONS_OPTS.MANAGE_STAFF, target: 'staff' },
+        { id: 'nav-settings', perm: PERMISSIONS_OPTS.MANAGE_UNIT_SETTINGS, target: 'unit-management' },
+        { id: 'nav-shift', perm: PERMISSIONS_OPTS.MANAGE_SHIFTS, target: 'shift' },
+        { id: 'nav-schedule', perm: PERMISSIONS_OPTS.VIEW_SCHEDULE, target: 'schedule-editor' }
+    ];
+
+    // 先隱藏所有，再依權限顯示
+    const linksContainer = document.querySelector('.list-group-flush');
+    // 清空現有連結 (若 layout.html 寫死，這裡要重整，建議直接操作 DOM 隱藏)
+    document.querySelectorAll('.list-group-item-action').forEach(el => el.classList.add('d-none'));
+
+    menuItems.forEach(item => {
+        if (sysContext.hasPermission(item.perm)) {
+            const el = document.querySelector(`[data-target="${item.target}"]`);
+            if(el) {
+                el.classList.remove('d-none');
+                el.onclick = (e) => {
+                    e.preventDefault();
+                    document.querySelectorAll('.list-group-item-action').forEach(l => l.classList.remove('active'));
+                    el.classList.add('active');
+                    loadModuleContent(item.target);
+                };
+            }
+        }
     });
 }
 
@@ -156,6 +171,9 @@ async function loadModuleContent(targetKey, force = false) {
     const route = routes[targetKey];
     if (!route) return;
 
+    // 權限檢查：若直接呼叫函式進入無權限頁面，擋下
+    // (這裡做簡單對應，更嚴謹應在 routes 定義需要的權限)
+    
     const success = await loadView('dynamic-content', route.view);
     if (!success) return;
 
@@ -163,27 +181,16 @@ async function loadModuleContent(targetKey, force = false) {
         try {
             await route.module.init(); 
         } catch (e) {
-            console.error(`模組 ${targetKey} 初始化失敗:`, e);
-            document.getElementById('dynamic-content').innerHTML = `
-                <div class="alert alert-danger">
-                    模組載入錯誤: ${e.message}
-                </div>`;
+            console.error(e);
+            document.getElementById('dynamic-content').innerHTML = `<div class="alert alert-danger">${e.message}</div>`;
         }
     }
 }
 
-function setText(id, text) {
-    const el = document.getElementById(id);
-    if(el) el.innerText = text;
-}
-
+function setText(id, text) { const el = document.getElementById(id); if(el) el.innerText = text; }
 function setLoading(isLoading, text) {
-    if(isLoading) {
-        document.getElementById('loading-text').innerText = text;
-        loadingOverlay.classList.remove('d-none');
-    } else {
-        loadingOverlay.classList.add('d-none');
-    }
+    if(isLoading) { document.getElementById('loading-text').innerText = text; loadingOverlay.classList.remove('d-none'); }
+    else { loadingOverlay.classList.add('d-none'); }
 }
 
 initApp();
