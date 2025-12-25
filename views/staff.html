@@ -1,0 +1,32 @@
+<div class="page-section active"> <h2><i class="fas fa-users"></i> 人員管理</h2>
+    
+    <div class="toolbar">
+        <select id="filterUnitSelect"><option value="all">載入中...</option></select>
+        <input type="text" id="searchStaffInput" placeholder="搜尋員編或姓名..." style="padding:8px; border:1px solid #ccc;">
+        
+        <button class="btn btn-add" onclick="staffManager.openModal()"><i class="fas fa-plus"></i> 新增人員</button>
+        <button class="btn btn-import" onclick="staffManager.downloadTemplate()"><i class="fas fa-file-download"></i> 範例</button>
+    </div>
+
+    <div class="table-container">
+        <table id="staffTable">
+            <thead>
+                <tr>
+                    <th>單位</th><th>員編</th><th>姓名</th><th>層級</th><th>組別</th><th>角色</th><th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="staffTableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<div id="staffModal" class="modal">
+    <div class="modal-content">
+        <h3>人員資訊</h3>
+        <input type="hidden" id="staffDocId">
+        <div style="text-align:right; margin-top:20px;">
+            <button class="btn btn-close" onclick="staffManager.closeModal()">取消</button>
+            <button class="btn btn-add" onclick="staffManager.saveData()">儲存</button>
+        </div>
+    </div>
+</div>
