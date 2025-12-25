@@ -1,50 +1,16 @@
 <div id="staff-container">
-    <div class="card shadow-sm mb-3">
-        <div class="card-body py-2">
-            <div class="row g-2 align-items-center">
-                <div class="col-md-3">
-                    <div class="input-group input-group-sm">
-                        <span class="input-group-text">單位</span>
-                        <select id="staff-filter-unit" class="form-select" disabled>
-                            <option>讀取中...</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="input-group input-group-sm">
-                        <span class="input-group-text"><i class="bi bi-search"></i></span>
-                        <input type="text" id="staff-search-input" class="form-control" placeholder="輸入編號或姓名搜尋...">
-                    </div>
-                </div>
-                <div class="col-md-5 text-end">
-                    <button class="btn btn-sm btn-outline-success me-1" id="btn-download-template">
-                        <i class="bi bi-file-earmark-excel"></i> 範例
-                    </button>
-                    <button class="btn btn-sm btn-outline-primary me-1" id="btn-import-staff">
-                        <i class="bi bi-upload"></i> 匯入
-                    </button>
-                    <input type="file" id="file-import-staff" accept=".csv" class="d-none">
-                    <button class="btn btn-sm btn-primary" id="btn-add-staff">
-                        <i class="bi bi-plus-lg"></i> 新增
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <div class="card shadow-sm border-0">
         <div class="card-body p-0">
             <div class="table-responsive">
                 <table class="table table-hover mb-0 align-middle">
                     <thead class="table-light">
                         <tr>
-                            <th class="sortable" data-sort="unitId">單位</th>
+                            <th>單位</th>
                             <th class="sortable" data-sort="empId">編號 <i class="bi bi-arrow-down-up small"></i></th>
                             <th class="sortable" data-sort="name">姓名 <i class="bi bi-arrow-down-up small"></i></th>
-                            <th class="sortable" data-sort="level">層級 <i class="bi bi-arrow-down-up small"></i></th>
+                            <th>職稱</th> <th class="sortable" data-sort="level">層級</th>
                             <th>組別</th>
                             <th>角色</th>
-                            <th>年資</th>
                             <th>屬性</th>
                             <th class="text-center">操作</th>
                         </tr>
@@ -66,12 +32,8 @@
             <div class="modal-body">
                 <form id="add-staff-form">
                     <ul class="nav nav-tabs mb-3" id="staffTab" role="tablist">
-                        <li class="nav-item">
-                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-basic" type="button">基本資料</button>
-                        </li>
-                        <li class="nav-item">
-                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-schedule" type="button">排班參數</button>
-                        </li>
+                        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-basic" type="button">基本資料</button></li>
+                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-schedule" type="button">排班參數</button></li>
                     </ul>
 
                     <div class="tab-content">
@@ -79,12 +41,12 @@
                             <div class="row mb-3">
                                 <div class="col-md-6">
                                     <label class="form-label">所屬單位</label>
-                                    <select id="staff-unitId" class="form-select" disabled></select>
+                                    <select id="staff-unitId" class="form-select"></select>
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">員工編號 <span class="text-danger">*</span></label>
                                     <input type="text" id="staff-empId" class="form-control" required>
-                                </div>
+                                    <input type="hidden" id="staff-original-empId"> </div>
                             </div>
                             <div class="row mb-3">
                                 <div class="col-md-6">
@@ -92,27 +54,32 @@
                                     <input type="text" id="staff-name" class="form-control" required>
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Email</label>
-                                    <input type="email" id="staff-email" class="form-control">
+                                    <label class="form-label">職稱 (Title)</label>
+                                    <select id="staff-title" class="form-select">
+                                        </select>
                                 </div>
                             </div>
                             <div class="row mb-3">
                                 <div class="col-md-6">
-                                    <label class="form-label">密碼</label>
-                                    <input type="text" class="form-control" value="123456" disabled>
-                                    <div class="form-text">預設: 123456</div>
+                                    <label class="form-label">登入 Email</label>
+                                    <input type="email" id="staff-email" class="form-control">
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">角色</label>
-                                    <select id="staff-role" class="form-select">
-                                        <option value="User">一般使用者</option>
-                                        <option value="Admin">單位管理者</option>
-                                    </select>
+                                    <label class="form-label">密碼</label>
+                                    <input type="text" id="staff-password" class="form-control" value="123456">
                                 </div>
                             </div>
                             <div class="row mb-3">
                                 <div class="col-md-4">
-                                    <label class="form-label">層級</label>
+                                    <label class="form-label">系統權限角色</label>
+                                    <select id="staff-role" class="form-select">
+                                        <option value="User">一般使用者</option>
+                                        <option value="Admin">單位管理者</option>
+                                    </select>
+                                    <div class="form-text small">僅影響系統操作權限</div>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">進階層級</label>
                                     <select id="staff-level" class="form-select">
                                         <option value="N">N</option><option value="N1">N1</option>
                                         <option value="N2">N2</option><option value="N3">N3</option><option value="N4">N4</option>
@@ -121,10 +88,11 @@
                                 <div class="col-md-4">
                                     <label class="form-label">組別</label>
                                     <select id="staff-group" class="form-select">
-                                        <option value="">無</option><option value="A">A組</option><option value="B">B組</option>
-                                    </select>
+                                        </select>
                                 </div>
-                                <div class="col-md-4">
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
                                     <label class="form-label">到職日</label>
                                     <input type="date" id="staff-hireDate" class="form-control">
                                     <div class="form-text text-primary" id="staff-seniority-text">年資: -</div>
@@ -138,15 +106,27 @@
                                 <div class="card p-3 bg-light border-0">
                                     <div class="form-check form-switch mb-2">
                                         <input class="form-check-input" type="checkbox" id="staff-pregnant">
-                                        <label class="form-check-label" for="staff-pregnant">懷孕 (Pregnant)</label>
+                                        <label class="form-check-label" for="staff-pregnant">懷孕 (不排22:00後)</label>
                                     </div>
                                     <div class="form-check form-switch mb-2">
                                         <input class="form-check-input" type="checkbox" id="staff-nursing">
-                                        <label class="form-check-label" for="staff-nursing">哺乳 (Nursing)</label>
+                                        <label class="form-check-label" for="staff-nursing">哺乳 (不排22:00後)</label>
                                     </div>
+                                    <hr>
+                                    
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="staff-special">
-                                        <label class="form-check-label" for="staff-special">特殊 (Special)</label>
+                                        <label class="form-check-label" for="staff-special">啟用特殊規則 (Special)</label>
+                                    </div>
+                                    <div id="staff-special-options" class="mt-2 ms-4 d-none border-start border-3 border-primary ps-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="specialType" id="special-dayOnly" value="dayOnly" checked>
+                                            <label class="form-check-label" for="special-dayOnly">限排白班</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="specialType" id="special-noNight" value="noNight">
+                                            <label class="form-check-label" for="special-noNight">限排 22:00 以前 (比照孕哺)</label>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
