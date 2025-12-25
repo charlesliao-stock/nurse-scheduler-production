@@ -1,78 +1,45 @@
 import { StaffService } from "../services/StaffService.js";
 import { sysContext } from "../core/SystemContext.js";
+import { ViewLoader } from "../core/ViewLoader.js"; // 引入 Loader
 
 export const StaffModule = {
-    init: async function() {
+    state: { /* ...保持不變... */ },
+
+    // 🌟 修改：init 改為 async，並接收 containerId
+    init: async function(containerId) {
+        // 1. 先載入 HTML
+        const loaded = await ViewLoader.load(containerId, 'views/staff.html');
+        if (!loaded) return;
+
+        // 2. HTML 注入後，才能綁定 DOM
         this.tbody = document.getElementById('staff-table-body');
-        this.addBtn = document.getElementById('btn-add-staff');
-        this.saveBtn = document.getElementById('btn-save-staff');
         
-        // Modal instance
+        // 綁定 Modal
         const modalEl = document.getElementById('addStaffModal');
-        this.modal = new bootstrap.Modal(modalEl);
+        if (modalEl) {
+            this.modal = new bootstrap.Modal(modalEl);
+            this.modalTitle = document.getElementById('staffModalTitle');
+        }
 
-        this.addBtn.onclick = () => {
-            document.getElementById('add-staff-form').reset();
-            this.modal.show();
-        };
+        // 綁定事件 (跟之前一樣，但要確保元素存在)
+        this.bindEvents();
 
-        this.saveBtn.onclick = () => this.handleSave();
-
+        // 3. 載入資料
+        this.initUnitSelect();
         await this.loadList();
     },
 
-    loadList: async function() {
-        try {
-            const unitId = sysContext.getUnitId();
-            const list = await StaffService.getStaffList(unitId);
-            this.render(list);
-        } catch (e) {
-            console.error(e);
-        }
+    bindEvents: function() {
+        // 把原本放在 init 裡的 addEventListener 搬來這裡
+        const btnAdd = document.getElementById('btn-add-staff');
+        if(btnAdd) btnAdd.onclick = () => this.openModal();
+
+        const btnSave = document.getElementById('btn-save-staff-submit');
+        if(btnSave) btnSave.onclick = () => this.handleSave();
+        
+        // ... 其他綁定 (搜尋、匯入等) ...
     },
 
-    render: function(list) {
-        this.tbody.innerHTML = '';
-        if(list.length === 0) {
-            this.tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">尚無人員</td></tr>';
-            return;
-        }
-        list.forEach(s => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${s.empId}</td>
-                <td>${s.name}</td>
-                <td><span class="badge bg-light text-dark border">${s.level}</span></td>
-                <td>${s.group || '-'}</td>
-                <td>${s.isPregnant ? '<span class="badge bg-danger">孕/哺</span>' : ''}</td>
-                <td><button class="btn btn-sm btn-outline-primary">編輯</button></td>
-            `;
-            this.tbody.appendChild(tr);
-        });
-    },
-
-    handleSave: async function() {
-        const data = {
-            empId: document.getElementById('staff-empId').value,
-            name: document.getElementById('staff-name').value,
-            level: document.getElementById('staff-level').value,
-            group: document.getElementById('staff-group').value,
-            isPregnant: document.getElementById('staff-pregnant').checked,
-            unitId: sysContext.getUnitId()
-        };
-
-        if(!data.empId || !data.name) {
-            alert("請輸入完整資料");
-            return;
-        }
-
-        try {
-            await StaffService.addStaff(data);
-            this.modal.hide();
-            this.loadList();
-            alert("✅ 新增成功");
-        } catch (error) {
-            alert("失敗: " + error.message);
-        }
-    }
+    // ... 其他函式 (loadList, render, openModal...) 保持不變 ...
+    // ... 記得 initUnitSelect 裡的 DOM ID 也要對應 views/staff.html ...
 };
