@@ -3,23 +3,215 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 護理排班系統 (Pro)</title>
-    
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
-    
-    <link href="css/main.css" rel="stylesheet">
+    <title>醫院排班系統 - 資料庫初始化 (Genesis)</title>
+    <style>
+        body { font-family: "Microsoft JhengHei", sans-serif; padding: 40px; background-color: #f4f6f8; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h2 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; }
+        input { width: 100%; padding: 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        button { background-color: #3498db; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%; }
+        button:hover { background-color: #2980b9; }
+        #console { margin-top: 20px; padding: 15px; background: #2c3e50; color: #ecf0f1; border-radius: 4px; height: 300px; overflow-y: auto; font-family: monospace; font-size: 14px; }
+        .log-success { color: #2ecc71; }
+        .log-error { color: #e74c3c; }
+        .log-info { color: #3498db; }
+    </style>
+
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
 
-    <div id="loading-overlay" class="d-none">
-        <div class="spinner-border text-primary" role="status"></div>
-        <p class="mt-2" id="loading-text">載入中...</p>
+<div class="container">
+    <h2>系統初始化 (Genesis Protocol)</h2>
+    <p>此程式將寫入系統基礎設定 (權限、角色、選單)，並設定第一位管理員。</p>
+    
+    <div class="form-group">
+        <label for="adminUid">第一位管理員 UID (從 Firebase Auth 複製):</label>
+        <input type="text" id="adminUid" placeholder="例如: 7WkHk1... (您的 User UID)">
     </div>
 
-    <div id="app-root"></div>
+    <div class="form-group">
+        <label for="adminEmail">管理員 Email (僅作記錄用):</label>
+        <input type="email" id="adminEmail" placeholder="admin@hospital.com">
+    </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script type="module" src="js/app.js"></script>
+    <button onclick="runGenesis()">開始初始化資料庫</button>
+
+    <div id="console">系統準備就緒...</div>
+</div>
+
+<script>
+    // 1. 初始化 Firebase (使用您提供的設定)
+    const firebaseConfig = {
+        apiKey: "AIzaSyA2B_rDKi7JyLaYpJd-lfFNXZ1BJUzpu-k",
+        authDomain: "nursing-schedule-2f9c8.firebaseapp.com",
+        projectId: "nursing-schedule-2f9c8",
+        storageBucket: "nursing-schedule-2f9c8.firebasestorage.app",
+        messagingSenderId: "561144664580",
+        appId: "1:561144664580:web:3d4397a5cbd7f788b1db51",
+        measurementId: "G-V0DBP9RZ7P"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const logDiv = document.getElementById('console');
+
+    // --- 種子資料定義 (不寫死在應用程式，而是寫入資料庫) ---
+
+    // A. 系統權限池 (Permissions)
+    const SEED_PERMISSIONS = [
+        // 系統級權限
+        { code: "sys_global_settings", desc: "系統全域設定", category: "system" },
+        { code: "sys_manage_units", desc: "管理所有單位 (新增/修改)", category: "system" },
+        { code: "sys_manage_users", desc: "管理所有帳號", category: "system" },
+        { code: "sys_manage_menus", desc: "管理功能表", category: "system" },
+        
+        // 單位級權限
+        { code: "unit_view_schedule", desc: "查看班表", category: "schedule" },
+        { code: "unit_manage_schedule", desc: "排班管理 (排班/發布)", category: "schedule" },
+        { code: "unit_manage_staff", desc: "單位人員管理", category: "hr" },
+        { code: "unit_approve_swaps", desc: "審核換班申請", category: "schedule" },
+        { code: "unit_submit_wishes", desc: "提交預班", category: "schedule" }
+    ];
+
+    // B. 角色定義 (Roles)
+    const SEED_ROLES = {
+        "system_admin": {
+            name: "系統管理者",
+            permissions: ["*"], // 代表全開
+            level: 0,
+            description: "擁有系統最高權限，不隸屬特定單位"
+        },
+        "unit_manager": {
+            name: "單位管理者",
+            permissions: ["unit_view_schedule", "unit_manage_schedule", "unit_manage_staff", "unit_approve_swaps", "unit_submit_wishes"],
+            level: 1,
+            description: "負責單一單位的管理與排班"
+        },
+        "unit_scheduler": {
+            name: "單位排班者",
+            permissions: ["unit_view_schedule", "unit_manage_schedule", "unit_approve_swaps", "unit_submit_wishes"],
+            level: 2,
+            description: "協助單位排班，權限次於管理者"
+        },
+        "user": {
+            name: "一般使用者",
+            permissions: ["unit_view_schedule", "unit_submit_wishes"],
+            level: 3,
+            description: "僅能查看班表與提交需求"
+        }
+    };
+
+    // C. 初始選單 (Menus) - 這是 Admin 登入後第一眼看到的
+    const SEED_MENUS = [
+        {
+            label: "儀表板 (Dashboard)",
+            path: "/admin/dashboard",
+            icon: "fas fa-tachometer-alt",
+            requiredPermission: "sys_global_settings",
+            order: 1,
+            isActive: true
+        },
+        {
+            label: "單位管理",
+            path: "/admin/units",
+            icon: "fas fa-hospital",
+            requiredPermission: "sys_manage_units",
+            order: 2,
+            isActive: true
+        },
+        {
+            label: "全院人員帳號",
+            path: "/admin/users",
+            icon: "fas fa-users-cog",
+            requiredPermission: "sys_manage_users",
+            order: 3,
+            isActive: true
+        },
+        {
+            label: "功能選單設定",
+            path: "/admin/menus",
+            icon: "fas fa-list",
+            requiredPermission: "sys_manage_menus",
+            order: 99, // 放最後
+            isActive: true
+        }
+    ];
+
+    // --- 執行邏輯 ---
+    function log(msg, type = 'info') {
+        const p = document.createElement('p');
+        p.innerHTML = `> ${msg}`;
+        p.className = `log-${type}`;
+        logDiv.appendChild(p);
+        logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    async function runGenesis() {
+        const adminUid = document.getElementById('adminUid').value.trim();
+        const adminEmail = document.getElementById('adminEmail').value.trim();
+
+        if (!adminUid) { alert("請輸入 UID"); return; }
+        if (!confirm("確定要執行初始化嗎？這將寫入基礎資料。")) return;
+
+        log("開始初始化...", "info");
+
+        try {
+            const batch = db.batch();
+
+            // 1. 寫入權限
+            log("寫入 System Permissions...", "info");
+            SEED_PERMISSIONS.forEach(perm => {
+                const ref = db.collection('system_permissions').doc(perm.code);
+                batch.set(ref, perm);
+            });
+
+            // 2. 寫入角色
+            log("寫入 System Roles...", "info");
+            for (const [roleKey, roleData] of Object.entries(SEED_ROLES)) {
+                const ref = db.collection('system_roles').doc(roleKey);
+                batch.set(ref, roleData);
+            }
+
+            // 3. 寫入選單
+            log("寫入 System Menus...", "info");
+            // 先刪除舊的選單(如果有)，避免重複 (這裡簡化為直接新增，ID 自動產生)
+            SEED_MENUS.forEach((menu) => {
+                const ref = db.collection('system_menus').doc();
+                batch.set(ref, menu);
+            });
+
+            // 4. 設定 Admin 使用者
+            log(`設定使用者 ${adminUid} 為 system_admin...`, "info");
+            const userRef = db.collection('users').doc(adminUid);
+            
+            // 使用 set (merge: true) 避免覆蓋掉如果已經存在的其他欄位
+            batch.set(userRef, {
+                uid: adminUid,
+                email: adminEmail,
+                displayName: "超級管理員",
+                role: "system_admin",
+                unitId: null, // Admin 不歸屬單位
+                isActive: true,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            // 5. 提交
+            await batch.commit();
+            log("初始化完成！資料庫結構已建立。", "success");
+            log("您現在可以關閉此頁面，開始開發主程式。", "success");
+            alert("初始化成功！");
+
+        } catch (error) {
+            console.error(error);
+            log(`發生錯誤: ${error.message}`, "error");
+            log("請檢查 Firebase Console 的規則設定。", "error");
+        }
+    }
+</script>
+
 </body>
 </html>
