@@ -17,12 +17,16 @@ export const StaffModule = {
     init: async function() {
         // DOM 綁定
         this.tbody = document.getElementById('staff-table-body');
+        
         // 防呆：如果 DOM 還沒載入（例如切換太快），直接返回
         if (!this.tbody) return;
 
         this.modalEl = document.getElementById('addStaffModal');
         this.modalTitle = document.getElementById('staffModalTitle');
-        this.modal = new bootstrap.Modal(this.modalEl);
+        // 確保 Modal 元素存在才初始化
+        if (this.modalEl) {
+            this.modal = new bootstrap.Modal(this.modalEl);
+        }
         
         // 綁定按鈕與事件 (使用 ?. 防止按鈕不存在)
         document.getElementById('btn-add-staff')?.addEventListener('click', () => this.openModal());
@@ -47,7 +51,7 @@ export const StaffModule = {
             this.updateSeniorityText(e.target.value);
         });
 
-        // 特殊規則顯示切換 (連動)
+        // 特殊規則顯示切換 (連動 Radio Button 顯示)
         document.getElementById('staff-special')?.addEventListener('change', (e) => {
             const optionsDiv = document.getElementById('staff-special-options');
             if(optionsDiv) {
@@ -217,6 +221,7 @@ export const StaffModule = {
                 <td><span class="badge bg-light text-dark border">${s.level}</span></td>
                 <td>${s.group || '-'}</td>
                 <td>${s.role === 'Admin' ? '管理' : '一般'}</td>
+                <td class="small text-muted">${seniority}</td>
                 <td>${badges}</td>
                 <td class="text-center">
                     <button class="btn btn-sm btn-outline-primary btn-edit me-1"><i class="bi bi-pencil"></i></button>
@@ -299,7 +304,7 @@ export const StaffModule = {
             document.getElementById('staff-unitId').value = sysContext.getUnitId();
         }
 
-        this.modal.show();
+        if(this.modal) this.modal.show();
     },
 
     /**
@@ -354,7 +359,7 @@ export const StaffModule = {
                 await StaffService.addStaff(data);
             }
 
-            this.modal.hide();
+            if(this.modal) this.modal.hide();
             this.loadList();
             alert("儲存成功");
         } catch (error) {
