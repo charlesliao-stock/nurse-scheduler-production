@@ -57,25 +57,44 @@ export const StaffModule = {
         this.refreshUnitOptions();
     },
 
+// ... (前段代碼保持不變)
+
+    /**
+     * 讀取 Context 設定並刷新組別與職稱下拉選單
+     * 🌟 完全動態化：資料來源是 DB -> Context -> 這裡
+     */
     refreshUnitOptions: function() {
-        const config = sysContext.unitConfig || {};
-        const groups = config.groups || [];
-        const titles = config.titles || [];
+        // 1. 取得當前單位的設定檔
+        const config = sysContext.getUnitConfig();
+        
+        // 防呆：若尚未讀取到設定，使用空陣列
+        const groups = config?.groups || [];
+        const titles = config?.titles || [];
 
         const groupSelect = document.getElementById('staff-group');
         const titleSelect = document.getElementById('staff-title');
 
+        // 2. 動態生成 Group 下拉選單
         if(groupSelect) {
+            // 保留 "無" 的選項，若無資料則為空
             let html = '<option value="">無</option>';
-            groups.forEach(g => html += `<option value="${g}">${g}</option>`);
+            groups.forEach(g => {
+                html += `<option value="${g}">${g}</option>`;
+            });
             groupSelect.innerHTML = html;
         }
+
+        // 3. 動態生成 Title 下拉選單
         if(titleSelect) {
             let html = '<option value="">無</option>';
-            titles.forEach(t => html += `<option value="${t}">${t}</option>`);
+            titles.forEach(t => {
+                html += `<option value="${t}">${t}</option>`;
+            });
             titleSelect.innerHTML = html;
         }
     },
+
+// ... (後段代碼保持不變)
 
     loadList: async function() {
         try {
