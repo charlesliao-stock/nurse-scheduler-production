@@ -22,12 +22,16 @@ self.onmessage = function(e) {
  * @param {object} data - 包含 staffList, shifts, preSchedules, daysInMonth, rules
  */
 function runScheduler(data) {
-    const { staffList, shifts, preSchedules, year, month, daysInMonth } = data;
+    const { staffList, shifts, preSchedules, daysInMonth } = data;
     
-    // 定義需求 (這裡先簡化為固定需求，未來可從 Rules 讀取)
-    // 假設每天需：白班(D) 2人, 小夜(E) 2人, 大夜(N) 2人
+    // 定義每日人力需求 (之後可做成動態設定)
+    // 假設每天需：白班(2), 小夜(2), 大夜(2) - 這只是範例邏輯
     const DEMAND = { 'D': 2, 'E': 2, 'N': 2 }; 
-    const SHIFT_KEYS = Object.keys(shifts).filter(k => shifts[k].hours > 0); // 排除 OFF
+    
+    // 取得有效的班別代號 (排除休假)
+    const WORK_SHIFTS = Object.values(shifts)
+        .filter(s => s.hours > 0)
+        .map(s => s.code);
 
     // 初始化排班表 (空表)
     let schedule = {};
@@ -39,7 +43,7 @@ function runScheduler(data) {
     });
 
     // ==========================================
-    // Cycle 1: 硬規則與預班填入 (Hard Rules & Wishes)
+    // Cycle 1: 優先填入預班 (Hard Rules & Wishes)
     // ==========================================
     schedule = immer.produce(schedule, draft => {
         staffList.forEach(staff => {
@@ -47,7 +51,7 @@ function runScheduler(data) {
             const wishes = preSchedules?.wishes?.[staffId] || {};
 
             for (let d = 1; d <= daysInMonth; d++) {
-                // 1. 填入預班 (User Wishes) - 這是最高優先級
+                // 1. 填入預班 (User Wishes)
                 if (wishes[d]) {
                     draft[staffId][d] = wishes[d];
                 }
@@ -65,10 +69,13 @@ function runScheduler(data) {
         let availableStaff = staffList.filter(s => schedule[s.id][d] === null);
         availableStaff = shuffleArray(availableStaff);
 
-        SHIFT_KEYS.forEach(shiftCode => {
+        WORK_SHIFTS.forEach(shiftCode => {
+            // 該班別設定 (用來檢查屬性)
+            const shiftConfig = shifts[shiftCode];
+
             // 計算目前該班別已有人數 (包含預班)
             let currentCount = countStaffOnShift(schedule, d, shiftCode);
-            let needed = DEMAND[shiftCode] - currentCount;
+            let needed = (DEMAND[shiftCode] || 0) - currentCount;
 
             if (needed > 0) {
                 // 從可用人員中挑選
@@ -78,13 +85,17 @@ function runScheduler(data) {
                     const staff = availableStaff[i];
                     
                     // 檢查規則 (Rules Check)
-                    if (isValidAssignment(schedule, staff.id, d, shiftCode)) {
-                        schedule[staff.id][d] = shiftCode; // 排入
-                        
-                        // 從可用名單移除
-                        availableStaff.splice(i, 1);
-                        i--; 
-                        needed--;
+                    // 1. 檢查人員屬性 (如: 懷孕不排夜班)
+                    if (checkStaffConstraints(staff, shiftConfig)) {
+                        // 2. 檢查排班邏輯 (如: 不可 N 接 D)
+                        if (isValidAssignment(schedule, staff.id, d, shiftCode, shifts)) {
+                            schedule[staff.id][d] = shiftCode; // 排入
+                            
+                            // 從可用名單移除
+                            availableStaff.splice(i, 1);
+                            i--; 
+                            needed--;
+                        }
                     }
                 }
             }
@@ -119,28 +130,47 @@ function countStaffOnShift(schedule, day, shiftCode) {
     return count;
 }
 
-// 檢查規則 (核心邏輯)
-function isValidAssignment(schedule, staffId, day, shiftCode) {
+// 檢查人員屬性限制
+function checkStaffConstraints(staff, shiftConfig) {
+    // 規則: 懷孕者不排夜班 (Night)
+    if (staff.isPregnant && shiftConfig.category === 'Night') {
+        return false;
+    }
+    return true;
+}
+
+// 檢查排班邏輯 (核心邏輯)
+function isValidAssignment(schedule, staffId, day, shiftCode, allShifts) {
     // 規則 1: N 接 D 禁止 (昨日是 N，今日不能是 D)
     if (day > 1) {
-        const prevShift = schedule[staffId][day - 1];
-        if (prevShift === 'N' && shiftCode === 'D') return false;
-        // 小夜接白班也盡量避免 (E -> D)
-        if (prevShift === 'E' && shiftCode === 'D') return false;
+        const prevCode = schedule[staffId][day - 1];
+        if (prevCode) {
+            const prevShift = allShifts[prevCode];
+            const currShift = allShifts[shiftCode];
+
+            // 如果昨天是夜班 (Night)，今天是日班 (Day)，禁止
+            if (prevShift?.category === 'Night' && currShift?.category === 'Day') {
+                return false;
+            }
+        }
     }
 
-    // 規則 2: 連續上班天數限制 (勞基法 7休1，這裡簡化為連6休1)
-    // 往回推算連續上班天數
+    // 規則 2: 連續上班天數限制 (勞基法 7休1，這裡設定連 6 天後必須休)
     let consecutiveDays = 0;
     for (let k = day - 1; k >= 1; k--) {
-        if (schedule[staffId][k] !== 'OFF' && schedule[staffId][k] !== null) {
+        const code = schedule[staffId][k];
+        // 如果不是 OFF 且不是 null，視為上班
+        if (code && code !== 'OFF') {
             consecutiveDays++;
         } else {
             break;
         }
     }
-    // 如果已經連上 6 天，今天必須 OFF
-    if (consecutiveDays >= 6 && shiftCode !== 'OFF') return false;
+    
+    // 如果已經連上 6 天，今天不能再排班 (除非是 OFF)
+    if (consecutiveDays >= 6 && shiftCode !== 'OFF') {
+        return false;
+    }
 
     return true;
 }
