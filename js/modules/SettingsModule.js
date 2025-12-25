@@ -8,15 +8,23 @@ export const SettingsModule = {
     },
 
     init: async function() {
-        // 載入當前設定 (從 Context 讀取，若無則預設)
-        const config = sysContext.unitConfig || {};
-        this.state.titles = config.titles || ['護理師'];
-        this.state.groups = config.groups || ['A', 'B'];
+        // 1. 從 Context 取得當前單位的設定 (這是動態的，來自 DB)
+        const config = sysContext.getUnitConfig();
+        
+        if (!config) {
+            alert("請先選擇單位");
+            return;
+        }
+
+        // 若資料庫無資料，給予空陣列，絕不寫死預設值
+        this.state.titles = config.titles || [];
+        this.state.groups = config.groups || [];
 
         // DOM 綁定
         this.listTitles = document.getElementById('list-titles');
         this.listGroups = document.getElementById('list-groups');
         
+        // 綁定事件
         document.getElementById('btn-add-title').onclick = () => this.addItem('title');
         document.getElementById('btn-add-group').onclick = () => this.addItem('group');
         document.getElementById('btn-save-settings').onclick = () => this.save();
@@ -53,6 +61,7 @@ export const SettingsModule = {
         
         if(!val) return;
         
+        // 加入陣列
         if(type === 'title') this.state.titles.push(val);
         else this.state.groups.push(val);
         
@@ -73,18 +82,20 @@ export const SettingsModule = {
         btn.innerHTML = '儲存中...';
 
         try {
-            const unitId = sysContext.getUnitId();
-            // 寫入資料庫
+            const unitId = sysContext.getActiveUnitId();
+            
+            // 1. 寫入資料庫
             await UnitService.updateUnitSettings(unitId, {
                 titles: this.state.titles,
                 groups: this.state.groups
             });
             
-            // 更新本地 Context (重要：這樣切換回人員管理時才能讀到新的選項)
-            if(sysContext.unitConfig) {
-                sysContext.unitConfig.titles = this.state.titles;
-                sysContext.unitConfig.groups = this.state.groups;
-            }
+            // 2. 🌟 關鍵：立即更新本地 Context
+            // 這樣切換回「人員管理」時，下拉選單才會立刻變更，不需要 F5
+            sysContext.updateLocalSettings({
+                titles: this.state.titles,
+                groups: this.state.groups
+            });
 
             alert("✅ 設定已儲存！");
         } catch (error) {
