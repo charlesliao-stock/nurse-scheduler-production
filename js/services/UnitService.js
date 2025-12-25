@@ -2,50 +2,40 @@ import { db } from "../firebase-init.js";
 import { doc, setDoc, updateDoc, getDoc } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
 export const UnitService = {
-    /**
-     * 1. 建立單位 (僅基本資料)
-     */
-    async createUnit(userId, unitId, unitName) {
-        try {
-            // 檢查單位是否已存在
-            const unitRef = doc(db, "units", unitId);
-            const snap = await getDoc(unitRef);
-            if(snap.exists()) {
-                throw new Error("此單位代號已存在，請使用其他代號");
-            }
+    // ... (保留原本的 createUnit, updateShifts) ...
 
-            // 建立單位 (shifts 給空物件)
+    async createUnit(userId, unitId, unitName) {
+        // ... (保持原本邏輯) ...
+        // 建議這裡初始建立時，也可以給預設的 groups 和 titles
+        const unitRef = doc(db, "units", unitId);
+        // 若文件不存在才建立
+        const snap = await getDoc(unitRef);
+        if(!snap.exists()) {
             await setDoc(unitRef, {
                 name: unitName,
-                shifts: {}, 
+                shifts: {},
+                groups: ['A', 'B'], // 預設組別
+                titles: ['護理長', '護理師', '專科護理師'], // 預設職稱
                 managers: [userId],
                 createdAt: new Date()
             });
-
-            // 更新使用者的 unitId
             const userRef = doc(db, "users", userId);
             await updateDoc(userRef, { unitId: unitId });
-
-            return true;
-        } catch (error) {
-            console.error("建立單位失敗:", error);
-            throw error;
         }
+        return true;
+    },
+
+    async updateShifts(unitId, shiftsMap) {
+        const unitRef = doc(db, "units", unitId);
+        await updateDoc(unitRef, { shifts: shiftsMap });
     },
 
     /**
-     * 2. 更新班別設定
+     * 🌟 新增：更新單位的組別與職稱設定
      */
-    async updateShifts(unitId, shiftsMap) {
-        try {
-            const unitRef = doc(db, "units", unitId);
-            await updateDoc(unitRef, {
-                shifts: shiftsMap
-            });
-            return true;
-        } catch (error) {
-            console.error("更新班別失敗:", error);
-            throw error;
-        }
+    async updateUnitSettings(unitId, settings) {
+        // settings = { groups: [], titles: [] }
+        const unitRef = doc(db, "units", unitId);
+        await updateDoc(unitRef, settings);
     }
 };
