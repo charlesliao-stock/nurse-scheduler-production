@@ -73,7 +73,7 @@ async function handleLoginSuccess(firebaseUser) {
         await loadView('app-root', 'views/layout.html');
         await initSidebar();
         
-        // 預設首頁邏輯
+        // 預設首頁邏輯：有管理權限去人員管理，否則去預班
         if (sysContext.hasPermission(PERMISSIONS_OPTS.MANAGE_STAFF)) {
             loadModuleContent('staff');
         } else {
@@ -134,7 +134,8 @@ async function initSidebar() {
         };
     }
 
-    // --- 🌟 選單權限過濾 ---
+    // --- 🌟 選單權限過濾 (核心邏輯) ---
+    // 定義每個選單項目需要的權限
     const menuItems = [
         { id: 'nav-pre', perm: PERMISSIONS_OPTS.SUBMIT_WISHES, target: 'pre-schedule' },
         { id: 'nav-staff', perm: PERMISSIONS_OPTS.MANAGE_STAFF, target: 'staff' },
@@ -143,19 +144,20 @@ async function initSidebar() {
         { id: 'nav-schedule', perm: PERMISSIONS_OPTS.VIEW_SCHEDULE, target: 'schedule-editor' }
     ];
 
-    // 先隱藏所有，再依權限顯示
-    const linksContainer = document.querySelector('.list-group-flush');
-    // 清空現有連結 (若 layout.html 寫死，這裡要重整，建議直接操作 DOM 隱藏)
-    document.querySelectorAll('.list-group-item-action').forEach(el => el.classList.add('d-none'));
+    // 先隱藏所有選單
+    const allLinks = document.querySelectorAll('.list-group-item-action');
+    allLinks.forEach(el => el.classList.add('d-none'));
 
+    // 再依權限顯示
     menuItems.forEach(item => {
         if (sysContext.hasPermission(item.perm)) {
             const el = document.querySelector(`[data-target="${item.target}"]`);
             if(el) {
                 el.classList.remove('d-none');
+                // 重新綁定點擊事件
                 el.onclick = (e) => {
                     e.preventDefault();
-                    document.querySelectorAll('.list-group-item-action').forEach(l => l.classList.remove('active'));
+                    allLinks.forEach(l => l.classList.remove('active'));
                     el.classList.add('active');
                     loadModuleContent(item.target);
                 };
@@ -171,9 +173,6 @@ async function loadModuleContent(targetKey, force = false) {
     const route = routes[targetKey];
     if (!route) return;
 
-    // 權限檢查：若直接呼叫函式進入無權限頁面，擋下
-    // (這裡做簡單對應，更嚴謹應在 routes 定義需要的權限)
-    
     const success = await loadView('dynamic-content', route.view);
     if (!success) return;
 
