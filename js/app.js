@@ -1,7 +1,7 @@
 import { AuthService } from "./services/AuthService.js";
 import { sysContext } from "./core/SystemContext.js";
 import { ViewLoader } from "./core/ViewLoader.js";
-import { UnitService } from "./services/UnitService.js"; // 引入 UnitService
+import { UnitService } from "./services/UnitService.js";
 
 // 各功能模組
 import { StaffModule } from "./modules/StaffModule.js";
@@ -9,34 +9,45 @@ import { UnitSetupModule } from "./modules/UnitSetupModule.js";
 import { ShiftModule } from "./modules/ShiftModule.js";
 import { PreScheduleModule } from "./modules/PreScheduleModule.js";
 import { ScheduleEditorModule } from "./modules/ScheduleEditorModule.js";
-import { SettingsModule } from "./modules/SettingsModule.js";
+import { UnitManagementModule } from "./modules/UnitManagementModule.js"; // 🌟 新增：整合管理模組
 
 const loadingOverlay = document.getElementById('loading-overlay');
 
+// 路由設定：定義 data-target 對應的 HTML 路徑與模組
 const routes = {
     'staff': { view: 'views/staff.html', module: StaffModule },
     'shift': { view: 'views/shift.html', module: ShiftModule },
     'pre-schedule': { view: 'views/pre-schedule.html', module: PreScheduleModule },
     'schedule-editor': { view: 'views/schedule-editor.html', module: ScheduleEditorModule },
-    'settings': { view: 'views/settings.html', module: SettingsModule },
-    'unit-info': { view: 'views/unit-info.html', module: null }
+    
+    // 🌟 修改：統一使用「單位管理」取代原本的 settings 與 unit-info
+    'unit-management': { view: 'views/unit-management.html', module: UnitManagementModule }
 };
 
-// 紀錄當前所在的分頁
+// 紀錄當前所在的分頁，避免重複點擊重整
 let currentTargetKey = null;
 
+/**
+ * 應用程式啟動入口
+ */
 function initApp() {
     console.log("[App] SPA 啟動中...");
+
+    // 監聽 Auth
     AuthService.onAuthStateChanged(async (firebaseUser) => {
         if (firebaseUser) {
             await handleLoginSuccess(firebaseUser);
         } else {
+            // 未登入 -> 載入登入畫面
             await loadView('app-root', 'views/login.html');
             bindLoginEvents();
         }
     });
 }
 
+/**
+ * 通用：載入 View 到指定容器
+ */
 async function loadView(containerId, filePath) {
     setLoading(true, "畫面載入中...");
     const success = await ViewLoader.load(containerId, filePath);
@@ -44,6 +55,9 @@ async function loadView(containerId, filePath) {
     return success;
 }
 
+/**
+ * 綁定登入頁面事件
+ */
 function bindLoginEvents() {
     const form = document.getElementById('login-form');
     if (form) {
@@ -62,25 +76,29 @@ function bindLoginEvents() {
     }
 }
 
+/**
+ * 登入成功後處理邏輯
+ */
 async function handleLoginSuccess(firebaseUser) {
     try {
         setLoading(true, "系統初始化...");
         await sysContext.init(firebaseUser);
 
-        // 如果是一般使用者且無單位 ID，進入 Setup
+        // 判斷是否需要進入初始設定 (Setup)
+        // 條件：非系統管理員 且 (無單位ID 或 無設定檔)
         if (!sysContext.isSystemAdmin() && (!sysContext.getHomeUnitId() || !sysContext.hasUnitConfig())) {
             await loadView('app-root', 'views/setup.html');
             UnitSetupModule.init(); 
             return;
         }
 
-        // 正常登入 -> 載入主框架
+        // 正常登入 -> 載入主框架 (Layout)
         await loadView('app-root', 'views/layout.html');
         
         // 初始化側邊欄 (含單位選單邏輯)
         await initSidebar();
 
-        // 預設載入人員管理
+        // 預設載入「人員管理」
         loadModuleContent('staff');
 
     } catch (error) {
@@ -93,7 +111,7 @@ async function handleLoginSuccess(firebaseUser) {
 }
 
 /**
- * 🌟 初始化側邊欄與單位選單
+ * 初始化側邊欄與單位選單
  */
 async function initSidebar() {
     // 顯示使用者資訊
@@ -101,18 +119,18 @@ async function initSidebar() {
     setText('nav-user-role', roleText);
     setText('nav-user-name', sysContext.getUserName());
 
-    // 登出
+    // 登出按鈕
     document.getElementById('logout-btn').onclick = async () => {
         await AuthService.logout();
         window.location.reload();
     };
 
-    // Toggle
+    // 側邊欄縮放 Toggle
     const toggle = document.getElementById('menu-toggle');
     const wrapper = document.getElementById('wrapper');
     if(toggle) toggle.onclick = () => wrapper.classList.toggle('toggled');
 
-    // 🌟 處理「單位選擇器」邏輯
+    // 🌟 處理「全域單位選擇器」邏輯
     const unitSelect = document.getElementById('global-unit-select');
     if (unitSelect) {
         unitSelect.innerHTML = '<option value="">讀取中...</option>';
@@ -134,13 +152,13 @@ async function initSidebar() {
             unitSelect.disabled = true;
         }
 
-        // 監聽選單改變
+        // 監聽選單改變 (系統管理員切換單位)
         unitSelect.onchange = async (e) => {
             const newUnitId = e.target.value;
             setLoading(true, "切換單位中...");
             await sysContext.switchUnit(newUnitId);
             
-            // 重新載入當前模組
+            // 如果當前有顯示某個模組，強制重新載入以刷新資料
             if (currentTargetKey) {
                 loadModuleContent(currentTargetKey, true); // true = force reload
             }
@@ -148,23 +166,27 @@ async function initSidebar() {
         };
     }
 
-    // 選單點擊
+    // 綁定側邊選單點擊事件
     const links = document.querySelectorAll('.list-group-item-action');
     links.forEach(link => {
         link.onclick = (e) => {
             e.preventDefault();
             const target = link.getAttribute('data-target');
             
+            // UI Active 狀態切換
             links.forEach(l => l.classList.remove('active'));
             link.classList.add('active');
 
+            // 載入右側內容
             loadModuleContent(target);
         };
     });
 }
 
 /**
- * 載入模組內容
+ * 載入模組內容到右側區域
+ * @param {string} targetKey - 路由 Key (如 'staff', 'shift')
+ * @param {boolean} force - 是否強制重新載入 (用於切換單位時)
  */
 async function loadModuleContent(targetKey, force = false) {
     if (!force && currentTargetKey === targetKey) return; // 避免重複點擊
@@ -174,14 +196,11 @@ async function loadModuleContent(targetKey, force = false) {
     if (!route) return;
 
     // 檢查是否已選擇單位 (系統管理員若未選單位，顯示提示)
-    if (sysContext.isSystemAdmin() && !sysContext.getActiveUnitId()) {
-        document.getElementById('dynamic-content').innerHTML = `
-            <div class="alert alert-info text-center mt-5">
-                <h4><i class="bi bi-arrow-up-circle"></i> 請先選擇一個單位</h4>
-                <p>系統管理員需在左上方選單選擇要管理的單位，才能檢視資料。</p>
-            </div>`;
-        return;
-    }
+    // 但若是 unit-management 這種管理介面，可能允許未選單位時進入(視模組內部實作而定)，這裡統一先載入 View
+    // 讓各個 Module 內部自己去檢查 sysContext.getActiveUnitId() 並顯示提示
+    
+    // 特別處理：如果系統管理員未選單位，且進入的是需要資料的頁面，可以在這裡擋，
+    // 但目前策略是讓 Module init 自己去判斷並顯示 "請選擇單位"。
 
     // 載入 HTML
     const success = await loadView('dynamic-content', route.view);
@@ -190,29 +209,28 @@ async function loadModuleContent(targetKey, force = false) {
     // 初始化模組
     if (route.module && typeof route.module.init === 'function') {
         try {
-            if (targetKey === 'unit-info') {
-                renderUnitInfo();
-            } else {
-                await route.module.init(); 
-            }
+            await route.module.init(); 
         } catch (e) {
             console.error(`模組 ${targetKey} 初始化失敗:`, e);
+            document.getElementById('dynamic-content').innerHTML = `
+                <div class="alert alert-danger">
+                    模組載入錯誤: ${e.message}
+                </div>`;
         }
     }
 }
 
-function renderUnitInfo() {
-    setText('info-unit-id', sysContext.getActiveUnitId());
-    setText('info-unit-name', sysContext.getUnitName());
-    // 這裡的管理者姓名可能需要另外撈，暫時顯示當前操作者
-    setText('info-admin-name', "單位管理者"); 
-}
-
+/**
+ * 設定文字 Helper
+ */
 function setText(id, text) {
     const el = document.getElementById(id);
     if(el) el.innerText = text;
 }
 
+/**
+ * Loading 遮罩控制
+ */
 function setLoading(isLoading, text) {
     if(isLoading) {
         document.getElementById('loading-text').innerText = text;
@@ -222,4 +240,5 @@ function setLoading(isLoading, text) {
     }
 }
 
+// 啟動 App
 initApp();
