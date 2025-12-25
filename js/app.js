@@ -9,6 +9,7 @@ import { UnitSetupModule } from "./modules/UnitSetupModule.js";
 import { ShiftModule } from "./modules/ShiftModule.js";
 import { PreScheduleModule } from "./modules/PreScheduleModule.js";
 import { ScheduleEditorModule } from "./modules/ScheduleEditorModule.js";
+import { SettingsModule } from "./modules/SettingsModule.js";
 
 const loadingOverlay = document.getElementById('loading-overlay');
 
@@ -18,6 +19,7 @@ const routes = {
     'shift': { view: 'views/shift.html', module: ShiftModule },
     'pre-schedule': { view: 'views/pre-schedule.html', module: PreScheduleModule },
     'schedule-editor': { view: 'views/schedule-editor.html', module: ScheduleEditorModule },
+    'settings': { view: 'views/settings.html', module: SettingsModule },
     'unit-info': { view: 'views/unit-info.html', module: null } // 單純顯示，無模組
 };
 
