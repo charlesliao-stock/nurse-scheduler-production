@@ -1,28 +1,28 @@
 import { FirestoreService } from "../services/FirestoreService.js";
 
-// 🌟 定義角色與權限對照表
+// 🌟 定義角色與權限對照表 (權限常數保持不變)
 const PERMISSIONS = {
     // 系統級權限
-    MANAGE_ALL_UNITS: 'manage_all_units', // 跨單位切換/新增單位
+    MANAGE_ALL_UNITS: 'manage_all_units', 
     
     // 單位管理權限
-    MANAGE_UNIT_SETTINGS: 'manage_unit_settings', // 修改職稱/組別/單位名稱
-    MANAGE_SHIFTS: 'manage_shifts', // 修改班別設定
+    MANAGE_UNIT_SETTINGS: 'manage_unit_settings', 
+    MANAGE_SHIFTS: 'manage_shifts', 
     
     // 人員管理權限
-    MANAGE_STAFF: 'manage_staff', // 新增/編輯/刪除人員
+    MANAGE_STAFF: 'manage_staff', 
     
     // 排班權限
-    EDIT_SCHEDULE: 'edit_schedule', // 進入排班大表編輯、執行AI
-    VIEW_SCHEDULE: 'view_schedule', // 查看排班表
+    EDIT_SCHEDULE: 'edit_schedule', 
+    VIEW_SCHEDULE: 'view_schedule', 
     
     // 個人權限
-    SUBMIT_WISHES: 'submit_wishes' // 填寫預班
+    SUBMIT_WISHES: 'submit_wishes' 
 };
 
-// 角色對應權限表
+// 🌟 角色對應權限表 (已更新代號)
 const ROLE_MAP = {
-    'SystemAdmin': [ // 系統管理者: 全能
+    'system_admin': [ // 系統管理者
         PERMISSIONS.MANAGE_ALL_UNITS,
         PERMISSIONS.MANAGE_UNIT_SETTINGS,
         PERMISSIONS.MANAGE_SHIFTS,
@@ -31,7 +31,7 @@ const ROLE_MAP = {
         PERMISSIONS.VIEW_SCHEDULE,
         PERMISSIONS.SUBMIT_WISHES
     ],
-    'UnitAdmin': [ // 單位管理者: 鎖定單位，但該單位內全能
+    'unit_manager': [ // 單位管理者
         PERMISSIONS.MANAGE_UNIT_SETTINGS,
         PERMISSIONS.MANAGE_SHIFTS,
         PERMISSIONS.MANAGE_STAFF,
@@ -39,12 +39,12 @@ const ROLE_MAP = {
         PERMISSIONS.VIEW_SCHEDULE,
         PERMISSIONS.SUBMIT_WISHES
     ],
-    'Scheduler': [ // 單位排班者: 只能排班，不能動人事與設定
+    'unit_scheduler': [ // 單位排班者
         PERMISSIONS.EDIT_SCHEDULE,
         PERMISSIONS.VIEW_SCHEDULE,
         PERMISSIONS.SUBMIT_WISHES
     ],
-    'User': [ // 一般使用者: 只能看與提需求
+    'user': [ // 一般使用者
         PERMISSIONS.VIEW_SCHEDULE,
         PERMISSIONS.SUBMIT_WISHES
     ]
@@ -66,14 +66,14 @@ class SystemContext {
 
             this.currentUser = await FirestoreService.getUserProfile(this.authUid);
             
-            // 預設角色處理
-            if (!this.currentUser.role) this.currentUser.role = 'User';
+            // 預設角色處理 (修正為 user)
+            if (!this.currentUser.role) this.currentUser.role = 'user';
 
             const role = this.currentUser.role;
             const homeUnitId = this.currentUser.unitId;
 
-            // 系統管理員預設不選單位，其他人鎖定自己的單位
-            if (role === 'SystemAdmin') {
+            // 系統管理員預設不選單位，其他人鎖定自己的單位 (修正為 system_admin)
+            if (role === 'system_admin') {
                 this.activeUnitId = null;
             } else {
                 this.activeUnitId = homeUnitId;
@@ -103,7 +103,6 @@ class SystemContext {
         }
 
         this.activeUnitId = unitId;
-        // 如果是 ALL 或 UNASSIGNED，unitConfig 會是 null，這是正常的
         if (unitId && unitId !== 'ALL' && unitId !== 'UNASSIGNED') {
             try {
                 this.unitConfig = await FirestoreService.getUnitConfig(unitId);
@@ -117,30 +116,29 @@ class SystemContext {
         }
     }
 
-    // 🌟 核心權限檢查方法 (您的舊版缺了這個，導致 app.js 報錯)
+    // 核心權限檢查方法
     hasPermission(permission) {
-        const role = this.currentUser?.role || 'User';
+        const role = this.currentUser?.role || 'user'; // 預設改為 user
         const allowed = ROLE_MAP[role] || [];
         return allowed.includes(permission);
     }
 
-    // 取得當前角色 (用於 UI 顯示)
     getRole() {
-        return this.currentUser?.role || 'User';
+        return this.currentUser?.role || 'user';
     }
 
-    // 取得當前角色中文名稱
+    // 取得當前角色中文名稱 (已更新鍵值)
     getRoleName() {
         const map = {
-            'SystemAdmin': '系統管理者',
-            'UnitAdmin': '單位管理者',
-            'Scheduler': '單位排班者',
-            'User': '一般使用者'
+            'system_admin': '系統管理者',
+            'unit_manager': '單位管理者',
+            'unit_scheduler': '單位排班者',
+            'user': '一般使用者'
         };
-        return map[this.getRole()] || '未知';
+        return map[this.getRole()] || '未知角色';
     }
 
-    // --- 原有 Getters ---
+    // --- Getters ---
     getActiveUnitId() { return this.activeUnitId; }
     getUnitId() { return this.activeUnitId; }
     getHomeUnitId() { return this.currentUser?.unitId || null; }
@@ -150,7 +148,9 @@ class SystemContext {
     getUnitName() { return this.unitConfig?.name || ""; }
     getUserName() { return this.currentUser?.name || this.currentUser?.staffName || "Guest"; }
     getCurrentUserId() { return this.authUid || this.currentUser?.uid; }
-    isSystemAdmin() { return this.currentUser?.role === 'SystemAdmin'; }
+    
+    // 判斷是否為系統管理員 (修正判斷)
+    isSystemAdmin() { return this.currentUser?.role === 'system_admin'; }
 
     updateLocalSettings(settings) {
         if (this.unitConfig) {
@@ -163,6 +163,5 @@ class SystemContext {
     }
 }
 
-// 匯出常數供模組使用 (app.js 需要這個)
 export const PERMISSIONS_OPTS = PERMISSIONS;
 export const sysContext = new SystemContext();
