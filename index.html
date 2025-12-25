@@ -16,10 +16,18 @@
     <div id="login-view">
         <div class="login-card">
             <h2><i class="fas fa-hospital-user"></i> 系統登入</h2>
-            <input type="email" id="loginEmail" placeholder="Email" value="admin@hospital.com">
+            
+            <input type="email" id="loginEmail" placeholder="Email" value="">
             <input type="password" id="loginPassword" placeholder="密碼">
+            
             <button class="btn btn-primary" onclick="app.login()">登入</button>
-            <p id="loginError" style="color:red; margin-top:10px; font-size:0.9rem;"></p>
+            <p id="loginError" style="color:red; margin-top:10px; font-size:0.9rem; min-height: 20px;"></p>
+
+            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee;">
+                <a href="signup.html" style="text-decoration: none; color: #3498db; font-size: 0.9rem; font-weight: bold;">
+                    <i class="fas fa-user-plus"></i> 第一次使用？(帳號開通)
+                </a>
+            </div>
         </div>
     </div>
 
