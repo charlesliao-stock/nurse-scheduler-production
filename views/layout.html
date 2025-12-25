@@ -1,0 +1,38 @@
+<div id="main-view">
+    <div id="wrapper">
+        <div id="sidebar-wrapper">
+            <div class="sidebar-heading"><i class="bi bi-hospital"></i> AI 護理排班</div>
+            <div class="sidebar-toggle-tag" id="menu-toggle"><i class="bi bi-chevron-left"></i></div>
+
+            <div class="list-group list-group-flush flex-grow-1">
+                <a class="list-group-item list-group-item-action" data-view="views/pre-schedule.html" id="nav-pre">
+                    <i class="bi bi-calendar-week"></i> 預班管理
+                </a>
+                <a class="list-group-item list-group-item-action" data-view="views/staff.html" id="nav-staff">
+                    <i class="bi bi-people"></i> 人員管理
+                </a>
+                <a class="list-group-item list-group-item-action" data-view="views/shift.html" id="nav-shift">
+                    <i class="bi bi-sliders"></i> 班別設定
+                </a>
+                <a class="list-group-item list-group-item-action" data-view="views/schedule-editor.html" id="nav-schedule">
+                    <i class="bi bi-table"></i> 排班作業
+                </a>
+                <a class="list-group-item list-group-item-action" data-view="views/unit-info.html" id="nav-info">
+                    <i class="bi bi-info-circle"></i> 單位資訊
+                </a>
+            </div>
+
+            <div class="user-info-box">
+                <div id="nav-unit-name" class="fw-bold text-white mb-1"></div>
+                <div id="nav-user-name" class="user-name-text"></div>
+                <button id="logout-btn" class="btn btn-sm btn-outline-danger w-100">登出</button>
+            </div>
+        </div>
+
+        <div id="page-content-wrapper">
+            <div class="container-fluid py-4 px-4">
+                <div id="dynamic-content"></div>
+            </div>
+        </div>
+    </div>
+</div>
