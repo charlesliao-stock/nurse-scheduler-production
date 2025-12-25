@@ -1,0 +1,46 @@
+<div id="settings-container">
+    <div class="mb-3">
+        <h4>單位參數設定</h4>
+        <p class="text-muted small">在此設定單位的職稱列表與組別列表，這些選項將連動至人員管理。</p>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 mb-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-light fw-bold">
+                    <i class="bi bi-person-badge"></i> 職稱管理 (Job Titles)
+                </div>
+                <div class="card-body">
+                    <div class="input-group mb-3">
+                        <input type="text" id="input-new-title" class="form-control" placeholder="輸入職稱 (如: 副護理長)">
+                        <button class="btn btn-outline-primary" id="btn-add-title">新增</button>
+                    </div>
+                    <ul class="list-group" id="list-titles">
+                        </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 mb-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-light fw-bold">
+                    <i class="bi bi-people"></i> 組別管理 (Groups)
+                </div>
+                <div class="card-body">
+                    <div class="input-group mb-3">
+                        <input type="text" id="input-new-group" class="form-control" placeholder="輸入組別 (如: C組)">
+                        <button class="btn btn-outline-primary" id="btn-add-group">新增</button>
+                    </div>
+                    <ul class="list-group" id="list-groups">
+                        </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-3">
+        <button class="btn btn-success px-4" id="btn-save-settings">
+            <i class="bi bi-save"></i> 儲存所有設定
+        </button>
+    </div>
+</div>
