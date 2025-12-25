@@ -1,19 +1,24 @@
 import { StaffService } from "../services/StaffService.js";
-import { UnitService } from "../services/UnitService.js"; // 引入 UnitService
-import { sysContext } from "../core/SystemContext.js";
+import { UnitService } from "../services/UnitService.js";
+import { sysContext, PERMISSIONS_OPTS } from "../core/SystemContext.js";
 
 export const StaffModule = {
+    // 狀態管理
     state: {
         allStaff: [],
         displayStaff: [],
         sortField: 'empId',
         sortAsc: true,
         currentEditId: null,
-        unitMap: {} // 用來儲存 unitId -> unitName 對照
+        unitMap: {} // 用來儲存 unitId -> unitName 的對照表 (ALL 模式用)
     },
 
+    /**
+     * 初始化模組
+     */
     init: async function() {
         this.tbody = document.getElementById('staff-table-body');
+        // 防呆：如果 DOM 還沒載入，直接返回
         if (!this.tbody) return;
 
         this.modalEl = document.getElementById('addStaffModal');
@@ -22,32 +27,54 @@ export const StaffModule = {
             this.modal = new bootstrap.Modal(this.modalEl);
         }
         
-        // 綁定事件
+        // 檢查權限：決定是否顯示操作按鈕
+        const canManage = sysContext.hasPermission(PERMISSIONS_OPTS.MANAGE_STAFF);
+        
+        // 綁定按鈕與事件
         const btnAdd = document.getElementById('btn-add-staff');
-        if (btnAdd) btnAdd.onclick = () => this.handleAddClick();
+        const btnImport = document.getElementById('btn-import-staff');
+        const btnDownload = document.getElementById('btn-download-template');
 
-        const btnSave = document.getElementById('btn-save-staff-submit');
-        if (btnSave) btnSave.onclick = () => this.handleSave();
+        if (!canManage) {
+            // 無權限則隱藏按鈕
+            if(btnAdd) btnAdd.classList.add('d-none');
+            if(btnImport) btnImport.classList.add('d-none');
+            if(btnDownload) btnDownload.classList.add('d-none');
+        } else {
+            // 有權限則綁定事件
+            if(btnAdd) {
+                btnAdd.classList.remove('d-none');
+                btnAdd.onclick = () => this.handleAddClick();
+            }
+            if(btnImport) {
+                btnImport.classList.remove('d-none');
+                btnImport.onclick = () => document.getElementById('file-import-staff').click();
+            }
+            if(btnDownload) {
+                btnDownload.classList.remove('d-none');
+                btnDownload.onclick = () => this.downloadTemplate();
+            }
+            
+            const fileInput = document.getElementById('file-import-staff');
+            if (fileInput) fileInput.onchange = (e) => this.handleImport(e);
 
+            const btnSave = document.getElementById('btn-save-staff-submit');
+            if (btnSave) btnSave.onclick = () => this.handleSave();
+        }
+
+        // 搜尋與排序 (所有人都能用)
         const searchInput = document.getElementById('staff-search-input');
         if (searchInput) searchInput.oninput = (e) => this.handleSearch(e.target.value);
         
-        const btnDownload = document.getElementById('btn-download-template');
-        if (btnDownload) btnDownload.onclick = () => this.downloadTemplate();
-
-        const btnImport = document.getElementById('btn-import-staff');
-        if (btnImport) btnImport.onclick = () => document.getElementById('file-import-staff').click();
-
-        const fileInput = document.getElementById('file-import-staff');
-        if (fileInput) fileInput.onchange = (e) => this.handleImport(e);
-
         document.querySelectorAll('th.sortable').forEach(th => {
             th.onclick = () => this.handleSort(th.getAttribute('data-sort'));
         });
 
+        // 綁定年資計算
         const hireDateInput = document.getElementById('staff-hireDate');
         if (hireDateInput) hireDateInput.onchange = (e) => this.updateSeniorityText(e.target.value);
 
+        // 特殊規則顯示切換 (連動 Radio Button)
         const specialCheck = document.getElementById('staff-special');
         if (specialCheck) {
             specialCheck.onchange = (e) => {
@@ -56,21 +83,27 @@ export const StaffModule = {
             };
         }
 
-        // 初始化
+        // 初始化下拉選單與列表
         this.initDropdowns();
         await this.loadList();
     },
 
+    /**
+     * 點擊新增按鈕
+     */
     handleAddClick: function() {
-        // 在 ALL 模式下允許新增，因為我們會在 Modal 裡開放單位選擇
         const activeUnitId = sysContext.getActiveUnitId();
+        // 若未選擇單位且不是 ALL 模式，提示選擇
         if (!activeUnitId) {
-            alert("請先選擇一個單位，或選擇「所有單位」。");
+            alert("請先於左上角選擇一個單位，或選擇「所有單位」。");
             return;
         }
         this.openModal();
     },
 
+    /**
+     * 初始化工具列的下拉選單
+     */
     initDropdowns: function() {
         const unitId = sysContext.getActiveUnitId();
         const unitName = sysContext.getUnitName();
@@ -87,9 +120,13 @@ export const StaffModule = {
             filterSelect.disabled = true; 
         }
         
+        // 預設更新 Modal 內的下拉 (如果是特定單位模式)
         this.refreshUnitOptions();
     },
 
+    /**
+     * 讀取 Context 設定並刷新組別與職稱下拉選單 (針對單一單位)
+     */
     refreshUnitOptions: function() {
         const config = sysContext.getUnitConfig();
         const groups = config?.groups || [];
@@ -110,38 +147,47 @@ export const StaffModule = {
         }
     },
 
+    /**
+     * 從資料庫載入人員列表
+     */
     loadList: async function() {
         const unitId = sysContext.getActiveUnitId();
+        
         if (!unitId) {
             this.tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-5"><i class="bi bi-arrow-up-circle"></i> 請先選擇單位以檢視資料</td></tr>';
             return;
         }
 
         try {
-            // 如果是 ALL 或 UNASSIGNED，先抓取單位名稱對照表
+            // 如果是 ALL 或 UNASSIGNED，先抓取所有單位的名稱對照表，以便顯示中文名稱
             if (unitId === 'ALL' || unitId === 'UNASSIGNED') {
                 const units = await UnitService.getAllUnits();
                 this.state.unitMap = {};
                 units.forEach(u => this.state.unitMap[u.id] = u.name);
             } else {
+                // 單一單位模式
                 this.state.unitMap = { [unitId]: sysContext.getUnitName() };
             }
 
             this.state.allStaff = await StaffService.getStaffList(unitId);
             this.applyFilterAndSort();
         } catch (e) {
-            console.error(e);
+            console.error("[StaffModule] loadList Error:", e);
             if(this.tbody) this.tbody.innerHTML = '<tr><td colspan="9" class="text-center text-danger">載入失敗: ' + e.message + '</td></tr>';
         }
     },
 
+    /**
+     * 開啟 Modal (新增或編輯)
+     */
     openModal: async function(staff = null) {
-        document.getElementById('add-staff-form').reset();
+        const form = document.getElementById('add-staff-form');
+        if(form) form.reset();
         
         const activeUnitId = sysContext.getActiveUnitId();
         const unitSelect = document.getElementById('staff-unitId');
         
-        // 🌟 處理 Modal 內的單位選擇邏輯 (關鍵修正)
+        // 🌟 處理 Modal 內的單位選擇邏輯
         if (activeUnitId === 'ALL' || activeUnitId === 'UNASSIGNED') {
             // 模式 A: 開放選擇所有單位
             unitSelect.disabled = false;
@@ -160,40 +206,59 @@ export const StaffModule = {
             this.refreshUnitOptions(); 
         }
 
+        // 🌟 更新角色下拉選單
+        const roleSelect = document.getElementById('staff-role');
+        if (roleSelect) {
+            roleSelect.innerHTML = `
+                <option value="User">一般使用者 (User)</option>
+                <option value="Scheduler">單位排班者 (Scheduler)</option>
+                <option value="UnitAdmin">單位管理者 (Unit Admin)</option>
+                <option value="SystemAdmin" class="text-danger fw-bold">系統管理者 (System Admin)</option>
+            `;
+        }
+
+        // 切換回第一個 Tab
         const firstTabEl = document.querySelector('#staffTab button[data-bs-target="#tab-basic"]');
-        if(firstTabEl) { const t = new bootstrap.Tab(firstTabEl); t.show(); }
+        if(firstTabEl) {
+            const firstTab = new bootstrap.Tab(firstTabEl);
+            firstTab.show();
+        }
 
         const specialOptionsDiv = document.getElementById('staff-special-options');
         if(specialOptionsDiv) specialOptionsDiv.classList.add('d-none');
 
         if (staff) {
+            // 編輯模式
             this.state.currentEditId = staff.empId;
-            document.getElementById('staff-original-empId').value = staff.empId;
-            if(this.modalTitle) this.modalTitle.innerText = "編輯人員";
+            const originalIdInput = document.getElementById('staff-original-empId');
+            if(originalIdInput) originalIdInput.value = staff.empId;
             
+            if(this.modalTitle) this.modalTitle.innerText = "編輯人員";
             document.getElementById('staff-empId').value = staff.empId;
             document.getElementById('staff-name').value = staff.name;
             
-            // 回填職稱 (若跨單位可能無此選項，暫時動態加入)
+            // 回填職稱 (若下拉選單無此值，動態加入以免消失)
             const titleInput = document.getElementById('staff-title');
-            if (staff.title && ![...titleInput.options].some(o => o.value === staff.title)) {
+            if (staff.title && titleInput && ![...titleInput.options].some(o => o.value === staff.title)) {
                 const opt = new Option(staff.title, staff.title);
                 titleInput.add(opt);
             }
-            titleInput.value = staff.title || '';
+            if(titleInput) titleInput.value = staff.title || '';
 
             document.getElementById('staff-email').value = staff.email || '';
             document.getElementById('staff-password').value = staff.password || '123456';
             document.getElementById('staff-level').value = staff.level;
             
+            // 回填組別
             const groupInput = document.getElementById('staff-group');
-            if (staff.group && ![...groupInput.options].some(o => o.value === staff.group)) {
+            if (staff.group && groupInput && ![...groupInput.options].some(o => o.value === staff.group)) {
                 const opt = new Option(staff.group, staff.group);
                 groupInput.add(opt);
             }
-            groupInput.value = staff.group || '';
+            if(groupInput) groupInput.value = staff.group || '';
 
-            document.getElementById('staff-role').value = staff.role || 'User';
+            if(roleSelect) roleSelect.value = staff.role || 'User';
+            
             document.getElementById('staff-hireDate').value = staff.hireDate || '';
             this.updateSeniorityText(staff.hireDate);
 
@@ -201,28 +266,49 @@ export const StaffModule = {
             document.getElementById('staff-pregnant').checked = attr.isPregnant || false;
             document.getElementById('staff-nursing').checked = attr.isNursing || false;
             document.getElementById('staff-canBundle').checked = attr.canBundle || false;
+            
+            // 特殊屬性回填
             if(attr.isSpecial) {
                 document.getElementById('staff-special').checked = true;
                 if(specialOptionsDiv) specialOptionsDiv.classList.remove('d-none');
-                if(attr.specialType === 'noNight') document.getElementById('special-noNight').checked = true;
-                else document.getElementById('special-dayOnly').checked = true;
+                
+                if(attr.specialType === 'noNight') {
+                    const rb = document.getElementById('special-noNight');
+                    if(rb) rb.checked = true;
+                } else {
+                    const rb = document.getElementById('special-dayOnly');
+                    if(rb) rb.checked = true;
+                }
             }
+
         } else {
+            // 新增模式
             this.state.currentEditId = null;
-            document.getElementById('staff-original-empId').value = "";
+            const originalIdInput = document.getElementById('staff-original-empId');
+            if(originalIdInput) originalIdInput.value = "";
+            
             if(this.modalTitle) this.modalTitle.innerText = "新增人員";
+            if(roleSelect) roleSelect.value = 'User';
             this.updateSeniorityText('');
         }
-        this.modal.show();
+
+        if(this.modal) this.modal.show();
     },
 
+    /**
+     * 儲存人員資料
+     */
     handleSave: async function() {
         const unitId = document.getElementById('staff-unitId').value;
-        if(!unitId) { alert("請選擇所屬單位"); return; }
+        if(!unitId) {
+            alert("請選擇所屬單位");
+            return;
+        }
 
         const specialChecked = document.getElementById('staff-special').checked;
         let specialType = 'dayOnly';
-        if(document.getElementById('special-noNight').checked) specialType = 'noNight';
+        const rbNoNight = document.getElementById('special-noNight');
+        if(rbNoNight && rbNoNight.checked) specialType = 'noNight';
 
         const data = {
             unitId: unitId,
@@ -242,20 +328,31 @@ export const StaffModule = {
             canBundle: document.getElementById('staff-canBundle').checked
         };
 
-        if(!data.empId || !data.name) { alert("必填未填"); return; }
+        if(!data.empId || !data.name) {
+            alert("編號與姓名為必填");
+            return;
+        }
 
         try {
-            const oldId = document.getElementById('staff-original-empId').value;
+            // 檢查是否修改了員工編號 (ID)
+            const oldIdInput = document.getElementById('staff-original-empId');
+            const oldId = oldIdInput ? oldIdInput.value : null;
+            
             if (this.state.currentEditId && oldId && oldId !== data.empId) {
-                if(!confirm("員工編號已改，將重建資料，確定？")) return;
-                await StaffService.deleteStaff(oldId);
-                await StaffService.addStaff(data);
+                // ID 已變更：刪除舊的 -> 建立新的
+                if(!confirm(`您修改了員工編號 (${oldId} -> ${data.empId})，這將視為建立新資料。確定嗎？`)) return;
+                
+                await StaffService.deleteStaff(oldId); // 刪舊
+                await StaffService.addStaff(data);     // 建新
             } else if (this.state.currentEditId) {
+                // ID 沒變：正常更新
                 await StaffService.updateStaff(this.state.currentEditId, data);
             } else {
+                // 新增模式
                 await StaffService.addStaff(data);
             }
-            this.modal.hide();
+
+            if(this.modal) this.modal.hide();
             this.loadList();
             alert("儲存成功");
         } catch (error) {
@@ -263,19 +360,24 @@ export const StaffModule = {
         }
     },
 
+    /**
+     * 刪除人員
+     */
     handleDelete: async function(empId) {
         if(confirm(`確定要刪除員工 ${empId} 嗎？`)) {
-            try { 
-                await StaffService.deleteStaff(empId); 
-                this.loadList(); 
-            } catch(e) { 
-                alert("刪除失敗: " + e.message); 
+            try {
+                await StaffService.deleteStaff(empId);
+                this.loadList();
+            } catch(e) {
+                alert("刪除失敗: " + e.message);
             }
         }
     },
 
-    handleSearch: function(keyword) { 
-        keyword = keyword.toLowerCase().trim(); 
+    // --- 輔助函式 ---
+
+    handleSearch: function(keyword) {
+        keyword = keyword.toLowerCase().trim();
         if (!keyword) {
             this.state.displayStaff = [...this.state.allStaff];
         } else {
@@ -287,12 +389,12 @@ export const StaffModule = {
         this.applyFilterAndSort(false);
     },
 
-    handleSort: function(field) { 
-        if(this.state.sortField === field) {
+    handleSort: function(field) {
+        if (this.state.sortField === field) {
             this.state.sortAsc = !this.state.sortAsc;
-        } else { 
-            this.state.sortField = field; 
-            this.state.sortAsc = true; 
+        } else {
+            this.state.sortField = field;
+            this.state.sortAsc = true;
         }
         this.applyFilterAndSort(false);
     },
@@ -301,20 +403,23 @@ export const StaffModule = {
         if (resetDisplay) {
             const searchInput = document.getElementById('staff-search-input');
             const keyword = searchInput ? searchInput.value.toLowerCase().trim() : '';
-            if (keyword) { 
-                this.handleSearch(keyword); 
+            if (keyword) {
+                this.handleSearch(keyword);
                 return; 
-            } else { 
-                this.state.displayStaff = [...this.state.allStaff]; 
+            } else {
+                this.state.displayStaff = [...this.state.allStaff];
             }
         }
+
         const field = this.state.sortField;
         const asc = this.state.sortAsc ? 1 : -1;
+
         this.state.displayStaff.sort((a, b) => {
             const valA = (a[field] || '').toString();
             const valB = (b[field] || '').toString();
             return valA.localeCompare(valB, 'zh-Hant') * asc;
         });
+
         this.render();
     },
 
@@ -322,17 +427,21 @@ export const StaffModule = {
         if(!this.tbody) return;
         this.tbody.innerHTML = '';
         const list = this.state.displayStaff;
-        
+
         if (list.length === 0) {
-            this.tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted">無資料</td></tr>';
+            this.tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">無相符資料</td></tr>';
             return;
         }
-        
+
+        // 檢查權限
+        const canManage = sysContext.hasPermission(PERMISSIONS_OPTS.MANAGE_STAFF);
+
         list.forEach(s => {
             const attr = s.attributes || {};
             let badges = '';
             if (attr.isPregnant) badges += '<span class="badge bg-danger me-1">孕</span>';
             if (attr.isNursing) badges += '<span class="badge bg-warning text-dark me-1">哺</span>';
+            
             if (attr.isSpecial) {
                 const typeText = attr.specialType === 'dayOnly' ? '限白' : '限早';
                 badges += `<span class="badge bg-info text-dark me-1">特:${typeText}</span>`;
@@ -343,8 +452,23 @@ export const StaffModule = {
             
             // 顯示單位名稱 (ALL 模式下從 unitMap 查找)
             const displayUnitName = this.state.unitMap[s.unitId] || s.unitId || '<span class="text-danger">未分發</span>';
+            
+            // 角色中文
+            const roleMap = { 'SystemAdmin': '系統管理', 'UnitAdmin': '單位管理', 'Scheduler': '排班者', 'User': '一般' };
+            const roleName = roleMap[s.role] || s.role;
 
             const tr = document.createElement('tr');
+            let actionBtns = '';
+            
+            if (canManage) {
+                actionBtns = `
+                    <button class="btn btn-sm btn-outline-primary btn-edit me-1"><i class="bi bi-pencil"></i></button>
+                    <button class="btn btn-sm btn-outline-danger btn-del"><i class="bi bi-trash"></i></button>
+                `;
+            } else {
+                actionBtns = '<span class="text-muted small">無權限</span>';
+            }
+
             tr.innerHTML = `
                 <td>${displayUnitName}</td>
                 <td>${s.empId}</td>
@@ -352,33 +476,41 @@ export const StaffModule = {
                 <td>${s.title || '-'}</td>
                 <td><span class="badge bg-light text-dark border">${s.level}</span></td>
                 <td>${s.group || '-'}</td>
-                <td>${s.role === 'Admin' ? '管理' : '一般'}</td>
+                <td>${roleName}</td>
                 <td class="small text-muted">${seniority}</td>
                 <td>${badges}</td>
-                <td class="text-center">
-                    <button class="btn btn-sm btn-outline-primary btn-edit me-1"><i class="bi bi-pencil"></i></button>
-                    <button class="btn btn-sm btn-outline-danger btn-del"><i class="bi bi-trash"></i></button>
-                </td>
+                <td class="text-center">${actionBtns}</td>
             `;
-            tr.querySelector('.btn-edit').onclick = () => this.openModal(s);
-            tr.querySelector('.btn-del').onclick = () => this.handleDelete(s.empId);
+
+            if (canManage) {
+                tr.querySelector('.btn-edit').onclick = () => this.openModal(s);
+                tr.querySelector('.btn-del').onclick = () => this.handleDelete(s.empId);
+            }
+
             this.tbody.appendChild(tr);
         });
     },
 
-    calcSeniority: function(d) { 
-        if(!d) return '-'; 
-        const diff = new Date() - new Date(d);
-        const y = Math.floor(diff/31557600000);
-        return y > 0 ? `${y}年` : `未滿1年`;
+    calcSeniority: function(dateStr) {
+        if (!dateStr) return '-';
+        const start = new Date(dateStr);
+        const now = new Date();
+        const diffTime = now - start;
+        
+        if (diffTime < 0) return '尚未到職';
+
+        const years = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 365.25));
+        return years > 0 ? `${years}年` : `未滿1年`;
     },
 
-    updateSeniorityText: function(d) { 
-        const el = document.getElementById('staff-seniority-text'); 
-        if(el) el.innerText=`年資: ${this.calcSeniority(d)}`; 
+    updateSeniorityText: function(dateStr) {
+        const el = document.getElementById('staff-seniority-text');
+        if(el) {
+            el.innerText = `年資: ${this.calcSeniority(dateStr)}`;
+        }
     },
 
-    downloadTemplate: function() { 
+    downloadTemplate: function() {
         const csvContent = "\uFEFF員工編號,姓名,層級(N/N1/N2/N3/N4),組別,Email,到職日(YYYY-MM-DD)\nA001,王小美,N1,A,user1@test.com,2020-01-01";
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
@@ -387,8 +519,7 @@ export const StaffModule = {
         link.click();
     },
 
-    handleImport: function(e) { 
-        // 匯入時若為 ALL 模式，要求先選特定單位，避免資料歸屬混亂
+    handleImport: function(e) {
         const activeUnitId = sysContext.getActiveUnitId();
         if(!activeUnitId || activeUnitId === 'ALL') { 
             alert("批次匯入請先選擇特定單位，以確保資料正確歸屬。"); 
@@ -398,10 +529,13 @@ export const StaffModule = {
 
         const file = e.target.files[0];
         if(!file) return;
+
         const reader = new FileReader();
         reader.onload = async (evt) => {
-            const rows = evt.target.result.split('\n').slice(1);
+            const text = evt.target.result;
+            const rows = text.split('\n').slice(1);
             let successCount = 0;
+
             for(let row of rows) {
                 const cols = row.split(',');
                 if(cols.length >= 2) {
@@ -416,10 +550,12 @@ export const StaffModule = {
                             hireDate: cols[5]?.trim() || null
                         });
                         successCount++;
-                    } catch(err) { console.error("匯入失敗:", row, err); }
+                    } catch(err) {
+                        console.error("匯入失敗:", row, err);
+                    }
                 }
             }
-            alert(`匯入完成，成功 ${successCount} 筆`);
+            alert(`匯入完成，成功新增 ${successCount} 筆`);
             this.loadList();
             e.target.value = '';
         };
