@@ -1,4 +1,6 @@
 // js/config.js
+
+// 請替換為您的 Firebase 設定
 const firebaseConfig = {
     apiKey: "AIzaSyA2B_rDKi7JyLaYpJd-lfFNXZ1BJUzpu-k",
     authDomain: "nursing-schedule-2f9c8.firebaseapp.com",
@@ -9,7 +11,7 @@ const firebaseConfig = {
     measurementId: "G-V0DBP9RZ7P"
 };
 
-// 初始化
+// 初始化 Firebase
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
