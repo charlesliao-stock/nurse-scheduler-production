@@ -6,6 +6,7 @@ const router = {
         '/admin/dashboard': 'dashboard',
         '/staff/list': 'staff',
         '/admin/staff': 'staff' // 複用同一個頁面
+        '/admin/units': 'units',
     },
 
     // 載入頁面
