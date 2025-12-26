@@ -3,11 +3,12 @@
 const unitManager = {
     allUnits: [],
     allUsers: [],
+    // [排序狀態]
+    sortState: { field: 'id', order: 'asc' }, 
     
     // --- 初始化 ---
     init: async function() {
         console.log("Unit Manager Loaded.");
-        
         const searchInput = document.getElementById('searchUnitInput');
         if(searchInput) searchInput.oninput = () => this.renderTable();
 
@@ -31,11 +32,9 @@ const unitManager = {
                 name: doc.data().displayName || '未命名',
                 empId: doc.data().employeeId || '',
                 unitId: doc.data().unitId || '',
-                role: doc.data().role || 'user' // [重要] 讀取角色以便判斷權限
+                role: doc.data().role || 'user'
             }));
-        } catch (e) {
-            console.error("Fetch Users Error:", e);
-        }
+        } catch (e) { console.error(e); }
     },
 
     fetchUnits: async function() {
@@ -55,16 +54,58 @@ const unitManager = {
         }
     },
 
+    // --- [新增] 排序功能 ---
+    sortData: function(field) {
+        if (this.sortState.field === field) {
+            this.sortState.order = this.sortState.order === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.sortState.field = field;
+            this.sortState.order = 'asc';
+        }
+        this.renderTable();
+    },
+
     // --- 2. 渲染列表 ---
     renderTable: function() {
         const tbody = document.getElementById('unitTableBody');
         tbody.innerHTML = '';
 
+        // 更新表頭圖示
+        document.querySelectorAll('th i[id^="sort_icon_unit_"]').forEach(i => i.className = 'fas fa-sort');
+        const activeIcon = document.getElementById(`sort_icon_unit_${this.sortState.field}`);
+        if(activeIcon) activeIcon.className = this.sortState.order === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
+
         const searchTerm = (document.getElementById('searchUnitInput').value || '').toLowerCase();
         
-        const filtered = this.allUnits.filter(u => 
-            u.id.toLowerCase().includes(searchTerm)
+        // 1. 篩選
+        let filtered = this.allUnits.filter(u => 
+            u.id.toLowerCase().includes(searchTerm) || (u.name && u.name.toLowerCase().includes(searchTerm))
         );
+
+        // 2. 排序
+        const { field, order } = this.sortState;
+        filtered.sort((a, b) => {
+            let valA, valB;
+
+            // 特殊欄位轉換 (人名列表)
+            if (field === 'managers') {
+                valA = this.getNames(a.managers);
+                valB = this.getNames(b.managers);
+            } else if (field === 'schedulers') {
+                valA = this.getNames(a.schedulers);
+                valB = this.getNames(b.schedulers);
+            } else {
+                valA = a[field] || '';
+                valB = b[field] || '';
+            }
+
+            if(typeof valA === 'string') valA = valA.toLowerCase();
+            if(typeof valB === 'string') valB = valB.toLowerCase();
+
+            if (valA < valB) return order === 'asc' ? -1 : 1;
+            if (valA > valB) return order === 'asc' ? 1 : -1;
+            return 0;
+        });
 
         if(filtered.length === 0) {
             tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">無符合資料</td></tr>';
@@ -96,11 +137,12 @@ const unitManager = {
     },
 
     getNames: function(uidArray) {
-        if(!uidArray || !Array.isArray(uidArray) || uidArray.length === 0) return '<span style="color:#ccc;">(未設定)</span>';
-        return uidArray.map(uid => {
+        if(!uidArray || !Array.isArray(uidArray) || uidArray.length === 0) return ''; 
+        const names = uidArray.map(uid => {
             const user = this.allUsers.find(p => p.uid === uid);
             return user ? user.name : '';
-        }).join(', ');
+        }).filter(n => n);
+        return names.length > 0 ? names.join(', ') : '(未設定)';
     },
 
     // --- 3. Modal 操作 ---
@@ -124,6 +166,7 @@ const unitManager = {
                 inputName.value = unit.name;
                 inputName.disabled = !isAdmin;
 
+                // 過濾該單位人員
                 const unitStaff = this.allUsers.filter(u => u.unitId === unit.id);
                 
                 this.renderCheckboxList('managerList', 'mgr_', unitStaff, unit.managers);
@@ -161,7 +204,6 @@ const unitManager = {
 
         staffList.forEach(user => {
             const isChecked = (checkedUids && checkedUids.includes(user.uid)) ? 'checked' : '';
-            
             const label = document.createElement('label');
             label.className = 'staff-item';
             label.innerHTML = `
@@ -179,7 +221,7 @@ const unitManager = {
         return Array.from(inputs).map(cb => cb.value);
     },
 
-    // --- 4. 儲存資料 (含權限同步) ---
+    // --- 4. 儲存資料 (含權限連動) ---
     saveData: async function() {
         const mode = document.getElementById('currentMode').value;
         const unitId = document.getElementById('inputUnitId').value.trim();
@@ -187,7 +229,6 @@ const unitManager = {
 
         if (!unitId || !unitName) { alert("代碼與名稱為必填"); return; }
 
-        // 1. 取得勾選名單
         const managers = this.getCheckedValues('managerList');
         const schedulers = this.getCheckedValues('schedulerList');
 
@@ -200,9 +241,8 @@ const unitManager = {
 
         try {
             const batch = db.batch();
-
-            // 2. 設定單位的更新操作
             const unitRef = db.collection('units').doc(unitId);
+
             if (mode === 'edit') {
                 batch.update(unitRef, unitData);
             } else {
@@ -213,24 +253,16 @@ const unitManager = {
                 batch.set(unitRef, unitData);
             }
 
-            // 3. [同步邏輯] 更新該單位下所有人員的 Role
-            if (mode === 'edit') { // 只有編輯模式下才有機會變更人員權限
+            // 同步人員 Role
+            if (mode === 'edit') {
                 const unitStaff = this.allUsers.filter(u => u.unitId === unitId);
-
                 unitStaff.forEach(user => {
-                    // 保護超級管理員，不被降級
-                    if (user.role === 'system_admin') return;
+                    if (user.role === 'system_admin') return; // 保護管理員
 
-                    let newRole = 'user'; // 預設降回一般使用者
+                    let newRole = 'user';
+                    if (managers.includes(user.uid)) newRole = 'unit_manager';
+                    else if (schedulers.includes(user.uid)) newRole = 'unit_scheduler';
 
-                    // 權限判定：管理者 > 排班者 > 一般
-                    if (managers.includes(user.uid)) {
-                        newRole = 'unit_manager';
-                    } else if (schedulers.includes(user.uid)) {
-                        newRole = 'unit_scheduler';
-                    }
-
-                    // 若權限有變，加入 Batch 更新
                     if (user.role !== newRole) {
                         const userRef = db.collection('users').doc(user.uid);
                         batch.update(userRef, { role: newRole });
@@ -238,12 +270,9 @@ const unitManager = {
                 });
             }
 
-            // 4. 提交所有變更
             await batch.commit();
-
             alert("儲存成功，相關人員權限已同步更新！");
             this.closeModal();
-            // 重新載入以顯示最新狀態
             await this.fetchAllUsers(); 
             await this.fetchUnits();
         } catch (e) {
