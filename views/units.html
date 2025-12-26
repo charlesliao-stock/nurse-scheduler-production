@@ -13,6 +13,7 @@
         font-weight: bold;
         color: #666;
         border-bottom: 3px solid transparent;
+        font-size: 1rem;
     }
     .tab-btn.active {
         color: #3498db;
@@ -20,37 +21,48 @@
     }
     .tab-content {
         display: none;
+        height: 100%; /* 確保內容撐滿 */
     }
     .tab-content.active {
         display: block;
     }
 
-    /* Checkbox 列表樣式 (修正為靠左、一人一行) */
+    /* --- [關鍵修正] Checkbox 列表樣式 (強制靠左) --- */
     .user-checkbox-item {
-        display: flex;
-        align-items: center; /* 垂直置中 */
-        justify-content: flex-start; /* 靠左對齊 */
-        padding: 8px 5px;
-        border-bottom: 1px dashed #eee;
         width: 100%;
+        border-bottom: 1px dashed #eee;
     }
     .user-checkbox-item label {
         display: flex;
-        align-items: center;
+        align-items: center;      /* 垂直置中 */
+        justify-content: flex-start; /* 水平靠左 */
         width: 100%;
+        padding: 8px 5px;
         cursor: pointer;
         margin: 0;
+        text-align: left;         /* 文字靠左 */
     }
     .user-checkbox-item input[type="checkbox"] {
-        margin-right: 10px;
-        transform: scale(1.2);
+        margin-right: 12px;       /* 勾選框與文字的距離 */
+        transform: scale(1.2);    /* 放大勾選框 */
+        flex-shrink: 0;           /* 防止被壓縮 */
+    }
+    .u-name {
+        font-weight: bold;
+        color: #333;
+        margin-right: 5px;
+    }
+    .u-emp-id {
+        color: #888;
+        font-size: 0.85rem;
     }
 
     /* 組別管理佈局 */
     .group-manage-container {
         display: flex;
         gap: 20px;
-        height: 400px;
+        height: 100%; /* 撐滿父容器 */
+        min-height: 350px;
     }
     .group-left-panel {
         flex: 1;
@@ -72,6 +84,7 @@
         background: #f9f9f9;
         margin-bottom: 5px;
         border-radius: 4px;
+        border: 1px solid #eee;
     }
     .scrollable-list {
         flex: 1;
@@ -79,6 +92,7 @@
         border: 1px solid #eee;
         border-radius: 4px;
         padding: 5px;
+        background: #fff;
     }
 </style>
 
@@ -113,7 +127,7 @@
 </div>
 
 <div id="unitModal" class="modal">
-    <div class="modal-content" style="max-width: 800px; height: 600px; display: flex; flex-direction: column;">
+    <div class="modal-content" style="max-width: 800px; height: 700px; display: flex; flex-direction: column;">
         <h3 id="modalTitle">編輯單位資料</h3>
         <input type="hidden" id="originalUnitId">
         <input type="hidden" id="currentMode" value="edit">
@@ -123,7 +137,7 @@
             <button class="tab-btn" onclick="unitManager.switchTab('group')">組別資訊</button>
         </div>
 
-        <div style="flex: 1; overflow-y: auto; padding-right: 5px;">
+        <div style="flex: 1; overflow-y: auto; padding-right: 10px; padding-bottom: 10px;">
             
             <div id="tab-info" class="tab-content active">
                 <div class="form-row">
@@ -144,20 +158,20 @@
                     <div class="form-group" style="flex:1;" id="containerManagerAuth">
                         <label style="color:#e67e22; font-weight:bold;">單位管理者 (可複選)</label>
                         <input type="text" id="searchManagerInput" placeholder="搜尋姓名..." 
-                               style="width:100%; padding:5px; margin-bottom:5px; border:1px solid #ddd; font-size:0.8rem;"
+                               style="width:100%; padding:8px; margin-bottom:5px; border:1px solid #ddd; font-size:0.9rem;"
                                oninput="unitManager.filterUserList('manager')">
                         
-                        <div id="managerListContainer" style="height:250px; overflow-y:auto; border:1px solid #ccc; padding:10px; background:#f9f9f9; border-radius:4px;">
+                        <div id="managerListContainer" style="height:300px; overflow-y:auto; border:1px solid #ccc; padding:0; background:#fff; border-radius:4px; text-align: left;">
                             </div>
                     </div>
 
                     <div class="form-group" style="flex:1;" id="containerSchedulerAuth">
                         <label style="color:#27ae60; font-weight:bold;">排班人員 (可複選)</label>
                         <input type="text" id="searchSchedulerInput" placeholder="搜尋姓名..." 
-                               style="width:100%; padding:5px; margin-bottom:5px; border:1px solid #ddd; font-size:0.8rem;"
+                               style="width:100%; padding:8px; margin-bottom:5px; border:1px solid #ddd; font-size:0.9rem;"
                                oninput="unitManager.filterUserList('scheduler')">
 
-                        <div id="schedulerListContainer" style="height:250px; overflow-y:auto; border:1px solid #ccc; padding:10px; background:#f9f9f9; border-radius:4px;">
+                        <div id="schedulerListContainer" style="height:300px; overflow-y:auto; border:1px solid #ccc; padding:0; background:#fff; border-radius:4px; text-align: left;">
                             </div>
                     </div>
                 </div>
@@ -180,20 +194,16 @@
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                             <h4 style="margin:0;">人員組別指派</h4>
                             <button class="btn btn-add" onclick="unitManager.saveUserGroups()">
-                                <i class="fas fa-save"></i> 儲存人員設定
+                                <i class="fas fa-save"></i> 儲存設定
                             </button>
                         </div>
                         
-                        <table style="width:100%; border-collapse: collapse;">
-                            <thead style="background:#eee; font-size:0.9rem;">
-                                <tr>
-                                    <th style="padding:8px; text-align:left;">姓名 (員編)</th>
-                                    <th style="padding:8px; text-align:left;">所屬組別</th>
-                                </tr>
-                            </thead>
-                        </table>
-                        <div id="groupStaffListArea" class="scrollable-list">
-                            <table style="width:100%;" id="tableGroupStaff">
+                        <div style="display: flex; background: #eee; padding: 8px; font-weight: bold; border-radius: 4px 4px 0 0;">
+                            <div style="flex: 1;">姓名 (員編)</div>
+                            <div style="flex: 1;">所屬組別</div>
+                        </div>
+                        <div id="groupStaffListArea" class="scrollable-list" style="border-top: 0; border-radius: 0 0 4px 4px;">
+                            <table style="width:100%; border-collapse: collapse;" id="tableGroupStaff">
                                 </table>
                         </div>
                     </div>
