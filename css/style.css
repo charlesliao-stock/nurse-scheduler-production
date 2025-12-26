@@ -91,8 +91,12 @@ th:hover { background-color: #eee; }
 .form-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9rem; }
 .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
 
+/* css/style.css */
+
+/* ... (原本的上方樣式保持不變，直到 "單位管理專用樣式" 開始) ... */
+
 /* ----------------------------------------------------
-   單位管理 (Unit Manager) 專用樣式 - 遷移自 units.html
+   單位管理 (Unit Manager) 專用樣式 - 修復版
    ---------------------------------------------------- */
 
 /* 1. 頁籤 (Tabs) */
@@ -123,61 +127,67 @@ th:hover { background-color: #eee; }
     display: block;
 }
 
-/* 2. Checkbox 列表 (人員選擇器) - 修復版 */
+/* 2. Checkbox 列表 (人員選擇器) - 強制修正樣式 */
 .checkbox-list-container {
     height: 300px; 
     overflow-y: auto; 
+    overflow-x: hidden; /* 防止水平捲軸 */
     border: 1px solid #ccc; 
     background: #fff; 
     border-radius: 4px; 
-    text-align: left; /* 強制容器內文靠左 */
+    text-align: left;
 }
 
 /* 列表中的每一列 */
 .user-checkbox-row {
+    display: flex;       /* 使用 Flex 排版 */
+    align-items: center; /* 垂直置中 */
     width: 100%;
-    border-bottom: 1px dashed #eee;
     padding: 8px 10px;
+    border-bottom: 1px dashed #eee;
     box-sizing: border-box;
-    display: block; /* 確保佔滿一行 */
+    background-color: transparent;
 }
 .user-checkbox-row:hover {
     background-color: #f9f9f9;
 }
 
-/* 使用 Flexbox 排列 Checkbox 與 文字 */
+/* Label 設定 - 確保佔滿空間 */
 .user-checkbox-row label {
     display: flex;
-    align-items: center;        /* 垂直置中 */
-    justify-content: flex-start;/* 水平靠左 */
+    align-items: center;
+    justify-content: flex-start;
     width: 100%;
-    cursor: pointer;
     margin: 0;
+    cursor: pointer;
+    color: #333; /* 預設黑色 */
 }
 
 /* 勾選框本體 */
 .user-checkbox-row input[type="checkbox"] {
-    margin: 0 10px 0 0;        /* 右邊留空隙 */
-    transform: scale(1.2);     /* 放大 */
-    flex-shrink: 0;            /* 防止被壓縮 */
+    margin-right: 10px !important;
+    transform: scale(1.2);
+    flex-shrink: 0; /* 防止被壓縮 */
     cursor: pointer;
 }
 
-/* 文字區域 - 強制顏色與顯示方式 */
+/* [關鍵] 文字區域 - 強制黑色 */
 .user-info-text {
-    color: #333 !important;    /* 強制深灰色，防止被覆蓋成白色 */
+    color: #000000 !important; /* 強制純黑 */
     font-size: 0.95rem;
     font-weight: bold;
-    text-align: left;
+    display: inline-block;
 }
+
+/* 員工編號 */
 .u-emp-id {
-    color: #888 !important;    /* 強制淺灰色 */
+    color: #666666 !important; /* 強制深灰 */
     font-size: 0.85rem;
     font-weight: normal;
     margin-left: 5px;
 }
 
-/* 3. 組別管理 (Group Manager) 佈局 */
+/* 3. 組別管理樣式 (保持不變) */
 .group-manage-container {
     display: flex;
     gap: 20px;
@@ -196,8 +206,6 @@ th:hover { background-color: #eee; }
     display: flex;
     flex-direction: column;
 }
-
-/* 組別列表項目 */
 .group-list-item {
     display: flex;
     justify-content: space-between;
@@ -208,8 +216,6 @@ th:hover { background-color: #eee; }
     border-radius: 4px;
     border: 1px solid #eee;
 }
-
-/* 可捲動區域 */
 .scrollable-list {
     flex: 1;
     overflow-y: auto;
@@ -217,7 +223,6 @@ th:hover { background-color: #eee; }
     border-radius: 4px;
     background: #fff;
 }
-/* 列表頭部 */
 .list-header {
     display: flex; 
     background: #eee; 
