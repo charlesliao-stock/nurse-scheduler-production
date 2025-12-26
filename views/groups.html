@@ -27,12 +27,13 @@
                 <table style="width:100%;">
                     <thead style="background:#f8f9fa; position:sticky; top:0;">
                         <tr>
-                            <th style="padding:10px;">組別代號</th>
+                            <th style="padding:10px; cursor:pointer;" onclick="groupManager.sortGroups()">
+                                組別代號 <i id="sort_icon_group_list" class="fas fa-sort"></i>
+                            </th>
                             <th style="width:80px; text-align:center;">操作</th>
                         </tr>
                     </thead>
-                    <tbody id="groupListBody">
-                        </tbody>
+                    <tbody id="groupListBody"></tbody>
                 </table>
             </div>
         </div>
@@ -49,14 +50,21 @@
                 <table style="width:100%;">
                     <thead style="background:#f8f9fa; position:sticky; top:0; z-index:1;">
                         <tr>
-                            <th style="cursor:pointer;" onclick="groupManager.sortStaff('id')">員工編號 <i class="fas fa-sort"></i></th>
-                            <th>姓名</th>
-                            <th>進階層級</th>
-                            <th>所屬組別</th>
+                            <th style="cursor:pointer;" onclick="groupManager.sortStaff('employeeId')">
+                                員工編號 <i id="sort_icon_group_staff_employeeId" class="fas fa-sort"></i>
+                            </th>
+                            <th style="cursor:pointer;" onclick="groupManager.sortStaff('displayName')">
+                                姓名 <i id="sort_icon_group_staff_displayName" class="fas fa-sort"></i>
+                            </th>
+                            <th style="cursor:pointer;" onclick="groupManager.sortStaff('level')">
+                                進階層級 <i id="sort_icon_group_staff_level" class="fas fa-sort"></i>
+                            </th>
+                            <th style="cursor:pointer;" onclick="groupManager.sortStaff('groupId')">
+                                所屬組別 <i id="sort_icon_group_staff_groupId" class="fas fa-sort"></i>
+                            </th>
                         </tr>
                     </thead>
-                    <tbody id="staffListBody">
-                        </tbody>
+                    <tbody id="staffListBody"></tbody>
                 </table>
             </div>
         </div>
