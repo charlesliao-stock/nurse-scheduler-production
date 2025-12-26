@@ -3,15 +3,16 @@
 const unitManager = {
     allUnits: [],
     allUsers: [],
-    currentUnitId: null,
-    currentUnitGroups: [],
     
     // --- 初始化 ---
     init: async function() {
         console.log("Unit Manager Loaded.");
+        
+        // 綁定搜尋
         const searchInput = document.getElementById('searchUnitInput');
         if(searchInput) searchInput.oninput = () => this.renderTable();
 
+        // 權限控制：隱藏新增/匯入按鈕
         const btnAdd = document.getElementById('btnAddUnit');
         const btnImport = document.getElementById('btnImportUnit');
         if (app.userRole !== 'system_admin') {
@@ -19,44 +20,52 @@ const unitManager = {
             if(btnImport) btnImport.style.display = 'none';
         }
 
-        await this.fetchAllUsers(); 
-        await this.fetchUnits();    
+        await this.fetchAllUsers(); // 先載入人員(為了顯示名字)
+        await this.fetchUnits();    // 再載入單位
     },
 
     // --- 1. 取得資料 ---
     fetchAllUsers: async function() {
         try {
+            // 需要 unitId 才能過濾
             const snapshot = await db.collection('users').where('isActive', '==', true).get();
             this.allUsers = snapshot.docs.map(doc => ({
-                uid: doc.id, 
+                uid: doc.id,
                 name: doc.data().displayName || '未命名',
                 empId: doc.data().employeeId || '',
-                unitId: doc.data().unitId || '',
-                groupId: doc.data().groupId || ''
+                unitId: doc.data().unitId || ''
             }));
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error("Fetch Users Error:", e);
+        }
     },
 
     fetchUnits: async function() {
+        const tbody = document.getElementById('unitTableBody');
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">資料載入中...</td></tr>';
+        
         try {
             const snapshot = await db.collection('units').get();
             this.allUnits = snapshot.docs.map(doc => ({
                 id: doc.id,
-                ...doc.data(),
-                groups: doc.data().groups || []
+                ...doc.data()
             }));
             this.renderTable();
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error("Fetch Units Error:", e);
+            tbody.innerHTML = '<tr><td colspan="5" style="color:red;">載入失敗</td></tr>';
+        }
     },
 
-    // --- 2. 渲染主列表 ---
+    // --- 2. 渲染列表 ---
     renderTable: function() {
         const tbody = document.getElementById('unitTableBody');
         tbody.innerHTML = '';
+
         const searchTerm = (document.getElementById('searchUnitInput').value || '').toLowerCase();
         
         const filtered = this.allUnits.filter(u => 
-            u.id.toLowerCase().includes(searchTerm) || (u.name && u.name.toLowerCase().includes(searchTerm))
+            u.id.toLowerCase().includes(searchTerm)
         );
 
         if(filtered.length === 0) {
@@ -65,12 +74,14 @@ const unitManager = {
         }
 
         filtered.forEach(u => {
-            const managerNames = this.getNamesFromIds(u.managers);
-            const schedulerNames = this.getNamesFromIds(u.schedulers);
+            const managerNames = this.getNames(u.managers);
+            const schedulerNames = this.getNames(u.schedulers);
             
-            let deleteBtn = app.userRole === 'system_admin' ? 
-                `<button class="btn btn-delete" onclick="unitManager.deleteUnit('${u.id}')">刪除</button>` : 
-                `<button class="btn btn-delete" disabled style="opacity:0.3; cursor:not-allowed;">刪除</button>`;
+            // 權限：刪除按鈕
+            let deleteBtn = '';
+            if (app.userRole === 'system_admin') {
+                deleteBtn = `<button class="btn btn-delete" onclick="unitManager.deleteUnit('${u.id}')">刪除</button>`;
+            }
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
@@ -87,92 +98,60 @@ const unitManager = {
         });
     },
 
-    getNamesFromIds: function(idArray) {
-        if (!idArray || !Array.isArray(idArray) || idArray.length === 0) return '<span style="color:#ccc;">(未設定)</span>';
-        return idArray.map(uid => {
+    // ID 轉 名字字串
+    getNames: function(uidArray) {
+        if(!uidArray || !Array.isArray(uidArray) || uidArray.length === 0) return '<span style="color:#ccc;">(未設定)</span>';
+        return uidArray.map(uid => {
             const user = this.allUsers.find(p => p.uid === uid);
-            return user ? `<span class="badge" style="background:#eee; color:#333; margin-right:3px;">${user.name}</span>` : '';
-        }).join(' ');
+            return user ? user.name : '';
+        }).join(', '); // 用逗號分隔
     },
 
-    // --- 3. Modal 操作 ---
-    switchTab: function(tabName) {
-        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-        event.currentTarget.classList.add('active');
-
-        document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-        document.getElementById(`tab-${tabName}`).classList.add('active');
-
-        const mainSaveBtn = document.getElementById('btnSaveUnitInfo');
-        if (tabName === 'info') {
-            mainSaveBtn.style.display = 'inline-block';
-        } else {
-            mainSaveBtn.style.display = 'none';
-            this.renderGroupStaffList();
-        }
-    },
-
+    // --- 3. Modal 操作 (新增/編輯) ---
     openModal: function(unitId = null) {
         const modal = document.getElementById('unitModal');
         modal.classList.add('show');
-        this.currentUnitId = unitId;
-
-        // Reset Tab
-        const tabs = document.querySelectorAll('.tab-btn');
-        if(tabs.length > 0) tabs[0].click();
-
-        const isAdmin = (app.userRole === 'system_admin');
+        
         const inputId = document.getElementById('inputUnitId');
         const inputName = document.getElementById('inputUnitName');
-        const mgrContainer = document.getElementById('containerManagerAuth');
-        const schContainer = document.getElementById('containerSchedulerAuth');
+        const isAdmin = (app.userRole === 'system_admin');
 
-        // 權限控制
-        if (isAdmin) {
-            mgrContainer.style.pointerEvents = 'auto';
-            mgrContainer.style.opacity = '1';
-        } else {
-            mgrContainer.style.pointerEvents = 'none';
-            mgrContainer.style.opacity = '0.6';
-        }
-        schContainer.style.pointerEvents = 'auto';
-        schContainer.style.opacity = '1';
-
-        if(unitId) {
-            // Edit
+        if (unitId) {
+            // [編輯模式]
             document.getElementById('currentMode').value = 'edit';
             const unit = this.allUnits.find(u => u.id === unitId);
-            if(unit) {
-                document.getElementById('originalUnitId').value = unit.id;
+            
+            if (unit) {
+                // 填入基本資料
                 inputId.value = unit.id;
-                inputId.disabled = true;
+                inputId.disabled = true; // ID 鎖定
                 
                 inputName.value = unit.name;
-                inputName.disabled = !isAdmin;
+                inputName.disabled = !isAdmin; // 只有管理員能改名
 
-                this.renderUserCheckboxes('managerListContainer', 'chk_mgr_', unit.id);
-                this.renderUserCheckboxes('schedulerListContainer', 'chk_sch_', unit.id);
-                this.checkUsers('chk_mgr_', unit.managers);
-                this.checkUsers('chk_sch_', unit.schedulers);
-
-                this.currentUnitGroups = [...(unit.groups || [])];
-                this.renderGroupList();
+                // [關鍵] 渲染該單位的人員供勾選
+                // 1. 找出該單位所有員工
+                const unitStaff = this.allUsers.filter(u => u.unitId === unit.id);
+                
+                // 2. 渲染兩個列表
+                this.renderCheckboxList('managerList', 'mgr_', unitStaff, unit.managers);
+                this.renderCheckboxList('schedulerList', 'sch_', unitStaff, unit.schedulers);
             }
         } else {
-            // Add
+            // [新增模式]
             document.getElementById('currentMode').value = 'add';
-            document.getElementById('originalUnitId').value = '';
+            
             inputId.value = '';
-            inputId.disabled = false;
+            inputId.disabled = false; // 開放輸入
+            
             inputName.value = '';
             inputName.disabled = false;
 
-            this.renderUserCheckboxes('managerListContainer', 'chk_mgr_', 'NEW_UNIT');
-            this.renderUserCheckboxes('schedulerListContainer', 'chk_sch_', 'NEW_UNIT');
-
-            this.currentUnitGroups = [];
-            this.renderGroupList();
-            document.getElementById('groupStaffListArea').innerHTML = '<div style="padding:10px; color:#666; text-align:center;">請先儲存單位。</div>';
+            // 新增時，單位還不存在，所以沒有員工
+            document.getElementById('managerList').innerHTML = 
+                '<div class="empty-tip">請先儲存建立單位，<br>再至「人員管理」指派人員。</div>';
+            document.getElementById('schedulerList').innerHTML = 
+                '<div class="empty-tip">請先儲存建立單位，<br>再至「人員管理」指派人員。</div>';
         }
     },
 
@@ -180,87 +159,66 @@ const unitManager = {
         document.getElementById('unitModal').classList.remove('show');
     },
 
-// js/modules/unit_manager.js
-// ... (前面的部分保持不變) ...
-
-    // --- [關鍵] 渲染 Checkbox (配合 CSS) ---
-    renderUserCheckboxes: function(containerId, prefix, targetUnitId) {
+    // --- 4. 渲染勾選清單 ---
+    renderCheckboxList: function(containerId, prefix, staffList, checkedUids) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
-        const validUsers = this.allUsers.filter(u => u.unitId === targetUnitId);
 
-        if (validUsers.length === 0) {
-            const msg = targetUnitId === 'NEW_UNIT' ? "請先建立單位" : "此單位尚無人員";
-            container.innerHTML = `<div style="color:#666; padding:15px; text-align:center;">${msg}</div>`;
+        if (!staffList || staffList.length === 0) {
+            container.innerHTML = '<div class="empty-tip">此單位目前尚無人員。<br>請至「人員管理」新增。</div>';
             return;
         }
 
-        validUsers.forEach(user => {
-            const div = document.createElement('div');
-            // 對應 CSS 中的 .user-checkbox-row
-            div.className = 'user-checkbox-row'; 
+        staffList.forEach(user => {
+            // 檢查是否已勾選
+            const isChecked = (checkedUids && checkedUids.includes(user.uid)) ? 'checked' : '';
             
-            // 結構：label -> input + span.user-info-text
-            div.innerHTML = `
-                <label>
-                    <input type="checkbox" id="${prefix}${user.uid}" value="${user.uid}">
-                    <span class="user-info-text">
-                        ${user.name} <span class="u-emp-id">(${user.empId})</span>
-                    </span>
-                </label>
+            const label = document.createElement('label');
+            label.className = 'staff-item'; // 使用 CSS 定義的樣式
+            label.innerHTML = `
+                <input type="checkbox" id="${prefix}${user.uid}" value="${user.uid}" ${isChecked}>
+                <span class="staff-name">${user.name}</span>
+                <span class="staff-id">(${user.empId})</span>
             `;
-            container.appendChild(div);
+            container.appendChild(label);
         });
     },
 
-    filterUserList: function(type) {
-        const inputId = type === 'manager' ? 'searchManagerInput' : 'searchSchedulerInput';
-        const containerId = type === 'manager' ? 'managerListContainer' : 'schedulerListContainer';
-        const keyword = document.getElementById(inputId).value.toLowerCase();
-        const container = document.getElementById(containerId);
-        // 使用正確的 class 選擇器
-        const items = container.querySelectorAll('.user-checkbox-row'); 
-        
-        items.forEach(item => {
-            const text = item.innerText.toLowerCase();
-            // user-checkbox-row 預設為 flex，但 hide 時用 none
-            item.style.display = text.includes(keyword) ? 'flex' : 'none'; 
-        });
-    },
-
-// ... (後面的部分保持不變) ...
-
-    // --- Tab 1 儲存 ---
-    saveUnitInfo: async function() {
+    // --- 5. 儲存資料 ---
+    saveData: async function() {
         const mode = document.getElementById('currentMode').value;
         const unitId = document.getElementById('inputUnitId').value.trim();
         const unitName = document.getElementById('inputUnitName').value.trim();
 
-        if(!unitId || !unitName) { alert("代碼與名稱為必填"); return; }
+        if (!unitId || !unitName) { alert("代碼與名稱為必填"); return; }
 
-        const managers = this.getCheckedValues('managerListContainer');
-        const schedulers = this.getCheckedValues('schedulerListContainer');
+        // 收集勾選結果
+        const managers = this.getCheckedValues('managerList');
+        const schedulers = this.getCheckedValues('schedulerList');
 
         const data = {
             name: unitName,
             managers: managers,
             schedulers: schedulers,
+            // 如果是新增，groups 預設空；如果是編輯，不該覆蓋 groups (這裡 update 會保留原欄位，set 要小心)
         };
 
         try {
             if (mode === 'edit') {
+                // 編輯: update (不影響 groups)
                 await db.collection('units').doc(unitId).update(data);
             } else {
-                if (app.userRole !== 'system_admin') { alert("權限不足"); return; }
+                // 新增: set
+                // 檢查重複
                 const check = await db.collection('units').doc(unitId).get();
-                if(check.exists) { alert("代碼重複"); return; }
+                if (check.exists) { alert("單位代碼已存在"); return; }
                 
-                data.groups = [];
+                data.groups = []; // 新增時初始化組別
                 data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
                 await db.collection('units').doc(unitId).set(data);
             }
-            alert("單位資訊儲存成功！");
-            if(mode === 'add') this.closeModal();
+            alert("儲存成功");
+            this.closeModal();
             this.fetchUnits();
         } catch (e) {
             alert("儲存失敗: " + e.message);
@@ -268,213 +226,69 @@ const unitManager = {
     },
 
     getCheckedValues: function(containerId) {
+        // 只有在編輯模式且有列表時才會有 input
         const container = document.getElementById(containerId);
-        const checked = container.querySelectorAll('input[type="checkbox"]:checked');
-        return Array.from(checked).map(cb => cb.value);
-    },
-
-    // --- Tab 2 Group Management ---
-    renderGroupList: function() {
-        const container = document.getElementById('groupListArea');
-        container.innerHTML = '';
-        this.currentUnitGroups.forEach((groupName, index) => {
-            const div = document.createElement('div');
-            div.className = 'group-list-item';
-            div.innerHTML = `
-                <span style="font-weight:bold;">${groupName}</span>
-                <div>
-                    <button class="btn btn-edit" style="padding:2px 5px; font-size:0.8rem;" onclick="unitManager.editGroup(${index})">編輯</button>
-                    <button class="btn btn-delete" style="padding:2px 5px; font-size:0.8rem;" onclick="unitManager.deleteGroup(${index})">刪除</button>
-                </div>
-            `;
-            container.appendChild(div);
-        });
-    },
-
-    addGroup: async function() {
-        if(!this.currentUnitId) return;
-        const input = document.getElementById('inputNewGroup');
-        const name = input.value.trim();
-        if(!name) return;
-        if(this.currentUnitGroups.includes(name)) { alert("名稱重複"); return; }
-
-        this.currentUnitGroups.push(name);
-        input.value = '';
-        this.renderGroupList();
-        await this.updateUnitGroupsDB();
-    },
-
-    editGroup: async function(index) {
-        const oldName = this.currentUnitGroups[index];
-        const newName = prompt("新組別名稱:", oldName);
-        if(newName && newName.trim() && newName !== oldName) {
-            this.currentUnitGroups[index] = newName.trim();
-            this.renderGroupList();
-            this.renderGroupStaffList();
-            await this.updateUnitGroupsDB();
-        }
-    },
-
-    deleteGroup: async function(index) {
-        if(confirm("確定刪除？")) {
-            this.currentUnitGroups.splice(index, 1);
-            this.renderGroupList();
-            this.renderGroupStaffList();
-            await this.updateUnitGroupsDB();
-        }
-    },
-
-    updateUnitGroupsDB: async function() {
-        try {
-            await db.collection('units').doc(this.currentUnitId).update({
-                groups: this.currentUnitGroups
-            });
-        } catch(e) { alert("更新失敗: " + e.message); }
-    },
-
-    renderGroupStaffList: function() {
-        const container = document.getElementById('tableGroupStaff');
-        container.innerHTML = '';
-        const unitStaff = this.allUsers.filter(u => u.unitId === this.currentUnitId);
-        
-        if(unitStaff.length === 0) {
-            container.innerHTML = '<tr><td colspan="2" style="padding:15px; text-align:center; color:#999;">此單位尚無人員</td></tr>';
-            return;
-        }
-
-        unitStaff.forEach(user => {
-            let rowOptions = '<option value="">(未分組)</option>';
-            this.currentUnitGroups.forEach(g => {
-                const sel = (user.groupId === g) ? 'selected' : '';
-                rowOptions += `<option value="${g}" ${sel}>${g}</option>`;
-            });
-
-            const tr = document.createElement('tr');
-            tr.style.borderBottom = '1px solid #eee';
-            tr.innerHTML = `
-                <td style="padding:10px;">
-                    <span style="font-weight:bold;">${user.name}</span> 
-                    <span style="color:#888; font-size:0.8rem;">(${user.empId})</span>
-                </td>
-                <td style="padding:8px;">
-                    <select class="group-select" data-uid="${user.uid}" style="width:100%; padding:5px; border-radius:4px; border:1px solid #ddd;">
-                        ${rowOptions}
-                    </select>
-                </td>
-            `;
-            container.appendChild(tr);
-        });
-    },
-
-    saveUserGroups: async function() {
-        if(!confirm("確定更新人員組別？")) return;
-        const selects = document.querySelectorAll('.group-select');
-        const batch = db.batch();
-        let count = 0;
-
-        selects.forEach(sel => {
-            const uid = sel.getAttribute('data-uid');
-            const newGroup = sel.value;
-            const user = this.allUsers.find(u => u.uid === uid);
-            if(user && user.groupId !== newGroup) {
-                batch.update(db.collection('users').doc(uid), { groupId: newGroup });
-                user.groupId = newGroup;
-                count++;
-            }
-        });
-
-        if(count > 0) {
-            await batch.commit();
-            alert(`已更新 ${count} 位人員`);
-        } else {
-            alert("無變更");
-        }
+        const inputs = container.querySelectorAll('input[type="checkbox"]:checked');
+        return Array.from(inputs).map(cb => cb.value);
     },
 
     deleteUnit: async function(id) {
-        if(app.userRole !== 'system_admin') return;
-        if(confirm(`確定刪除 ${id}?`)) {
-            await db.collection('units').doc(id).delete();
-            this.fetchUnits();
+        if (confirm(`確定要刪除單位 ${id} 嗎？`)) {
+            try {
+                await db.collection('units').doc(id).delete();
+                this.fetchUnits();
+            } catch (e) { alert("刪除失敗: " + e.message); }
         }
     },
 
-    // --- 匯入功能 (完整版) ---
+    // --- 6. 匯入功能 ---
     openImportModal: function() {
-        if (app.userRole !== 'system_admin') return;
         document.getElementById('unitImportModal').classList.add('show');
-        document.getElementById('unitImportResult').innerHTML = '';
         document.getElementById('csvUnitFile').value = '';
+        document.getElementById('unitImportResult').innerHTML = '';
     },
-    
     closeImportModal: function() {
         document.getElementById('unitImportModal').classList.remove('show');
     },
-
     downloadTemplate: function() {
-        const content = "\uFEFF單位代碼,單位名稱\nICU01,內科加護病房\nICU02,外科加護病房";
+        const content = "\uFEFF單位代碼,單位名稱\nICU01,內科加護病房\n9B,9B病房";
         const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
         link.href = URL.createObjectURL(blob);
         link.download = "單位匯入範例.csv";
         link.click();
     },
-
     processImport: function() {
-        const fileInput = document.getElementById('csvUnitFile');
-        const resultDiv = document.getElementById('unitImportResult');
-        const file = fileInput.files[0];
-        
+        const file = document.getElementById('csvUnitFile').files[0];
         if(!file) { alert("請選擇檔案"); return; }
-
-        resultDiv.innerHTML = "讀取中...";
-
+        
         const reader = new FileReader();
         reader.onload = async (e) => {
-            try {
-                const text = e.target.result;
-                const rows = text.split(/\r\n|\n/);
-                const batch = db.batch();
-                let count = 0;
-                let errorCount = 0;
-
-                for (let i = 1; i < rows.length; i++) {
-                    const row = rows[i].trim();
-                    if (!row) continue;
-                    const cols = row.split(',');
-                    if (cols.length < 2) { errorCount++; continue; }
-
-                    const unitId = cols[0].trim();
-                    const unitName = cols[1].trim();
-
-                    if (unitId && unitName) {
-                        const docRef = db.collection('units').doc(unitId);
-                        batch.set(docRef, {
-                            name: unitName,
-                            managers: [],
-                            schedulers: [],
-                            groups: [],
-                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                        count++;
-                    } else {
-                        errorCount++;
-                    }
-                    if (count % 450 === 0) await batch.commit();
+            const rows = e.target.result.split(/\r\n|\n/);
+            const batch = db.batch();
+            let count = 0;
+            
+            for(let i=1; i<rows.length; i++) {
+                const cols = rows[i].split(',');
+                if(cols.length < 2) continue;
+                const uid = cols[0].trim();
+                const uname = cols[1].trim();
+                if(uid && uname) {
+                    batch.set(db.collection('units').doc(uid), {
+                        name: uname,
+                        managers: [], schedulers: [], groups: [],
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    count++;
                 }
-
-                if (count > 0) {
-                    await batch.commit();
-                    resultDiv.innerHTML = `<span style="color:green;">成功匯入: ${count} 筆</span>`;
-                    alert(`匯入完成！成功新增 ${count} 個單位。`);
-                    this.closeImportModal();
-                    this.fetchUnits();
-                } else {
-                    resultDiv.innerHTML = "<span style='color:red'>沒有有效資料。</span>";
-                }
-            } catch (err) {
-                console.error(err);
-                resultDiv.innerHTML = `<span style='color:red'>錯誤: ${err.message}</span>`;
+            }
+            if(count>0) {
+                await batch.commit();
+                alert(`匯入 ${count} 筆`);
+                this.closeImportModal();
+                this.fetchUnits();
+            } else {
+                alert("無有效資料");
             }
         };
         reader.readAsText(file);
