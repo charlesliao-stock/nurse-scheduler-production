@@ -8,8 +8,9 @@ const router = {
         '/admin/dashboard': 'dashboard',
         '/staff/list': 'staff',
         '/admin/staff': 'staff',   // 複用同一個頁面
-        '/admin/units': 'units',   // [新增] 單位管理
-        '/admin/shifts': 'shifts'  // [新增] 班別管理
+        '/admin/units': 'units',   // 單位管理
+        '/admin/shifts': 'shifts', // 班別管理
+        '/admin/groups': 'groups'  // [新增] 組別管理
     },
 
     // 載入頁面主邏輯
@@ -77,12 +78,20 @@ const router = {
                 console.error("錯誤: unitManager 尚未載入，請檢查 index.html");
             }
         }
-        // 4. [新增] 班別管理
+        // 4. 班別管理
         else if (viewName === 'shifts') {
             if (typeof shiftManager !== 'undefined') {
                 shiftManager.init();
             } else {
                 console.error("錯誤: shiftManager 尚未載入，請檢查 index.html");
+            }
+        }
+        // 5. [新增] 組別管理
+        else if (viewName === 'groups') {
+            if (typeof groupManager !== 'undefined') {
+                groupManager.init();
+            } else {
+                console.error("錯誤: groupManager 尚未載入，請檢查 index.html");
             }
         }
     }
