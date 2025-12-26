@@ -8,6 +8,7 @@
             <option value="all">載入中...</option>
         </select>
         <input type="text" id="searchStaffInput" placeholder="搜尋員編或姓名..." style="padding:8px; border:1px solid #ccc; border-radius:4px; width:200px;">
+        
         <div style="margin-left:auto;">
             <button class="btn btn-add" onclick="staffManager.openModal()"><i class="fas fa-plus"></i> 新增人員</button>
             <button class="btn btn-import" onclick="staffManager.openImportModal()"><i class="fas fa-file-import"></i> 批次匯入</button>
@@ -18,12 +19,24 @@
         <table id="staffTable">
             <thead>
                 <tr>
-                    <th>單位</th>
-                    <th>員編</th>
-                    <th>姓名</th>
-                    <th>層級</th>
-                    <th>組別</th>
-                    <th>系統權限</th>
+                    <th style="cursor:pointer;" onclick="staffManager.sortData('unitName')">
+                        單位 <i id="sort_icon_staff_unitName" class="fas fa-sort"></i>
+                    </th>
+                    <th style="cursor:pointer;" onclick="staffManager.sortData('employeeId')">
+                        員編 <i id="sort_icon_staff_employeeId" class="fas fa-sort"></i>
+                    </th>
+                    <th style="cursor:pointer;" onclick="staffManager.sortData('displayName')">
+                        姓名 <i id="sort_icon_staff_displayName" class="fas fa-sort"></i>
+                    </th>
+                    <th style="cursor:pointer;" onclick="staffManager.sortData('level')">
+                        層級 <i id="sort_icon_staff_level" class="fas fa-sort"></i>
+                    </th>
+                    <th style="cursor:pointer;" onclick="staffManager.sortData('groupId')">
+                        組別 <i id="sort_icon_staff_groupId" class="fas fa-sort"></i>
+                    </th>
+                    <th style="cursor:pointer;" onclick="staffManager.sortData('role')">
+                        系統權限 <i id="sort_icon_staff_role" class="fas fa-sort"></i>
+                    </th>
                     <th>操作</th>
                 </tr>
             </thead>
@@ -34,61 +47,51 @@
 
 <div id="staffModal" class="modal">
     <div class="modal-content">
-        <h3>人員資訊</h3>
+        <h3>人員資料編輯</h3>
         <input type="hidden" id="staffDocId">
-        
+
         <div class="form-row">
             <div class="form-group">
                 <label>員工編號 *</label>
-                <input type="text" id="inputEmpId">
+                <input type="text" id="inputEmpId" placeholder="例如: N1001">
             </div>
             <div class="form-group">
                 <label>姓名 *</label>
-                <input type="text" id="inputName">
+                <input type="text" id="inputName" placeholder="例如: 王小明">
             </div>
         </div>
 
         <div class="form-row">
             <div class="form-group">
-                <label>Email (登入帳號) *</label>
-                <input type="email" id="inputEmail">
+                <label>電子郵件 (登入帳號) *</label>
+                <input type="email" id="inputEmail" placeholder="user@example.com">
             </div>
-            <div class="form-group">
-                <label>帳號狀態</label>
-                <input type="text" id="accountStatus" value="等待員工自行開通" disabled style="background:#f9f9f9; color:#666; border:1px solid #eee;">
-            </div>
-        </div>
-
-        <div class="form-row">
             <div class="form-group">
                 <label>所屬單位 *</label>
-                <select id="inputUnit" onchange="staffManager.onUnitChange()"></select>
-            </div>
-            <div class="form-group">
-                <label>組別</label>
-                <select id="inputGroup">
-                    <option value="">(請先選擇單位)</option>
+                <select id="inputUnit" onchange="staffManager.onUnitChange()">
+                    <option value="">請選擇單位</option>
                 </select>
             </div>
         </div>
 
         <div class="form-row">
             <div class="form-group">
-                <label>進階層級 *</label>
+                <label>進階層級</label>
                 <select id="inputLevel">
-                    <option value="N">N (新進)</option>
+                    <option value="N">N (新進/試用)</option>
+                    <option value="N0">N0</option>
                     <option value="N1">N1</option>
                     <option value="N2">N2</option>
                     <option value="N3">N3</option>
                     <option value="N4">N4</option>
+                    <option value="NP">NP (專科護理師)</option>
+                    <option value="AHN">AHN (護理長)</option>
                 </select>
             </div>
             <div class="form-group">
-                <label>系統權限 *</label>
-                <select id="inputRole">
-                    <option value="user">一般使用者</option>
-                    <option value="unit_scheduler">單位排班者</option>
-                    <option value="unit_manager">單位管理者</option>
+                <label>所屬組別</label>
+                <select id="inputGroup">
+                    <option value="">(請先選擇單位)</option>
                 </select>
             </div>
         </div>
@@ -98,15 +101,34 @@
                 <label>到職日期</label>
                 <input type="date" id="inputHireDate">
             </div>
+            <div class="form-group">
+                <label>系統權限</label>
+                <select id="inputRole">
+                    <option value="user">護理師 (一般使用者)</option>
+                    <option value="unit_scheduler">排班人員</option>
+                    <option value="unit_manager">單位護理長</option>
+                    <option value="system_admin" disabled>系統管理員</option>
+                </select>
+                <small style="color:#666; display:block; margin-top:5px;">
+                    權限將與單位設定連動
+                </small>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>帳號狀態</label>
+                <input type="text" id="accountStatus" disabled style="background-color: #f9f9f9; color: #555;">
+            </div>
         </div>
 
         <hr style="border:0; border-top:1px solid #eee; margin:15px 0;">
-        <label style="font-weight:bold; margin-bottom:10px; display:block;">排班參數設定</label>
         
-        <div style="display:flex; gap:20px;">
-            <label><input type="checkbox" id="checkPregnant"> 懷孕</label>
-            <label><input type="checkbox" id="checkBreastfeeding"> 哺乳</label>
-            <label><input type="checkbox" id="checkBundle"> 可包班</label>
+        <h4>排班相關設定</h4>
+        <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+            <label style="cursor:pointer;"><input type="checkbox" id="checkPregnant"> 懷孕中 (避免大夜)</label>
+            <label style="cursor:pointer;"><input type="checkbox" id="checkBreastfeeding"> 哺乳中 (避免長時間)</label>
+            <label style="cursor:pointer;"><input type="checkbox" id="checkBundle"> 可包班</label>
         </div>
 
         <div style="text-align:right; margin-top:25px;">
@@ -132,6 +154,7 @@
             <input type="file" id="csvFileInput" accept=".csv" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">
         </div>
         <div id="importResult" style="margin-bottom:15px; font-size: 0.9rem;"></div>
+        
         <div style="text-align:right;">
             <button class="btn btn-close" onclick="staffManager.closeImportModal()">取消</button>
             <button class="btn btn-add" onclick="staffManager.processImport()">開始匯入</button>
