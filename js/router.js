@@ -7,10 +7,11 @@ const router = {
     routes: {
         '/admin/dashboard': 'dashboard',
         '/staff/list': 'staff',
-        '/admin/staff': 'staff',   // 複用同一個頁面
+        '/admin/staff': 'staff',   // 人員管理
         '/admin/units': 'units',   // 單位管理
         '/admin/shifts': 'shifts', // 班別管理
-        '/admin/groups': 'groups'  // [新增] 組別管理
+        '/admin/groups': 'groups', // 組別管理
+        '/admin/menus': 'menus'    // 選單管理
     },
 
     // 載入頁面主邏輯
@@ -58,18 +59,18 @@ const router = {
 
     // 啟動對應模組的邏輯
     initModule: function(viewName) {
-        // 1. 人員管理
-        if (viewName === 'staff') {
+        // 1. 儀表板
+        if (viewName === 'dashboard') {
+            console.log("Dashboard loaded");
+        }
+        // 2. 人員管理
+        else if (viewName === 'staff') {
             if (typeof staffManager !== 'undefined') {
                 staffManager.init();
             } else {
                 console.error("錯誤: staffManager 尚未載入，請檢查 index.html");
             }
         } 
-        // 2. 儀表板
-        else if (viewName === 'dashboard') {
-            console.log("Dashboard loaded");
-        }
         // 3. 單位管理
         else if (viewName === 'units') {
             if (typeof unitManager !== 'undefined') {
@@ -86,12 +87,20 @@ const router = {
                 console.error("錯誤: shiftManager 尚未載入，請檢查 index.html");
             }
         }
-        // 5. [新增] 組別管理
+        // 5. 組別管理
         else if (viewName === 'groups') {
             if (typeof groupManager !== 'undefined') {
                 groupManager.init();
             } else {
                 console.error("錯誤: groupManager 尚未載入，請檢查 index.html");
+            }
+        }
+        // 6. 選單管理
+        else if (viewName === 'menus') {
+            if (typeof menuManager !== 'undefined') {
+                menuManager.init();
+            } else {
+                console.error("錯誤: menuManager 尚未載入，請檢查 index.html");
             }
         }
     }
