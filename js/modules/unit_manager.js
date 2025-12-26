@@ -127,7 +127,7 @@ const unitManager = {
         const mgrContainer = document.getElementById('containerManagerAuth');
         const schContainer = document.getElementById('containerSchedulerAuth');
 
-        // 權限：單位管理者區塊
+        // 權限控制
         if (isAdmin) {
             mgrContainer.style.pointerEvents = 'auto';
             mgrContainer.style.opacity = '1';
@@ -180,7 +180,7 @@ const unitManager = {
         document.getElementById('unitModal').classList.remove('show');
     },
 
-    // --- [關鍵] 渲染 Checkbox (配合 CSS 靠左) ---
+    // --- [關鍵修正] 渲染 Checkbox (配合 CSS) ---
     renderUserCheckboxes: function(containerId, prefix, targetUnitId) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
@@ -194,15 +194,16 @@ const unitManager = {
 
         validUsers.forEach(user => {
             const div = document.createElement('div');
-            div.className = 'user-checkbox-item'; // 使用我們定義好的 CSS Class
+            // 使用新定義的 CSS Class: user-checkbox-row
+            div.className = 'user-checkbox-row'; 
             
+            // 結構：Checkbox + 文字 (使用 span class="user-info-text")
             div.innerHTML = `
                 <label>
                     <input type="checkbox" id="${prefix}${user.uid}" value="${user.uid}">
-                    <div>
-                        <span class="u-name">${user.name}</span> 
-                        <span class="u-emp-id">(${user.empId})</span>
-                    </div>
+                    <span class="user-info-text">
+                        ${user.name} <span class="u-emp-id">(${user.empId})</span>
+                    </span>
                 </label>
             `;
             container.appendChild(div);
@@ -222,12 +223,10 @@ const unitManager = {
         const containerId = type === 'manager' ? 'managerListContainer' : 'schedulerListContainer';
         const keyword = document.getElementById(inputId).value.toLowerCase();
         const container = document.getElementById(containerId);
-        const items = container.querySelectorAll('.user-checkbox-item');
+        const items = container.querySelectorAll('.user-checkbox-row'); // 使用新的 Class
         items.forEach(item => {
             const text = item.innerText.toLowerCase();
-            // 注意：要保留 display: block 以維持寬度 (因為 div wrapper 是 block)
-            // 或者用 display: flex (如果 div 也是 flex item)
-            // 這裡因為 css 設定 .user-checkbox-item { width: 100% }，用 block 或 flex 皆可
+            // user-checkbox-row 是 block 元素
             item.style.display = text.includes(keyword) ? 'block' : 'none'; 
         });
     },
@@ -247,7 +246,6 @@ const unitManager = {
             name: unitName,
             managers: managers,
             schedulers: schedulers,
-            // groups 不覆蓋
         };
 
         try {
@@ -402,7 +400,7 @@ const unitManager = {
         }
     },
 
-    // --- 匯入功能 (完整實作) ---
+    // --- 匯入功能 (完整版) ---
     openImportModal: function() {
         if (app.userRole !== 'system_admin') return;
         document.getElementById('unitImportModal').classList.add('show');
@@ -430,8 +428,7 @@ const unitManager = {
         
         if(!file) { alert("請選擇檔案"); return; }
 
-        // 顯示處理中
-        resultDiv.innerHTML = "讀取並處理檔案中...";
+        resultDiv.innerHTML = "讀取中...";
 
         const reader = new FileReader();
         reader.onload = async (e) => {
@@ -442,18 +439,11 @@ const unitManager = {
                 let count = 0;
                 let errorCount = 0;
 
-                // 從第 1 列開始 (跳過標題)
                 for (let i = 1; i < rows.length; i++) {
                     const row = rows[i].trim();
                     if (!row) continue;
-
                     const cols = row.split(',');
-                    // 至少要有代碼(0)和名稱(1)
-                    if (cols.length < 2) {
-                        console.warn(`Row ${i} format invalid: ${row}`);
-                        errorCount++;
-                        continue;
-                    }
+                    if (cols.length < 2) { errorCount++; continue; }
 
                     const unitId = cols[0].trim();
                     const unitName = cols[1].trim();
@@ -462,44 +452,32 @@ const unitManager = {
                         const docRef = db.collection('units').doc(unitId);
                         batch.set(docRef, {
                             name: unitName,
-                            managers: [],   // 匯入預設空
-                            schedulers: [], // 匯入預設空
-                            groups: [],     // 匯入預設空
+                            managers: [],
+                            schedulers: [],
+                            groups: [],
                             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                         });
                         count++;
                     } else {
                         errorCount++;
                     }
-
-                    // Firestore Batch 限制 (500)
-                    if (count % 450 === 0) {
-                        await batch.commit();
-                        // 重新開一個 batch
-                        // 注意：這裡簡單實作，如果資料量大建議用 Promise.all 分批處理
-                        // 但在純前端 FileReader onload 內，連續 commit 也可以
-                    }
+                    if (count % 450 === 0) await batch.commit();
                 }
 
                 if (count > 0) {
-                    await batch.commit(); // 提交剩餘的
+                    await batch.commit();
                     resultDiv.innerHTML = `<span style="color:green;">成功匯入: ${count} 筆</span>`;
-                    if(errorCount > 0) {
-                        resultDiv.innerHTML += `<br><span style="color:orange;">忽略無效列: ${errorCount} 筆</span>`;
-                    }
                     alert(`匯入完成！成功新增 ${count} 個單位。`);
                     this.closeImportModal();
                     this.fetchUnits();
                 } else {
-                    resultDiv.innerHTML = "<span style='color:red'>沒有有效資料可匯入。</span>";
+                    resultDiv.innerHTML = "<span style='color:red'>沒有有效資料。</span>";
                 }
-
             } catch (err) {
                 console.error(err);
-                resultDiv.innerHTML = `<span style='color:red'>匯入發生錯誤: ${err.message}</span>`;
+                resultDiv.innerHTML = `<span style='color:red'>錯誤: ${err.message}</span>`;
             }
         };
-
         reader.readAsText(file);
     }
 };
