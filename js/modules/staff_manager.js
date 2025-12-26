@@ -2,7 +2,7 @@
 
 const staffManager = {
     allData: [],
-    unitCache: {}, // 儲存單位資料 (含組別資訊)
+    unitCache: {}, 
 
     // --- 模組初始化 ---
     init: async function() {
@@ -120,13 +120,11 @@ const staffManager = {
             const unitName = (this.unitCache[u.unitId] && this.unitCache[u.unitId].name) || u.unitId;
             const roleName = app.translateRole(u.role);
             
-            // Admin 保護
             let deleteBtn = `<button class="btn btn-delete" onclick="staffManager.deleteUser('${u.id}')">刪除</button>`;
             if (u.role === 'system_admin') {
                 deleteBtn = `<button class="btn btn-delete" disabled style="opacity:0.5; cursor:not-allowed;">刪除</button>`;
             }
 
-            // 狀態標籤 (顯示是否已註冊)
             let statusTag = u.isRegistered ? 
                 '<span style="color:green; font-size:0.8rem;">(已開通)</span>' : 
                 '<span style="color:red; font-size:0.8rem;">(未開通)</span>';
@@ -162,7 +160,6 @@ const staffManager = {
         document.getElementById('staffDocId').value = docId || '';
         
         if(docId) {
-            // 編輯
             const u = this.allData.find(d => d.id === docId);
             if(u) {
                 document.getElementById('inputEmpId').value = u.employeeId || '';
@@ -176,7 +173,7 @@ const staffManager = {
                 roleInput.disabled = (u.role === 'system_admin');
 
                 document.getElementById('inputUnit').value = u.unitId || '';
-                this.onUnitChange(); // 觸發組別載入
+                this.onUnitChange(); 
                 document.getElementById('inputGroup').value = u.groupId || '';
 
                 const params = u.schedulingParams || {};
@@ -184,12 +181,10 @@ const staffManager = {
                 document.getElementById('checkBreastfeeding').checked = params.isBreastfeeding || false;
                 document.getElementById('checkBundle').checked = params.canBundleShifts || false;
                 
-                // 顯示註冊狀態提示
                 const statusField = document.getElementById('accountStatus');
                 if(statusField) statusField.value = u.isRegistered ? "已開通" : "等待員工自行開通";
             }
         } else {
-            // 新增
             document.querySelectorAll('#staffModal input, #staffModal select').forEach(i => {
                 if(i.type !== 'checkbox' && i.type !== 'hidden' && i.id !== 'accountStatus') i.value = '';
                 if(i.type === 'checkbox') i.checked = false;
@@ -207,21 +202,22 @@ const staffManager = {
         document.getElementById('staffModal').classList.remove('show');
     },
 
-    // --- 6. 儲存資料 (不建立 Auth，只寫 DB) ---
+    // --- 6. 儲存資料 (含連動 Unit) ---
     saveData: async function() {
         const docId = document.getElementById('staffDocId').value;
         const empId = document.getElementById('inputEmpId').value;
         const email = document.getElementById('inputEmail').value;
         const selectedRole = document.getElementById('inputRole').value;
+        const selectedUnitId = document.getElementById('inputUnit').value;
 
         if(!empId || !email) { alert("員編與Email為必填"); return; }
+        if(!selectedUnitId) { alert("請選擇所屬單位"); return; }
 
-        // 準備資料物件
         const data = {
             employeeId: empId,
             displayName: document.getElementById('inputName').value,
             email: email,
-            unitId: document.getElementById('inputUnit').value,
+            unitId: selectedUnitId,
             level: document.getElementById('inputLevel').value,
             groupId: document.getElementById('inputGroup').value,
             hireDate: document.getElementById('inputHireDate').value,
@@ -236,20 +232,60 @@ const staffManager = {
         };
 
         try {
+            const batch = db.batch();
+
+            // 1. 處理人員資料
+            let userRef;
             if(docId) {
-                // 編輯模式：不變更 isRegistered 狀態
-                await db.collection('users').doc(docId).update(data);
+                userRef = db.collection('users').doc(docId);
+                batch.update(userRef, data);
             } else {
-                // 新增模式：設定初始狀態
+                userRef = db.collection('users').doc(); 
                 data.isRegistered = false; 
                 data.uid = null;
                 data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-                await db.collection('users').add(data);
-                alert("已建立人員資料。\n請通知該同仁前往「註冊頁面」自行開通帳號。");
+                batch.set(userRef, data);
             }
+            
+            const targetUid = docId || userRef.id;
+
+            // 2. [連動邏輯] 更新 Unit 的管理者/排班者清單
+            if (selectedRole !== 'system_admin') {
+                const unitRef = db.collection('units').doc(selectedUnitId);
+                const unitDoc = await unitRef.get();
+                
+                if (unitDoc.exists) {
+                    let { managers, schedulers } = unitDoc.data();
+                    managers = managers || [];
+                    schedulers = schedulers || [];
+
+                    // 先從兩邊移除 (避免重複或殘留)
+                    managers = managers.filter(id => id !== targetUid);
+                    schedulers = schedulers.filter(id => id !== targetUid);
+
+                    // 根據新 Role 加入對應陣列
+                    if (selectedRole === 'unit_manager') {
+                        managers.push(targetUid);
+                    } else if (selectedRole === 'unit_scheduler') {
+                        schedulers.push(targetUid);
+                    }
+                    // 如果是 'user'，上面已移除，這裡不需動作
+
+                    batch.update(unitRef, { 
+                        managers: managers,
+                        schedulers: schedulers 
+                    });
+                }
+            }
+
+            // 3. 提交
+            await batch.commit();
+
+            alert("儲存成功");
             this.closeModal();
             this.fetchData();
         } catch (e) {
+            console.error(e);
             alert("儲存失敗: " + e.message);
         }
     },
@@ -266,7 +302,6 @@ const staffManager = {
         }
     },
 
-    // --- 7. 匯入功能 ---
     openImportModal: function() {
         const modal = document.getElementById('importModal');
         modal.classList.add('show');
@@ -321,7 +356,6 @@ const staffManager = {
                     groupId: cols[6] ? cols[6].trim() : '',
                     role: 'user',
                     isActive: true,
-                    // [關鍵] 匯入的一律標記為未註冊
                     isRegistered: false,
                     uid: null,
                     schedulingParams: { isPregnant:false, isBreastfeeding:false, canBundleShifts:false },
