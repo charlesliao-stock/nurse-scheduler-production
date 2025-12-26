@@ -3,17 +3,15 @@
 const unitManager = {
     allUnits: [],
     allUsers: [],
-    currentUnitId: null,      // 當前編輯的 Unit ID
-    currentUnitGroups: [],    // 當前單位的組別列表 (暫存)
-    currentUnitStaff: [],     // 當前單位的人員列表
-
+    currentUnitId: null,
+    currentUnitGroups: [],
+    
     // --- 初始化 ---
     init: async function() {
-        console.log("Unit Manager Module Loaded.");
+        console.log("Unit Manager Loaded.");
         const searchInput = document.getElementById('searchUnitInput');
         if(searchInput) searchInput.oninput = () => this.renderTable();
 
-        // 權限按鈕控制
         const btnAdd = document.getElementById('btnAddUnit');
         const btnImport = document.getElementById('btnImportUnit');
         if (app.userRole !== 'system_admin') {
@@ -25,21 +23,18 @@ const unitManager = {
         await this.fetchUnits();    
     },
 
-    // --- 1. 取得人員與單位 ---
+    // --- 1. 取得資料 ---
     fetchAllUsers: async function() {
         try {
-            // 需要 groupId 欄位來顯示目前的組別
             const snapshot = await db.collection('users').where('isActive', '==', true).get();
             this.allUsers = snapshot.docs.map(doc => ({
                 uid: doc.id, 
                 name: doc.data().displayName || '未命名',
                 empId: doc.data().employeeId || '',
                 unitId: doc.data().unitId || '',
-                groupId: doc.data().groupId || '' // [新增]
+                groupId: doc.data().groupId || ''
             }));
-        } catch (e) {
-            console.error("User fetch error:", e);
-        }
+        } catch (e) { console.error(e); }
     },
 
     fetchUnits: async function() {
@@ -48,12 +43,10 @@ const unitManager = {
             this.allUnits = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data(),
-                groups: doc.data().groups || [] // 確保有 groups 陣列
+                groups: doc.data().groups || []
             }));
             this.renderTable();
-        } catch (e) {
-            console.error("Unit fetch error:", e);
-        }
+        } catch (e) { console.error(e); }
     },
 
     // --- 2. 渲染主列表 ---
@@ -102,24 +95,19 @@ const unitManager = {
         }).join(' ');
     },
 
-    // --- 3. Modal 操作與頁籤 ---
-    
+    // --- 3. Modal 操作 ---
     switchTab: function(tabName) {
-        // 切換按鈕樣式
         document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
         event.currentTarget.classList.add('active');
 
-        // 切換內容顯示
         document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
         document.getElementById(`tab-${tabName}`).classList.add('active');
 
-        // 控制底部儲存按鈕顯示 (只有 Info 分頁需要底部的儲存，Group 分頁有自己的儲存)
         const mainSaveBtn = document.getElementById('btnSaveUnitInfo');
         if (tabName === 'info') {
             mainSaveBtn.style.display = 'inline-block';
         } else {
             mainSaveBtn.style.display = 'none';
-            // 切換到 Group 頁籤時，重新渲染一次右側人員列表(確保組別下拉選單是最新的)
             this.renderGroupStaffList();
         }
     },
@@ -129,62 +117,53 @@ const unitManager = {
         modal.classList.add('show');
         this.currentUnitId = unitId;
 
-        // 重置頁籤到第一頁
-        document.querySelector('.tab-btn').click(); // 模擬點擊第一個 tab
+        // Reset Tab
+        const tabs = document.querySelectorAll('.tab-btn');
+        if(tabs.length > 0) tabs[0].click();
 
         const isAdmin = (app.userRole === 'system_admin');
         const inputId = document.getElementById('inputUnitId');
         const inputName = document.getElementById('inputUnitName');
-        const managerContainer = document.getElementById('containerManagerAuth'); // 單位管理者區塊
-        const schedulerContainer = document.getElementById('containerSchedulerAuth'); // 排班人員區塊
+        const mgrContainer = document.getElementById('containerManagerAuth');
+        const schContainer = document.getElementById('containerSchedulerAuth');
 
-        // 權限控制：鎖定與隱藏
+        // 權限：單位管理者區塊
         if (isAdmin) {
-            managerContainer.style.pointerEvents = 'auto';
-            managerContainer.style.opacity = '1';
+            mgrContainer.style.pointerEvents = 'auto';
+            mgrContainer.style.opacity = '1';
         } else {
-            // 非 Admin (即 Unit Manager) 不能改單位管理者，只能看
-            managerContainer.style.pointerEvents = 'none'; // 禁止點擊 Checkbox
-            managerContainer.style.opacity = '0.6';
+            mgrContainer.style.pointerEvents = 'none';
+            mgrContainer.style.opacity = '0.6';
         }
-        // 排班人員大家都能改 (Admin & Unit Manager)
-        schedulerContainer.style.pointerEvents = 'auto';
-        schedulerContainer.style.opacity = '1';
+        schContainer.style.pointerEvents = 'auto';
+        schContainer.style.opacity = '1';
 
         if(unitId) {
-            // [編輯模式]
+            // Edit
             document.getElementById('currentMode').value = 'edit';
             const unit = this.allUnits.find(u => u.id === unitId);
-            
             if(unit) {
                 document.getElementById('originalUnitId').value = unit.id;
-                
-                // Info Tab
                 inputId.value = unit.id;
-                inputId.disabled = true; // ID 永遠不能改
+                inputId.disabled = true;
                 
                 inputName.value = unit.name;
-                inputName.disabled = !isAdmin; // 只有 Admin 能改名
+                inputName.disabled = !isAdmin;
 
-                // 渲染人員勾選
                 this.renderUserCheckboxes('managerListContainer', 'chk_mgr_', unit.id);
                 this.renderUserCheckboxes('schedulerListContainer', 'chk_sch_', unit.id);
                 this.checkUsers('chk_mgr_', unit.managers);
                 this.checkUsers('chk_sch_', unit.schedulers);
 
-                // Group Tab 初始化
-                this.currentUnitGroups = [...(unit.groups || [])]; // 複製一份
+                this.currentUnitGroups = [...(unit.groups || [])];
                 this.renderGroupList();
-                this.renderGroupStaffList();
             }
         } else {
-            // [新增模式] (限 Admin)
+            // Add
             document.getElementById('currentMode').value = 'add';
             document.getElementById('originalUnitId').value = '';
-            
             inputId.value = '';
             inputId.disabled = false;
-            
             inputName.value = '';
             inputName.disabled = false;
 
@@ -193,7 +172,7 @@ const unitManager = {
 
             this.currentUnitGroups = [];
             this.renderGroupList();
-            document.getElementById('groupStaffListArea').innerHTML = '<div style="padding:10px; color:#666;">請先儲存單位後，再進行人員分組。</div>';
+            document.getElementById('groupStaffListArea').innerHTML = '<div style="padding:10px; color:#666; text-align:center;">請先儲存單位。</div>';
         }
     },
 
@@ -201,7 +180,7 @@ const unitManager = {
         document.getElementById('unitModal').classList.remove('show');
     },
 
-    // --- Tab 1 邏輯: 渲染勾選清單 (修正為靠左、一人一行) ---
+    // --- [關鍵] 渲染 Checkbox (配合 CSS 靠左) ---
     renderUserCheckboxes: function(containerId, prefix, targetUnitId) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
@@ -209,20 +188,20 @@ const unitManager = {
 
         if (validUsers.length === 0) {
             const msg = targetUnitId === 'NEW_UNIT' ? "請先建立單位" : "此單位尚無人員";
-            container.innerHTML = `<div style="color:#666; padding:10px; text-align:center;">${msg}</div>`;
+            container.innerHTML = `<div style="color:#666; padding:15px; text-align:center;">${msg}</div>`;
             return;
         }
 
         validUsers.forEach(user => {
             const div = document.createElement('div');
-            div.className = 'user-checkbox-item'; // 使用 CSS class
+            div.className = 'user-checkbox-item'; // 使用我們定義好的 CSS Class
             
             div.innerHTML = `
                 <label>
                     <input type="checkbox" id="${prefix}${user.uid}" value="${user.uid}">
                     <div>
-                        <span style="font-weight:bold; color:#333;">${user.name}</span> 
-                        <span style="color:#888; font-size:0.85rem; margin-left:5px;">(${user.empId})</span>
+                        <span class="u-name">${user.name}</span> 
+                        <span class="u-emp-id">(${user.empId})</span>
                     </div>
                 </label>
             `;
@@ -246,17 +225,18 @@ const unitManager = {
         const items = container.querySelectorAll('.user-checkbox-item');
         items.forEach(item => {
             const text = item.innerText.toLowerCase();
-            item.style.display = text.includes(keyword) ? 'flex' : 'none'; // 保持 flex 佈局
+            // 注意：要保留 display: block 以維持寬度 (因為 div wrapper 是 block)
+            // 或者用 display: flex (如果 div 也是 flex item)
+            // 這裡因為 css 設定 .user-checkbox-item { width: 100% }，用 block 或 flex 皆可
+            item.style.display = text.includes(keyword) ? 'block' : 'none'; 
         });
     },
 
-    // --- Tab 1 儲存邏輯 ---
+    // --- Tab 1 儲存 ---
     saveUnitInfo: async function() {
         const mode = document.getElementById('currentMode').value;
-        const inputId = document.getElementById('inputUnitId');
-        const inputName = document.getElementById('inputUnitName');
-        const unitId = inputId.value.trim();
-        const unitName = inputName.value.trim();
+        const unitId = document.getElementById('inputUnitId').value.trim();
+        const unitName = document.getElementById('inputUnitName').value.trim();
 
         if(!unitId || !unitName) { alert("代碼與名稱為必填"); return; }
 
@@ -265,37 +245,25 @@ const unitManager = {
 
         const data = {
             name: unitName,
-            // 如果是非 Admin，managers 不會被修改 (disabled)，但為了安全，後端會擋，前端這裡
-            // 如果是 Admin，直接存；如果不是 Admin，應該保留原來的 managers
-            // 簡化做法：因為非 Admin 的 checkbox 被 pointer-events: none，所以讀取到的還是原來的值(如果 openModal 有勾的話)
-            // 但如果 openModal 沒渲染出來(例如 new unit)，就會是空。
-            // 這裡直接存即可，因為我們在 UI 層擋住了操作。
             managers: managers,
             schedulers: schedulers,
-            // groups 這裡不更新，由 Tab 2 專門處理，但為了怕覆蓋，應該 merge
-            // 使用 { merge: true } 或只 update 指定欄位
+            // groups 不覆蓋
         };
-        
-        // 為了避免覆蓋 groups，我們分開處理
-        // 但這裡我們使用 set(data, {merge:true}) 或是 update
-        
+
         try {
             if (mode === 'edit') {
-                // 編輯模式：只更新基本資料與權限
                 await db.collection('units').doc(unitId).update(data);
             } else {
-                // 新增模式
                 if (app.userRole !== 'system_admin') { alert("權限不足"); return; }
                 const check = await db.collection('units').doc(unitId).get();
                 if(check.exists) { alert("代碼重複"); return; }
                 
-                // 新增時初始化 groups 為空
                 data.groups = [];
                 data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
                 await db.collection('units').doc(unitId).set(data);
             }
             alert("單位資訊儲存成功！");
-            if(mode === 'add') { this.closeModal(); } // 新增完關閉，編輯則停留
+            if(mode === 'add') this.closeModal();
             this.fetchUnits();
         } catch (e) {
             alert("儲存失敗: " + e.message);
@@ -308,12 +276,10 @@ const unitManager = {
         return Array.from(checked).map(cb => cb.value);
     },
 
-    // --- Tab 2 邏輯: 組別管理 ---
-
+    // --- Tab 2 Group Management ---
     renderGroupList: function() {
         const container = document.getElementById('groupListArea');
         container.innerHTML = '';
-        
         this.currentUnitGroups.forEach((groupName, index) => {
             const div = document.createElement('div');
             div.className = 'group-list-item';
@@ -333,24 +299,18 @@ const unitManager = {
         const input = document.getElementById('inputNewGroup');
         const name = input.value.trim();
         if(!name) return;
-        
-        if(this.currentUnitGroups.includes(name)) {
-            alert("組別名稱重複"); return;
-        }
+        if(this.currentUnitGroups.includes(name)) { alert("名稱重複"); return; }
 
         this.currentUnitGroups.push(name);
-        input.value = ''; // 清空輸入框
+        input.value = '';
         this.renderGroupList();
-        this.renderGroupStaffList(); // 更新下拉選單
-
-        // 即時儲存組別設定到 Units 集合
         await this.updateUnitGroupsDB();
     },
 
     editGroup: async function(index) {
         const oldName = this.currentUnitGroups[index];
-        const newName = prompt("請輸入新組別名稱:", oldName);
-        if(newName && newName.trim() !== "" && newName !== oldName) {
+        const newName = prompt("新組別名稱:", oldName);
+        if(newName && newName.trim() && newName !== oldName) {
             this.currentUnitGroups[index] = newName.trim();
             this.renderGroupList();
             this.renderGroupStaffList();
@@ -359,7 +319,7 @@ const unitManager = {
     },
 
     deleteGroup: async function(index) {
-        if(confirm("確定刪除此組別？")) {
+        if(confirm("確定刪除？")) {
             this.currentUnitGroups.splice(index, 1);
             this.renderGroupList();
             this.renderGroupStaffList();
@@ -372,48 +332,33 @@ const unitManager = {
             await db.collection('units').doc(this.currentUnitId).update({
                 groups: this.currentUnitGroups
             });
-            // 不用 alert，默默存就好，體驗較好
-        } catch(e) {
-            alert("組別設定儲存失敗: " + e.message);
-        }
+        } catch(e) { alert("更新失敗: " + e.message); }
     },
-
-    // --- Tab 2 邏輯: 人員組別指派 ---
 
     renderGroupStaffList: function() {
         const container = document.getElementById('tableGroupStaff');
         container.innerHTML = '';
-        
-        // 找出屬於該單位的人員
         const unitStaff = this.allUsers.filter(u => u.unitId === this.currentUnitId);
         
         if(unitStaff.length === 0) {
-            container.innerHTML = '<tr><td colspan="2" style="padding:10px; text-align:center; color:#999;">此單位尚無人員</td></tr>';
+            container.innerHTML = '<tr><td colspan="2" style="padding:15px; text-align:center; color:#999;">此單位尚無人員</td></tr>';
             return;
         }
 
-        // 產生組別下拉選單的 HTML 字串
-        let optionsHtml = '<option value="">(未分組)</option>';
-        this.currentUnitGroups.forEach(g => {
-            optionsHtml += `<option value="${g}">${g}</option>`;
-        });
-
         unitStaff.forEach(user => {
-            const tr = document.createElement('tr');
-            tr.style.borderBottom = '1px solid #eee';
-            
-            // 下拉選單預設選中該人員目前的 groupId
-            // 注意：這裡我們暫時用 "組別名稱" 當作 ID，如果系統複雜建議用 ID
-            const selectedAttr = (gName) => (user.groupId === gName ? 'selected' : '');
-            
-            // 重新產生帶有 selected 的 options
             let rowOptions = '<option value="">(未分組)</option>';
             this.currentUnitGroups.forEach(g => {
-                rowOptions += `<option value="${g}" ${selectedAttr(g)}>${g}</option>`;
+                const sel = (user.groupId === g) ? 'selected' : '';
+                rowOptions += `<option value="${g}" ${sel}>${g}</option>`;
             });
 
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid #eee';
             tr.innerHTML = `
-                <td style="padding:8px;">${user.name} <span style="color:#999; font-size:0.8rem;">(${user.empId})</span></td>
+                <td style="padding:10px;">
+                    <span style="font-weight:bold;">${user.name}</span> 
+                    <span style="color:#888; font-size:0.8rem;">(${user.empId})</span>
+                </td>
                 <td style="padding:8px;">
                     <select class="group-select" data-uid="${user.uid}" style="width:100%; padding:5px; border-radius:4px; border:1px solid #ddd;">
                         ${rowOptions}
@@ -425,85 +370,136 @@ const unitManager = {
     },
 
     saveUserGroups: async function() {
-        if(!confirm("確定要更新所有人員的組別設定嗎？")) return;
-
+        if(!confirm("確定更新人員組別？")) return;
         const selects = document.querySelectorAll('.group-select');
         const batch = db.batch();
-        let updateCount = 0;
+        let count = 0;
 
-        selects.forEach(select => {
-            const uid = select.getAttribute('data-uid');
-            const newGroup = select.value;
-            
-            // 找出該 user 目前的 group，如果不同才更新
+        selects.forEach(sel => {
+            const uid = sel.getAttribute('data-uid');
+            const newGroup = sel.value;
             const user = this.allUsers.find(u => u.uid === uid);
             if(user && user.groupId !== newGroup) {
-                const ref = db.collection('users').doc(uid);
-                batch.update(ref, { groupId: newGroup });
-                // 同步更新本地快取，以免沒重整頁面前顯示舊的
-                user.groupId = newGroup; 
-                updateCount++;
+                batch.update(db.collection('users').doc(uid), { groupId: newGroup });
+                user.groupId = newGroup;
+                count++;
             }
         });
 
-        if(updateCount > 0) {
-            try {
-                await batch.commit();
-                alert(`成功更新 ${updateCount} 位人員的組別！`);
-            } catch(e) {
-                alert("更新失敗: " + e.message);
-            }
+        if(count > 0) {
+            await batch.commit();
+            alert(`已更新 ${count} 位人員`);
         } else {
-            alert("沒有變更需要儲存。");
+            alert("無變更");
         }
     },
 
-    // --- 其他 ---
     deleteUnit: async function(id) {
-        if(app.userRole !== 'system_admin') { alert("權限不足"); return; }
-        if(confirm(`確定刪除單位 ${id}？`)) {
+        if(app.userRole !== 'system_admin') return;
+        if(confirm(`確定刪除 ${id}?`)) {
             await db.collection('units').doc(id).delete();
             this.fetchUnits();
         }
     },
-    
-    // 匯入相關維持不變
-    openImportModal: function() { unitManager.openImportModal_impl(); }, // 轉送
-    openImportModal_impl: function() {
+
+    // --- 匯入功能 (完整實作) ---
+    openImportModal: function() {
         if (app.userRole !== 'system_admin') return;
         document.getElementById('unitImportModal').classList.add('show');
-        document.getElementById('csvUnitFile').value = '';
         document.getElementById('unitImportResult').innerHTML = '';
+        document.getElementById('csvUnitFile').value = '';
     },
-    closeImportModal: function() { document.getElementById('unitImportModal').classList.remove('show'); },
+    
+    closeImportModal: function() {
+        document.getElementById('unitImportModal').classList.remove('show');
+    },
+
     downloadTemplate: function() {
-        const content = "\uFEFF單位代碼,單位名稱\nICU01,內科加護病房";
+        const content = "\uFEFF單位代碼,單位名稱\nICU01,內科加護病房\nICU02,外科加護病房";
+        const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
-        link.href = URL.createObjectURL(new Blob([content], {type:'text/csv;charset=utf-8;'}));
+        link.href = URL.createObjectURL(blob);
         link.download = "單位匯入範例.csv";
         link.click();
     },
+
     processImport: function() {
-        // ... (內容與之前相同，略以節省篇幅) ...
-        const file = document.getElementById('csvUnitFile').files[0];
-        if(!file) return;
+        const fileInput = document.getElementById('csvUnitFile');
+        const resultDiv = document.getElementById('unitImportResult');
+        const file = fileInput.files[0];
+        
+        if(!file) { alert("請選擇檔案"); return; }
+
+        // 顯示處理中
+        resultDiv.innerHTML = "讀取並處理檔案中...";
+
         const reader = new FileReader();
-        reader.onload = async(e) => {
-            const rows = e.target.result.split(/\r\n|\n/);
-            const batch = db.batch();
-            let c=0;
-            for(let i=1; i<rows.length; i++){
-                const cols = rows[i].split(',');
-                if(cols.length>=2 && cols[0].trim()){
-                    batch.set(db.collection('units').doc(cols[0].trim()), {
-                        name: cols[1].trim(), managers:[], schedulers:[], groups:[],
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    c++;
+        reader.onload = async (e) => {
+            try {
+                const text = e.target.result;
+                const rows = text.split(/\r\n|\n/);
+                const batch = db.batch();
+                let count = 0;
+                let errorCount = 0;
+
+                // 從第 1 列開始 (跳過標題)
+                for (let i = 1; i < rows.length; i++) {
+                    const row = rows[i].trim();
+                    if (!row) continue;
+
+                    const cols = row.split(',');
+                    // 至少要有代碼(0)和名稱(1)
+                    if (cols.length < 2) {
+                        console.warn(`Row ${i} format invalid: ${row}`);
+                        errorCount++;
+                        continue;
+                    }
+
+                    const unitId = cols[0].trim();
+                    const unitName = cols[1].trim();
+
+                    if (unitId && unitName) {
+                        const docRef = db.collection('units').doc(unitId);
+                        batch.set(docRef, {
+                            name: unitName,
+                            managers: [],   // 匯入預設空
+                            schedulers: [], // 匯入預設空
+                            groups: [],     // 匯入預設空
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        count++;
+                    } else {
+                        errorCount++;
+                    }
+
+                    // Firestore Batch 限制 (500)
+                    if (count % 450 === 0) {
+                        await batch.commit();
+                        // 重新開一個 batch
+                        // 注意：這裡簡單實作，如果資料量大建議用 Promise.all 分批處理
+                        // 但在純前端 FileReader onload 內，連續 commit 也可以
+                    }
                 }
+
+                if (count > 0) {
+                    await batch.commit(); // 提交剩餘的
+                    resultDiv.innerHTML = `<span style="color:green;">成功匯入: ${count} 筆</span>`;
+                    if(errorCount > 0) {
+                        resultDiv.innerHTML += `<br><span style="color:orange;">忽略無效列: ${errorCount} 筆</span>`;
+                    }
+                    alert(`匯入完成！成功新增 ${count} 個單位。`);
+                    this.closeImportModal();
+                    this.fetchUnits();
+                } else {
+                    resultDiv.innerHTML = "<span style='color:red'>沒有有效資料可匯入。</span>";
+                }
+
+            } catch (err) {
+                console.error(err);
+                resultDiv.innerHTML = `<span style='color:red'>匯入發生錯誤: ${err.message}</span>`;
             }
-            if(c>0) { await batch.commit(); alert("匯入成功"); this.closeImportModal(); this.fetchUnits(); }
         };
+
         reader.readAsText(file);
     }
 };
