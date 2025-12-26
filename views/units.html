@@ -4,7 +4,7 @@
     </div>
     
     <div class="toolbar">
-        <input type="text" id="searchUnitInput" placeholder="搜尋單位代碼..." style="padding:8px; border:1px solid #ccc; border-radius:4px; width:250px;">
+        <input type="text" id="searchUnitInput" placeholder="搜尋單位代碼或名稱..." style="padding:8px; border:1px solid #ccc; border-radius:4px; width:250px;">
         
         <div style="margin-left:auto;">
             <button id="btnAddUnit" class="btn btn-add" onclick="unitManager.openModal()"><i class="fas fa-plus"></i> 新增單位</button>
@@ -16,15 +16,22 @@
         <table id="unitTable">
             <thead>
                 <tr>
-                    <th style="width: 15%;">單位代碼</th>
-                    <th style="width: 20%;">單位名稱</th>
-                    <th style="width: 25%;">管理者</th>
-                    <th style="width: 25%;">排班者</th>
+                    <th style="width: 15%; cursor:pointer;" onclick="unitManager.sortData('id')">
+                        單位代碼 <i id="sort_icon_unit_id" class="fas fa-sort"></i>
+                    </th>
+                    <th style="width: 20%; cursor:pointer;" onclick="unitManager.sortData('name')">
+                        單位名稱 <i id="sort_icon_unit_name" class="fas fa-sort"></i>
+                    </th>
+                    <th style="width: 25%; cursor:pointer;" onclick="unitManager.sortData('managers')">
+                        單位管理者 <i id="sort_icon_unit_managers" class="fas fa-sort"></i>
+                    </th>
+                    <th style="width: 25%; cursor:pointer;" onclick="unitManager.sortData('schedulers')">
+                        排班者 <i id="sort_icon_unit_schedulers" class="fas fa-sort"></i>
+                    </th>
                     <th style="width: 15%;">操作</th>
                 </tr>
             </thead>
-            <tbody id="unitTableBody">
-                </tbody>
+            <tbody id="unitTableBody"></tbody>
         </table>
     </div>
 </div>
@@ -55,14 +62,12 @@
         <div class="role-assign-container">
             <div class="role-column">
                 <label style="color:#e67e22; font-weight:bold; margin-bottom:5px;">單位管理者 (可複選)</label>
-                <div id="managerList" class="staff-checkbox-list">
-                    </div>
+                <div id="managerList" class="staff-checkbox-list"></div>
             </div>
 
             <div class="role-column">
                 <label style="color:#27ae60; font-weight:bold; margin-bottom:5px;">單位排班者 (可複選)</label>
-                <div id="schedulerList" class="staff-checkbox-list">
-                    </div>
+                <div id="schedulerList" class="staff-checkbox-list"></div>
             </div>
         </div>
 
