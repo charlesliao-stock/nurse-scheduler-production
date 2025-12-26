@@ -7,10 +7,9 @@ const router = {
     routes: {
         '/admin/dashboard': 'dashboard',
         '/staff/list': 'staff',
-        '/admin/staff': 'staff', // 複用同一個頁面
-        
-        // [新增] 單位管理路由
-        '/admin/units': 'units'
+        '/admin/staff': 'staff',   // 複用同一個頁面
+        '/admin/units': 'units',   // [新增] 單位管理
+        '/admin/shifts': 'shifts'  // [新增] 班別管理
     },
 
     // 載入頁面主邏輯
@@ -18,7 +17,6 @@ const router = {
         // 1. 查找對應的 view 名稱
         const viewName = this.routes[path];
         
-        // 簡單的除錯 Log
         console.log(`Router loading path: ${path} -> view: ${viewName}`);
 
         if (!viewName) {
@@ -52,13 +50,14 @@ const router = {
             container.innerHTML = `<div style="padding:20px; color:red;">
                 <h3>載入頁面失敗</h3>
                 <p>${error.message}</p>
-                <small>請確認您是否使用 Local Server (Live Server) 執行。</small>
+                <small>請確認您是否使用 Local Server (如 Live Server) 執行。</small>
             </div>`;
         }
     },
 
     // 啟動對應模組的邏輯
     initModule: function(viewName) {
+        // 1. 人員管理
         if (viewName === 'staff') {
             if (typeof staffManager !== 'undefined') {
                 staffManager.init();
@@ -66,16 +65,24 @@ const router = {
                 console.error("錯誤: staffManager 尚未載入，請檢查 index.html");
             }
         } 
+        // 2. 儀表板
         else if (viewName === 'dashboard') {
             console.log("Dashboard loaded");
-            // 如果有 dashboardManager 也可以在這裡 init
         }
-        // [新增] 單位管理模組初始化
+        // 3. 單位管理
         else if (viewName === 'units') {
             if (typeof unitManager !== 'undefined') {
                 unitManager.init();
             } else {
                 console.error("錯誤: unitManager 尚未載入，請檢查 index.html");
+            }
+        }
+        // 4. [新增] 班別管理
+        else if (viewName === 'shifts') {
+            if (typeof shiftManager !== 'undefined') {
+                shiftManager.init();
+            } else {
+                console.error("錯誤: shiftManager 尚未載入，請檢查 index.html");
             }
         }
     }
