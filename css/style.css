@@ -90,3 +90,74 @@ th:hover { background-color: #eee; }
 .form-group { flex: 1; }
 .form-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9rem; }
 .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+
+/* css/style.css - 追加在最下方 */
+
+/* --- 單位管理專用樣式 --- */
+
+/* 兩欄式佈局 (左邊選管理者、右邊選排班者) */
+.role-assign-container {
+    display: flex;
+    gap: 20px;
+}
+.role-column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 人員勾選列表容器 */
+.staff-checkbox-list {
+    flex: 1;
+    height: 250px;             /* 固定高度 */
+    overflow-y: auto;          /* 超出捲動 */
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #fff;
+    padding: 5px;
+}
+
+/* 單個人員選項 (強制靠左) */
+.staff-item {
+    display: flex;             /* 彈性佈局 */
+    align-items: center;       /* 垂直置中 */
+    justify-content: flex-start; /* 水平靠左 (關鍵) */
+    padding: 8px 10px;
+    border-bottom: 1px dashed #eee;
+    width: 100%;               /* 佔滿寬度 */
+    box-sizing: border-box;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.staff-item:hover {
+    background-color: #f0f8ff;
+}
+
+/* 勾選框 */
+.staff-item input[type="checkbox"] {
+    margin-right: 10px;        /* 與文字距離 */
+    transform: scale(1.2);     /* 放大一點 */
+    cursor: pointer;
+}
+
+/* 人員名稱文字 */
+.staff-name {
+    color: #333;               /* 深色文字 */
+    font-weight: bold;
+    font-size: 0.95rem;
+}
+.staff-id {
+    color: #888;
+    font-size: 0.85rem;
+    margin-left: 5px;
+    font-weight: normal;
+}
+
+/* 空狀態提示 */
+.empty-tip {
+    padding: 20px;
+    text-align: center;
+    color: #999;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
