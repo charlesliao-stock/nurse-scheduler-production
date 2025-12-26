@@ -52,6 +52,9 @@ const router = {
         } 
         else if (viewName === 'dashboard') {
             console.log("Dashboard loaded");
+            else if (viewName === 'units') {
+    if (typeof unitManager !== 'undefined') unitManager.init();
+}
         }
     }
 };
