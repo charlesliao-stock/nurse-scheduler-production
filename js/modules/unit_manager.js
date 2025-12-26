@@ -180,7 +180,10 @@ const unitManager = {
         document.getElementById('unitModal').classList.remove('show');
     },
 
-    // --- [關鍵修正] 渲染 Checkbox (配合 CSS) ---
+// js/modules/unit_manager.js
+// ... (前面的部分保持不變) ...
+
+    // --- [關鍵] 渲染 Checkbox (配合 CSS) ---
     renderUserCheckboxes: function(containerId, prefix, targetUnitId) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
@@ -194,10 +197,10 @@ const unitManager = {
 
         validUsers.forEach(user => {
             const div = document.createElement('div');
-            // 使用新定義的 CSS Class: user-checkbox-row
+            // 對應 CSS 中的 .user-checkbox-row
             div.className = 'user-checkbox-row'; 
             
-            // 結構：Checkbox + 文字 (使用 span class="user-info-text")
+            // 結構：label -> input + span.user-info-text
             div.innerHTML = `
                 <label>
                     <input type="checkbox" id="${prefix}${user.uid}" value="${user.uid}">
@@ -210,26 +213,22 @@ const unitManager = {
         });
     },
 
-    checkUsers: function(prefix, idArray) {
-        if(!idArray) return;
-        idArray.forEach(uid => {
-            const el = document.getElementById(prefix + uid);
-            if(el) el.checked = true;
-        });
-    },
-
     filterUserList: function(type) {
         const inputId = type === 'manager' ? 'searchManagerInput' : 'searchSchedulerInput';
         const containerId = type === 'manager' ? 'managerListContainer' : 'schedulerListContainer';
         const keyword = document.getElementById(inputId).value.toLowerCase();
         const container = document.getElementById(containerId);
-        const items = container.querySelectorAll('.user-checkbox-row'); // 使用新的 Class
+        // 使用正確的 class 選擇器
+        const items = container.querySelectorAll('.user-checkbox-row'); 
+        
         items.forEach(item => {
             const text = item.innerText.toLowerCase();
-            // user-checkbox-row 是 block 元素
-            item.style.display = text.includes(keyword) ? 'block' : 'none'; 
+            // user-checkbox-row 預設為 flex，但 hide 時用 none
+            item.style.display = text.includes(keyword) ? 'flex' : 'none'; 
         });
     },
+
+// ... (後面的部分保持不變) ...
 
     // --- Tab 1 儲存 ---
     saveUnitInfo: async function() {
