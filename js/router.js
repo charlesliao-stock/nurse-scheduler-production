@@ -2,20 +2,32 @@
 
 const router = {
     // 設定路徑與 view 檔案的對應 (不含 .html)
+    // key: URL 路徑
+    // value: views 資料夾下的檔名
     routes: {
         '/admin/dashboard': 'dashboard',
         '/staff/list': 'staff',
-        '/admin/staff': 'staff' // 複用同一個頁面
-        '/admin/units': 'units',
+        '/admin/staff': 'staff', // 複用同一個頁面
+        
+        // [新增] 單位管理路由
+        '/admin/units': 'units'
     },
 
-    // 載入頁面
+    // 載入頁面主邏輯
     load: async function(path) {
         // 1. 查找對應的 view 名稱
         const viewName = this.routes[path];
+        
+        // 簡單的除錯 Log
+        console.log(`Router loading path: ${path} -> view: ${viewName}`);
+
         if (!viewName) {
             console.warn("找不到路徑:", path);
-            document.getElementById('content-area').innerHTML = "<h2>404 找不到頁面</h2>";
+            document.getElementById('content-area').innerHTML = `
+                <div style="padding:40px; text-align:center; color:#666;">
+                    <h2>404 找不到頁面</h2>
+                    <p>路徑: ${path}</p>
+                </div>`;
             return;
         }
 
@@ -37,24 +49,34 @@ const router = {
 
         } catch (error) {
             console.error("載入 View 失敗:", error);
-            container.innerHTML = `<div style="padding:20px; color:red;">載入頁面失敗: ${error.message}<br>請確認您是否使用 Local Server 執行。</div>`;
+            container.innerHTML = `<div style="padding:20px; color:red;">
+                <h3>載入頁面失敗</h3>
+                <p>${error.message}</p>
+                <small>請確認您是否使用 Local Server (Live Server) 執行。</small>
+            </div>`;
         }
     },
 
-    // 啟動模組邏輯
+    // 啟動對應模組的邏輯
     initModule: function(viewName) {
         if (viewName === 'staff') {
             if (typeof staffManager !== 'undefined') {
                 staffManager.init();
             } else {
-                console.error("staffManager 尚未載入");
+                console.error("錯誤: staffManager 尚未載入，請檢查 index.html");
             }
         } 
         else if (viewName === 'dashboard') {
             console.log("Dashboard loaded");
-            else if (viewName === 'units') {
-    if (typeof unitManager !== 'undefined') unitManager.init();
-}
+            // 如果有 dashboardManager 也可以在這裡 init
+        }
+        // [新增] 單位管理模組初始化
+        else if (viewName === 'units') {
+            if (typeof unitManager !== 'undefined') {
+                unitManager.init();
+            } else {
+                console.error("錯誤: unitManager 尚未載入，請檢查 index.html");
+            }
         }
     }
 };
