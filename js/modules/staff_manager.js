@@ -3,6 +3,8 @@
 const staffManager = {
     allData: [],
     unitCache: {}, 
+    // [排序狀態]
+    sortState: { field: 'employeeId', order: 'asc' },
 
     // --- 模組初始化 ---
     init: async function() {
@@ -96,19 +98,63 @@ const staffManager = {
         }
     },
 
+    // --- [新增] 排序功能 ---
+    sortData: function(field) {
+        if (this.sortState.field === field) {
+            this.sortState.order = this.sortState.order === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.sortState.field = field;
+            this.sortState.order = 'asc';
+        }
+        this.renderTable();
+    },
+
     // --- 4. 渲染表格 ---
     renderTable: function() {
         const tbody = document.getElementById('staffTableBody');
         tbody.innerHTML = '';
 
+        // 更新表頭圖示
+        document.querySelectorAll('th i[id^="sort_icon_staff_"]').forEach(i => i.className = 'fas fa-sort');
+        const activeIcon = document.getElementById(`sort_icon_staff_${this.sortState.field}`);
+        if(activeIcon) activeIcon.className = this.sortState.order === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
+
         const filterUnit = document.getElementById('filterUnitSelect').value;
         const searchTerm = document.getElementById('searchStaffInput').value.toLowerCase();
 
-        const filtered = this.allData.filter(u => {
+        // 1. 篩選
+        let filtered = this.allData.filter(u => {
             const matchUnit = filterUnit === 'all' || u.unitId === filterUnit;
             const matchSearch = (u.employeeId||'').toLowerCase().includes(searchTerm) || 
                                 (u.displayName||'').toLowerCase().includes(searchTerm);
             return matchUnit && matchSearch;
+        });
+
+        // 2. 排序
+        const { field, order } = this.sortState;
+        filtered.sort((a, b) => {
+            let valA, valB;
+            
+            // 特殊欄位處理
+            if (field === 'unitName') {
+                valA = (this.unitCache[a.unitId]?.name) || a.unitId || '';
+                valB = (this.unitCache[b.unitId]?.name) || b.unitId || '';
+            } else if (field === 'role') {
+                // 權限優先級排序
+                const roleScore = { 'system_admin':4, 'unit_manager':3, 'unit_scheduler':2, 'user':1 };
+                valA = roleScore[a.role] || 0;
+                valB = roleScore[b.role] || 0;
+            } else {
+                valA = a[field] || '';
+                valB = b[field] || '';
+            }
+
+            if(typeof valA === 'string') valA = valA.toLowerCase();
+            if(typeof valB === 'string') valB = valB.toLowerCase();
+
+            if (valA < valB) return order === 'asc' ? -1 : 1;
+            if (valA > valB) return order === 'asc' ? 1 : -1;
+            return 0;
         });
 
         if(filtered.length === 0) {
@@ -234,7 +280,6 @@ const staffManager = {
         try {
             const batch = db.batch();
 
-            // 1. 處理人員資料
             let userRef;
             if(docId) {
                 userRef = db.collection('users').doc(docId);
@@ -249,7 +294,7 @@ const staffManager = {
             
             const targetUid = docId || userRef.id;
 
-            // 2. [連動邏輯] 更新 Unit 的管理者/排班者清單
+            // 連動 Unit 管理者/排班者名單
             if (selectedRole !== 'system_admin') {
                 const unitRef = db.collection('units').doc(selectedUnitId);
                 const unitDoc = await unitRef.get();
@@ -259,28 +304,17 @@ const staffManager = {
                     managers = managers || [];
                     schedulers = schedulers || [];
 
-                    // 先從兩邊移除 (避免重複或殘留)
                     managers = managers.filter(id => id !== targetUid);
                     schedulers = schedulers.filter(id => id !== targetUid);
 
-                    // 根據新 Role 加入對應陣列
-                    if (selectedRole === 'unit_manager') {
-                        managers.push(targetUid);
-                    } else if (selectedRole === 'unit_scheduler') {
-                        schedulers.push(targetUid);
-                    }
-                    // 如果是 'user'，上面已移除，這裡不需動作
+                    if (selectedRole === 'unit_manager') managers.push(targetUid);
+                    else if (selectedRole === 'unit_scheduler') schedulers.push(targetUid);
 
-                    batch.update(unitRef, { 
-                        managers: managers,
-                        schedulers: schedulers 
-                    });
+                    batch.update(unitRef, { managers, schedulers });
                 }
             }
 
-            // 3. 提交
             await batch.commit();
-
             alert("儲存成功");
             this.closeModal();
             this.fetchData();
