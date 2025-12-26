@@ -5,7 +5,7 @@ const router = {
     routes: {
         '/admin/dashboard': 'dashboard',
         '/staff/list': 'staff',
-        '/admin/users': 'staff' // 複用同一個頁面
+        '/admin/staff': 'staff' // 複用同一個頁面
     },
 
     // 載入頁面
