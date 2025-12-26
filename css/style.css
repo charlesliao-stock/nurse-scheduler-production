@@ -172,3 +172,16 @@ th:hover { background-color: #eee; }
     box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
     margin: 0 auto; /* 居中 */
 }
+
+/* css/style.css - 追加 */
+
+/* 左右版面分割 (用於組別管理) */
+#groupMainArea {
+    /* 在 HTML inline style 已經設定了 flex 屬性，這裡補充細節 */
+    align-items: stretch;
+}
+
+/* 確保表格 Header 固定 */
+thead {
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
