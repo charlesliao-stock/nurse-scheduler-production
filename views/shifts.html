@@ -19,11 +19,21 @@
         <table id="shiftTable">
             <thead>
                 <tr>
-                    <th style="width: 10%;">顏色</th>
-                    <th style="width: 15%;">班別代號</th>
-                    <th style="width: 25%;">班別名稱</th>
-                    <th style="width: 20%;">起訖時間</th>
-                    <th style="width: 15%;">工時 (小時)</th>
+                    <th style="width: 10%; cursor:pointer;" onclick="shiftManager.sortData('color')">
+                        顏色 <i id="sort_icon_shift_color" class="fas fa-sort"></i>
+                    </th>
+                    <th style="width: 15%; cursor:pointer;" onclick="shiftManager.sortData('code')">
+                        班別代號 <i id="sort_icon_shift_code" class="fas fa-sort"></i>
+                    </th>
+                    <th style="width: 25%; cursor:pointer;" onclick="shiftManager.sortData('name')">
+                        班別名稱 <i id="sort_icon_shift_name" class="fas fa-sort"></i>
+                    </th>
+                    <th style="width: 20%; cursor:pointer;" onclick="shiftManager.sortData('startTime')">
+                        起訖時間 <i id="sort_icon_shift_startTime" class="fas fa-sort"></i>
+                    </th>
+                    <th style="width: 15%; cursor:pointer;" onclick="shiftManager.sortData('hours')">
+                        工時 (小時) <i id="sort_icon_shift_hours" class="fas fa-sort"></i>
+                    </th>
                     <th style="width: 15%;">操作</th>
                 </tr>
             </thead>
