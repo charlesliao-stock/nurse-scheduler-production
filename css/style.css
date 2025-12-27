@@ -1,8 +1,8 @@
 /* css/style.css */
 :root {
-    --primary-color: #2c3e50;    /* 深藍灰 */
-    --accent-color: #3498db;     /* 亮藍 */
-    --bg-light: #f4f6f8;         /* 淺灰背景 */
+    --primary-color: #2c3e50;
+    --accent-color: #3498db;
+    --bg-light: #f4f6f8;
     --sidebar-width: 250px;
     --header-height: 60px;
 }
@@ -51,7 +51,7 @@ body {
 
 #main-content { flex-grow: 1; position: relative; width: 100%; display: flex; flex-direction: column; }
 #bookmark-toggle {
-    position: absolute; top: 10px; left: 10px; /* 修正位置 */
+    position: absolute; top: 10px; left: 10px;
     width: 40px; height: 40px; background: var(--accent-color); color: white;
     border: none; border-radius: 5px; cursor: pointer; z-index: 101;
     box-shadow: 0 2px 5px rgba(0,0,0,0.2);
@@ -91,141 +91,48 @@ th:hover { background-color: #eee; }
 .form-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9rem; }
 .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
 
-/* css/style.css - 追加在最下方 */
-
-/* --- 單位管理專用樣式 --- */
-
-/* 兩欄式佈局 (左邊選管理者、右邊選排班者) */
-.role-assign-container {
+/* --- [重要] 頁籤樣式 (Tabs) --- */
+.tab-header {
     display: flex;
-    gap: 20px;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 15px;
 }
-.role-column {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-}
-
-/* 人員勾選列表容器 */
-.staff-checkbox-list {
-    flex: 1;
-    height: 250px;             /* 固定高度 */
-    overflow-y: auto;          /* 超出捲動 */
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    background-color: #fff;
-    padding: 5px;
-}
-
-/* 單個人員選項 (強制靠左) */
-.staff-item {
-    display: flex;             /* 彈性佈局 */
-    align-items: center;       /* 垂直置中 */
-    justify-content: flex-start; /* 水平靠左 (關鍵) */
-    padding: 8px 10px;
-    border-bottom: 1px dashed #eee;
-    width: 100%;               /* 佔滿寬度 */
-    box-sizing: border-box;
+.tab-btn {
+    padding: 10px 20px;
+    border: none;
+    background: none;
     cursor: pointer;
-    transition: background 0.2s;
-}
-.staff-item:hover {
-    background-color: #f0f8ff;
-}
-
-/* 勾選框 */
-.staff-item input[type="checkbox"] {
-    margin-right: 10px;        /* 與文字距離 */
-    transform: scale(1.2);     /* 放大一點 */
-    cursor: pointer;
-}
-
-/* 人員名稱文字 */
-.staff-name {
-    color: #333;               /* 深色文字 */
     font-weight: bold;
-    font-size: 0.95rem;
+    color: #666;
+    border-bottom: 3px solid transparent;
+    font-size: 1rem;
 }
-.staff-id {
-    color: #888;
-    font-size: 0.85rem;
-    margin-left: 5px;
-    font-weight: normal;
+.tab-btn.active {
+    color: #3498db;
+    border-bottom: 3px solid #3498db;
 }
-
-/* 空狀態提示 */
-.empty-tip {
-    padding: 20px;
-    text-align: center;
-    color: #999;
-    font-size: 0.9rem;
-    line-height: 1.5;
+.tab-content {
+    display: none; /* 預設隱藏 */
+    height: 100%;
 }
-/* css/style.css 追加 */
-
-/* 班別顏色圓點 */
-.color-dot {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    border: 1px solid rgba(0,0,0,0.1);
-    box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
-    margin: 0 auto; /* 居中 */
+.tab-content.active {
+    display: block; /* 加上 active class 才顯示 */
+    animation: fadeIn 0.3s;
+}
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
-/* css/style.css - 追加 */
+/* --- 預班管理專用樣式 --- */
 
-/* 左右版面分割 (用於組別管理) */
-#groupMainArea {
-    /* 在 HTML inline style 已經設定了 flex 屬性，這裡補充細節 */
-    align-items: stretch;
-}
-
-/* 確保表格 Header 固定 */
-thead {
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-}
-/* css/style.css - 追加 */
-
-/* 矩陣輸入表格 (Matrix Table) */
-.matrix-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 10px;
-}
-.matrix-table th, .matrix-table td {
-    border: 1px solid #ddd;
-    padding: 8px;
-    text-align: center;
-}
-.matrix-table th {
-    background-color: #f2f2f2;
-    font-weight: bold;
-}
-.limit-input {
-    width: 60px;
-    padding: 5px;
-    text-align: center;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-}
-
-/* Modal 內的小型輸入框 */
-.input-mini {
-    width: 80px;
-    padding: 4px;
-    border: 1px solid #ddd;
-    border-radius: 3px;
-}
-/* css/style.css - 請追加或修改 */
-
-/* 超大型 Modal (寬度 1.5倍) */
+/* 1. 超大型 Modal (寬度 1.5倍) */
 .modal-xl {
-    max-width: 1200px !important; /* 加寬 */
+    max-width: 1200px !important;
     width: 90vw !important;
 }
 
-/* 矩陣輸入表格 */
+/* 2. 矩陣輸入表格 */
 .matrix-table {
     width: 100%;
     border-collapse: collapse;
@@ -243,7 +150,7 @@ thead {
     white-space: nowrap;
 }
 
-/* 限制輸入框樣式 */
+/* 3. 限制輸入框樣式 */
 .limit-input {
     width: 70px;
     padding: 6px;
@@ -252,13 +159,21 @@ thead {
     border-radius: 4px;
     color: #333;
 }
-/* 預設值 placeholder 顏色 (淺色) */
 .limit-input::placeholder {
     color: #ccc;
     font-size: 0.9rem;
 }
 
-/* 搜尋結果的小卡片 */
+/* 4. Modal 內的小型輸入框 */
+.input-mini {
+    width: 80px;
+    padding: 4px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    text-align: center;
+}
+
+/* 5. 搜尋結果小卡片 */
 .search-result-card {
     display: flex;
     align-items: center;
@@ -277,4 +192,32 @@ thead {
     color: #555;
     margin-left: 10px;
     font-size: 0.9rem;
+}
+
+/* 6. Checkbox 列表 (單位管理用) */
+.user-checkbox-row {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 8px 10px;
+    border-bottom: 1px dashed #eee;
+    box-sizing: border-box;
+}
+.user-checkbox-row:hover { background-color: #f9f9f9; }
+.user-checkbox-row label {
+    display: flex; align-items: center; width: 100%; margin: 0; cursor: pointer; color: #333;
+}
+.user-checkbox-row input[type="checkbox"] {
+    margin-right: 10px !important; transform: scale(1.2); cursor: pointer;
+}
+.user-info-text { color: #000; font-weight: bold; }
+.u-emp-id { color: #666; font-size: 0.85rem; margin-left: 5px; }
+.checkbox-list-container {
+    height: 300px; overflow-y: auto; border: 1px solid #ccc; background: #fff; border-radius: 4px;
+}
+
+/* 7. 顏色圓點 (班別管理用) */
+.color-dot {
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 1px solid rgba(0,0,0,0.1); margin: 0 auto;
 }
