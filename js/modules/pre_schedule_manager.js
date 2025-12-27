@@ -4,7 +4,6 @@ const preScheduleManager = {
     currentUnitId: null,
     currentUnitGroups: [],
     staffListSnapshot: [], 
-    // [新增] 人員排序狀態
     staffSortState: { field: 'isSupport', order: 'asc' },
     
     // --- 初始化 ---
@@ -69,7 +68,6 @@ const preScheduleManager = {
             snapshot.forEach(doc => {
                 const d = doc.data();
                 const period = `${d.settings.openDate} ~ ${d.settings.closeDate}`;
-                // 這裡的 total 來自儲存時的 staffList.length
                 const progress = d.progress ? `${d.progress.submitted} / ${d.progress.total}` : '0 / 0';
                 
                 let statusHtml = '<span class="badge" style="background:#95a5a6;">未知</span>';
@@ -104,7 +102,7 @@ const preScheduleManager = {
         modal.classList.add('show');
         document.getElementById('preScheduleDocId').value = docId || '';
         document.getElementById('currentMode').value = docId ? 'edit' : 'add';
-        document.getElementById('searchResults').innerHTML = ''; // 清空搜尋
+        document.getElementById('searchResults').innerHTML = ''; 
         document.getElementById('inputSearchStaff').value = '';
 
         this.switchTab('basic');
@@ -166,9 +164,8 @@ const preScheduleManager = {
         div.style.display = (mode === "2") ? 'block' : 'none';
     },
 
-    // --- 4. 人員管理 (搜尋、排序、支援) ---
+    // --- 4. 人員管理 ---
     
-    // 載入單位本機人員
     loadCurrentUnitStaff: async function() {
         const snapshot = await db.collection('users')
             .where('unitId', '==', this.currentUnitId)
@@ -181,19 +178,17 @@ const preScheduleManager = {
             name: doc.data().displayName,
             level: doc.data().level,
             group: doc.data().groupId || '',
-            unitName: '本單位', // 標記用
+            unitName: '本單位',
             isSupport: false
         }));
     },
 
-    // [新增] 監聽 Enter 鍵
     handleSearchEnter: function(event) {
         if (event.key === 'Enter') {
             this.searchStaff();
         }
     },
 
-    // [修改] 搜尋人員 -> 顯示結果 -> 點擊加入
     searchStaff: async function() {
         const keyword = document.getElementById('inputSearchStaff').value.trim();
         const resultDiv = document.getElementById('searchResults');
@@ -201,9 +196,7 @@ const preScheduleManager = {
 
         if(!keyword) return;
 
-        // 簡單搜尋: 找員編或姓名
         const snapshot = await db.collection('users').where('isActive', '==', true).get();
-        // 用 Filter 模擬模糊搜尋
         const found = snapshot.docs.filter(d => 
             (d.data().employeeId && d.data().employeeId.includes(keyword)) || 
             (d.data().displayName && d.data().displayName.includes(keyword))
@@ -216,10 +209,6 @@ const preScheduleManager = {
 
         found.forEach(doc => {
             const u = doc.data();
-            // 查詢單位名稱 (如果 cache 有)
-            // 這裡簡單處理，直接顯示 ID 
-            
-            // 檢查是否已在名單
             const exists = this.staffListSnapshot.find(x => x.uid === doc.id);
             const btnState = exists ? 
                 '<button class="btn" disabled style="background:#ccc; cursor:not-allowed;">已在名單</button>' :
@@ -239,7 +228,6 @@ const preScheduleManager = {
         });
     },
 
-    // [新增] 將搜尋到的人加入名單
     addSupport: async function(uid) {
         const doc = await db.collection('users').doc(uid).get();
         if(!doc.exists) return;
@@ -251,16 +239,15 @@ const preScheduleManager = {
             name: u.displayName,
             level: u.level,
             group: u.groupId || '',
-            unitName: u.unitId, // 記錄原單位
+            unitName: u.unitId,
             isSupport: true
         });
 
-        document.getElementById('searchResults').innerHTML = ''; // 清空搜尋結果
+        document.getElementById('searchResults').innerHTML = ''; 
         document.getElementById('inputSearchStaff').value = '';
         this.renderStaffList();
     },
 
-    // [新增] 人員排序
     sortStaff: function(field) {
         if (this.staffSortState.field === field) {
             this.staffSortState.order = this.staffSortState.order === 'asc' ? 'desc' : 'asc';
@@ -271,20 +258,16 @@ const preScheduleManager = {
         this.renderStaffList();
     },
 
-    // 渲染人員列表 (含計數與排序)
     renderStaffList: function() {
         const tbody = document.getElementById('preStaffBody');
         tbody.innerHTML = '';
         
-        // 更新計數
         document.getElementById('staffTotalCount').textContent = this.staffListSnapshot.length;
 
-        // 更新表頭圖示
         document.querySelectorAll('th i[id^="sort_icon_pre_"]').forEach(i => i.className = 'fas fa-sort');
         const icon = document.getElementById(`sort_icon_pre_${this.staffSortState.field}`);
         if(icon) icon.className = this.staffSortState.order === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
 
-        // 執行排序
         const { field, order } = this.staffSortState;
         this.staffListSnapshot.sort((a,b) => {
             let valA = a[field] || '';
@@ -325,34 +308,58 @@ const preScheduleManager = {
         }
     },
 
-    // --- 5. 矩陣表格 (組別限制) ---
+    // --- 5. 矩陣表格 (組別限制) - [修改] 轉置為橫向表格 ---
     renderGroupLimitsTable: function(savedLimits = {}) {
         const table = document.getElementById('groupLimitTable');
         table.innerHTML = '';
 
-        let thead = '<thead><tr><th style="background:#f0f0f0;">限制項目</th>';
-        this.currentUnitGroups.forEach(g => { thead += `<th>${g}</th>`; });
+        // 定義欄位 (Columns)
+        const columns = [
+            { key: 'minTotal', label: '每班至少' },
+            { key: 'minE', label: '小夜至少' },
+            { key: 'minN', label: '大夜至少' },
+            { key: 'maxE', label: '小夜最多' },
+            { key: 'maxN', label: '大夜最多' }
+        ];
+
+        // 1. 產生表頭
+        let thead = '<thead><tr><th style="background:#f0f0f0; width:120px;">組別</th>';
+        columns.forEach(col => { 
+            thead += `<th style="background:#f0f0f0; min-width: 100px;">${col.label}</th>`; 
+        });
         thead += '</tr></thead>';
         table.innerHTML += thead;
 
-        const rows = [
-            { key: 'minTotal', label: '每班至少' },
-            { key: 'minN', label: '大夜至少' },
-            { key: 'minE', label: '小夜至少' },
-            { key: 'maxN', label: '大夜最多' },
-            { key: 'maxE', label: '小夜最多' }
-        ];
-
+        // 2. 產生內容 (每一列是一個組別)
         let tbody = '<tbody>';
-        rows.forEach(r => {
-            tbody += `<tr><td style="background:#f8f9fa; font-weight:bold;">${r.label}</td>`;
+        
+        if (this.currentUnitGroups.length === 0) {
+            tbody += `<tr><td colspan="${columns.length + 1}" style="padding:20px; color:#999;">此單位尚未設定組別，請先至「單位管理」設定組別。</td></tr>`;
+        } else {
             this.currentUnitGroups.forEach(g => {
-                const val = (savedLimits[g] && savedLimits[g][r.key]) || '';
-                // [修改] 加入 placeholder="不限"
-                tbody += `<td><input type="number" class="limit-input" placeholder="不限" data-group="${g}" data-key="${r.key}" value="${val}"></td>`;
+                tbody += `<tr>`;
+                // 第一欄：組別名稱
+                tbody += `<td style="font-weight:bold; background:#f8f9fa;">${g}</td>`;
+                
+                // 後續欄位：各個限制輸入框
+                columns.forEach(col => {
+                    // 取得舊值
+                    const val = (savedLimits[g] && savedLimits[g][col.key]) !== undefined && (savedLimits[g][col.key] !== null) 
+                                ? savedLimits[g][col.key] 
+                                : '';
+                    
+                    tbody += `<td>
+                        <input type="number" class="limit-input" 
+                               placeholder="不限" 
+                               data-group="${g}" 
+                               data-key="${col.key}" 
+                               value="${val}"
+                               style="width: 100%; box-sizing: border-box;">
+                    </td>`;
+                });
+                tbody += `</tr>`;
             });
-            tbody += '</tr>';
-        });
+        }
         tbody += '</tbody>';
         table.innerHTML += tbody;
     },
@@ -410,19 +417,19 @@ const preScheduleManager = {
 
         if(!settings.openDate || !settings.closeDate) { alert("請設定開放區間"); return; }
 
+        // 收集組別限制 (邏輯不變，因為 class 名稱與 dataset 結構沒變)
         const groupLimits = {};
         document.querySelectorAll('.limit-input').forEach(inp => {
             const g = inp.dataset.group;
             const k = inp.dataset.key;
             if(!groupLimits[g]) groupLimits[g] = {};
-            // 空值存為 null 或 0 代表不限，這裡存 null 比較明確，或維持 0 視業務邏輯
+            // 空值存為 null
             groupLimits[g][k] = inp.value === '' ? null : parseInt(inp.value);
         });
 
         const data = {
             unitId, year, month,
             status: 'open',
-            // [修改] 更新總人數
             progress: { submitted: 0, total: this.staffListSnapshot.length },
             settings,
             groupLimits,
@@ -432,7 +439,6 @@ const preScheduleManager = {
 
         try {
             if(docId) {
-                // 編輯模式：先讀取原有的 progress submitted (若有的話)
                 const oldDoc = await db.collection('pre_schedules').doc(docId).get();
                 if(oldDoc.exists && oldDoc.data().progress) {
                     data.progress.submitted = oldDoc.data().progress.submitted;
