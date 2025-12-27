@@ -1,5 +1,6 @@
 <div class="page-section active" style="padding:0; height:100vh; display:flex; flex-direction:column;">
     
+    <!-- 頂部工具列 -->
     <div style="padding:10px 20px; background:white; border-bottom:1px solid #ddd; display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
         <div style="display:flex; align-items:center; gap:15px;">
             <button class="btn" onclick="history.back()" style="background:#95a5a6; padding: 5px 10px; font-size: 0.9rem;">
@@ -10,11 +11,20 @@
         </div>
         
         <div style="display:flex; align-items:center; gap:10px;">
+            <!-- 圖例 -->
             <div class="legend-box" style="font-size:0.85rem; color:#555; display:flex; gap:12px; margin-right:15px; background:#f9f9f9; padding:5px 10px; border-radius:4px;">
-                <span style="display:flex; align-items:center; gap:4px;"><span class="color-dot" style="background:#9b59b6;"></span> 強制休 (Admin)</span>
-                <span style="display:flex; align-items:center; gap:4px;"><span class="color-dot" style="background:#2ecc71;"></span> 預休 (User)</span>
-                <span style="display:flex; align-items:center; gap:4px;"><span class="color-dot" style="background:#fff; border:1px solid #ccc; color:red; font-size:10px; display:flex; justify-content:center; align-items:center;"><i class="fas fa-ban"></i></span> 勿排</span>
-                <span style="display:flex; align-items:center; gap:4px;"><span style="color:red; font-weight:bold;">10</span> 超限警告</span>
+                <span style="display:flex; align-items:center; gap:4px;">
+                    <span class="color-dot" style="background:#9b59b6;"></span> 強制休 (Admin)
+                </span>
+                <span style="display:flex; align-items:center; gap:4px;">
+                    <span class="color-dot" style="background:#2ecc71;"></span> 預休 (User)
+                </span>
+                <span style="display:flex; align-items:center; gap:4px;">
+                    <span class="color-dot" style="background:#fff; border:1px solid #ccc; color:red; font-size:10px; display:flex; justify-content:center; align-items:center;"><i class="fas fa-ban"></i></span> 勿排
+                </span>
+                <span style="display:flex; align-items:center; gap:4px;">
+                    <span style="color:red; font-weight:bold;">10</span> 超限警告
+                </span>
             </div>
 
             <button class="btn btn-add" onclick="matrixManager.saveData()">
@@ -26,20 +36,18 @@
         </div>
     </div>
 
+    <!-- 矩陣容器 -->
     <div id="matrixContainer" class="matrix-container" style="flex:1; overflow:auto; position:relative;">
         <table id="scheduleMatrix">
-            <thead id="matrixHead">
-                </thead>
-            <tbody id="matrixBody">
-                </tbody>
-            <tfoot id="matrixFoot" style="position:sticky; bottom:0; background:#f9f9f9; z-index:25; font-weight:bold; border-top:2px solid #ddd;">
-                </tfoot>
+            <thead id="matrixHead"></thead>
+            <tbody id="matrixBody"></tbody>
+            <tfoot id="matrixFoot" style="position:sticky; bottom:0; background:#f9f9f9; z-index:25; font-weight:bold; border-top:2px solid #ddd;"></tfoot>
         </table>
     </div>
 </div>
 
+<!-- 右鍵選單 -->
 <div id="customContextMenu" class="context-menu" style="display:none;">
     <div class="menu-header" id="contextMenuTitle">設定班別</div>
-    <div id="contextMenuOptions" class="menu-options">
-        </div>
+    <div id="contextMenuOptions" class="menu-options"></div>
 </div>
