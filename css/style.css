@@ -217,3 +217,64 @@ thead {
     border: 1px solid #ddd;
     border-radius: 3px;
 }
+/* css/style.css - 請追加或修改 */
+
+/* 超大型 Modal (寬度 1.5倍) */
+.modal-xl {
+    max-width: 1200px !important; /* 加寬 */
+    width: 90vw !important;
+}
+
+/* 矩陣輸入表格 */
+.matrix-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+.matrix-table th, .matrix-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: center;
+    vertical-align: middle;
+}
+.matrix-table th {
+    background-color: #f8f9fa;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+/* 限制輸入框樣式 */
+.limit-input {
+    width: 70px;
+    padding: 6px;
+    text-align: center;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    color: #333;
+}
+/* 預設值 placeholder 顏色 (淺色) */
+.limit-input::placeholder {
+    color: #ccc;
+    font-size: 0.9rem;
+}
+
+/* 搜尋結果的小卡片 */
+.search-result-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #e8f6f3;
+    border: 1px solid #a2d9ce;
+    padding: 10px;
+    border-radius: 4px;
+    margin-top: 10px;
+}
+.search-info {
+    font-weight: bold;
+    color: #16a085;
+}
+.search-detail {
+    color: #555;
+    margin-left: 10px;
+    font-size: 0.9rem;
+}
