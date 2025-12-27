@@ -465,7 +465,8 @@ const preScheduleManager = {
         }
     },
 
-    manage: function(id) {
-        alert("準備進入大表排班介面 (ID: " + id + ")\n此功能將在下一階段實作。");
+manage: function(id) {
+        // [修正] 跳轉到矩陣介面
+        window.location.hash = `/admin/pre_schedule_matrix?id=${id}`;
     }
 };
