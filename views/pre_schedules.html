@@ -55,6 +55,7 @@
 
         <div class="tab-content-wrapper">
             
+            <!-- Tab 1: 基本與規則 -->
             <div id="tab-basic" class="tab-content active">
                 <h4 style="color:#2c3e50; border-left:4px solid #3498db; padding-left:10px; margin-top:0;">基本資料</h4>
                 
@@ -118,19 +119,20 @@
                 </div>
             </div>
 
+            <!-- Tab 2: 組別人力限制 -->
             <div id="tab-limits" class="tab-content">
                 <div class="alert-box" style="background:#e8f6f3; color:#0e6251; padding:10px; border-radius:4px; margin-bottom:15px; font-size:0.9rem;">
-                    <i class="fas fa-info-circle"></i> 請輸入各組別每日限制。若該項不限制，請留空 (預設為不限)。
+                    <i class="fas fa-info-circle"></i> 請輸入各組別每日限制。若該項不限制,請留空 (預設為不限)。
                 </div>
-                <table class="matrix-table sticky-th" id="groupLimitTable">
-                    </table>
+                <table class="matrix-table sticky-th" id="groupLimitTable"></table>
             </div>
 
+            <!-- Tab 3: 參與人員 -->
             <div id="tab-staff" class="tab-content">
                 <div style="background:#f9f9f9; padding:15px; border-radius:4px; margin-bottom:15px;">
                     <div style="display:flex; gap:10px;">
                         <input type="text" id="inputSearchStaff" 
-                               placeholder="輸入員編或姓名後，按 Enter 搜尋..." 
+                               placeholder="輸入員編或姓名後,按 Enter 搜尋..." 
                                onkeyup="preScheduleManager.handleSearchEnter(event)"
                                style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
                         <button class="btn btn-add" onclick="preScheduleManager.searchStaff()">搜尋</button>
@@ -163,7 +165,9 @@
                 </table>
             </div>
 
-        </div> <div style="text-align:right; padding: 15px 20px; border-top:1px solid #eee;">
+        </div>
+        
+        <div style="text-align:right; padding: 15px 20px; border-top:1px solid #eee;">
             <button class="btn btn-close" onclick="preScheduleManager.closeModal()">取消</button>
             <button class="btn btn-add" onclick="preScheduleManager.saveData()">儲存設定</button>
         </div>
