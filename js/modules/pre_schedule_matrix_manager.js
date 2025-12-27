@@ -23,20 +23,18 @@ const matrixManager = {
         this.isLoading = true;
         
         try {
-            // 1. 顯示載入中 (這會暫時覆蓋掉表格 HTML)
             this.showLoading();
             
-            // 2. 並行載入資料
             await Promise.all([
                 this.loadShifts(),
                 this.loadUsers(),
                 this.loadScheduleData()
             ]);
             
-            // 3. [關鍵修正] 資料載入後，必須把表格骨架 "放回去"
+            // 資料載入後，重建被 showLoading 覆蓋的表格結構
             this.restoreTableStructure();
 
-            // 4. 渲染與綁定
+            // 渲染與綁定
             this.renderMatrix();
             this.updateStats();
             this.setupEvents();
@@ -58,12 +56,12 @@ const matrixManager = {
         }
     },
 
-    // [新增] 重建表格結構
     restoreTableStructure: function() {
         const container = document.getElementById('matrixContainer');
         if(container) {
+            // 重建時也補上 oncontextmenu，雙重保險
             container.innerHTML = `
-                <table id="scheduleMatrix">
+                <table id="scheduleMatrix" oncontextmenu="return false;">
                     <thead id="matrixHead"></thead>
                     <tbody id="matrixBody"></tbody>
                     <tfoot id="matrixFoot" style="position:sticky; bottom:0; background:#f9f9f9; z-index:25; font-weight:bold; border-top:2px solid #ddd;"></tfoot>
@@ -108,7 +106,7 @@ const matrixManager = {
         const tfoot = document.getElementById('matrixFoot');
         
         if(!thead || !tbody) {
-            console.error("❌ 表格元素遺失，請檢查 restoreTableStructure 是否執行");
+            console.error("❌ 表格元素遺失，請檢查 restoreTableStructure");
             return;
         }
         
@@ -120,18 +118,18 @@ const matrixManager = {
         let header1 = `<tr><th rowspan="2">員編</th><th rowspan="2">姓名</th><th rowspan="2">特註</th><th rowspan="2">偏好</th><th colspan="6" style="background:#eee;">上月</th><th colspan="${daysInMonth}">本月 ${month} 月</th><th rowspan="2" style="background:#fff; position:sticky; right:0; z-index:20; border-left:2px solid #ccc; width:60px;">統計<br>(OFF)</th></tr>`;
         let header2 = `<tr>`;
         
-        // 上月 6 天 (cell-narrow)
+        // 上月 6 天 (加入 oncontextmenu="return false;")
         const lastMonthLastDay = new Date(year, month - 1, 0).getDate();
         for(let i=5; i>=0; i--) {
             const d = lastMonthLastDay - i;
-            header2 += `<th class="cell-last-month cell-narrow">${d}</th>`;
+            header2 += `<th class="cell-last-month cell-narrow" oncontextmenu="return false;">${d}</th>`;
         }
-        // 本月 (cell-narrow)
+        // 本月 (加入 oncontextmenu="return false;")
         for(let d=1; d<=daysInMonth; d++) {
             const dateObj = new Date(year, month-1, d);
             const dayOfWeek = dateObj.getDay(); 
             const color = (dayOfWeek===0 || dayOfWeek===6) ? 'color:red;' : '';
-            header2 += `<th class="cell-narrow" style="${color}">${d}</th>`;
+            header2 += `<th class="cell-narrow" style="${color}" oncontextmenu="return false;">${d}</th>`;
         }
         header2 += `</tr>`;
         thead.innerHTML = header1 + header2;
@@ -154,9 +152,8 @@ const matrixManager = {
                 <td>${noteIcon}</td>
                 <td>${pref}</td>`;
             
+            // 上月格
             const assign = this.localAssignments[u.uid] || {};
-            
-            // 上月
             for(let i=5; i>=0; i--) {
                 const d = lastMonthLastDay - i;
                 const key = `last_${d}`;
@@ -166,7 +163,7 @@ const matrixManager = {
                     onmousedown="matrixManager.onCellClick(event, this)"
                     oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
             }
-            // 本月
+            // 本月格
             for(let d=1; d<=daysInMonth; d++) {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
@@ -175,7 +172,7 @@ const matrixManager = {
                     onmousedown="matrixManager.onCellClick(event, this)"
                     oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
             }
-            // 統計
+            // 統計欄
             bodyHtml += `<td id="stat_row_${u.uid}" style="position:sticky; right:0; background:#fff; border-left:2px solid #ccc; font-weight:bold; color:#333;">0</td>`;
             bodyHtml += `</tr>`;
         });
@@ -201,7 +198,7 @@ const matrixManager = {
 
     // --- 互動邏輯 ---
     onCellClick: function(e, cell) {
-        // [關鍵] 再次確保阻止預設選單
+        // [關鍵] 再次確保阻止冒泡 (針對右鍵)
         if (e.button === 2) {
             e.preventDefault();
             e.stopPropagation();
@@ -276,9 +273,9 @@ const matrixManager = {
 
         options.innerHTML = html;
         
-        // [修正] 選單定位邏輯：先顯示，計算高度後再調整位置
+        // 選單定位
         menu.style.display = 'block';
-        menu.style.visibility = 'hidden'; // 先隱藏以計算尺寸
+        menu.style.visibility = 'hidden'; 
         
         setTimeout(() => {
             let x = e.pageX;
@@ -293,7 +290,7 @@ const matrixManager = {
             
             menu.style.left = x + 'px';
             menu.style.top = y + 'px';
-            menu.style.visibility = 'visible'; // 位置確定後顯示
+            menu.style.visibility = 'visible'; 
         }, 0);
     },
 
