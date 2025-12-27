@@ -109,8 +109,8 @@ const matrixManager = {
                 const val = assign[key] || '';
                 bodyHtml += `<td class="cell-clickable cell-last-month cell-narrow" 
                     data-type="last" data-day="${d}" 
-                    onmousedown="matrixManager.onCellClick(event, this)"
-                    oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
+                    onclick="matrixManager.onCellClick(event, this)"
+                    oncontextmenu="matrixManager.onCellContextMenu(event, this); return false;">${this.renderCellContent(val)}</td>`;
             }
             // 本月格 (加入 cell-narrow + oncontextmenu="return false")
             for(let d=1; d<=daysInMonth; d++) {
@@ -118,8 +118,8 @@ const matrixManager = {
                 const val = assign[key] || '';
                 bodyHtml += `<td class="cell-clickable cell-narrow" 
                     data-type="current" data-day="${d}" 
-                    onmousedown="matrixManager.onCellClick(event, this)"
-                    oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
+                    onclick="matrixManager.onCellClick(event, this)"
+                    oncontextmenu="matrixManager.onCellContextMenu(event, this); return false;">${this.renderCellContent(val)}</td>`;
             }
             // 統計欄
             bodyHtml += `<td id="stat_row_${u.uid}" style="position:sticky; right:0; background:#fff; border-left:2px solid #ccc; font-weight:bold; color:#333;">0</td>`;
@@ -146,21 +146,32 @@ const matrixManager = {
     },
 
     // --- 互動邏輯 ---
+    // 左鍵點擊：切換 OFF
     onCellClick: function(e, cell) {
         const uid = cell.parentElement.dataset.uid;
         const type = cell.dataset.type; 
         const day = cell.dataset.day;
         const key = type === 'last' ? `last_${day}` : `current_${day}`;
 
-        if (e.button === 0) {
-            this.handleLeftClick(uid, key);
-        } else if (e.button === 2) {
-            this.handleRightClick(e, uid, key, type, day);
-        }
+        this.handleLeftClick(uid, key);
         
         const val = (this.localAssignments[uid] && this.localAssignments[uid][key]) || '';
         cell.innerHTML = this.renderCellContent(val);
         this.updateStats();
+    },
+
+    // 右鍵點擊：顯示選單
+    onCellContextMenu: function(e, cell) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const uid = cell.parentElement.dataset.uid;
+        const type = cell.dataset.type; 
+        const day = cell.dataset.day;
+        const key = type === 'last' ? `last_${day}` : `current_${day}`;
+
+        this.handleRightClick(e, uid, key, type, day);
+        return false;
     },
 
     handleLeftClick: function(uid, key) {
@@ -290,11 +301,16 @@ const matrixManager = {
         // 0. 全域阻止右鍵選單 (當在預班矩陣頁面時)
         this.globalContextMenuListener = (e) => {
             const container = document.getElementById('matrixContainer');
-            if (container && container.contains(e.target)) {
+            const menu = document.getElementById('customContextMenu');
+            // 只要在 matrixContainer 範圍內，或者點擊的是自定義選單，都阻止原生右鍵
+            if ((container && container.contains(e.target)) || (menu && menu.contains(e.target))) {
                 e.preventDefault();
+                e.stopPropagation();
+                return false;
             }
         };
-        document.addEventListener('contextmenu', this.globalContextMenuListener);
+        // 使用 capture 階段確保最早攔截
+        document.addEventListener('contextmenu', this.globalContextMenuListener, true);
 
         // 1. 全域左鍵關閉選單
         this.globalClickListener = (e) => {
@@ -321,7 +337,7 @@ const matrixManager = {
 
     cleanup: function() {
         if (this.globalContextMenuListener) {
-            document.removeEventListener('contextmenu', this.globalContextMenuListener);
+            document.removeEventListener('contextmenu', this.globalContextMenuListener, true);
             this.globalContextMenuListener = null;
         }
         if (this.globalClickListener) {
