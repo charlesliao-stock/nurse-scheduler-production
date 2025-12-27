@@ -10,7 +10,7 @@ const app = {
     init: function() {
         console.log("App initializing...");
         
-        // [關鍵修正] 加入事件監聽，才能處理網址跳轉
+        // [關鍵] 啟動路由監聽，這樣網址改變時頁面才會動
         this.setupEventListeners();
 
         auth.onAuthStateChanged(async (user) => {
@@ -22,10 +22,10 @@ const app = {
                 document.getElementById('login-view').style.display = 'none';
                 document.getElementById('app-view').style.display = 'flex';
                 
-                // 登入後，讀取當前網址 Hash 並載入對應頁面
-                // 如果沒有 Hash，才預設導向 Dashboard
+                // 登入後，立刻檢查當前網址並載入對應頁面
                 const currentHash = window.location.hash.slice(1);
                 if(typeof router !== 'undefined') {
+                    // 如果有 hash 就載入 hash，否則載入儀表板
                     router.load(currentHash || '/admin/dashboard');
                 }
             } else {
@@ -39,7 +39,7 @@ const app = {
 
     // --- [新增] 設定事件監聽 (路由) ---
     setupEventListeners: function() {
-        // 當網址 # 改變時 (例如由 pre_schedule_manager 觸發)，通知 router 載入新頁面
+        // 當網址 # 改變時 (例如點擊管理按鈕)，觸發 Router
         window.addEventListener('hashchange', () => {
             const path = window.location.hash.slice(1); // 去掉 #
             if (path && typeof router !== 'undefined') {
@@ -75,7 +75,6 @@ const app = {
     logout: function() {
         if(confirm("確定要登出嗎？")) {
             auth.signOut().then(() => {
-                // 清除 Hash 並重整
                 window.location.hash = '';
                 location.reload();
             });
@@ -141,7 +140,6 @@ const app = {
     loadPage: function(path) {
         if(typeof router !== 'undefined') {
             // [修正] 改為修改 Hash，統一由 hashchange 監聽器處理
-            // 這樣可以保持瀏覽器上一頁/下一頁功能的正常
             window.location.hash = path;
         }
         if(window.innerWidth < 768) {
