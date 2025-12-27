@@ -298,20 +298,6 @@ const matrixManager = {
 
     // --- 事件管理 ---
     setupEvents: function() {
-        // 0. 全域阻止右鍵選單 (當在預班矩陣頁面時)
-        this.globalContextMenuListener = (e) => {
-            const container = document.getElementById('matrixContainer');
-            const menu = document.getElementById('customContextMenu');
-            // 只要在 matrixContainer 範圍內，或者點擊的是自定義選單，都阻止原生右鍵
-            if ((container && container.contains(e.target)) || (menu && menu.contains(e.target))) {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            }
-        };
-        // 使用 capture 階段確保最早攔截
-        document.addEventListener('contextmenu', this.globalContextMenuListener, true);
-
         // 1. 全域左鍵關閉選單
         this.globalClickListener = (e) => {
             const menu = document.getElementById('customContextMenu');
@@ -323,23 +309,26 @@ const matrixManager = {
         };
         document.addEventListener('click', this.globalClickListener);
 
-        // 2. 監聽 Matrix 容器的 ContextMenu (備援)
+        // 2. 監聽 Matrix 容器的 ContextMenu (兜底阻止原生選單)
         const container = document.getElementById('matrixContainer');
         if(container) {
-            container.addEventListener('contextmenu', (e) => {
-                // 如果點擊的是格子，由 onmousedown 處理，這裡只負責阻止預設選單
-                // 如果點擊的是容器其他地方，也阻止預設選單
+            container.oncontextmenu = (e) => {
                 e.preventDefault();
                 return false;
-            });
+            };
+        }
+        
+        // 3. 針對自定義選單本身也阻止原生右鍵
+        const menu = document.getElementById('customContextMenu');
+        if(menu) {
+            menu.oncontextmenu = (e) => {
+                e.preventDefault();
+                return false;
+            };
         }
     },
 
     cleanup: function() {
-        if (this.globalContextMenuListener) {
-            document.removeEventListener('contextmenu', this.globalContextMenuListener, true);
-            this.globalContextMenuListener = null;
-        }
         if (this.globalClickListener) {
             document.removeEventListener('click', this.globalClickListener);
             this.globalClickListener = null;
