@@ -12,6 +12,7 @@ const router = {
         '/admin/shifts': 'shifts', // 班別管理
         '/admin/groups': 'groups', // 組別管理
         '/admin/menus': 'menus'    // 選單管理
+        '/admin/pre_schedules': 'pre_schedules' // [新增] 預班管理
     },
 
     // 載入頁面主邏輯
@@ -101,6 +102,14 @@ const router = {
                 menuManager.init();
             } else {
                 console.error("錯誤: menuManager 尚未載入，請檢查 index.html");
+            }
+        }
+        // 7. [新增] 預班管理
+        else if (viewName === 'pre_schedules') {
+            if (typeof preScheduleManager !== 'undefined') {
+                preScheduleManager.init();
+            } else {
+                console.error("錯誤: preScheduleManager 尚未載入，請檢查 index.html");
             }
         }
     }
