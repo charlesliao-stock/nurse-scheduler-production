@@ -105,30 +105,29 @@ const preScheduleManager = {
         document.getElementById('searchResults').innerHTML = ''; 
         document.getElementById('inputSearchStaff').value = '';
 
-        // 預設切換到第一頁
         this.switchTab('basic');
 
         if (docId) {
-            // [編輯模式]
             document.getElementById('btnImportLast').style.display = 'none';
             const doc = await db.collection('pre_schedules').doc(docId).get();
             const data = doc.data();
-            this.fillForm(data);
+            this.fillForm(data); 
             this.staffListSnapshot = data.staffList || [];
             this.renderStaffList();
             this.renderGroupLimitsTable(data.groupLimits);
         } else {
-            // [新增模式]
             document.getElementById('btnImportLast').style.display = 'inline-block';
             
             const nextMonth = new Date();
             nextMonth.setMonth(nextMonth.getMonth() + 1);
-            document.getElementById('inputPreYear').value = nextMonth.getFullYear();
-            document.getElementById('inputPreMonth').value = nextMonth.getMonth() + 1;
-            
             const y = nextMonth.getFullYear();
             const m = nextMonth.getMonth() + 1;
             const mStr = m < 10 ? '0'+m : m;
+            
+            // [新增] 設定年月 input
+            document.getElementById('inputPreYearMonth').value = `${y}-${mStr}`;
+            
+            // 預設日期區間
             document.getElementById('inputOpenDate').value = `${y}-${mStr}-01`;
             document.getElementById('inputCloseDate').value = `${y}-${mStr}-10`;
 
@@ -149,24 +148,16 @@ const preScheduleManager = {
         document.getElementById('preScheduleModal').classList.remove('show');
     },
 
-    // [修正] 更穩健的 Tab 切換邏輯
     switchTab: function(tabName) {
         const modal = document.getElementById('preScheduleModal');
         if (!modal) return;
-
-        // 1. 隱藏所有內容
         const contents = modal.querySelectorAll('.tab-content');
         contents.forEach(c => c.classList.remove('active'));
-
-        // 2. 顯示目標內容
         const target = modal.querySelector(`#tab-${tabName}`);
         if(target) target.classList.add('active');
-
-        // 3. 更新按鈕狀態
         const btns = modal.querySelectorAll('.tab-btn');
         btns.forEach(btn => {
             btn.classList.remove('active');
-            // 檢查按鈕的 onclick 字串是否包含目標 tabName
             if(btn.getAttribute('onclick').includes(`'${tabName}'`)) {
                 btn.classList.add('active');
             }
@@ -180,7 +171,6 @@ const preScheduleManager = {
     },
 
     // --- 4. 人員管理 ---
-    
     loadCurrentUnitStaff: async function() {
         const snapshot = await db.collection('users')
             .where('unitId', '==', this.currentUnitId)
@@ -198,12 +188,8 @@ const preScheduleManager = {
         }));
     },
 
-    handleSearchEnter: function(event) {
-        if (event.key === 'Enter') {
-            this.searchStaff();
-        }
-    },
-
+    handleSearchEnter: function(event) { if (event.key === 'Enter') this.searchStaff(); },
+    
     searchStaff: async function() {
         const keyword = document.getElementById('inputSearchStaff').value.trim();
         const resultDiv = document.getElementById('searchResults');
@@ -246,18 +232,10 @@ const preScheduleManager = {
     addSupport: async function(uid) {
         const doc = await db.collection('users').doc(uid).get();
         if(!doc.exists) return;
-        
         const u = doc.data();
         this.staffListSnapshot.push({
-            uid: doc.id,
-            empId: u.employeeId,
-            name: u.displayName,
-            level: u.level,
-            group: u.groupId || '',
-            unitName: u.unitId,
-            isSupport: true
+            uid: doc.id, empId: u.employeeId, name: u.displayName, level: u.level, group: u.groupId || '', unitName: u.unitId, isSupport: true
         });
-
         document.getElementById('searchResults').innerHTML = ''; 
         document.getElementById('inputSearchStaff').value = '';
         this.renderStaffList();
@@ -285,8 +263,7 @@ const preScheduleManager = {
 
         const { field, order } = this.staffSortState;
         this.staffListSnapshot.sort((a,b) => {
-            let valA = a[field] || '';
-            let valB = b[field] || '';
+            let valA = a[field] || ''; let valB = b[field] || '';
             if(typeof valA === 'string') valA = valA.toLowerCase();
             if(typeof valB === 'string') valB = valB.toLowerCase();
             if (valA < valB) return order === 'asc' ? -1 : 1;
@@ -295,15 +272,10 @@ const preScheduleManager = {
         });
 
         this.staffListSnapshot.forEach((u, index) => {
-            let badge = u.isSupport ? 
-                `<span class="badge" style="background:#e67e22;">支援 (${u.unitName})</span>` : 
-                '<span class="badge" style="background:#3498db;">本單位</span>';
-            
+            let badge = u.isSupport ? `<span class="badge" style="background:#e67e22;">支援 (${u.unitName})</span>` : '<span class="badge" style="background:#3498db;">本單位</span>';
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td>${u.empId}</td>
-                <td>${u.name}</td>
-                <td>${u.level}</td>
+                <td>${u.empId}</td> <td>${u.name}</td> <td>${u.level}</td>
                 <td><input type="text" value="${u.group}" class="input-mini" onchange="preScheduleManager.updateStaffGroup(${index}, this.value)"></td>
                 <td>${badge}</td>
                 <td><button class="btn btn-delete" style="padding:2px 5px;" onclick="preScheduleManager.removeStaff(${index})">移除</button></td>
@@ -312,10 +284,7 @@ const preScheduleManager = {
         });
     },
 
-    updateStaffGroup: function(index, val) {
-        this.staffListSnapshot[index].group = val;
-    },
-
+    updateStaffGroup: function(index, val) { this.staffListSnapshot[index].group = val; },
     removeStaff: function(index) {
         if(confirm("確定將此人從本次預班名單移除？")) {
             this.staffListSnapshot.splice(index, 1);
@@ -336,35 +305,21 @@ const preScheduleManager = {
             { key: 'maxN', label: '大夜最多' }
         ];
 
-        let thead = '<thead><tr><th style="background:#f0f0f0; width:120px;">組別</th>';
-        columns.forEach(col => { 
-            thead += `<th style="background:#f0f0f0; min-width: 100px;">${col.label}</th>`; 
-        });
+        let thead = '<thead><tr><th style="background:#f8f9fa; width:120px;">組別</th>';
+        columns.forEach(col => { thead += `<th style="background:#f8f9fa; min-width: 100px;">${col.label}</th>`; });
         thead += '</tr></thead>';
         table.innerHTML += thead;
 
         let tbody = '<tbody>';
-        
         if (this.currentUnitGroups.length === 0) {
             tbody += `<tr><td colspan="${columns.length + 1}" style="padding:20px; color:#999;">此單位尚未設定組別，請先至「單位管理」設定組別。</td></tr>`;
         } else {
             this.currentUnitGroups.forEach(g => {
                 tbody += `<tr>`;
-                tbody += `<td style="font-weight:bold; background:#f8f9fa;">${g}</td>`;
-                
+                tbody += `<td style="font-weight:bold; background:#fff;">${g}</td>`;
                 columns.forEach(col => {
-                    const val = (savedLimits[g] && savedLimits[g][col.key]) !== undefined && (savedLimits[g][col.key] !== null) 
-                                ? savedLimits[g][col.key] 
-                                : '';
-                    
-                    tbody += `<td>
-                        <input type="number" class="limit-input" 
-                               placeholder="不限" 
-                               data-group="${g}" 
-                               data-key="${col.key}" 
-                               value="${val}"
-                               style="width: 100%; box-sizing: border-box;">
-                    </td>`;
+                    const val = (savedLimits[g] && savedLimits[g][col.key]) !== undefined && (savedLimits[g][col.key] !== null) ? savedLimits[g][col.key] : '';
+                    tbody += `<td><input type="number" class="limit-input" placeholder="不限" data-group="${g}" data-key="${col.key}" value="${val}" style="width: 100%; box-sizing: border-box;"></td>`;
                 });
                 tbody += `</tr>`;
             });
@@ -381,7 +336,6 @@ const preScheduleManager = {
                 .limit(1).get();
 
             if (snapshot.empty) { alert("找不到過去的設定資料"); return; }
-            
             const lastData = snapshot.docs[0].data();
             this.fillForm(lastData);
             this.renderGroupLimitsTable(lastData.groupLimits);
@@ -391,10 +345,12 @@ const preScheduleManager = {
         } catch(e) { console.error(e); alert("帶入失敗"); }
     },
 
-    // [關鍵修正] 確保年/月/日期也會回填
+    // [修正] 填寫表單資料 (含 input type="month")
     fillForm: function(data) {
-        if(data.year) document.getElementById('inputPreYear').value = data.year;
-        if(data.month) document.getElementById('inputPreMonth').value = data.month;
+        if(data.year && data.month) {
+            const mStr = data.month < 10 ? '0' + data.month : data.month;
+            document.getElementById('inputPreYearMonth').value = `${data.year}-${mStr}`;
+        }
 
         const s = data.settings || {};
         document.getElementById('inputOpenDate').value = s.openDate || '';
@@ -413,11 +369,15 @@ const preScheduleManager = {
         }
     },
 
-    // --- 6. 儲存 ---
+    // [修正] 儲存時解析年月
     saveData: async function() {
         const docId = document.getElementById('preScheduleDocId').value;
-        const year = parseInt(document.getElementById('inputPreYear').value);
-        const month = parseInt(document.getElementById('inputPreMonth').value);
+        const yearMonth = document.getElementById('inputPreYearMonth').value; // "2025-06"
+        
+        if(!yearMonth) { alert("請選擇預班月份"); return; }
+        
+        const year = parseInt(yearMonth.split('-')[0]);
+        const month = parseInt(yearMonth.split('-')[1]);
         const unitId = this.currentUnitId;
 
         const settings = {
