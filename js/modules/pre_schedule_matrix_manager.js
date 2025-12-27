@@ -147,12 +147,6 @@ const matrixManager = {
 
     // --- 互動邏輯 ---
     onCellClick: function(e, cell) {
-        // [關鍵] 再次阻止預設選單
-        if (e.button === 2) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
-
         const uid = cell.parentElement.dataset.uid;
         const type = cell.dataset.type; 
         const day = cell.dataset.day;
@@ -178,6 +172,8 @@ const matrixManager = {
     },
 
     handleRightClick: function(e, uid, key, type, day) {
+        e.preventDefault();
+        e.stopPropagation();
         const menu = document.getElementById('customContextMenu');
         const options = document.getElementById('contextMenuOptions');
         const title = document.getElementById('contextMenuTitle');
@@ -291,6 +287,15 @@ const matrixManager = {
 
     // --- 事件管理 ---
     setupEvents: function() {
+        // 0. 全域阻止右鍵選單 (當在預班矩陣頁面時)
+        this.globalContextMenuListener = (e) => {
+            const container = document.getElementById('matrixContainer');
+            if (container && container.contains(e.target)) {
+                e.preventDefault();
+            }
+        };
+        document.addEventListener('contextmenu', this.globalContextMenuListener);
+
         // 1. 全域左鍵關閉選單
         this.globalClickListener = (e) => {
             const menu = document.getElementById('customContextMenu');
@@ -305,14 +310,20 @@ const matrixManager = {
         // 2. 監聽 Matrix 容器的 ContextMenu (備援)
         const container = document.getElementById('matrixContainer');
         if(container) {
-            container.oncontextmenu = (e) => {
-                e.preventDefault(); // 再次確保阻止
+            container.addEventListener('contextmenu', (e) => {
+                // 如果點擊的是格子，由 onmousedown 處理，這裡只負責阻止預設選單
+                // 如果點擊的是容器其他地方，也阻止預設選單
+                e.preventDefault();
                 return false;
-            };
+            });
         }
     },
 
     cleanup: function() {
+        if (this.globalContextMenuListener) {
+            document.removeEventListener('contextmenu', this.globalContextMenuListener);
+            this.globalContextMenuListener = null;
+        }
         if (this.globalClickListener) {
             document.removeEventListener('click', this.globalClickListener);
             this.globalClickListener = null;
