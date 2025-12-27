@@ -470,6 +470,7 @@ const preScheduleManager = {
 
     // [修正] 跳轉到矩陣介面
     manage: function(id) {
+        console.log("Jumping to matrix with ID:", id);
         window.location.hash = `/admin/pre_schedule_matrix?id=${id}`;
     }
 };
