@@ -5,13 +5,13 @@ const router = {
     // key: URL 路徑
     // value: views 資料夾下的檔名
     routes: {
-        '/admin/dashboard': 'dashboard',
-        '/staff/list': 'staff',
-        '/admin/staff': 'staff',   // 人員管理
-        '/admin/units': 'units',   // 單位管理
-        '/admin/shifts': 'shifts', // 班別管理
-        '/admin/groups': 'groups', // 組別管理
-        '/admin/menus': 'menus'    // 選單管理
+        '/admin/dashboard': 'dashboard',   // 儀表板
+        '/staff/list': 'staff',            // 人員列表
+        '/admin/staff': 'staff',           // 人員管理 (複用同頁面)
+        '/admin/units': 'units',           // 單位管理
+        '/admin/shifts': 'shifts',         // 班別管理
+        '/admin/groups': 'groups',         // 組別管理
+        '/admin/menus': 'menus',           // 選單管理
         '/admin/pre_schedules': 'pre_schedules' // [新增] 預班管理
     },
 
