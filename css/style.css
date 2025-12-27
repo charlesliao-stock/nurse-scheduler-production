@@ -156,7 +156,7 @@ th:hover { background-color: #eee; }
     background-color: #f8f9fa;
 }
 
-/* --- 預班管理專用樣式 --- */
+/* --- [修正] 預班管理專用樣式 --- */
 .modal-xl { max-width: 1200px !important; width: 90vw !important; }
 
 /* 矩陣表格樣式 */
