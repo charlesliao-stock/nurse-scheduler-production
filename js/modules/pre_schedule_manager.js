@@ -105,17 +105,23 @@ const preScheduleManager = {
         document.getElementById('searchResults').innerHTML = ''; 
         document.getElementById('inputSearchStaff').value = '';
 
+        // 預設切換到第一頁
         this.switchTab('basic');
 
         if (docId) {
+            // [編輯模式]
             document.getElementById('btnImportLast').style.display = 'none';
             const doc = await db.collection('pre_schedules').doc(docId).get();
             const data = doc.data();
-            this.fillForm(data);
+            
+            // 填入資料
+            this.fillForm(data); 
+            
             this.staffListSnapshot = data.staffList || [];
             this.renderStaffList();
             this.renderGroupLimitsTable(data.groupLimits);
         } else {
+            // [新增模式]
             document.getElementById('btnImportLast').style.display = 'inline-block';
             
             const nextMonth = new Date();
@@ -308,12 +314,11 @@ const preScheduleManager = {
         }
     },
 
-    // --- 5. 矩陣表格 (組別限制) - [修改] 轉置為橫向表格 ---
+    // --- 5. 矩陣表格 (組別限制) ---
     renderGroupLimitsTable: function(savedLimits = {}) {
         const table = document.getElementById('groupLimitTable');
         table.innerHTML = '';
 
-        // 定義欄位 (Columns)
         const columns = [
             { key: 'minTotal', label: '每班至少' },
             { key: 'minE', label: '小夜至少' },
@@ -322,7 +327,6 @@ const preScheduleManager = {
             { key: 'maxN', label: '大夜最多' }
         ];
 
-        // 1. 產生表頭
         let thead = '<thead><tr><th style="background:#f0f0f0; width:120px;">組別</th>';
         columns.forEach(col => { 
             thead += `<th style="background:#f0f0f0; min-width: 100px;">${col.label}</th>`; 
@@ -330,7 +334,6 @@ const preScheduleManager = {
         thead += '</tr></thead>';
         table.innerHTML += thead;
 
-        // 2. 產生內容 (每一列是一個組別)
         let tbody = '<tbody>';
         
         if (this.currentUnitGroups.length === 0) {
@@ -338,12 +341,9 @@ const preScheduleManager = {
         } else {
             this.currentUnitGroups.forEach(g => {
                 tbody += `<tr>`;
-                // 第一欄：組別名稱
                 tbody += `<td style="font-weight:bold; background:#f8f9fa;">${g}</td>`;
                 
-                // 後續欄位：各個限制輸入框
                 columns.forEach(col => {
-                    // 取得舊值
                     const val = (savedLimits[g] && savedLimits[g][col.key]) !== undefined && (savedLimits[g][col.key] !== null) 
                                 ? savedLimits[g][col.key] 
                                 : '';
@@ -382,18 +382,29 @@ const preScheduleManager = {
         } catch(e) { console.error(e); alert("帶入失敗"); }
     },
 
+    // [修正] 填寫表單資料 (含基本年月日期)
     fillForm: function(data) {
-        const s = data.settings;
+        // 1. 回填年/月
+        if(data.year) document.getElementById('inputPreYear').value = data.year;
+        if(data.month) document.getElementById('inputPreMonth').value = data.month;
+
+        const s = data.settings || {};
+        
+        // 2. 回填日期
+        document.getElementById('inputOpenDate').value = s.openDate || '';
+        document.getElementById('inputCloseDate').value = s.closeDate || '';
+        
+        // 3. 回填規則
         document.getElementById('inputMaxOff').value = s.maxOffDays;
         document.getElementById('inputMaxHoliday').value = s.maxHolidayOffs;
         document.getElementById('inputDailyReserve').value = s.dailyReserved;
         document.getElementById('checkShowAllNames').checked = s.showAllNames;
         document.getElementById('inputShiftMode').value = s.shiftTypeMode;
+        
+        this.toggleThreeShiftOption(); // 更新 UI 狀態
+        
         if(s.shiftTypeMode === "2") {
-            document.getElementById('divAllowThree').style.display = 'block';
             document.getElementById('checkAllowThree').checked = s.allowThreeShifts;
-        } else {
-            document.getElementById('divAllowThree').style.display = 'none';
         }
     },
 
@@ -417,13 +428,11 @@ const preScheduleManager = {
 
         if(!settings.openDate || !settings.closeDate) { alert("請設定開放區間"); return; }
 
-        // 收集組別限制 (邏輯不變，因為 class 名稱與 dataset 結構沒變)
         const groupLimits = {};
         document.querySelectorAll('.limit-input').forEach(inp => {
             const g = inp.dataset.group;
             const k = inp.dataset.key;
             if(!groupLimits[g]) groupLimits[g] = {};
-            // 空值存為 null
             groupLimits[g][k] = inp.value === '' ? null : parseInt(inp.value);
         });
 
