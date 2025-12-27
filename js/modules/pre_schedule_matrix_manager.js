@@ -23,31 +23,22 @@ const matrixManager = {
         this.isLoading = true;
         
         try {
-            // 顯示載入中
-            const container = document.getElementById('matrixContainer');
-            if(container) container.innerHTML = '<div style="padding:50px; text-align:center;">載入中...</div>';
-
-            // 並行載入資料
+            // 1. 顯示載入中 (這會暫時覆蓋掉表格 HTML)
+            this.showLoading();
+            
+            // 2. 並行載入資料
             await Promise.all([
                 this.loadShifts(),
                 this.loadUsers(),
                 this.loadScheduleData()
             ]);
             
-            // [關鍵修正] 確保 DOM 已經還原 (因為剛才innerHTML被蓋掉了)
-            // 重新填入表格骨架，因為上面把它變成 "載入中..." 了
-            if(container) {
-                container.innerHTML = `
-                    <table id="scheduleMatrix">
-                        <thead id="matrixHead"></thead>
-                        <tbody id="matrixBody"></tbody>
-                        <tfoot id="matrixFoot" style="position:sticky; bottom:0; background:#f9f9f9; z-index:25; font-weight:bold; border-top:2px solid #ddd;"></tfoot>
-                    </table>
-                `;
-            }
+            // 3. [關鍵修正] 資料載入後，必須把表格骨架 "放回去"
+            this.restoreTableStructure();
 
-            // 嘗試渲染 (帶有重試機制)
-            this.tryRender();
+            // 4. 渲染與綁定
+            this.renderMatrix();
+            this.updateStats();
             this.setupEvents();
             
             console.log("✅ Matrix 初始化完成");
@@ -60,21 +51,25 @@ const matrixManager = {
         }
     },
 
-    // [新增] 渲染重試機制，解決 "找不到表格元素"
-    tryRender: function(retryCount = 0) {
-        const thead = document.getElementById('matrixHead');
-        if (!thead) {
-            if (retryCount < 5) {
-                console.warn(`DOM 尚未準備好，重試中 (${retryCount + 1})...`);
-                setTimeout(() => this.tryRender(retryCount + 1), 100); // 等待 100ms
-            } else {
-                console.error("❌ 無法找到表格元素，請重新整理頁面。");
-            }
-            return;
+    showLoading: function() {
+        const container = document.getElementById('matrixContainer');
+        if(container) {
+            container.innerHTML = '<div style="padding:60px; text-align:center; color:#666;"><i class="fas fa-spinner fa-spin" style="font-size:3rem; margin-bottom:20px;"></i><br>載入排班矩陣中...</div>';
         }
-        
-        this.renderMatrix();
-        this.updateStats();
+    },
+
+    // [新增] 重建表格結構
+    restoreTableStructure: function() {
+        const container = document.getElementById('matrixContainer');
+        if(container) {
+            container.innerHTML = `
+                <table id="scheduleMatrix">
+                    <thead id="matrixHead"></thead>
+                    <tbody id="matrixBody"></tbody>
+                    <tfoot id="matrixFoot" style="position:sticky; bottom:0; background:#f9f9f9; z-index:25; font-weight:bold; border-top:2px solid #ddd;"></tfoot>
+                </table>
+            `;
+        }
     },
 
     loadShifts: async function() {
@@ -90,6 +85,7 @@ const matrixManager = {
     loadScheduleData: async function() {
         const doc = await db.collection('pre_schedules').doc(this.docId).get();
         if (!doc.exists) throw new Error("資料不存在");
+        
         this.data = doc.data();
         this.localAssignments = this.data.assignments || {};
         
@@ -111,21 +107,26 @@ const matrixManager = {
         const tbody = document.getElementById('matrixBody');
         const tfoot = document.getElementById('matrixFoot');
         
+        if(!thead || !tbody) {
+            console.error("❌ 表格元素遺失，請檢查 restoreTableStructure 是否執行");
+            return;
+        }
+        
         const year = this.data.year;
         const month = this.data.month;
         const daysInMonth = new Date(year, month, 0).getDate();
         
-        // 表頭
+        // 1. 表頭
         let header1 = `<tr><th rowspan="2">員編</th><th rowspan="2">姓名</th><th rowspan="2">特註</th><th rowspan="2">偏好</th><th colspan="6" style="background:#eee;">上月</th><th colspan="${daysInMonth}">本月 ${month} 月</th><th rowspan="2" style="background:#fff; position:sticky; right:0; z-index:20; border-left:2px solid #ccc; width:60px;">統計<br>(OFF)</th></tr>`;
         let header2 = `<tr>`;
         
-        // 上月 6 天 (強制 cell-narrow)
+        // 上月 6 天 (cell-narrow)
         const lastMonthLastDay = new Date(year, month - 1, 0).getDate();
         for(let i=5; i>=0; i--) {
             const d = lastMonthLastDay - i;
             header2 += `<th class="cell-last-month cell-narrow">${d}</th>`;
         }
-        // 本月 (強制 cell-narrow)
+        // 本月 (cell-narrow)
         for(let d=1; d<=daysInMonth; d++) {
             const dateObj = new Date(year, month-1, d);
             const dayOfWeek = dateObj.getDay(); 
@@ -135,7 +136,7 @@ const matrixManager = {
         header2 += `</tr>`;
         thead.innerHTML = header1 + header2;
 
-        // 內容
+        // 2. 內容
         let bodyHtml = '';
         const staffList = this.data.staffList || [];
         staffList.sort((a,b) => (a.empId||'').localeCompare(b.empId||''));
@@ -153,8 +154,9 @@ const matrixManager = {
                 <td>${noteIcon}</td>
                 <td>${pref}</td>`;
             
-            // 上月格 (雙重保險 oncontextmenu="return false")
             const assign = this.localAssignments[u.uid] || {};
+            
+            // 上月
             for(let i=5; i>=0; i--) {
                 const d = lastMonthLastDay - i;
                 const key = `last_${d}`;
@@ -164,7 +166,7 @@ const matrixManager = {
                     onmousedown="matrixManager.onCellClick(event, this)"
                     oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
             }
-            // 本月格
+            // 本月
             for(let d=1; d<=daysInMonth; d++) {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
@@ -173,13 +175,13 @@ const matrixManager = {
                     onmousedown="matrixManager.onCellClick(event, this)"
                     oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
             }
-            // 統計欄
+            // 統計
             bodyHtml += `<td id="stat_row_${u.uid}" style="position:sticky; right:0; background:#fff; border-left:2px solid #ccc; font-weight:bold; color:#333;">0</td>`;
             bodyHtml += `</tr>`;
         });
         tbody.innerHTML = bodyHtml;
 
-        // 底部
+        // 3. 底部
         let footHtml = `<tr><td colspan="4">每日OFF小計</td>`;
         for(let i=0; i<6; i++) footHtml += `<td class="cell-narrow" style="background:#eee;">-</td>`;
         for(let d=1; d<=daysInMonth; d++) {
@@ -199,7 +201,7 @@ const matrixManager = {
 
     // --- 互動邏輯 ---
     onCellClick: function(e, cell) {
-        // [關鍵] 再次確保阻止冒泡
+        // [關鍵] 再次確保阻止預設選單
         if (e.button === 2) {
             e.preventDefault();
             e.stopPropagation();
@@ -274,15 +276,25 @@ const matrixManager = {
 
         options.innerHTML = html;
         
-        let x = e.pageX;
-        let y = e.pageY;
-        // 防溢出
-        if (y + menu.offsetHeight > window.innerHeight) y -= menu.offsetHeight;
-        if (x + menu.offsetWidth > window.innerWidth) x -= menu.offsetWidth;
-        
+        // [修正] 選單定位邏輯：先顯示，計算高度後再調整位置
         menu.style.display = 'block';
-        menu.style.left = x + 'px';
-        menu.style.top = y + 'px';
+        menu.style.visibility = 'hidden'; // 先隱藏以計算尺寸
+        
+        setTimeout(() => {
+            let x = e.pageX;
+            let y = e.pageY;
+            
+            if (y + menu.offsetHeight > window.innerHeight) {
+                y -= menu.offsetHeight;
+            }
+            if (x + menu.offsetWidth > window.innerWidth) {
+                x -= menu.offsetWidth;
+            }
+            
+            menu.style.left = x + 'px';
+            menu.style.top = y + 'px';
+            menu.style.visibility = 'visible'; // 位置確定後顯示
+        }, 0);
     },
 
     setShift: function(uid, key, val) {
@@ -294,7 +306,6 @@ const matrixManager = {
         const type = key.startsWith('last') ? 'last' : 'current';
         const day = key.split('_')[1];
         const row = document.querySelector(`tr[data-uid="${uid}"]`);
-        // 使用 tryRender 的機制，這裡通常安全，但加個 ? 防止報錯
         const cell = row?.querySelector(`td[data-type="${type}"][data-day="${day}"]`);
         if(cell) cell.innerHTML = this.renderCellContent(val);
 
@@ -344,9 +355,7 @@ const matrixManager = {
         }
     },
 
-    // --- 事件管理 ---
     setupEvents: function() {
-        // 1. 全域點擊關閉選單
         this.globalClickListener = (e) => {
             const menu = document.getElementById('customContextMenu');
             if (menu && menu.style.display === 'block') {
@@ -357,7 +366,6 @@ const matrixManager = {
         };
         document.addEventListener('click', this.globalClickListener);
 
-        // 2. [關鍵] 強制容器攔截
         const container = document.getElementById('matrixContainer');
         if(container) {
             container.oncontextmenu = (e) => {
@@ -366,8 +374,6 @@ const matrixManager = {
                 return false;
             };
         }
-        
-        console.log("✅ 事件監聽設定完成");
     },
 
     cleanup: function() {
@@ -375,13 +381,9 @@ const matrixManager = {
             document.removeEventListener('click', this.globalClickListener);
             this.globalClickListener = null;
         }
-        const container = document.getElementById('matrixContainer');
-        if(container) container.oncontextmenu = null;
-        console.log("🧹 清理完成");
     },
 
     saveData: async function() {
-        if(this.isLoading) return;
         try {
             this.isLoading = true;
             await db.collection('pre_schedules').doc(this.docId).update({
@@ -402,6 +404,7 @@ const matrixManager = {
         }
 
         try {
+            this.isLoading = true;
             await db.collection('pre_schedules').doc(this.docId).update({
                 assignments: this.localAssignments,
                 status: 'closed', 
@@ -410,6 +413,7 @@ const matrixManager = {
             alert("✅ 執行成功！");
             history.back(); 
         } catch(e) { alert("執行失敗: " + e.message); }
+        finally { this.isLoading = false; }
     }
 };
 
