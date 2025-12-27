@@ -53,7 +53,7 @@ const matrixManager = {
         el.style.background = badgeColor[st] || '#999';
     },
 
-    // --- 渲染矩陣 (修正：加入 .cell-narrow) ---
+    // --- 渲染矩陣 (修正重點：窄欄位 + 禁用原生右鍵) ---
     renderMatrix: function() {
         const thead = document.getElementById('matrixHead');
         const tbody = document.getElementById('matrixBody');
@@ -67,13 +67,13 @@ const matrixManager = {
         let header1 = `<tr><th rowspan="2">員編</th><th rowspan="2">姓名</th><th rowspan="2">特註</th><th rowspan="2">偏好</th><th colspan="6" style="background:#eee;">上月</th><th colspan="${daysInMonth}">本月 ${month} 月</th><th rowspan="2" style="background:#fff; position:sticky; right:0; z-index:20; border-left:2px solid #ccc; width:60px;">統計<br>(OFF)</th></tr>`;
         let header2 = `<tr>`;
         
-        // 上月 6 天 (加入 cell-narrow)
+        // 上月 6 天 (使用 cell-narrow)
         const lastMonthLastDay = new Date(year, month - 1, 0).getDate();
         for(let i=5; i>=0; i--) {
             const d = lastMonthLastDay - i;
             header2 += `<th class="cell-last-month cell-narrow">${d}</th>`;
         }
-        // 本月 (加入 cell-narrow)
+        // 本月 (使用 cell-narrow)
         for(let d=1; d<=daysInMonth; d++) {
             const dateObj = new Date(year, month-1, d);
             const dayOfWeek = dateObj.getDay(); 
@@ -101,19 +101,25 @@ const matrixManager = {
                 <td>${noteIcon}</td>
                 <td>${pref}</td>`;
             
-            // 上月格 (加入 cell-narrow)
+            // 上月格 (加入 cell-narrow + oncontextmenu="return false")
             const assign = this.localAssignments[u.uid] || {};
             for(let i=5; i>=0; i--) {
                 const d = lastMonthLastDay - i;
                 const key = `last_${d}`;
                 const val = assign[key] || '';
-                bodyHtml += `<td class="cell-clickable cell-last-month cell-narrow" data-type="last" data-day="${d}" onmousedown="matrixManager.onCellClick(event, this)">${this.renderCellContent(val)}</td>`;
+                bodyHtml += `<td class="cell-clickable cell-last-month cell-narrow" 
+                    data-type="last" data-day="${d}" 
+                    onmousedown="matrixManager.onCellClick(event, this)"
+                    oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
             }
-            // 本月格 (加入 cell-narrow)
+            // 本月格 (加入 cell-narrow + oncontextmenu="return false")
             for(let d=1; d<=daysInMonth; d++) {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
-                bodyHtml += `<td class="cell-clickable cell-narrow" data-type="current" data-day="${d}" onmousedown="matrixManager.onCellClick(event, this)">${this.renderCellContent(val)}</td>`;
+                bodyHtml += `<td class="cell-clickable cell-narrow" 
+                    data-type="current" data-day="${d}" 
+                    onmousedown="matrixManager.onCellClick(event, this)"
+                    oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
             }
             // 統計欄
             bodyHtml += `<td id="stat_row_${u.uid}" style="position:sticky; right:0; background:#fff; border-left:2px solid #ccc; font-weight:bold; color:#333;">0</td>`;
@@ -141,6 +147,12 @@ const matrixManager = {
 
     // --- 互動邏輯 ---
     onCellClick: function(e, cell) {
+        // [關鍵] 再次阻止預設選單
+        if (e.button === 2) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
         const uid = cell.parentElement.dataset.uid;
         const type = cell.dataset.type; 
         const day = cell.dataset.day;
@@ -166,10 +178,6 @@ const matrixManager = {
     },
 
     handleRightClick: function(e, uid, key, type, day) {
-        // [關鍵] 阻止預設選單
-        e.preventDefault();
-        e.stopPropagation();
-
         const menu = document.getElementById('customContextMenu');
         const options = document.getElementById('contextMenuOptions');
         const title = document.getElementById('contextMenuTitle');
@@ -281,7 +289,7 @@ const matrixManager = {
         }
     },
 
-    // --- 事件管理 (防止預設右鍵) ---
+    // --- 事件管理 ---
     setupEvents: function() {
         // 1. 全域左鍵關閉選單
         this.globalClickListener = (e) => {
@@ -294,17 +302,12 @@ const matrixManager = {
         };
         document.addEventListener('click', this.globalClickListener);
 
-        // 2. [關鍵] 監聽 Matrix 容器的 ContextMenu
-        // 不論點哪裡，只要在容器內，就阻止瀏覽器預設選單
+        // 2. 監聽 Matrix 容器的 ContextMenu (備援)
         const container = document.getElementById('matrixContainer');
         if(container) {
             container.oncontextmenu = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                // 如果點擊的不是格子 (例如卷軸或空白處)，確保自訂選單也關閉
-                if (!e.target.classList.contains('cell-clickable') && !e.target.closest('.cell-clickable')) {
-                    document.getElementById('customContextMenu').style.display = 'none';
-                }
+                e.preventDefault(); // 再次確保阻止
+                return false;
             };
         }
     },
@@ -314,9 +317,6 @@ const matrixManager = {
             document.removeEventListener('click', this.globalClickListener);
             this.globalClickListener = null;
         }
-        // 移除容器的事件 (如果容器還存在)
-        const container = document.getElementById('matrixContainer');
-        if(container) container.oncontextmenu = null;
     },
 
     saveData: async function() {
