@@ -156,7 +156,7 @@ th:hover { background-color: #eee; }
     background-color: #f8f9fa;
 }
 
-/* --- [修正] 預班管理專用樣式 --- */
+/* --- 預班管理專用樣式 --- */
 .modal-xl { max-width: 1200px !important; width: 90vw !important; }
 
 /* 矩陣表格樣式 */
@@ -164,23 +164,21 @@ th:hover { background-color: #eee; }
 #scheduleMatrix {
     border-collapse: separate; 
     border-spacing: 0;
-    /* 讓表格寬度自動，但每個格子有固定寬度 */
+    /* 讓表格寬度依內容撐開 */
     width: max-content; 
     min-width: 100%;
 }
 
-/* [關鍵] 強制設定每個格子的寬度限制 */
+/* [關鍵] 基礎格子樣式 */
 #scheduleMatrix th, #scheduleMatrix td {
     border-right: 1px solid #ddd; border-bottom: 1px solid #ddd;
     padding: 0; text-align: center; vertical-align: middle;
-    font-size: 0.85rem; /* 字體稍微縮小以適應窄欄 */
-    height: 36px;       /* 高度稍微縮小 */
-    box-sizing: border-box; position: relative;
+    font-size: 0.85rem; height: 36px; box-sizing: border-box; position: relative;
 }
 
-/* [關鍵] 統一日期欄位的寬度 (包含上月與本月) */
+/* [關鍵] 強制窄欄位 (日期/班別格) */
 .cell-narrow {
-    width: 35px !important;      /* 強制寬度 */
+    width: 35px !important;
     min-width: 35px !important;
     max-width: 35px !important;
     overflow: hidden;
@@ -203,26 +201,22 @@ th:hover { background-color: #eee; }
 /* 1. 員編 */
 #scheduleMatrix th:nth-child(1), #scheduleMatrix td:nth-child(1) {
     position: sticky; left: 0; background: #fff; z-index: 10; 
-    width: 65px; /* 縮窄 */
-    min-width: 65px;
+    width: 65px; min-width: 65px;
 }
 /* 2. 姓名 */
 #scheduleMatrix th:nth-child(2), #scheduleMatrix td:nth-child(2) {
     position: sticky; left: 65px; background: #fff; z-index: 10; 
-    width: 70px; /* 縮窄 */
-    min-width: 70px;
+    width: 70px; min-width: 70px;
 }
 /* 3. 特註 */
 #scheduleMatrix th:nth-child(3), #scheduleMatrix td:nth-child(3) {
     position: sticky; left: 135px; background: #fff; z-index: 10; 
-    width: 35px; /* 縮窄 */
-    min-width: 35px;
+    width: 35px; min-width: 35px;
 }
 /* 4. 偏好 */
 #scheduleMatrix th:nth-child(4), #scheduleMatrix td:nth-child(4) {
     position: sticky; left: 170px; background: #fff; z-index: 10; 
-    width: 35px; /* 縮窄 */
-    min-width: 35px;
+    width: 35px; min-width: 35px;
     border-right: 2px solid #999;
 }
 
