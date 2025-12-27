@@ -27,14 +27,13 @@
                     <th style="width: 25%;">操作</th>
                 </tr>
             </thead>
-            <tbody id="preScheduleTableBody">
-                </tbody>
+            <tbody id="preScheduleTableBody"></tbody>
         </table>
     </div>
 </div>
 
 <div id="preScheduleModal" class="modal">
-    <div class="modal-content" style="max-width: 850px; height: 85vh; display: flex; flex-direction: column;">
+    <div class="modal-content modal-xl" style="height: 85vh; display: flex; flex-direction: column;">
         
         <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:15px; margin-bottom:15px;">
             <h3 style="margin:0;">預班表設定</h3>
@@ -49,7 +48,9 @@
         <div class="tab-header">
             <button class="tab-btn active" onclick="preScheduleManager.switchTab('basic')">1. 基本與規則</button>
             <button class="tab-btn" onclick="preScheduleManager.switchTab('limits')">2. 組別人力限制</button>
-            <button class="tab-btn" onclick="preScheduleManager.switchTab('staff')">3. 參與人員</button>
+            <button class="tab-btn" onclick="preScheduleManager.switchTab('staff')">
+                3. 參與人員 <span id="staffTotalCount" class="badge" style="background:#7f8c8d; margin-left:5px;">0</span>
+            </button>
         </div>
 
         <div style="flex: 1; overflow-y: auto; padding-right: 10px;">
@@ -128,7 +129,7 @@
 
             <div id="tab-limits" class="tab-content">
                 <div class="alert-box" style="background:#e8f6f3; color:#0e6251; padding:10px; border-radius:4px; margin-bottom:15px; font-size:0.9rem;">
-                    <i class="fas fa-info-circle"></i> 請輸入各組別每日最少/最多需上班的人數限制。
+                    <i class="fas fa-info-circle"></i> 請輸入各組別每日限制。若該項不限制，請留空 (預設為不限)。
                 </div>
                 <div style="overflow-x:auto;">
                     <table class="matrix-table" id="groupLimitTable">
@@ -137,20 +138,36 @@
             </div>
 
             <div id="tab-staff" class="tab-content">
-                <div style="background:#f9f9f9; padding:15px; border-radius:4px; margin-bottom:15px; display:flex; gap:10px;">
-                    <input type="text" id="inputSearchStaff" placeholder="搜尋全院員工 (員編/姓名)..." style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
-                    <button class="btn btn-add" onclick="preScheduleManager.searchAndAddSupport()">加入支援</button>
+                <div style="background:#f9f9f9; padding:15px; border-radius:4px; margin-bottom:15px;">
+                    <div style="display:flex; gap:10px;">
+                        <input type="text" id="inputSearchStaff" 
+                               placeholder="輸入員編或姓名後，按 Enter 搜尋..." 
+                               onkeyup="preScheduleManager.handleSearchEnter(event)"
+                               style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
+                        <button class="btn btn-add" onclick="preScheduleManager.searchStaff()">搜尋</button>
+                    </div>
+                    <div id="searchResults"></div>
                 </div>
 
                 <div style="max-height: 400px; overflow-y: auto; border:1px solid #eee;">
                     <table style="width:100%;">
-                        <thead style="background:#eee; position:sticky; top:0;">
+                        <thead style="background:#eee; position:sticky; top:0; z-index:1;">
                             <tr>
-                                <th style="width:15%;">員編</th>
-                                <th style="width:20%;">姓名</th>
-                                <th style="width:15%;">層級</th>
-                                <th style="width:20%;">組別</th>
-                                <th style="width:15%;">身份</th>
+                                <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('empId')">
+                                    員編 <i id="sort_icon_pre_empId" class="fas fa-sort"></i>
+                                </th>
+                                <th style="width:20%; cursor:pointer;" onclick="preScheduleManager.sortStaff('name')">
+                                    姓名 <i id="sort_icon_pre_name" class="fas fa-sort"></i>
+                                </th>
+                                <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('level')">
+                                    層級 <i id="sort_icon_pre_level" class="fas fa-sort"></i>
+                                </th>
+                                <th style="width:20%; cursor:pointer;" onclick="preScheduleManager.sortStaff('group')">
+                                    組別 <i id="sort_icon_pre_group" class="fas fa-sort"></i>
+                                </th>
+                                <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('isSupport')">
+                                    身份 <i id="sort_icon_pre_isSupport" class="fas fa-sort"></i>
+                                </th>
                                 <th style="width:15%;">操作</th>
                             </tr>
                         </thead>
