@@ -8,6 +8,11 @@ const app = {
 
     // --- 1. 系統初始化 ---
     init: function() {
+        console.log("App initializing...");
+        
+        // [關鍵修正] 加入事件監聽，才能處理網址跳轉
+        this.setupEventListeners();
+
         auth.onAuthStateChanged(async (user) => {
             if (user) {
                 console.log("User logged in:", user.uid);
@@ -17,15 +22,28 @@ const app = {
                 document.getElementById('login-view').style.display = 'none';
                 document.getElementById('app-view').style.display = 'flex';
                 
+                // 登入後，讀取當前網址 Hash 並載入對應頁面
+                // 如果沒有 Hash，才預設導向 Dashboard
+                const currentHash = window.location.hash.slice(1);
                 if(typeof router !== 'undefined') {
-                    // 登入後預設導向儀表板
-                    router.load('/admin/dashboard');
+                    router.load(currentHash || '/admin/dashboard');
                 }
             } else {
                 console.log("User logged out");
                 this.currentUser = null;
                 document.getElementById('login-view').style.display = 'flex';
                 document.getElementById('app-view').style.display = 'none';
+            }
+        });
+    },
+
+    // --- [新增] 設定事件監聽 (路由) ---
+    setupEventListeners: function() {
+        // 當網址 # 改變時 (例如由 pre_schedule_manager 觸發)，通知 router 載入新頁面
+        window.addEventListener('hashchange', () => {
+            const path = window.location.hash.slice(1); // 去掉 #
+            if (path && typeof router !== 'undefined') {
+                router.load(path);
             }
         });
     },
@@ -47,86 +65,47 @@ const app = {
         try {
             await auth.signInWithEmailAndPassword(email, pass);
         } catch (e) {
-            console.error("Login Error Code:", e.code);
-
-            // 攔截「帳號不存在」或「憑證錯誤」，檢查是否為未開通帳號
-            if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-login-credentials') {
-                errorMsg.textContent = "登入失敗，正在檢查帳號狀態...";
-                try {
-                    const snapshot = await db.collection('users')
-                        .where('email', '==', email)
-                        .get();
-
-                    if (!snapshot.empty) {
-                        const userData = snapshot.docs[0].data();
-                        // 如果資料存在但未註冊
-                        if (!userData.isRegistered || !userData.uid) {
-                            alert("👋 歡迎！\n系統偵測到您的帳號尚未開通。\n\n將自動轉跳至開通頁面，請驗證員編並設定密碼。");
-                            window.location.href = 'signup.html';
-                            return;
-                        }
-                    }
-                } catch (checkErr) {
-                    console.error("Check user status failed:", checkErr);
-                }
-            }
-
-            let msg = "登入失敗: " + e.message;
-            if(e.code === 'auth/user-not-found' || e.code === 'auth/invalid-login-credentials') {
-                msg = "帳號不存在，或密碼錯誤。";
-            } else if(e.code === 'auth/wrong-password') {
-                msg = "密碼錯誤。";
-            } else if(e.code === 'auth/too-many-requests') {
-                msg = "登入失敗次數過多，請稍後再試。";
-            }
-            
+            console.error("Login Error:", e);
             errorMsg.style.color = "red";
-            errorMsg.textContent = msg;
+            errorMsg.textContent = "登入失敗：" + e.message;
         }
     },
 
     // --- 3. 登出 ---
     logout: function() {
         if(confirm("確定要登出嗎？")) {
-            auth.signOut();
+            auth.signOut().then(() => {
+                // 清除 Hash 並重整
+                window.location.hash = '';
+                location.reload();
+            });
         }
     },
 
-    // --- 4. 載入使用者權限資料 (修正重點) ---
+    // --- 4. 載入使用者權限資料 ---
     loadUserContext: async function(uid) {
         try {
             const userDoc = await db.collection('users').doc(uid).get();
             if(!userDoc.exists) {
-                // 如果 Auth 有登入，但資料庫沒資料 (極端情況)
-                console.error("Database record missing for UID:", uid);
-                alert("異常：找不到使用者資料庫紀錄，將強制登出。");
+                console.error("No DB record for UID:", uid);
                 auth.signOut(); 
                 return;
             }
             
             const data = userDoc.data();
-            
-            // [修正] 加上預設值保護，防止 role 為空導致 crash
             this.userRole = data.role || 'user'; 
             this.userUnitId = data.unitId;
 
             document.getElementById('displayUserName').textContent = data.displayName || '使用者';
             document.getElementById('displayUserRole').textContent = this.translateRole(this.userRole);
 
-            // 根據 Role 抓取權限
-            // 因為上面加了預設值，這裡的 doc() 就不會再是空的了
             const roleDoc = await db.collection('system_roles').doc(this.userRole).get();
             this.permissions = roleDoc.exists ? roleDoc.data().permissions : [];
 
-            // 渲染選單
             await this.renderMenu();
 
         } catch (error) {
             console.error("Load Context Error:", error);
-            // 避免卡在載入畫面，顯示錯誤
-            document.getElementById('login-view').style.display = 'flex';
-            document.getElementById('app-view').style.display = 'none';
-            document.getElementById('loginError').textContent = "系統載入失敗：" + error.message;
         }
     },
 
@@ -161,7 +140,9 @@ const app = {
     // --- 6. 頁面路由 ---
     loadPage: function(path) {
         if(typeof router !== 'undefined') {
-            router.load(path);
+            // [修正] 改為修改 Hash，統一由 hashchange 監聽器處理
+            // 這樣可以保持瀏覽器上一頁/下一頁功能的正常
+            window.location.hash = path;
         }
         if(window.innerWidth < 768) {
             const sidebar = document.getElementById('sidebar');
@@ -193,4 +174,6 @@ const app = {
 };
 
 // 啟動 App
-app.init();
+document.addEventListener('DOMContentLoaded', () => {
+    app.init();
+});
