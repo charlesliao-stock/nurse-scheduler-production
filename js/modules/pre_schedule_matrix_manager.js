@@ -335,13 +335,8 @@ const matrixManager = {
         if(container) {
             container.oncontextmenu = (e) => e.preventDefault();
         }
-        
-        // 3. 監聽 Router 變更 (雖然 router.js 會清空 innerHTML，但全域監聽需手動移除)
-        // 這裡我們做一個簡單的機制：每次 init 前先嘗試移除舊的 (如果有的話)
     },
 
-    // 此函式由 Router 在切換頁面時呼叫 (如果 Router 支援)
-    // 或者我們在 init 開頭先呼叫一次，確保乾淨
     cleanup: function() {
         if (this.globalClickListener) {
             document.removeEventListener('click', this.globalClickListener);
@@ -378,8 +373,6 @@ const matrixManager = {
                 status: 'closed', // 鎖定
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            
-            // (未來) 這裡會呼叫 Cloud Function 或寫入 monthly_schedules
             
             alert("執行成功！預班表已鎖定。");
             history.back(); // 返回列表
