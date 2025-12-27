@@ -1,4 +1,4 @@
-// js/modules/pre_schedule_matrix_manager.js (優化版)
+// js/modules/pre_schedule_matrix_manager.js
 
 const matrixManager = {
     docId: null,
@@ -23,9 +23,10 @@ const matrixManager = {
         this.isLoading = true;
         
         try {
-            // 顯示載入狀態
-            this.showLoading();
-            
+            // 顯示載入中
+            const container = document.getElementById('matrixContainer');
+            if(container) container.innerHTML = '<div style="padding:50px; text-align:center;">載入中...</div>';
+
             // 並行載入資料
             await Promise.all([
                 this.loadShifts(),
@@ -33,8 +34,20 @@ const matrixManager = {
                 this.loadScheduleData()
             ]);
             
-            this.renderMatrix();
-            this.updateStats();
+            // [關鍵修正] 確保 DOM 已經還原 (因為剛才innerHTML被蓋掉了)
+            // 重新填入表格骨架，因為上面把它變成 "載入中..." 了
+            if(container) {
+                container.innerHTML = `
+                    <table id="scheduleMatrix">
+                        <thead id="matrixHead"></thead>
+                        <tbody id="matrixBody"></tbody>
+                        <tfoot id="matrixFoot" style="position:sticky; bottom:0; background:#f9f9f9; z-index:25; font-weight:bold; border-top:2px solid #ddd;"></tfoot>
+                    </table>
+                `;
+            }
+
+            // 嘗試渲染 (帶有重試機制)
+            this.tryRender();
             this.setupEvents();
             
             console.log("✅ Matrix 初始化完成");
@@ -42,90 +55,53 @@ const matrixManager = {
         } catch(error) {
             console.error("❌ Matrix 初始化失敗:", error);
             alert("載入失敗: " + error.message);
-            window.location.hash = '/admin/pre_schedules';
         } finally {
             this.isLoading = false;
         }
     },
 
-    showLoading: function() {
-        const container = document.getElementById('matrixContainer');
-        if(container) {
-            container.innerHTML = '<div style="padding:60px; text-align:center; color:#666;"><i class="fas fa-spinner fa-spin" style="font-size:3rem; margin-bottom:20px;"></i><br>載入排班矩陣中...</div>';
+    // [新增] 渲染重試機制，解決 "找不到表格元素"
+    tryRender: function(retryCount = 0) {
+        const thead = document.getElementById('matrixHead');
+        if (!thead) {
+            if (retryCount < 5) {
+                console.warn(`DOM 尚未準備好，重試中 (${retryCount + 1})...`);
+                setTimeout(() => this.tryRender(retryCount + 1), 100); // 等待 100ms
+            } else {
+                console.error("❌ 無法找到表格元素，請重新整理頁面。");
+            }
+            return;
         }
+        
+        this.renderMatrix();
+        this.updateStats();
     },
 
-    // --- 載入班別 ---
     loadShifts: async function() {
-        try {
-            const snapshot = await db.collection('shifts').get();
-            this.shifts = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-            console.log(`載入 ${this.shifts.length} 個班別`);
-        } catch(e) {
-            console.error("Load Shifts Error:", e);
-            this.shifts = [];
-        }
+        const snapshot = await db.collection('shifts').get();
+        this.shifts = snapshot.docs.map(doc => doc.data());
     },
 
-    // --- 載入使用者 ---
     loadUsers: async function() {
-        try {
-            const snapshot = await db.collection('users').where('isActive', '==', true).get();
-            this.usersMap = {};
-            snapshot.forEach(doc => {
-                this.usersMap[doc.id] = doc.data();
-            });
-            console.log(`載入 ${Object.keys(this.usersMap).length} 位使用者`);
-        } catch(e) {
-            console.error("Load Users Error:", e);
-            this.usersMap = {};
-        }
+        const snapshot = await db.collection('users').where('isActive', '==', true).get();
+        snapshot.forEach(doc => { this.usersMap[doc.id] = doc.data(); });
     },
 
-    // --- 載入排班資料 ---
     loadScheduleData: async function() {
-        try {
-            const doc = await db.collection('pre_schedules').doc(this.docId).get();
-            
-            if (!doc.exists) { 
-                throw new Error("找不到該預班表資料");
-            }
-            
-            this.data = doc.data();
-            this.localAssignments = this.data.assignments || {};
-            
-            // 更新標題
-            const titleEl = document.getElementById('matrixTitle');
-            if(titleEl) {
-                titleEl.innerHTML = `${this.data.year} 年 ${this.data.month} 月 - 預班作業`;
-            }
-            
-            // 更新狀態
-            const statusMap = { 
-                'open': '開放中', 
-                'closed': '已截止', 
-                'scheduled': '已排班' 
-            };
-            const badgeColor = { 
-                'open': '#2ecc71', 
-                'closed': '#e74c3c', 
-                'scheduled': '#3498db' 
-            };
-            const st = this.data.status || 'open';
-            const statusEl = document.getElementById('matrixStatus');
-            if(statusEl) {
-                statusEl.textContent = statusMap[st] || st;
-                statusEl.style.background = badgeColor[st] || '#999';
-            }
-            
-            console.log(`載入預班表: ${this.data.year}/${this.data.month}, 狀態: ${st}`);
-            
-        } catch(e) {
-            console.error("Load Schedule Error:", e);
-            throw e;
+        const doc = await db.collection('pre_schedules').doc(this.docId).get();
+        if (!doc.exists) throw new Error("資料不存在");
+        this.data = doc.data();
+        this.localAssignments = this.data.assignments || {};
+        
+        const titleEl = document.getElementById('matrixTitle');
+        if(titleEl) titleEl.innerHTML = `${this.data.year} 年 ${this.data.month} 月 - 預班作業`;
+        
+        const statusMap = { 'open':'開放中', 'closed':'已截止', 'scheduled':'已排班' };
+        const st = this.data.status || 'open';
+        const statusEl = document.getElementById('matrixStatus');
+        if(statusEl) {
+            statusEl.textContent = statusMap[st] || st;
+            statusEl.className = `badge ${st === 'open' ? 'bg-success' : 'bg-secondary'}`;
         }
     },
 
@@ -135,70 +111,41 @@ const matrixManager = {
         const tbody = document.getElementById('matrixBody');
         const tfoot = document.getElementById('matrixFoot');
         
-        if(!thead || !tbody || !tfoot) {
-            console.error("找不到表格元素");
-            return;
-        }
-        
         const year = this.data.year;
         const month = this.data.month;
         const daysInMonth = new Date(year, month, 0).getDate();
         
-        // === 1. 表頭 ===
-        let header1 = `<tr>
-            <th rowspan="2">員編</th>
-            <th rowspan="2">姓名</th>
-            <th rowspan="2">特註</th>
-            <th rowspan="2">偏好</th>
-            <th colspan="6" style="background:#eee;">上月</th>
-            <th colspan="${daysInMonth}">本月 ${month} 月</th>
-            <th rowspan="2" style="background:#fff; position:sticky; right:0; z-index:20; border-left:2px solid #ccc; width:60px;">統計<br>(OFF)</th>
-        </tr>`;
-        
+        // 表頭
+        let header1 = `<tr><th rowspan="2">員編</th><th rowspan="2">姓名</th><th rowspan="2">特註</th><th rowspan="2">偏好</th><th colspan="6" style="background:#eee;">上月</th><th colspan="${daysInMonth}">本月 ${month} 月</th><th rowspan="2" style="background:#fff; position:sticky; right:0; z-index:20; border-left:2px solid #ccc; width:60px;">統計<br>(OFF)</th></tr>`;
         let header2 = `<tr>`;
         
-        // 上月 6 天
+        // 上月 6 天 (強制 cell-narrow)
         const lastMonthLastDay = new Date(year, month - 1, 0).getDate();
-        for(let i = 5; i >= 0; i--) {
+        for(let i=5; i>=0; i--) {
             const d = lastMonthLastDay - i;
             header2 += `<th class="cell-last-month cell-narrow">${d}</th>`;
         }
-        
-        // 本月
-        for(let d = 1; d <= daysInMonth; d++) {
-            const dateObj = new Date(year, month - 1, d);
+        // 本月 (強制 cell-narrow)
+        for(let d=1; d<=daysInMonth; d++) {
+            const dateObj = new Date(year, month-1, d);
             const dayOfWeek = dateObj.getDay(); 
-            const color = (dayOfWeek === 0 || dayOfWeek === 6) ? 'color:red;' : '';
+            const color = (dayOfWeek===0 || dayOfWeek===6) ? 'color:red;' : '';
             header2 += `<th class="cell-narrow" style="${color}">${d}</th>`;
         }
         header2 += `</tr>`;
-        
         thead.innerHTML = header1 + header2;
 
-        // === 2. 內容 ===
-        const staffList = this.data.staffList || [];
-        if(staffList.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="100" style="text-align:center; padding:40px; color:#999;">無人員資料</td></tr>';
-            return;
-        }
-        
-        staffList.sort((a, b) => (a.empId || '').localeCompare(b.empId || ''));
-
+        // 內容
         let bodyHtml = '';
-        
+        const staffList = this.data.staffList || [];
+        staffList.sort((a,b) => (a.empId||'').localeCompare(b.empId||''));
+
         staffList.forEach(u => {
             const userInfo = this.usersMap[u.uid] || {};
-            
-            // 特註圖示
             let noteIcon = '';
-            if (userInfo.schedulingParams?.isPregnant) {
-                noteIcon += '<i class="fas fa-baby" title="孕" style="color:#e67e22;"></i> ';
-            }
-            if (userInfo.schedulingParams?.isBreastfeeding) {
-                noteIcon += '<i class="fas fa-cookie" title="哺" style="color:#d35400;"></i>';
-            }
-            
-            const pref = ''; // 預留：偏好班別
+            if (userInfo.schedulingParams?.isPregnant) noteIcon += '<i class="fas fa-baby" title="孕" style="color:#e67e22;"></i> ';
+            if (userInfo.schedulingParams?.isBreastfeeding) noteIcon += '<i class="fas fa-cookie" title="哺" style="color:#d35400;"></i>';
+            const pref = ''; 
 
             bodyHtml += `<tr data-uid="${u.uid}">
                 <td>${u.empId}</td>
@@ -206,10 +153,9 @@ const matrixManager = {
                 <td>${noteIcon}</td>
                 <td>${pref}</td>`;
             
+            // 上月格 (雙重保險 oncontextmenu="return false")
             const assign = this.localAssignments[u.uid] || {};
-            
-            // 上月格
-            for(let i = 5; i >= 0; i--) {
+            for(let i=5; i>=0; i--) {
                 const d = lastMonthLastDay - i;
                 const key = `last_${d}`;
                 const val = assign[key] || '';
@@ -218,9 +164,8 @@ const matrixManager = {
                     onmousedown="matrixManager.onCellClick(event, this)"
                     oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
             }
-            
             // 本月格
-            for(let d = 1; d <= daysInMonth; d++) {
+            for(let d=1; d<=daysInMonth; d++) {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
                 bodyHtml += `<td class="cell-clickable cell-narrow" 
@@ -228,20 +173,16 @@ const matrixManager = {
                     onmousedown="matrixManager.onCellClick(event, this)"
                     oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
             }
-            
             // 統計欄
             bodyHtml += `<td id="stat_row_${u.uid}" style="position:sticky; right:0; background:#fff; border-left:2px solid #ccc; font-weight:bold; color:#333;">0</td>`;
             bodyHtml += `</tr>`;
         });
-        
         tbody.innerHTML = bodyHtml;
 
-        // === 3. 底部 ===
+        // 底部
         let footHtml = `<tr><td colspan="4">每日OFF小計</td>`;
-        for(let i = 0; i < 6; i++) {
-            footHtml += `<td class="cell-narrow" style="background:#eee;">-</td>`;
-        }
-        for(let d = 1; d <= daysInMonth; d++) {
+        for(let i=0; i<6; i++) footHtml += `<td class="cell-narrow" style="background:#eee;">-</td>`;
+        for(let d=1; d<=daysInMonth; d++) {
             footHtml += `<td id="stat_col_${d}" class="cell-narrow" style="font-weight:bold; color:#333;">0</td>`;
         }
         footHtml += `<td>-</td></tr>`;
@@ -252,15 +193,13 @@ const matrixManager = {
         if(!val) return '';
         if(val === 'OFF') return '<span class="shift-admin-off">OFF</span>';
         if(val === 'REQ_OFF') return '<span class="shift-req-off">休</span>';
-        if(val.startsWith('!')) {
-            return `<span class="shift-ban"><i class="fas fa-ban"></i> ${val.replace('!', '')}</span>`;
-        }
+        if(val.startsWith('!')) return `<span class="shift-ban"><i class="fas fa-ban"></i> ${val.replace('!', '')}</span>`;
         return `<span class="shift-normal">${val}</span>`;
     },
 
     // --- 互動邏輯 ---
     onCellClick: function(e, cell) {
-        // 阻止預設右鍵選單
+        // [關鍵] 再次確保阻止冒泡
         if (e.button === 2) {
             e.preventDefault();
             e.stopPropagation();
@@ -272,10 +211,8 @@ const matrixManager = {
         const key = type === 'last' ? `last_${day}` : `current_${day}`;
 
         if (e.button === 0) {
-            // 左鍵：切換 OFF
             this.handleLeftClick(uid, key);
         } else if (e.button === 2) {
-            // 右鍵：顯示選單
             this.handleRightClick(e, uid, key, type, day);
         }
         
@@ -288,19 +225,14 @@ const matrixManager = {
         if (!this.localAssignments[uid]) this.localAssignments[uid] = {};
         const current = this.localAssignments[uid][key];
         
-        if (current === 'OFF') {
-            delete this.localAssignments[uid][key];
-        } else {
-            this.localAssignments[uid][key] = 'OFF';
-        }
+        if (current === 'OFF') delete this.localAssignments[uid][key];
+        else this.localAssignments[uid][key] = 'OFF';
     },
 
     handleRightClick: function(e, uid, key, type, day) {
         const menu = document.getElementById('customContextMenu');
         const options = document.getElementById('contextMenuOptions');
         const title = document.getElementById('contextMenuTitle');
-        
-        if(!menu || !options || !title) return;
         
         title.textContent = `設定 ${day} 日 (右鍵)`;
         let html = '';
@@ -320,7 +252,6 @@ const matrixManager = {
             html += `<div class="menu-separator"></div>`;
         }
 
-        // 班別選項
         this.shifts.forEach(s => {
             html += `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', '${s.code}')">
                 <span class="menu-icon" style="color:${s.color}; font-weight:bold;">${s.code}</span> 指定 ${s.name}
@@ -343,49 +274,34 @@ const matrixManager = {
 
         options.innerHTML = html;
         
-        // 定位選單
         let x = e.pageX;
         let y = e.pageY;
+        // 防溢出
+        if (y + menu.offsetHeight > window.innerHeight) y -= menu.offsetHeight;
+        if (x + menu.offsetWidth > window.innerWidth) x -= menu.offsetWidth;
         
-        // 防止超出視窗
-        setTimeout(() => {
-            if (y + menu.offsetHeight > window.innerHeight) {
-                y = window.innerHeight - menu.offsetHeight - 10;
-            }
-            if (x + menu.offsetWidth > window.innerWidth) {
-                x = window.innerWidth - menu.offsetWidth - 10;
-            }
-            
-            menu.style.display = 'block';
-            menu.style.left = x + 'px';
-            menu.style.top = y + 'px';
-        }, 0);
+        menu.style.display = 'block';
+        menu.style.left = x + 'px';
+        menu.style.top = y + 'px';
     },
 
     setShift: function(uid, key, val) {
         if (!this.localAssignments[uid]) this.localAssignments[uid] = {};
         
-        if (val === null) {
-            delete this.localAssignments[uid][key];
-        } else {
-            this.localAssignments[uid][key] = val;
-        }
+        if (val === null) delete this.localAssignments[uid][key];
+        else this.localAssignments[uid][key] = val;
 
-        // 更新格子
         const type = key.startsWith('last') ? 'last' : 'current';
         const day = key.split('_')[1];
         const row = document.querySelector(`tr[data-uid="${uid}"]`);
+        // 使用 tryRender 的機制，這裡通常安全，但加個 ? 防止報錯
         const cell = row?.querySelector(`td[data-type="${type}"][data-day="${day}"]`);
         if(cell) cell.innerHTML = this.renderCellContent(val);
 
         this.updateStats();
-        
-        // 關閉選單
-        const menu = document.getElementById('customContextMenu');
-        if(menu) menu.style.display = 'none';
+        document.getElementById('customContextMenu').style.display = 'none';
     },
 
-    // --- 統計更新 ---
     updateStats: function() {
         const year = this.data.year;
         const month = this.data.month;
@@ -393,14 +309,14 @@ const matrixManager = {
         const maxOff = this.data.settings?.maxOffDays || 8; 
 
         const colStats = {}; 
-        for(let d = 1; d <= daysInMonth; d++) colStats[d] = 0;
+        for(let d=1; d<=daysInMonth; d++) colStats[d] = 0;
 
         this.data.staffList.forEach(u => {
             const assign = this.localAssignments[u.uid] || {};
             let totalOff = 0; 
             let userReqOff = 0; 
 
-            for(let d = 1; d <= daysInMonth; d++) {
+            for(let d=1; d<=daysInMonth; d++) {
                 const val = assign[`current_${d}`];
                 if (val === 'OFF' || val === 'REQ_OFF') {
                     totalOff++;
@@ -414,7 +330,7 @@ const matrixManager = {
                 cell.textContent = totalOff;
                 if (userReqOff > maxOff) {
                     cell.classList.add('text-danger');
-                    cell.title = `預休 ${userReqOff} 天，超過上限 ${maxOff} 天`;
+                    cell.title = `預假 ${userReqOff} 天，超過上限 ${maxOff} 天`;
                 } else {
                     cell.classList.remove('text-danger');
                     cell.title = '';
@@ -422,8 +338,7 @@ const matrixManager = {
             }
         });
 
-        // 更新每日統計
-        for(let d = 1; d <= daysInMonth; d++) {
+        for(let d=1; d<=daysInMonth; d++) {
             const cell = document.getElementById(`stat_col_${d}`);
             if(cell) cell.textContent = colStats[d];
         }
@@ -431,7 +346,7 @@ const matrixManager = {
 
     // --- 事件管理 ---
     setupEvents: function() {
-        // 全域點擊關閉選單
+        // 1. 全域點擊關閉選單
         this.globalClickListener = (e) => {
             const menu = document.getElementById('customContextMenu');
             if (menu && menu.style.display === 'block') {
@@ -442,11 +357,12 @@ const matrixManager = {
         };
         document.addEventListener('click', this.globalClickListener);
 
-        // 監聽容器右鍵
+        // 2. [關鍵] 強制容器攔截
         const container = document.getElementById('matrixContainer');
         if(container) {
             container.oncontextmenu = (e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 return false;
             };
         }
@@ -459,37 +375,26 @@ const matrixManager = {
             document.removeEventListener('click', this.globalClickListener);
             this.globalClickListener = null;
         }
+        const container = document.getElementById('matrixContainer');
+        if(container) container.oncontextmenu = null;
         console.log("🧹 清理完成");
     },
 
-    // --- 儲存與執行 ---
     saveData: async function() {
-        if(this.isLoading) {
-            alert("系統忙碌中，請稍候");
-            return;
-        }
-
+        if(this.isLoading) return;
         try {
             this.isLoading = true;
-            
             await db.collection('pre_schedules').doc(this.docId).update({
                 assignments: this.localAssignments,
                 'progress.submitted': Object.keys(this.localAssignments).length, 
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            
             alert("✅ 草稿已儲存");
-            
-        } catch(e) {
-            console.error("Save Error:", e);
-            alert("儲存失敗: " + e.message);
-        } finally {
-            this.isLoading = false;
-        }
+        } catch(e) { console.error(e); alert("儲存失敗: " + e.message); }
+        finally { this.isLoading = false; }
     },
 
     executeSchedule: async function() {
-        // 檢查紅字警告
         if (document.querySelector('.text-danger')) {
             if(!confirm("⚠️ 警告：有紅字！確定強制執行？")) return;
         } else {
@@ -497,27 +402,17 @@ const matrixManager = {
         }
 
         try {
-            this.isLoading = true;
-            
             await db.collection('pre_schedules').doc(this.docId).update({
                 assignments: this.localAssignments,
                 status: 'closed', 
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            
             alert("✅ 執行成功！");
             history.back(); 
-            
-        } catch(e) {
-            console.error("Execute Error:", e);
-            alert("執行失敗: " + e.message);
-        } finally {
-            this.isLoading = false;
-        }
+        } catch(e) { alert("執行失敗: " + e.message); }
     }
 };
 
-// 重寫 init 以支持 cleanup
 const originalInit = matrixManager.init;
 matrixManager.init = function(id) {
     this.cleanup();
