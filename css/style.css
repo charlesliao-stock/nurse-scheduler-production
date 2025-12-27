@@ -185,3 +185,35 @@ th:hover { background-color: #eee; }
 thead {
     box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
+/* css/style.css - 追加 */
+
+/* 矩陣輸入表格 (Matrix Table) */
+.matrix-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+.matrix-table th, .matrix-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: center;
+}
+.matrix-table th {
+    background-color: #f2f2f2;
+    font-weight: bold;
+}
+.limit-input {
+    width: 60px;
+    padding: 5px;
+    text-align: center;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+/* Modal 內的小型輸入框 */
+.input-mini {
+    width: 80px;
+    padding: 4px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+}
