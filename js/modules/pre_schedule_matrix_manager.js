@@ -31,13 +31,16 @@ const matrixManager = {
                 this.loadScheduleData()
             ]);
             
-            // 資料載入後，重建被 showLoading 覆蓋的表格結構
             this.restoreTableStructure();
-
-            // 渲染與綁定
             this.renderMatrix();
             this.updateStats();
             this.setupEvents();
+            
+            // [關鍵修正 1] 將右鍵選單搬移到 body 層級，避免受側邊欄推擠影響座標
+            const menu = document.getElementById('customContextMenu');
+            if (menu && menu.parentElement !== document.body) {
+                document.body.appendChild(menu);
+            }
             
             console.log("✅ Matrix 初始化完成");
             
@@ -59,7 +62,6 @@ const matrixManager = {
     restoreTableStructure: function() {
         const container = document.getElementById('matrixContainer');
         if(container) {
-            // 重建時也補上 oncontextmenu，雙重保險
             container.innerHTML = `
                 <table id="scheduleMatrix" oncontextmenu="return false;">
                     <thead id="matrixHead"></thead>
@@ -106,7 +108,7 @@ const matrixManager = {
         const tfoot = document.getElementById('matrixFoot');
         
         if(!thead || !tbody) {
-            console.error("❌ 表格元素遺失，請檢查 restoreTableStructure");
+            console.error("❌ 表格元素遺失");
             return;
         }
         
@@ -118,18 +120,16 @@ const matrixManager = {
         let header1 = `<tr><th rowspan="2">員編</th><th rowspan="2">姓名</th><th rowspan="2">特註</th><th rowspan="2">偏好</th><th colspan="6" style="background:#eee;">上月</th><th colspan="${daysInMonth}">本月 ${month} 月</th><th rowspan="2" style="background:#fff; position:sticky; right:0; z-index:20; border-left:2px solid #ccc; width:60px;">統計<br>(OFF)</th></tr>`;
         let header2 = `<tr>`;
         
-        // 上月 6 天 (加入 oncontextmenu="return false;")
         const lastMonthLastDay = new Date(year, month - 1, 0).getDate();
         for(let i=5; i>=0; i--) {
             const d = lastMonthLastDay - i;
-            header2 += `<th class="cell-last-month cell-narrow" oncontextmenu="return false;">${d}</th>`;
+            header2 += `<th class="cell-last-month cell-narrow">${d}</th>`;
         }
-        // 本月 (加入 oncontextmenu="return false;")
         for(let d=1; d<=daysInMonth; d++) {
             const dateObj = new Date(year, month-1, d);
             const dayOfWeek = dateObj.getDay(); 
             const color = (dayOfWeek===0 || dayOfWeek===6) ? 'color:red;' : '';
-            header2 += `<th class="cell-narrow" style="${color}" oncontextmenu="return false;">${d}</th>`;
+            header2 += `<th class="cell-narrow" style="${color}">${d}</th>`;
         }
         header2 += `</tr>`;
         thead.innerHTML = header1 + header2;
@@ -152,8 +152,8 @@ const matrixManager = {
                 <td>${noteIcon}</td>
                 <td>${pref}</td>`;
             
-            // 上月格
             const assign = this.localAssignments[u.uid] || {};
+            
             for(let i=5; i>=0; i--) {
                 const d = lastMonthLastDay - i;
                 const key = `last_${d}`;
@@ -163,7 +163,7 @@ const matrixManager = {
                     onmousedown="matrixManager.onCellClick(event, this)"
                     oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
             }
-            // 本月格
+            
             for(let d=1; d<=daysInMonth; d++) {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
@@ -172,7 +172,7 @@ const matrixManager = {
                     onmousedown="matrixManager.onCellClick(event, this)"
                     oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
             }
-            // 統計欄
+            
             bodyHtml += `<td id="stat_row_${u.uid}" style="position:sticky; right:0; background:#fff; border-left:2px solid #ccc; font-weight:bold; color:#333;">0</td>`;
             bodyHtml += `</tr>`;
         });
@@ -198,7 +198,6 @@ const matrixManager = {
 
     // --- 互動邏輯 ---
     onCellClick: function(e, cell) {
-        // [關鍵] 再次確保阻止冒泡 (針對右鍵)
         if (e.button === 2) {
             e.preventDefault();
             e.stopPropagation();
@@ -273,7 +272,7 @@ const matrixManager = {
 
         options.innerHTML = html;
         
-        // 選單定位
+        // [關鍵修正 2] 座標計算改回使用 pageX/pageY，因為現在選單在 body，這樣才準
         menu.style.display = 'block';
         menu.style.visibility = 'hidden'; 
         
@@ -281,11 +280,21 @@ const matrixManager = {
             let x = e.pageX;
             let y = e.pageY;
             
-            if (y + menu.offsetHeight > window.innerHeight) {
-                y -= menu.offsetHeight;
-            }
-            if (x + menu.offsetWidth > window.innerWidth) {
+            // 邊界檢查 (防止超出視窗)
+            // 需要考慮 scrollX/scrollY 才能正確判斷視窗邊界
+            const winW = window.innerWidth;
+            const winH = window.innerHeight;
+            const scrollX = window.scrollX;
+            const scrollY = window.scrollY;
+
+            // 如果 (點擊位置 - 捲動量 + 選單寬度) > 視窗寬度，則往左顯示
+            if (x - scrollX + menu.offsetWidth > winW) {
                 x -= menu.offsetWidth;
+            }
+            
+            // 如果 (點擊位置 - 捲動量 + 選單高度) > 視窗高度，則往上顯示
+            if (y - scrollY + menu.offsetHeight > winH) {
+                y -= menu.offsetHeight;
             }
             
             menu.style.left = x + 'px';
@@ -373,11 +382,18 @@ const matrixManager = {
         }
     },
 
+    // [關鍵修正 3] 離開頁面時，將選單從 body 移除
     cleanup: function() {
         if (this.globalClickListener) {
             document.removeEventListener('click', this.globalClickListener);
             this.globalClickListener = null;
         }
+        
+        const menu = document.getElementById('customContextMenu');
+        if (menu && menu.parentElement === document.body) {
+            menu.remove(); // 徹底移除 DOM
+        }
+        console.log("🧹 清理完成");
     },
 
     saveData: async function() {
