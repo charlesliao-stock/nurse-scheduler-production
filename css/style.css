@@ -156,7 +156,7 @@ th:hover { background-color: #eee; }
     background-color: #f8f9fa;
 }
 
-/* --- 預班管理專用樣式 --- */
+/* --- [修正] 預班管理專用樣式 --- */
 .modal-xl { max-width: 1200px !important; width: 90vw !important; }
 
 /* 矩陣表格樣式 */
@@ -164,14 +164,26 @@ th:hover { background-color: #eee; }
 #scheduleMatrix {
     border-collapse: separate; 
     border-spacing: 0;
+    /* 讓表格寬度自動，但每個格子有固定寬度 */
     width: max-content; 
     min-width: 100%;
 }
+
+/* [關鍵] 強制設定每個格子的寬度限制 */
 #scheduleMatrix th, #scheduleMatrix td {
     border-right: 1px solid #ddd; border-bottom: 1px solid #ddd;
     padding: 0; text-align: center; vertical-align: middle;
-    font-size: 0.9rem; height: 40px; width: 40px; 
+    font-size: 0.85rem; /* 字體稍微縮小以適應窄欄 */
+    height: 36px;       /* 高度稍微縮小 */
     box-sizing: border-box; position: relative;
+}
+
+/* [關鍵] 統一日期欄位的寬度 (包含上月與本月) */
+.cell-narrow {
+    width: 35px !important;      /* 強制寬度 */
+    min-width: 35px !important;
+    max-width: 35px !important;
+    overflow: hidden;
 }
 
 /* 固定表頭 */
@@ -179,6 +191,7 @@ th:hover { background-color: #eee; }
     position: sticky; top: 0; background: #f1f1f1;
     z-index: 20; border-bottom: 2px solid #ccc; height: 30px;
 }
+/* 左上角交叉點 */
 #scheduleMatrix thead th:nth-child(1),
 #scheduleMatrix thead th:nth-child(2),
 #scheduleMatrix thead th:nth-child(3),
@@ -186,18 +199,30 @@ th:hover { background-color: #eee; }
     z-index: 30; background: #e0e0e0;
 }
 
-/* 固定左側欄位 */
+/* 固定左側欄位 (縮小寬度以節省空間) */
+/* 1. 員編 */
 #scheduleMatrix th:nth-child(1), #scheduleMatrix td:nth-child(1) {
-    position: sticky; left: 0; background: #fff; z-index: 10; width: 70px;
+    position: sticky; left: 0; background: #fff; z-index: 10; 
+    width: 65px; /* 縮窄 */
+    min-width: 65px;
 }
+/* 2. 姓名 */
 #scheduleMatrix th:nth-child(2), #scheduleMatrix td:nth-child(2) {
-    position: sticky; left: 70px; background: #fff; z-index: 10; width: 80px;
+    position: sticky; left: 65px; background: #fff; z-index: 10; 
+    width: 70px; /* 縮窄 */
+    min-width: 70px;
 }
+/* 3. 特註 */
 #scheduleMatrix th:nth-child(3), #scheduleMatrix td:nth-child(3) {
-    position: sticky; left: 150px; background: #fff; z-index: 10; width: 40px;
+    position: sticky; left: 135px; background: #fff; z-index: 10; 
+    width: 35px; /* 縮窄 */
+    min-width: 35px;
 }
+/* 4. 偏好 */
 #scheduleMatrix th:nth-child(4), #scheduleMatrix td:nth-child(4) {
-    position: sticky; left: 190px; background: #fff; z-index: 10; width: 40px;
+    position: sticky; left: 170px; background: #fff; z-index: 10; 
+    width: 35px; /* 縮窄 */
+    min-width: 35px;
     border-right: 2px solid #999;
 }
 
