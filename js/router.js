@@ -10,19 +10,19 @@ const router = {
         '/admin/shifts': 'shifts',             
         '/admin/groups': 'groups',             
         '/admin/menus': 'menus',               
-        '/admin/pre_schedules': 'pre_schedules',         // 預班列表
-        '/admin/pre_schedule_matrix': 'pre_schedule_matrix' // [關鍵] 排班大表路由
+        '/admin/pre_schedules': 'pre_schedules',         // [Phase 1] 預班管理列表
+        '/admin/pre_schedule_matrix': 'pre_schedule_matrix' // [Phase 2] 排班矩陣大表
     },
 
     // 載入頁面主邏輯
     load: async function(path) {
-        // 解析路徑與參數 (例如: /admin/pre_schedule_matrix?id=123)
+        // 1. 解析路徑與參數 (例如: /admin/pre_schedule_matrix?id=123)
         const [cleanPath, queryString] = path.split('?');
         const viewName = this.routes[cleanPath];
         
-        // 解析 ID 參數
+        // 解析參數
         const urlParams = new URLSearchParams(queryString);
-        const id = urlParams.get('id');
+        const id = urlParams.get('id'); // 取得 id 參數
 
         console.log(`Router loading: ${cleanPath} -> View: ${viewName} (ID: ${id})`);
 
@@ -40,13 +40,16 @@ const router = {
         container.innerHTML = '<div style="padding:20px; color:#666;">資料載入中...</div>';
 
         try {
+            // 2. Fetch 抓取 HTML 檔案
             const response = await fetch(`views/${viewName}.html`);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             
             const html = await response.text();
+            
+            // 3. 塞入 HTML
             container.innerHTML = html;
 
-            // 初始化模組 (傳入 ID)
+            // 4. 初始化該頁面的 JS 模組 (將 id 傳入)
             this.initModule(viewName, id);
 
         } catch (error) {
@@ -54,7 +57,7 @@ const router = {
             container.innerHTML = `<div style="padding:20px; color:red;">
                 <h3>載入頁面失敗</h3>
                 <p>${error.message}</p>
-                <small>請確認檔案 views/${viewName}.html 是否存在。</small>
+                <small>請確認您是否使用 Local Server (如 Live Server) 執行。</small>
             </div>`;
         }
     },
@@ -82,14 +85,14 @@ const router = {
         else if (viewName === 'pre_schedules') {
             if (typeof preScheduleManager !== 'undefined') preScheduleManager.init();
         }
-        // [關鍵] 初始化矩陣模組
+        // [關鍵] 初始化矩陣模組，並檢查 ID
         else if (viewName === 'pre_schedule_matrix') {
             if (typeof matrixManager !== 'undefined') {
                 if (id) {
                     matrixManager.init(id);
                 } else {
                     alert("錯誤：未指定預班表 ID");
-                    history.back(); // 若無 ID 則返回上一頁
+                    history.back();
                 }
             } else {
                 console.error("錯誤: matrixManager 尚未載入，請檢查 index.html");
