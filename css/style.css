@@ -91,14 +91,22 @@ th:hover { background-color: #eee; }
 .form-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9rem; }
 .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
 
+/* --- [修正] 欄位排版優化 --- */
+.form-row.compact {
+    gap: 15px;
+    align-items: flex-end; /* 讓欄位底部對齊 */
+}
+.form-col-sm { flex: 0 0 180px; } /* 固定寬度 (年月) */
+.form-col-md { flex: 1; }         /* 自動延伸 (日期) */
+
 /* --- [修正] 資料夾式頁籤樣式 (Tabs) --- */
 .tab-header {
     display: flex;
-    border-bottom: 2px solid #ddd; /* 底部線條加粗 */
-    margin-bottom: 20px;
+    border-bottom: 2px solid #ddd;
+    margin-bottom: 0; /* 修正：貼合下方內容 */
     padding-left: 10px;
     background-color: #fff;
-    flex-shrink: 0; /* 防止被壓縮 */
+    flex-shrink: 0;
 }
 
 .tab-btn {
@@ -106,43 +114,45 @@ th:hover { background-color: #eee; }
     margin-right: 5px;
     border: 1px solid transparent;
     border-bottom: none;
-    border-radius: 5px 5px 0 0; /* 上方圓角 */
-    background-color: #f8f9fa;  /* 未選中：淺灰背景 */
+    border-radius: 5px 5px 0 0;
+    background-color: #f8f9fa;
     color: #666;
     cursor: pointer;
     font-weight: bold;
     font-size: 1rem;
     position: relative;
-    top: 2px; /* 往下蓋住底線 */
+    top: 2px;
     transition: all 0.2s;
 }
-
-.tab-btn:hover {
-    background-color: #e9ecef;
-    color: #333;
-}
-
-/* 選中狀態：白色背景、深色字、有邊框 */
+.tab-btn:hover { background-color: #e9ecef; color: #333; }
 .tab-btn.active {
     background-color: #fff;
-    color: #2c3e50; /* 深藍色強調 */
-    border: 2px solid #ddd; /* 邊框 */
-    border-bottom: 2px solid #fff; /* 底部變白，遮住 header 的線，形成連通效果 */
+    color: #2c3e50;
+    border: 2px solid #ddd;
+    border-bottom: 2px solid #fff;
     z-index: 5;
 }
 
-/* --- [絕對關鍵] 內容區塊隱藏邏輯 --- */
-.tab-content {
-    display: none !important; /* 強制隱藏 */
-    height: 100%;
-    overflow-y: auto; /* 內容過長時自己捲動 */
-    padding: 5px;
+/* --- [重點修正] 內容區塊捲軸控制 --- */
+.tab-content-wrapper {
+    flex: 1;
+    overflow-y: auto; /* 這是唯一允許的垂直捲軸 */
+    padding: 20px;
+    border: 2px solid #ddd;
+    border-top: none;
+    background-color: #fff;
+    /* 隱藏預設捲軸樣式 (Chrome/Safari) */
+    scrollbar-width: thin;
+    scrollbar-color: #bdc3c7 #f0f0f0;
 }
 
-/* 只有加上 active class 時才顯示 */
+.tab-content {
+    display: none !important;
+    height: auto; /* 由內容撐開，不強制 100% */
+}
 .tab-content.active {
-    display: block !important; /* 強制顯示 */
-    animation: fadeIn 0.3s ease-in-out;
+    display: block !important;
+    animation: fadeIn 0.3s;
 }
 
 @keyframes fadeIn {
@@ -150,15 +160,21 @@ th:hover { background-color: #eee; }
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* --- 預班管理專用樣式 --- */
+/* --- [修正] 表頭固定 (Sticky) --- */
+.sticky-th th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    box-shadow: 0 2px 2px rgba(0,0,0,0.1);
+    background-color: #f8f9fa;
+}
 
-/* 1. 超大型 Modal (寬度 1.5倍) */
+/* --- 預班管理專用樣式 --- */
 .modal-xl {
     max-width: 1200px !important;
     width: 90vw !important;
 }
 
-/* 2. 矩陣輸入表格 */
 .matrix-table {
     width: 100%;
     border-collapse: collapse;
@@ -176,7 +192,6 @@ th:hover { background-color: #eee; }
     white-space: nowrap;
 }
 
-/* 3. 限制輸入框樣式 */
 .limit-input {
     width: 70px;
     padding: 6px;
@@ -185,63 +200,27 @@ th:hover { background-color: #eee; }
     border-radius: 4px;
     color: #333;
 }
-.limit-input::placeholder {
-    color: #ccc;
-    font-size: 0.9rem;
-}
+.limit-input::placeholder { color: #ccc; font-size: 0.9rem; }
 
-/* 4. Modal 內的小型輸入框 */
 .input-mini {
-    width: 80px;
-    padding: 4px;
-    border: 1px solid #ddd;
-    border-radius: 3px;
-    text-align: center;
+    width: 80px; padding: 4px; border: 1px solid #ddd; border-radius: 3px; text-align: center;
 }
 
-/* 5. 搜尋結果小卡片 */
 .search-result-card {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: #e8f6f3;
-    border: 1px solid #a2d9ce;
-    padding: 10px;
-    border-radius: 4px;
-    margin-top: 10px;
+    display: flex; align-items: center; justify-content: space-between;
+    background: #e8f6f3; border: 1px solid #a2d9ce; padding: 10px;
+    border-radius: 4px; margin-top: 10px;
 }
-.search-info {
-    font-weight: bold;
-    color: #16a085;
-}
-.search-detail {
-    color: #555;
-    margin-left: 10px;
-    font-size: 0.9rem;
-}
+.search-info { font-weight: bold; color: #16a085; }
+.search-detail { color: #555; margin-left: 10px; font-size: 0.9rem; }
 
-/* 6. Checkbox 列表 */
+/* 其他通用樣式 */
 .user-checkbox-row {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    padding: 8px 10px;
-    border-bottom: 1px dashed #eee;
-    box-sizing: border-box;
+    display: flex; align-items: center; width: 100%; padding: 8px 10px;
+    border-bottom: 1px dashed #eee; box-sizing: border-box;
 }
 .user-checkbox-row:hover { background-color: #f9f9f9; }
-.user-checkbox-row label {
-    display: flex; align-items: center; width: 100%; margin: 0; cursor: pointer; color: #333;
-}
-.user-checkbox-row input[type="checkbox"] {
-    margin-right: 10px !important; transform: scale(1.2); cursor: pointer;
-}
-.checkbox-list-container {
-    height: 300px; overflow-y: auto; border: 1px solid #ccc; background: #fff; border-radius: 4px;
-}
-
-/* 7. 顏色圓點 */
-.color-dot {
-    width: 20px; height: 20px; border-radius: 50%;
-    border: 1px solid rgba(0,0,0,0.1); margin: 0 auto;
-}
+.user-checkbox-row label { display: flex; align-items: center; width: 100%; margin: 0; cursor: pointer; color: #333; }
+.user-checkbox-row input[type="checkbox"] { margin-right: 10px !important; transform: scale(1.2); cursor: pointer; }
+.checkbox-list-container { height: 300px; overflow-y: auto; border: 1px solid #ccc; background: #fff; border-radius: 4px; }
+.color-dot { width: 20px; height: 20px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.1); margin: 0 auto; }
