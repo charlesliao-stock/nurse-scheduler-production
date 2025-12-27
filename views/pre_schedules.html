@@ -27,26 +27,25 @@
                     <th style="width: 25%;">操作</th>
                 </tr>
             </thead>
-            <tbody id="preScheduleTableBody">
-                </tbody>
+            <tbody id="preScheduleTableBody"></tbody>
         </table>
     </div>
 </div>
 
 <div id="preScheduleModal" class="modal">
-    <div class="modal-content modal-xl" style="height: 85vh; display: flex; flex-direction: column;">
+    <div class="modal-content modal-xl" style="height: 85vh; display: flex; flex-direction: column; padding: 0;">
         
-        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:15px; margin-bottom:15px;">
-            <h3 style="margin:0;">預班表設定</h3>
+        <div style="padding: 20px 20px 0 20px; display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0; border:none;">預班表設定</h3>
             <button class="btn btn-import" id="btnImportLast" onclick="preScheduleManager.importLastSettings()" style="font-size:0.9rem; padding:5px 10px;">
                 <i class="fas fa-history"></i> 帶入上月設定
             </button>
         </div>
-
+        
         <input type="hidden" id="preScheduleDocId">
         <input type="hidden" id="currentMode">
 
-        <div class="tab-header">
+        <div class="tab-header" style="padding: 0 20px; margin-top: 15px;">
             <button class="tab-btn active" onclick="preScheduleManager.switchTab('basic')">1. 基本與規則</button>
             <button class="tab-btn" onclick="preScheduleManager.switchTab('limits')">2. 組別人力限制</button>
             <button class="tab-btn" onclick="preScheduleManager.switchTab('staff')">
@@ -54,36 +53,27 @@
             </button>
         </div>
 
-        <div style="flex: 1; overflow-y: auto; padding-right: 10px;">
+        <div class="tab-content-wrapper">
             
             <div id="tab-basic" class="tab-content active">
-                <h4 style="color:#2c3e50; border-left:4px solid #3498db; padding-left:10px;">基本資料</h4>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>預班年份</label>
-                        <input type="number" id="inputPreYear">
-                    </div>
-                    <div class="form-group">
+                <h4 style="color:#2c3e50; border-left:4px solid #3498db; padding-left:10px; margin-top:0;">基本資料</h4>
+                
+                <div class="form-row compact">
+                    <div class="form-group form-col-sm">
                         <label>預班月份</label>
-                        <select id="inputPreMonth">
-                            <option value="1">1月</option><option value="2">2月</option><option value="3">3月</option>
-                            <option value="4">4月</option><option value="5">5月</option><option value="6">6月</option>
-                            <option value="7">7月</option><option value="8">8月</option><option value="9">9月</option>
-                            <option value="10">10月</option><option value="11">11月</option><option value="12">12月</option>
-                        </select>
+                        <input type="month" id="inputPreYearMonth" style="font-weight:bold;">
                     </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
+                    <div class="form-group form-col-md">
                         <label>開放日期 (起) *</label>
                         <input type="date" id="inputOpenDate">
                     </div>
-                    <div class="form-group">
+                    <div class="form-group form-col-md">
                         <label>截止日期 (迄) *</label>
                         <input type="date" id="inputCloseDate">
                     </div>
                 </div>
-                <div class="form-group">
+
+                <div class="form-group" style="margin-bottom: 20px;">
                     <label style="cursor:pointer; display:inline-flex; align-items:center;">
                         <input type="checkbox" id="checkShowAllNames" style="width:auto; margin-right:8px;">
                         顯示所有預班者姓名 (公開透明)
@@ -132,10 +122,8 @@
                 <div class="alert-box" style="background:#e8f6f3; color:#0e6251; padding:10px; border-radius:4px; margin-bottom:15px; font-size:0.9rem;">
                     <i class="fas fa-info-circle"></i> 請輸入各組別每日限制。若該項不限制，請留空 (預設為不限)。
                 </div>
-                <div style="overflow-x:auto;">
-                    <table class="matrix-table" id="groupLimitTable">
-                        </table>
-                </div>
+                <table class="matrix-table sticky-th" id="groupLimitTable">
+                    </table>
             </div>
 
             <div id="tab-staff" class="tab-content">
@@ -150,37 +138,32 @@
                     <div id="searchResults"></div>
                 </div>
 
-                <div style="max-height: 400px; overflow-y: auto; border:1px solid #eee;">
-                    <table style="width:100%;">
-                        <thead style="background:#eee; position:sticky; top:0; z-index:1;">
-                            <tr>
-                                <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('empId')">
-                                    員編 <i id="sort_icon_pre_empId" class="fas fa-sort"></i>
-                                </th>
-                                <th style="width:20%; cursor:pointer;" onclick="preScheduleManager.sortStaff('name')">
-                                    姓名 <i id="sort_icon_pre_name" class="fas fa-sort"></i>
-                                </th>
-                                <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('level')">
-                                    層級 <i id="sort_icon_pre_level" class="fas fa-sort"></i>
-                                </th>
-                                <th style="width:20%; cursor:pointer;" onclick="preScheduleManager.sortStaff('group')">
-                                    組別 <i id="sort_icon_pre_group" class="fas fa-sort"></i>
-                                </th>
-                                <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('isSupport')">
-                                    身份 <i id="sort_icon_pre_isSupport" class="fas fa-sort"></i>
-                                </th>
-                                <th style="width:15%;">操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="preStaffBody">
-                            </tbody>
-                    </table>
-                </div>
+                <table style="width:100%;">
+                    <thead class="sticky-th">
+                        <tr>
+                            <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('empId')">
+                                員編 <i id="sort_icon_pre_empId" class="fas fa-sort"></i>
+                            </th>
+                            <th style="width:20%; cursor:pointer;" onclick="preScheduleManager.sortStaff('name')">
+                                姓名 <i id="sort_icon_pre_name" class="fas fa-sort"></i>
+                            </th>
+                            <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('level')">
+                                層級 <i id="sort_icon_pre_level" class="fas fa-sort"></i>
+                            </th>
+                            <th style="width:20%; cursor:pointer;" onclick="preScheduleManager.sortStaff('group')">
+                                組別 <i id="sort_icon_pre_group" class="fas fa-sort"></i>
+                            </th>
+                            <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('isSupport')">
+                                身份 <i id="sort_icon_pre_isSupport" class="fas fa-sort"></i>
+                            </th>
+                            <th style="width:15%;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="preStaffBody"></tbody>
+                </table>
             </div>
 
-        </div>
-
-        <div style="text-align:right; margin-top:15px; border-top:1px solid #eee; padding-top:10px;">
+        </div> <div style="text-align:right; padding: 15px 20px; border-top:1px solid #eee;">
             <button class="btn btn-close" onclick="preScheduleManager.closeModal()">取消</button>
             <button class="btn btn-add" onclick="preScheduleManager.saveData()">儲存設定</button>
         </div>
