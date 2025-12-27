@@ -38,7 +38,7 @@ const preScheduleManager = {
         } catch (e) { console.error(e); }
     },
 
-    // --- 2. 載入列表 ---
+// --- 2. 載入列表 (修正狀態判定邏輯) ---
     loadData: async function() {
         const unitId = document.getElementById('filterPreUnit').value;
         this.currentUnitId = unitId;
@@ -65,15 +65,36 @@ const preScheduleManager = {
             }
 
             tbody.innerHTML = '';
+            
+            // [新增] 取得今日日期字串 (YYYY-MM-DD) 方便比較
+            const today = new Date().toISOString().split('T')[0];
+
             snapshot.forEach(doc => {
                 const d = doc.data();
-                const period = `${d.settings.openDate} ~ ${d.settings.closeDate}`;
+                const s = d.settings || {};
+                const openDate = s.openDate || '9999-12-31';
+                const closeDate = s.closeDate || '1970-01-01';
+                
+                const period = `${openDate} ~ ${closeDate}`;
                 const progress = d.progress ? `${d.progress.submitted} / ${d.progress.total}` : '0 / 0';
                 
+                // [關鍵修正] 動態計算狀態
                 let statusHtml = '<span class="badge" style="background:#95a5a6;">未知</span>';
-                if(d.status === 'open') statusHtml = '<span class="badge" style="background:#2ecc71;">開放中</span>';
-                else if(d.status === 'closed') statusHtml = '<span class="badge" style="background:#e74c3c;">已截止</span>';
+                let statusText = 'unknown';
 
+                if (today < openDate) {
+                    statusHtml = '<span class="badge" style="background:#f39c12;">準備中</span>';
+                    statusText = 'preparing';
+                } else if (today > closeDate) {
+                    statusHtml = '<span class="badge" style="background:#e74c3c;">已截止</span>';
+                    statusText = 'closed';
+                } else {
+                    statusHtml = '<span class="badge" style="background:#2ecc71;">開放中</span>';
+                    statusText = 'open';
+                }
+
+                // (可選) 若資料庫狀態與計算不符，可在背景更新 DB，這裡僅做顯示修正
+                
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td style="font-weight:bold;">${d.year} 年 ${d.month} 月</td>
