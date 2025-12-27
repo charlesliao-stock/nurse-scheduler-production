@@ -91,37 +91,63 @@ th:hover { background-color: #eee; }
 .form-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9rem; }
 .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
 
-/* --- [重要] 頁籤樣式 (Tabs) --- */
+/* --- [修正] 資料夾式頁籤樣式 (Tabs) --- */
 .tab-header {
     display: flex;
-    border-bottom: 1px solid #ddd;
-    margin-bottom: 15px;
+    border-bottom: 2px solid #ddd; /* 底部線條加粗 */
+    margin-bottom: 20px;
+    padding-left: 10px;
+    background-color: #fff;
+    flex-shrink: 0; /* 防止被壓縮 */
 }
+
 .tab-btn {
-    padding: 10px 20px;
-    border: none;
-    background: none;
+    padding: 10px 25px;
+    margin-right: 5px;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 5px 5px 0 0; /* 上方圓角 */
+    background-color: #f8f9fa;  /* 未選中：淺灰背景 */
+    color: #666;
     cursor: pointer;
     font-weight: bold;
-    color: #666;
-    border-bottom: 3px solid transparent;
     font-size: 1rem;
+    position: relative;
+    top: 2px; /* 往下蓋住底線 */
+    transition: all 0.2s;
 }
+
+.tab-btn:hover {
+    background-color: #e9ecef;
+    color: #333;
+}
+
+/* 選中狀態：白色背景、深色字、有邊框 */
 .tab-btn.active {
-    color: #3498db;
-    border-bottom: 3px solid #3498db;
+    background-color: #fff;
+    color: #2c3e50; /* 深藍色強調 */
+    border: 2px solid #ddd; /* 邊框 */
+    border-bottom: 2px solid #fff; /* 底部變白，遮住 header 的線，形成連通效果 */
+    z-index: 5;
 }
+
+/* --- [絕對關鍵] 內容區塊隱藏邏輯 --- */
 .tab-content {
-    display: none; /* 預設隱藏 */
+    display: none !important; /* 強制隱藏 */
     height: 100%;
+    overflow-y: auto; /* 內容過長時自己捲動 */
+    padding: 5px;
 }
+
+/* 只有加上 active class 時才顯示 */
 .tab-content.active {
-    display: block; /* 加上 active class 才顯示 */
-    animation: fadeIn 0.3s;
+    display: block !important; /* 強制顯示 */
+    animation: fadeIn 0.3s ease-in-out;
 }
+
 @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 /* --- 預班管理專用樣式 --- */
@@ -194,7 +220,7 @@ th:hover { background-color: #eee; }
     font-size: 0.9rem;
 }
 
-/* 6. Checkbox 列表 (單位管理用) */
+/* 6. Checkbox 列表 */
 .user-checkbox-row {
     display: flex;
     align-items: center;
@@ -210,13 +236,11 @@ th:hover { background-color: #eee; }
 .user-checkbox-row input[type="checkbox"] {
     margin-right: 10px !important; transform: scale(1.2); cursor: pointer;
 }
-.user-info-text { color: #000; font-weight: bold; }
-.u-emp-id { color: #666; font-size: 0.85rem; margin-left: 5px; }
 .checkbox-list-container {
     height: 300px; overflow-y: auto; border: 1px solid #ccc; background: #fff; border-radius: 4px;
 }
 
-/* 7. 顏色圓點 (班別管理用) */
+/* 7. 顏色圓點 */
 .color-dot {
     width: 20px; height: 20px; border-radius: 50%;
     border: 1px solid rgba(0,0,0,0.1); margin: 0 auto;
