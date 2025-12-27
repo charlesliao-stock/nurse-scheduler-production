@@ -113,10 +113,7 @@ const preScheduleManager = {
             document.getElementById('btnImportLast').style.display = 'none';
             const doc = await db.collection('pre_schedules').doc(docId).get();
             const data = doc.data();
-            
-            // 填入資料
-            this.fillForm(data); 
-            
+            this.fillForm(data);
             this.staffListSnapshot = data.staffList || [];
             this.renderStaffList();
             this.renderGroupLimitsTable(data.groupLimits);
@@ -152,16 +149,28 @@ const preScheduleManager = {
         document.getElementById('preScheduleModal').classList.remove('show');
     },
 
+    // [修正] 更穩健的 Tab 切換邏輯
     switchTab: function(tabName) {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-        
-        const btns = document.querySelectorAll('.tab-btn');
-        if(tabName==='basic') btns[0].classList.add('active');
-        if(tabName==='limits') btns[1].classList.add('active');
-        if(tabName==='staff') btns[2].classList.add('active');
+        const modal = document.getElementById('preScheduleModal');
+        if (!modal) return;
 
-        document.getElementById(`tab-${tabName}`).classList.add('active');
+        // 1. 隱藏所有內容
+        const contents = modal.querySelectorAll('.tab-content');
+        contents.forEach(c => c.classList.remove('active'));
+
+        // 2. 顯示目標內容
+        const target = modal.querySelector(`#tab-${tabName}`);
+        if(target) target.classList.add('active');
+
+        // 3. 更新按鈕狀態
+        const btns = modal.querySelectorAll('.tab-btn');
+        btns.forEach(btn => {
+            btn.classList.remove('active');
+            // 檢查按鈕的 onclick 字串是否包含目標 tabName
+            if(btn.getAttribute('onclick').includes(`'${tabName}'`)) {
+                btn.classList.add('active');
+            }
+        });
     },
 
     toggleThreeShiftOption: function() {
@@ -314,7 +323,7 @@ const preScheduleManager = {
         }
     },
 
-    // --- 5. 矩陣表格 (組別限制) ---
+    // --- 5. 矩陣表格 (組別限制) - 橫向 ---
     renderGroupLimitsTable: function(savedLimits = {}) {
         const table = document.getElementById('groupLimitTable');
         table.innerHTML = '';
@@ -382,26 +391,22 @@ const preScheduleManager = {
         } catch(e) { console.error(e); alert("帶入失敗"); }
     },
 
-    // [修正] 填寫表單資料 (含基本年月日期)
+    // [關鍵修正] 確保年/月/日期也會回填
     fillForm: function(data) {
-        // 1. 回填年/月
         if(data.year) document.getElementById('inputPreYear').value = data.year;
         if(data.month) document.getElementById('inputPreMonth').value = data.month;
 
         const s = data.settings || {};
-        
-        // 2. 回填日期
         document.getElementById('inputOpenDate').value = s.openDate || '';
         document.getElementById('inputCloseDate').value = s.closeDate || '';
         
-        // 3. 回填規則
         document.getElementById('inputMaxOff').value = s.maxOffDays;
         document.getElementById('inputMaxHoliday').value = s.maxHolidayOffs;
         document.getElementById('inputDailyReserve').value = s.dailyReserved;
         document.getElementById('checkShowAllNames').checked = s.showAllNames;
         document.getElementById('inputShiftMode').value = s.shiftTypeMode;
         
-        this.toggleThreeShiftOption(); // 更新 UI 狀態
+        this.toggleThreeShiftOption(); 
         
         if(s.shiftTypeMode === "2") {
             document.getElementById('checkAllowThree').checked = s.allowThreeShifts;
