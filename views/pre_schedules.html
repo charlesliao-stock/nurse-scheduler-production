@@ -60,166 +60,123 @@
             </button>
         </div>
 
-        <div class="tab-content-wrapper" style="flex: 1; overflow-y: auto; padding: 25px 30px; background: #fafbfc;">
+        <div class="tab-content-wrapper">
             
-            <!-- Tab 1: 基本設定 -->
+            <!-- Tab 1: 基本與規則 -->
             <div id="tab-basic" class="tab-content active">
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
-                    
-                    <!-- 左欄 -->
-                    <div>
-                        <h4 style="color:#2c3e50; border-left:4px solid #3498db; padding-left:12px; margin-top:0; margin-bottom:20px;">
-                            <i class="fas fa-calendar-check"></i> 預班時程
-                        </h4>
-                        
-                        <div class="form-group" style="margin-bottom: 20px;">
-                            <label><i class="fas fa-calendar"></i> 預班月份 *</label>
-                            <input type="month" id="inputPreYearMonth" style="font-weight:bold; font-size: 1.05rem;">
-                        </div>
-
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
-                            <div class="form-group">
-                                <label><i class="fas fa-door-open"></i> 開放日期 *</label>
-                                <input type="date" id="inputOpenDate">
-                            </div>
-                            <div class="form-group">
-                                <label><i class="fas fa-door-closed"></i> 截止日期 *</label>
-                                <input type="date" id="inputCloseDate">
-                            </div>
-                        </div>
-
-                        <div class="form-group" style="background: #e8f6f3; padding: 15px; border-radius: 6px; border-left: 4px solid #16a085;">
-                            <label style="cursor:pointer; display:flex; align-items:center; margin:0;">
-                                <input type="checkbox" id="checkShowAllNames" style="width:auto; margin-right:10px;">
-                                <span><i class="fas fa-eye"></i> 顯示所有預班者姓名 (公開透明)</span>
-                            </label>
-                            <small style="color:#555; margin-top:8px; display:block; margin-left:28px;">
-                                啟用後，所有人都能看到誰預休了哪些日期
-                            </small>
-                        </div>
+                <h4 style="color:#2c3e50; border-left:4px solid #3498db; padding-left:10px; margin-top:0;">基本資料</h4>
+                
+                <div class="form-row compact">
+                    <div class="form-group form-col-sm">
+                        <label>預班月份</label>
+                        <input type="month" id="inputPreYearMonth" style="font-weight:bold;">
                     </div>
+                    <div class="form-group form-col-md">
+                        <label>開放日期 (起) *</label>
+                        <input type="date" id="inputOpenDate">
+                    </div>
+                    <div class="form-group form-col-md">
+                        <label>截止日期 (迄) *</label>
+                        <input type="date" id="inputCloseDate">
+                    </div>
+                </div>
 
-                    <!-- 右欄 -->
-                    <div>
-                        <h4 style="color:#2c3e50; border-left:4px solid #e67e22; padding-left:12px; margin-top:0; margin-bottom:20px;">
-                            <i class="fas fa-sliders-h"></i> 預班規則
-                        </h4>
-                        
-                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px;">
-                            <div class="form-group">
-                                <label><i class="fas fa-hand-paper"></i> 預休上限</label>
-                                <input type="number" id="inputMaxOff" placeholder="例如: 8" min="0" max="31">
-                                <small>含假日，單位：天</small>
-                            </div>
-                            <div class="form-group">
-                                <label><i class="fas fa-umbrella-beach"></i> 假日上限</label>
-                                <input type="number" id="inputMaxHoliday" placeholder="例如: 2" min="0" max="10">
-                                <small>週末與國定假日</small>
-                            </div>
-                            <div class="form-group">
-                                <label><i class="fas fa-shield-alt"></i> 保留名額</label>
-                                <input type="number" id="inputDailyReserve" placeholder="例如: 2" min="0" max="10">
-                                <small>每日保留人數</small>
-                            </div>
-                        </div>
+                <div class="form-group" style="margin-bottom: 20px;">
+                    <label style="cursor:pointer; display:inline-flex; align-items:center;">
+                        <input type="checkbox" id="checkShowAllNames" style="width:auto; margin-right:8px;">
+                        顯示所有預班者姓名 (公開透明)
+                    </label>
+                </div>
 
-                        <div class="form-group" style="margin-bottom: 15px;">
-                            <label><i class="fas fa-moon"></i> 排班夜班模式</label>
-                            <select id="inputShiftMode" onchange="preScheduleManager.toggleThreeShiftOption()" style="font-size: 1rem;">
-                                <option value="2">2種班別 (白班/夜班 - 固定班)</option>
-                                <option value="3">3種班別 (白班/小夜/大夜 - 花班)</option>
-                            </select>
-                        </div>
+                <hr style="border:0; border-top:1px dashed #ccc; margin:20px 0;">
 
-                        <div class="form-group" id="divAllowThree" style="display:none; background: #fff3cd; padding: 15px; border-radius: 6px; border-left: 4px solid #f39c12;">
-                            <label style="cursor:pointer; display:flex; align-items:center; margin:0;">
-                                <input type="checkbox" id="checkAllowThree" style="width:auto; margin-right:10px;"> 
-                                <span><i class="fas fa-check-circle"></i> 同意同仁自願選擇 3 種班</span>
+                <h4 style="color:#2c3e50; border-left:4px solid #e67e22; padding-left:10px;">預班限制</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>預班上限天數 (含假日)</label>
+                        <input type="number" id="inputMaxOff" placeholder="例如: 8">
+                    </div>
+                    <div class="form-group">
+                        <label>假日上限天數</label>
+                        <input type="number" id="inputMaxHoliday" placeholder="例如: 2">
+                    </div>
+                    <div class="form-group">
+                        <label>每日預班名額保留數</label>
+                        <input type="number" id="inputDailyReserve" placeholder="例如: 2">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>排班夜班模式</label>
+                        <select id="inputShiftMode" onchange="preScheduleManager.toggleThreeShiftOption()">
+                            <option value="2">2種 (白/夜 - 固定班)</option>
+                            <option value="3">3種 (白/小/大 - 花班)</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="divAllowThree" style="display:none;">
+                        <label>3種班意願選項</label>
+                        <div style="margin-top:10px;">
+                            <label style="cursor:pointer;">
+                                <input type="checkbox" id="checkAllowThree" style="width:auto;"> 
+                                同意同仁自願選擇 3 種班
                             </label>
-                            <small style="color:#856404; margin-top:8px; display:block; margin-left:28px;">
-                                勾選後將允許護理師自行勾選是否願意上三班制
-                            </small>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Tab 2: 組別限制 -->
+            <!-- Tab 2: 組別人力限制 -->
             <div id="tab-limits" class="tab-content">
-                <h4 style="color:#2c3e50; border-left:4px solid #9b59b6; padding-left:12px; margin-top:0; margin-bottom:20px;">
-                    <i class="fas fa-users-cog"></i> 各組別每日人力限制設定
-                </h4>
-                
-                <div class="alert-box" style="background:#e8f6f3; color:#0e6251; padding:12px 15px; border-radius:6px; margin-bottom:20px; border-left: 4px solid #16a085;">
-                    <i class="fas fa-info-circle"></i> 
-                    <strong>使用說明：</strong>請輸入各組別每日的人力限制。若該項不限制，請留空 (預設為不限)。
+                <div class="alert-box" style="background:#e8f6f3; color:#0e6251; padding:10px; border-radius:4px; margin-bottom:15px; font-size:0.9rem;">
+                    <i class="fas fa-info-circle"></i> 請輸入各組別每日限制。若該項不限制,請留空 (預設為不限)。
                 </div>
-                
-                <div style="overflow-x: auto; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-                    <table class="matrix-table sticky-th" id="groupLimitTable" style="min-width: 100%;"></table>
-                </div>
+                <table class="matrix-table sticky-th" id="groupLimitTable"></table>
             </div>
 
             <!-- Tab 3: 參與人員 -->
             <div id="tab-staff" class="tab-content">
-                <h4 style="color:#2c3e50; border-left:4px solid #27ae60; padding-left:12px; margin-top:0; margin-bottom:20px;">
-                    <i class="fas fa-user-friends"></i> 本次預班參與人員名單
-                </h4>
-                
-                <div style="background:#f8f9fa; padding:20px; border-radius:8px; margin-bottom:20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
-                    <label style="font-weight: bold; color: #555; margin-bottom: 10px; display: block;">
-                        <i class="fas fa-search"></i> 搜尋並新增支援人員
-                    </label>
+                <div style="background:#f9f9f9; padding:15px; border-radius:4px; margin-bottom:15px;">
                     <div style="display:flex; gap:10px;">
                         <input type="text" id="inputSearchStaff" 
-                               placeholder="輸入員編或姓名後，按 Enter 搜尋..." 
+                               placeholder="輸入員編或姓名後,按 Enter 搜尋..." 
                                onkeyup="preScheduleManager.handleSearchEnter(event)"
-                               style="flex:1; padding:10px 15px; border:1px solid #ccc; border-radius:6px; font-size: 0.95rem;">
-                        <button class="btn btn-add" onclick="preScheduleManager.searchStaff()" style="padding: 10px 25px;">
-                            <i class="fas fa-search"></i> 搜尋
-                        </button>
+                               style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
+                        <button class="btn btn-add" onclick="preScheduleManager.searchStaff()">搜尋</button>
                     </div>
-                    <div id="searchResults" style="margin-top: 15px;"></div>
+                    <div id="searchResults"></div>
                 </div>
 
-                <div style="background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-                    <table style="width:100%;">
-                        <thead class="sticky-th" style="background: #f1f3f5;">
-                            <tr>
-                                <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('empId')">
-                                    <i class="fas fa-id-card"></i> 員編 <i id="sort_icon_pre_empId" class="fas fa-sort"></i>
-                                </th>
-                                <th style="width:20%; cursor:pointer;" onclick="preScheduleManager.sortStaff('name')">
-                                    <i class="fas fa-user"></i> 姓名 <i id="sort_icon_pre_name" class="fas fa-sort"></i>
-                                </th>
-                                <th style="width:12%; cursor:pointer;" onclick="preScheduleManager.sortStaff('level')">
-                                    <i class="fas fa-layer-group"></i> 層級 <i id="sort_icon_pre_level" class="fas fa-sort"></i>
-                                </th>
-                                <th style="width:18%; cursor:pointer;" onclick="preScheduleManager.sortStaff('group')">
-                                    <i class="fas fa-users"></i> 組別 <i id="sort_icon_pre_group" class="fas fa-sort"></i>
-                                </th>
-                                <th style="width:20%; cursor:pointer;" onclick="preScheduleManager.sortStaff('isSupport')">
-                                    <i class="fas fa-tag"></i> 身份 <i id="sort_icon_pre_isSupport" class="fas fa-sort"></i>
-                                </th>
-                                <th style="width:15%; text-align: center;">
-                                    <i class="fas fa-cog"></i> 操作
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody id="preStaffBody"></tbody>
-                    </table>
-                </div>
+                <table style="width:100%;">
+                    <thead class="sticky-th">
+                        <tr>
+                            <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('empId')">
+                                員編 <i id="sort_icon_pre_empId" class="fas fa-sort"></i>
+                            </th>
+                            <th style="width:20%; cursor:pointer;" onclick="preScheduleManager.sortStaff('name')">
+                                姓名 <i id="sort_icon_pre_name" class="fas fa-sort"></i>
+                            </th>
+                            <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('level')">
+                                層級 <i id="sort_icon_pre_level" class="fas fa-sort"></i>
+                            </th>
+                            <th style="width:20%; cursor:pointer;" onclick="preScheduleManager.sortStaff('group')">
+                                組別 <i id="sort_icon_pre_group" class="fas fa-sort"></i>
+                            </th>
+                            <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('isSupport')">
+                                身份 <i id="sort_icon_pre_isSupport" class="fas fa-sort"></i>
+                            </th>
+                            <th style="width:15%;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="preStaffBody"></tbody>
+                </table>
             </div>
 
         </div>
         
-        <div style="text-align:right; padding: 18px 30px; border-top:2px solid #e9ecef; background: #f8f9fa;">
-            <button class="btn btn-close" onclick="preScheduleManager.closeModal()" style="padding: 10px 20px;">
-                <i class="fas fa-times"></i> 取消
-            </button>
-            <button class="btn btn-add" onclick="preScheduleManager.saveData()" style="padding: 10px 25px; font-size: 1rem;">
-                <i class="fas fa-save"></i> 儲存設定
-            </button>
+        <div style="text-align:right; padding: 15px 20px; border-top:1px solid #eee;">
+            <button class="btn btn-close" onclick="preScheduleManager.closeModal()">取消</button>
+            <button class="btn btn-add" onclick="preScheduleManager.saveData()">儲存設定</button>
         </div>
     </div>
 </div>
