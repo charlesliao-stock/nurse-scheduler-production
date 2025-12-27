@@ -38,7 +38,7 @@ const preScheduleManager = {
         } catch (e) { console.error(e); }
     },
 
-// --- 2. 載入列表 (修正狀態判定邏輯) ---
+    // --- 2. 載入列表 (含狀態判斷) ---
     loadData: async function() {
         const unitId = document.getElementById('filterPreUnit').value;
         this.currentUnitId = unitId;
@@ -66,7 +66,7 @@ const preScheduleManager = {
 
             tbody.innerHTML = '';
             
-            // [新增] 取得今日日期字串 (YYYY-MM-DD) 方便比較
+            // 取得今日日期字串 (YYYY-MM-DD)
             const today = new Date().toISOString().split('T')[0];
 
             snapshot.forEach(doc => {
@@ -78,23 +78,23 @@ const preScheduleManager = {
                 const period = `${openDate} ~ ${closeDate}`;
                 const progress = d.progress ? `${d.progress.submitted} / ${d.progress.total}` : '0 / 0';
                 
-                // [關鍵修正] 動態計算狀態
+                // 動態計算狀態
                 let statusHtml = '<span class="badge" style="background:#95a5a6;">未知</span>';
-                let statusText = 'unknown';
 
-                if (today < openDate) {
-                    statusHtml = '<span class="badge" style="background:#f39c12;">準備中</span>';
-                    statusText = 'preparing';
-                } else if (today > closeDate) {
-                    statusHtml = '<span class="badge" style="background:#e74c3c;">已截止</span>';
-                    statusText = 'closed';
+                // 優先顯示已鎖定(執行排班後)的狀態
+                if (d.status === 'closed') {
+                    statusHtml = '<span class="badge" style="background:#e74c3c;">已截止</span>'; 
                 } else {
-                    statusHtml = '<span class="badge" style="background:#2ecc71;">開放中</span>';
-                    statusText = 'open';
+                    // 若尚未鎖定，則依日期判斷
+                    if (today < openDate) {
+                        statusHtml = '<span class="badge" style="background:#f39c12;">準備中</span>';
+                    } else if (today > closeDate) {
+                        statusHtml = '<span class="badge" style="background:#e74c3c;">已截止</span>';
+                    } else {
+                        statusHtml = '<span class="badge" style="background:#2ecc71;">開放中</span>';
+                    }
                 }
 
-                // (可選) 若資料庫狀態與計算不符，可在背景更新 DB，這裡僅做顯示修正
-                
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td style="font-weight:bold;">${d.year} 年 ${d.month} 月</td>
@@ -145,10 +145,7 @@ const preScheduleManager = {
             const m = nextMonth.getMonth() + 1;
             const mStr = m < 10 ? '0'+m : m;
             
-            // [新增] 設定年月 input
             document.getElementById('inputPreYearMonth').value = `${y}-${mStr}`;
-            
-            // 預設日期區間
             document.getElementById('inputOpenDate').value = `${y}-${mStr}-01`;
             document.getElementById('inputCloseDate').value = `${y}-${mStr}-10`;
 
@@ -313,7 +310,7 @@ const preScheduleManager = {
         }
     },
 
-    // --- 5. 矩陣表格 (組別限制) - 橫向 ---
+    // --- 5. 矩陣表格 (組別限制) ---
     renderGroupLimitsTable: function(savedLimits = {}) {
         const table = document.getElementById('groupLimitTable');
         table.innerHTML = '';
@@ -366,7 +363,6 @@ const preScheduleManager = {
         } catch(e) { console.error(e); alert("帶入失敗"); }
     },
 
-    // [修正] 填寫表單資料 (含 input type="month")
     fillForm: function(data) {
         if(data.year && data.month) {
             const mStr = data.month < 10 ? '0' + data.month : data.month;
@@ -376,7 +372,6 @@ const preScheduleManager = {
         const s = data.settings || {};
         document.getElementById('inputOpenDate').value = s.openDate || '';
         document.getElementById('inputCloseDate').value = s.closeDate || '';
-        
         document.getElementById('inputMaxOff').value = s.maxOffDays;
         document.getElementById('inputMaxHoliday').value = s.maxHolidayOffs;
         document.getElementById('inputDailyReserve').value = s.dailyReserved;
@@ -384,16 +379,15 @@ const preScheduleManager = {
         document.getElementById('inputShiftMode').value = s.shiftTypeMode;
         
         this.toggleThreeShiftOption(); 
-        
         if(s.shiftTypeMode === "2") {
             document.getElementById('checkAllowThree').checked = s.allowThreeShifts;
         }
     },
 
-    // [修正] 儲存時解析年月
+    // --- 6. 儲存 ---
     saveData: async function() {
         const docId = document.getElementById('preScheduleDocId').value;
-        const yearMonth = document.getElementById('inputPreYearMonth').value; // "2025-06"
+        const yearMonth = document.getElementById('inputPreYearMonth').value; 
         
         if(!yearMonth) { alert("請選擇預班月份"); return; }
         
@@ -424,7 +418,9 @@ const preScheduleManager = {
 
         const data = {
             unitId, year, month,
-            status: 'open',
+            // [關鍵] 編輯模式時不應覆蓋 status (除非是新建)
+            // 這裡如果是新增，預設為 open
+            status: 'open', 
             progress: { submitted: 0, total: this.staffListSnapshot.length },
             settings,
             groupLimits,
@@ -435,8 +431,10 @@ const preScheduleManager = {
         try {
             if(docId) {
                 const oldDoc = await db.collection('pre_schedules').doc(docId).get();
-                if(oldDoc.exists && oldDoc.data().progress) {
-                    data.progress.submitted = oldDoc.data().progress.submitted;
+                // 保留原有狀態與進度
+                if(oldDoc.exists) {
+                    data.status = oldDoc.data().status; 
+                    if(oldDoc.data().progress) data.progress.submitted = oldDoc.data().progress.submitted;
                 }
                 await db.collection('pre_schedules').doc(docId).update(data);
             } else {
@@ -453,9 +451,7 @@ const preScheduleManager = {
             alert("儲存成功！");
             this.closeModal();
             this.loadData();
-        } catch(e) {
-            console.error(e); alert("儲存失敗: " + e.message);
-        }
+        } catch(e) { console.error(e); alert("儲存失敗: " + e.message); }
     },
 
     deleteSchedule: async function(id) {
@@ -465,8 +461,8 @@ const preScheduleManager = {
         }
     },
 
-manage: function(id) {
-        // [修正] 跳轉到矩陣介面
+    // [修正] 這裡不再是 alert，而是執行跳轉
+    manage: function(id) {
         window.location.hash = `/admin/pre_schedule_matrix?id=${id}`;
     }
 };
