@@ -21,7 +21,7 @@
             <div id="calendarGrid" class="calendar-grid"></div>
         </div>
 
-        <div style="width:320px; background:white; border-left:1px solid #ddd; padding:20px; display:flex; flex-direction:column; overflow-y:auto;">
+        <div style="width:340px; background:white; border-left:1px solid #ddd; padding:20px; display:flex; flex-direction:column; overflow-y:auto;">
             
             <h4 style="margin-top:0; border-bottom:2px solid #3498db; padding-bottom:10px; color:#2c3e50;">
                 <i class="fas fa-user-clock"></i> 我的預班統計
@@ -48,27 +48,28 @@
             </h4>
 
             <div class="form-group" id="bundleGroup" style="margin-bottom:20px; display:none;">
-                <label>包班意願</label>
+                <label style="font-weight:bold;">包班意願</label>
                 <select id="inputBundleShift" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px; margin-top:5px;">
                     <option value="">無 (不包班)</option>
                     </select>
-                <small style="color:#7f8c8d;">僅列出可包班的班別</small>
+                <small style="color:#7f8c8d;">僅列出開放包班的項目</small>
             </div>
 
-            <div class="form-group" id="prefShiftTypeGroup" style="display:none;">
-                <label>夜班模式偏好</label>
-                <select id="prefShiftType" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px; margin-top:5px;">
-                    <option value="default">依單位預設</option>
-                    </select>
+            <div class="form-group" id="prefGroup" style="margin-bottom:20px;">
+                <label style="font-weight:bold;">班別志願序 (夜班偏好)</label>
+                <div id="prefContainer" style="margin-top:5px; display:flex; flex-direction:column; gap:8px;">
+                    <div style="color:#999; font-size:0.9rem;">依單位設定載入中...</div>
+                </div>
             </div>
 
             <div style="margin-top:auto; padding-top:20px; border-top:1px solid #eee; color:#7f8c8d; font-size:0.9rem;">
                 <p><i class="fas fa-info-circle"></i> 說明：</p>
                 <ul style="padding-left:20px; margin:0;">
                     <li>點擊日期可切換預休 (綠色)。</li>
-                    <li>右下角：目前已劃人數 / 可預班餘額。</li>
+                    <li>右下角數字：目前已劃人數 / 可預班餘額。</li>
+                    <li>滑鼠移至日期可查看已預班人員 (若開放)。</li>
                     <li><span style="color:#e67e22; font-weight:bold;">橘框</span>：名額充足。</li>
-                    <li><span style="color:#e74c3c; font-weight:bold;">紅框</span>：名額已滿 (仍可劃休但需確認)。</li>
+                    <li><span style="color:#e74c3c; font-weight:bold;">紅框</span>：名額已滿。</li>
                 </ul>
             </div>
         </div>
@@ -85,9 +86,9 @@
 .calendar-day.disabled:hover { transform: none; box-shadow: none; }
 
 /* 狀態樣式 */
-.calendar-day.selected { background: #d5f5e3; border: 2px solid #2ecc71; } /* 綠底 */
-.calendar-day.selected.warn-orange { border: 2px solid #f39c12; } /* 橘框 */
-.calendar-day.selected.warn-red { border: 2px solid #e74c3c; background: #fadbd8; } /* 紅框 */
+.calendar-day.selected { background: #d5f5e3; border: 2px solid #2ecc71; }
+.calendar-day.selected.warn-orange { border: 2px solid #f39c12; }
+.calendar-day.selected.warn-red { border: 2px solid #e74c3c; background: #fadbd8; }
 
 .day-number { font-size: 1.2rem; font-weight: bold; color: #555; }
 .day-number.holiday { color: #e74c3c; }
