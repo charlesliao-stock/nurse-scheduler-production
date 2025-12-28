@@ -15,7 +15,7 @@ const staffPreScheduleManager = {
     maxHoliday: 0,
     totalStaffCount: 0,
     isReadOnly: false,
-    globalClickListener: null, // [新增]
+    globalClickListener: null,
     
     // --- 進入點 ---
     open: function(id) {
@@ -34,9 +34,8 @@ const staffPreScheduleManager = {
         
         this.renderCalendar();
         this.updateStats();
-        this.setupEvents(); // [新增]
+        this.setupEvents();
         
-        // 確保選單在 body (避免座標問題)
         const menu = document.getElementById('staffContextMenu');
         if (menu && menu.parentElement !== document.body) {
             document.body.appendChild(menu);
@@ -104,13 +103,20 @@ const staffPreScheduleManager = {
                 const userAssign = assignments[userId];
                 const userName = this.staffMap[userId] || "未知人員";
 
+                // 若是自己，這裡先不計入 otherRequests，因為 otherRequests 將專門用來計算「總數」
+                // 為了方便即時計算，我們將 otherRequests 定義為「除我以外的其他人」
+                // 這樣：總數 = otherRequests[day] + (我有選 ? 1 : 0)
+                
                 Object.keys(userAssign).forEach(key => {
                     if (key.startsWith('current_')) {
                         const day = parseInt(key.split('_')[1]);
                         const val = userAssign[key];
                         
                         if (val === 'REQ_OFF' || val === 'OFF') {
-                            this.otherRequests[day] = (this.otherRequests[day] || 0) + 1;
+                            if (userId !== uid) {
+                                this.otherRequests[day] = (this.otherRequests[day] || 0) + 1;
+                            }
+                            
                             if (s.showAllNames) {
                                 if (!this.dailyNames[day]) this.dailyNames[day] = [];
                                 this.dailyNames[day].push(userName);
@@ -226,22 +232,25 @@ const staffPreScheduleManager = {
             const key = `current_${d}`;
             const val = this.userRequest[key];
 
-            // 判斷當前值
+            // [修正 2] 顯示 OFF 字樣而非打勾
             if (val === 'REQ_OFF') {
                 cell.classList.add('selected');
-                cell.innerHTML += `<div class="my-status"><i class="fas fa-check-circle"></i></div>`;
+                cell.innerHTML += `<div class="my-status" style="font-weight:900; color:#2ecc71; font-size:1rem; top:5px; right:5px;">OFF</div>`;
+            } else if (val && val.startsWith('!')) {
+                // 勿排
+                cell.innerHTML += `<div class="shift-tag" style="color:#e74c3c; font-size:0.9rem;"><i class="fas fa-ban"></i> ${val.replace('!', '')}</div>`;
             } else if (val) {
-                // 如果是指定班別 (例如 'D', 'N')
-                cell.classList.add('selected'); // 顯示選取狀態
-                // 這裡可以考慮給不同顏色，目前先維持綠底
-                // 顯示班別代號
+                // 指定班別
+                cell.classList.add('selected'); 
                 cell.innerHTML += `<div class="shift-tag">${val}</div>`;
             }
 
-            const used = this.otherRequests[d] || 0;
+            // [修正 3] 即時計算總數：他人 + 自己
+            const myCount = (val === 'REQ_OFF') ? 1 : 0; // 只有 OFF 算佔用名額
+            const used = (this.otherRequests[d] || 0) + myCount;
             const quota = this.calcRemaining(d);
             
-            // 邊框警告邏輯 (只針對 REQ_OFF 需要檢查額度，指定班別不需要)
+            // 邊框警告
             if (val === 'REQ_OFF') {
                 if (used > quota) cell.classList.add('warn-red');
                 else cell.classList.add('warn-orange');
@@ -249,9 +258,16 @@ const staffPreScheduleManager = {
 
             let slotHtml = `<i class="fas fa-user"></i> ${used} / ${quota}`;
             let slotClass = (used >= quota) ? 'day-slots full' : 'day-slots';
+            
+            // Tooltip 處理
             let tooltip = `已預班人數: ${used}`;
-            if (this.data.settings.showAllNames && this.dailyNames[d] && this.dailyNames[d].length > 0) {
-                tooltip = "已預班人員:\n" + this.dailyNames[d].join('\n');
+            if (this.data.settings.showAllNames && this.dailyNames[d]) {
+                // 如果我有預班，手動把我加進顯示名單 (暫時顯示，重整後會從 DB 抓)
+                const names = [...this.dailyNames[d]];
+                if (myCount === 1 && !names.includes(app.currentUser.displayName)) { // 簡單檢查
+                    // 這裡只是前端顯示，不影響邏輯
+                }
+                tooltip = "已預班人員:\n" + names.join('\n');
             }
 
             cell.innerHTML += `
@@ -260,16 +276,8 @@ const staffPreScheduleManager = {
             `;
 
             if (!this.isReadOnly) {
-                // [關鍵] 左鍵點擊 (預設 OFF)
-                cell.onclick = (e) => {
-                    // 防止右鍵觸發 onclick
-                    this.toggleDay(d, cell, isHoliday, used, quota);
-                };
-                
-                // [關鍵] 右鍵點擊 (開啟選單)
-                cell.oncontextmenu = (e) => {
-                    this.handleRightClick(e, d, isHoliday, used, quota);
-                };
+                cell.onclick = (e) => this.toggleDay(d, cell, isHoliday, used, quota);
+                cell.oncontextmenu = (e) => this.handleRightClick(e, d, isHoliday, used, quota);
             } else {
                 cell.classList.add('disabled');
             }
@@ -277,9 +285,7 @@ const staffPreScheduleManager = {
         }
     },
 
-    // --- 左鍵：快速切換 OFF ---
     toggleDay: function(day, cell, isHoliday, used, quota) {
-        // 如果選單是開啟的，先關閉選單，不執行動作
         const menu = document.getElementById('staffContextMenu');
         if (menu.style.display === 'block') {
             menu.style.display = 'none';
@@ -289,15 +295,31 @@ const staffPreScheduleManager = {
         const key = `current_${day}`;
         const currentVal = this.userRequest[key];
 
-        // 邏輯：如果有值 (不論是 OFF 還是班別)，點擊就清除；如果沒值，就設為 REQ_OFF
         if (currentVal) {
             this.setShift(day, null, isHoliday, used, quota);
         } else {
+            // [修正 3] 預先檢查：若現在沒選，選了之後就會 +1
+            // 傳入的 used 已經包含「目前的狀態」。
+            // 如果目前沒選，used 尚未包含我。選了變 used+1。
+            // 這裡的 used 是由 renderCalendar 傳來的，它已經算好 (other + my)。
+            // 
+            // 情況：目前沒選 (my=0)，used = other。
+            // 點擊後 -> used 會變成 other + 1。
+            // 所以要檢查 (used + 1) > quota
+            
+            const predictedUsed = used + 1;
+            
+            if (predictedUsed > quota) {
+                if(!confirm(`該日預班人數 (${predictedUsed}) 已達上限 (${quota})，確定要候補嗎？`)) return;
+            }
+            
+            if (!this.checkLimits('REQ_OFF', day, isHoliday)) return;
+
             this.setShift(day, 'REQ_OFF', isHoliday, used, quota);
         }
     },
 
-    // --- 右鍵：開啟選單 ---
+    // [修正 1] 右鍵選單：加入勿排
     handleRightClick: function(e, day, isHoliday, used, quota) {
         e.preventDefault();
         e.stopPropagation();
@@ -310,14 +332,14 @@ const staffPreScheduleManager = {
         
         let html = '';
         
-        // 1. 預休 (User 的 OFF)
+        // 1. 預休
         html += `<div class="menu-item" onclick="staffPreScheduleManager.setShift(${day}, 'REQ_OFF', ${isHoliday}, ${used}, ${quota})">
             <span class="menu-icon"><span class="color-dot" style="background:#2ecc71;"></span></span> 預休 (OFF)
         </div>`;
         
         html += `<div class="menu-separator"></div>`;
 
-        // 2. 指定班別 (只列出該單位的班別)
+        // 2. 指定班別
         const unitShifts = this.shifts.filter(sh => sh.unitId === this.data.unitId);
         unitShifts.forEach(s => {
             html += `<div class="menu-item" onclick="staffPreScheduleManager.setShift(${day}, '${s.code}', ${isHoliday}, ${used}, ${quota})">
@@ -326,15 +348,23 @@ const staffPreScheduleManager = {
         });
 
         html += `<div class="menu-separator"></div>`;
+
+        // 3. [新增] 勿排班別 (User 也可以提勿排需求)
+        unitShifts.forEach(s => {
+            html += `<div class="menu-item" onclick="staffPreScheduleManager.setShift(${day}, '!${s.code}', ${isHoliday}, ${used}, ${quota})" style="color:#c0392b;">
+                <span class="menu-icon"><i class="fas fa-ban"></i></span> 勿排 ${s.name}
+            </div>`;
+        });
+
+        html += `<div class="menu-separator"></div>`;
         
-        // 3. 清除
+        // 4. 清除
         html += `<div class="menu-item" style="color:red;" onclick="staffPreScheduleManager.setShift(${day}, null, ${isHoliday}, ${used}, ${quota})">
             <span class="menu-icon"><i class="fas fa-eraser"></i></span> 清除
         </div>`;
 
         options.innerHTML = html;
 
-        // 定位邏輯
         menu.style.display = 'block';
         menu.style.visibility = 'hidden'; 
         setTimeout(() => {
@@ -348,9 +378,7 @@ const staffPreScheduleManager = {
         }, 0);
     },
 
-    // --- 設定班別 (核心邏輯) ---
     setShift: function(day, code, isHoliday, used, quota) {
-        // 隱藏選單
         document.getElementById('staffContextMenu').style.display = 'none';
         
         const key = `current_${day}`;
@@ -358,39 +386,44 @@ const staffPreScheduleManager = {
         // 清除
         if (code === null) {
             delete this.userRequest[key];
-            this.renderCalendar(); // 重繪 (最簡單，更新樣式)
-            this.updateStats();
-            return;
-        }
-
-        // 如果是 REQ_OFF，需檢查限制
-        if (code === 'REQ_OFF') {
-            // 額度警告
-            if (used >= quota) {
-                if(!confirm(`該日預班人數 (${used}) 已達上限 (${quota})，確定要候補嗎？`)) return;
+        } else {
+            // REQ_OFF 需檢查
+            if (code === 'REQ_OFF') {
+                // 如果原本不是 REQ_OFF (例如原本是空的，或指定班別)，現在要變成 REQ_OFF
+                // 這裡的 used 是點擊當下的狀態。
+                // 如果 userRequest[key] 原本就是 REQ_OFF，則不變
+                // 如果 userRequest[key] 是 null，則 used (其他人) + 1
+                
+                const originalVal = this.userRequest[key];
+                if (originalVal !== 'REQ_OFF') {
+                    // 預測增加
+                    const otherCount = this.otherRequests[day] || 0; // 只有其他人
+                    const predicted = otherCount + 1;
+                    
+                    if (predicted > quota) {
+                       if(!confirm(`該日預班人數 (${predicted}) 已達上限 (${quota})，確定要候補嗎？`)) return; 
+                    }
+                    if (!this.checkLimits(code, day, isHoliday)) return;
+                }
             }
-            // 個人上限檢查 (需先把該日暫時加進去算，或是由 checkLimits 處理)
-            if (!this.checkLimits(code, day, isHoliday)) return;
+            this.userRequest[key] = code;
         }
 
-        // 設定值
-        this.userRequest[key] = code;
         this.renderCalendar();
         this.updateStats();
     },
 
     checkLimits: function(newCode, newDay, isTargetHoliday) {
-        // 只有 OFF 才需要檢查上限
         if (newCode !== 'REQ_OFF') return true;
 
         let offCount = 0;
         let holidayOffCount = 0;
         
-        // 先加上這一次的 (假設成功)
+        // 先算這次
         offCount++;
         if (isTargetHoliday) holidayOffCount++;
 
-        // 加上已選的其他 OFF (排除目前正在修改的這一天，避免重複算)
+        // 再加舊的 (排除今日)
         Object.keys(this.userRequest).forEach(k => {
             const d = parseInt(k.split('_')[1]);
             if (d !== newDay && this.userRequest[k] === 'REQ_OFF') {
@@ -431,7 +464,6 @@ const staffPreScheduleManager = {
         document.getElementById('statHolidayOffCount').style.color = (holidayOffCount > this.maxHoliday) ? 'red' : '';
     },
 
-    // --- 事件管理 ---
     setupEvents: function() {
         this.globalClickListener = (e) => {
             const menu = document.getElementById('staffContextMenu');
@@ -490,7 +522,6 @@ const staffPreScheduleManager = {
     }
 };
 
-// 複寫 init 以支援 cleanup
 const staffOriginalInit = staffPreScheduleManager.init;
 staffPreScheduleManager.init = function(id) {
     if(this.cleanup) this.cleanup();
