@@ -54,7 +54,7 @@ const scheduleRuleManager = {
         container.style.display = 'block';
         
         try {
-            // 1. 載入班別 (為了顯示方塊名稱)
+            // 1. 載入班別
             const shiftsSnap = await db.collection('shifts').where('unitId', '==', unitId).get();
             this.activeShifts = shiftsSnap.docs.map(d => d.data());
 
@@ -107,7 +107,7 @@ const scheduleRuleManager = {
         document.getElementById('rule_monthBuffer').checked = r.pattern?.monthBuffer !== false;
         document.getElementById('rule_monthBufferDays').value = r.pattern?.monthBufferDays || 7;
 
-        // [核心修改] 渲染拖曳排序編輯器
+        // Render Sortable
         const savedOrder = r.pattern?.rotationOrder || 'OFF,N,D,E';
         this.renderRotationEditor(savedOrder);
 
@@ -121,20 +121,24 @@ const scheduleRuleManager = {
         document.getElementById('rule_fairHolidayIncNational').checked = r.fairness?.fairHolidayIncNational !== false;
         document.getElementById('rule_fairNight').checked = r.fairness?.fairNight !== false;
         document.getElementById('rule_fairNightVar').value = r.fairness?.fairNightVar || 2;
+
+        // [新增] AI Params (給予預設值)
+        const ai = r.aiParams || {};
+        document.getElementById('ai_w_balance').value = ai.w_balance || 200;
+        document.getElementById('ai_w_continuity').value = ai.w_continuity || 50;
+        document.getElementById('ai_w_surplus').value = ai.w_surplus || 150;
+        document.getElementById('ai_backtrack_depth').value = ai.backtrack_depth || 3;
+        document.getElementById('ai_max_attempts').value = ai.max_attempts || 20;
+        document.getElementById('ai_tolerance').value = ai.tolerance || 2;
     },
 
-    // [新增] 渲染拖曳編輯器
     renderRotationEditor: function(savedOrderStr) {
         const container = document.getElementById('rotationContainer');
         container.innerHTML = '';
-
-        // 1. 準備所有項目：OFF + 本單位所有班別
         let items = [{ code: 'OFF', name: '休' }];
         this.activeShifts.forEach(s => {
             items.push({ code: s.code, name: s.name, color: s.color });
         });
-
-        // 2. 依照儲存的順序排序
         const savedArr = savedOrderStr.split(',').map(s => s.trim());
         items.sort((a, b) => {
             let idxA = savedArr.indexOf(a.code);
@@ -143,61 +147,47 @@ const scheduleRuleManager = {
             if (idxB === -1) idxB = 999;
             return idxA - idxB;
         });
-
-        // 3. 產生 DOM
         items.forEach((item, index) => {
-            // 加入箭頭 (除了第一個)
             if (index > 0) {
                 const arrow = document.createElement('div');
                 arrow.className = 'sortable-arrow';
                 arrow.innerHTML = '<i class="fas fa-arrow-right"></i>';
                 container.appendChild(arrow);
             }
-
             const div = document.createElement('div');
             div.className = 'sortable-item';
             div.draggable = true;
             div.dataset.code = item.code;
-            
-            // 顏色標記
             let colorDot = '';
             if (item.code === 'OFF') colorDot = `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#2ecc71; margin-right:5px;"></span>`;
             else if (item.color) colorDot = `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${item.color}; margin-right:5px;"></span>`;
-
             div.innerHTML = `${colorDot} ${item.name} (${item.code})`;
             container.appendChild(div);
         });
-
-        // 4. 綁定拖曳事件
         this.setupDragAndDrop();
     },
 
     setupDragAndDrop: function() {
         const container = document.getElementById('rotationContainer');
         let draggedItem = null;
-
         container.querySelectorAll('.sortable-item').forEach(item => {
             item.addEventListener('dragstart', (e) => {
                 draggedItem = item;
                 e.dataTransfer.effectAllowed = 'move';
                 item.classList.add('dragging');
             });
-
             item.addEventListener('dragend', () => {
                 draggedItem = null;
                 item.classList.remove('dragging');
-                this.refreshArrows(); // 重新整理箭頭
+                this.refreshArrows();
             });
-
             item.addEventListener('dragover', (e) => {
                 e.preventDefault(); 
                 e.dataTransfer.dropEffect = 'move';
-                
                 const target = e.target.closest('.sortable-item');
                 if (target && target !== draggedItem) {
                     const rect = target.getBoundingClientRect();
                     const next = (e.clientX - rect.left) / (rect.right - rect.left) > 0.5;
-                    // 交換位置
                     if(next) container.insertBefore(draggedItem, target.nextSibling);
                     else container.insertBefore(draggedItem, target);
                 }
@@ -208,7 +198,6 @@ const scheduleRuleManager = {
     refreshArrows: function() {
         const container = document.getElementById('rotationContainer');
         container.querySelectorAll('.sortable-arrow').forEach(el => el.remove());
-        
         const items = container.querySelectorAll('.sortable-item');
         items.forEach((item, index) => {
             if (index > 0) {
@@ -256,7 +245,7 @@ const scheduleRuleManager = {
             },
             pattern: {
                 dayStartShift: document.getElementById('rule_dayStartShift').value,
-                rotationOrder: this.getRotationOrderString(), // [修改] 從拖曳區取得字串
+                rotationOrder: this.getRotationOrderString(), 
                 consecutivePref: document.getElementById('rule_consecutivePref').checked,
                 minConsecutive: parseInt(document.getElementById('rule_minConsecutive').value) || 2,
                 avoidLonelyOff: document.getElementById('rule_avoidLonelyOff').checked,
@@ -273,6 +262,15 @@ const scheduleRuleManager = {
                 fairHolidayIncNational: document.getElementById('rule_fairHolidayIncNational').checked,
                 fairNight: document.getElementById('rule_fairNight').checked,
                 fairNightVar: parseInt(document.getElementById('rule_fairNightVar').value) || 2
+            },
+            // [新增] 儲存 AI 參數
+            aiParams: {
+                w_balance: parseInt(document.getElementById('ai_w_balance').value) || 200,
+                w_continuity: parseInt(document.getElementById('ai_w_continuity').value) || 50,
+                w_surplus: parseInt(document.getElementById('ai_w_surplus').value) || 150,
+                backtrack_depth: parseInt(document.getElementById('ai_backtrack_depth').value) || 3,
+                max_attempts: parseInt(document.getElementById('ai_max_attempts').value) || 20,
+                tolerance: parseInt(document.getElementById('ai_tolerance').value) || 2
             }
         };
 
