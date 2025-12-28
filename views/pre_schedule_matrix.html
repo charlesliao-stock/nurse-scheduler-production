@@ -47,3 +47,30 @@
     <div class="menu-header" id="contextMenuTitle">設定班別</div>
     <div id="contextMenuOptions" class="menu-options"></div>
 </div>
+
+<div id="prefModal" class="modal">
+    <div class="modal-content" style="max-width: 450px;">
+        <h3><i class="fas fa-sliders-h"></i> 編輯人員偏好</h3>
+        <input type="hidden" id="prefTargetUid">
+        
+        <div style="margin-bottom:15px; color:#555;" id="prefTargetName"></div>
+
+        <div class="form-group" style="margin-bottom:15px;">
+            <label style="font-weight:bold;">包班意願</label>
+            <select id="editBundleShift" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px; margin-top:5px;">
+                <option value="">無 (不包班)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label style="font-weight:bold;">班別志願序</label>
+            <div id="editPrefContainer" style="margin-top:5px; display:flex; flex-direction:column; gap:8px;">
+                </div>
+        </div>
+
+        <div style="text-align:right; margin-top:25px;">
+            <button class="btn btn-close" onclick="matrixManager.closePrefModal()">取消</button>
+            <button class="btn btn-add" onclick="matrixManager.savePreferences()">儲存設定</button>
+        </div>
+    </div>
+</div>
