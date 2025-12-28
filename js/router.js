@@ -13,7 +13,10 @@ const router = {
         '/admin/pre_schedule_matrix': 'pre_schedule_matrix',
         '/staff/pre_schedule_list': 'staff_pre_schedule_list', 
         '/staff/pre_schedule': 'staff_pre_schedule',
-        '/admin/schedule_rules': 'schedule_rules' // [新增] 排班規則設定
+        '/admin/schedule_rules': 'schedule_rules',
+        // [新增] 排班作業
+        '/admin/schedule_list': 'schedule_list',
+        '/admin/schedule_matrix': 'schedule_matrix'
     },
 
     currentView: null,
@@ -78,9 +81,17 @@ const router = {
         else if (viewName === 'staff_pre_schedule') {
             if(typeof staffPreScheduleManager !== 'undefined') staffPreScheduleManager.init(id);
         }
-        // [新增]
         else if (viewName === 'schedule_rules') {
             if(typeof scheduleRuleManager !== 'undefined') scheduleRuleManager.init();
+        }
+        // [新增] 排班作業模組初始化
+        else if (viewName === 'schedule_list') {
+            if(typeof scheduleListManager !== 'undefined') scheduleListManager.init();
+        }
+        else if (viewName === 'schedule_matrix') {
+            // scheduleEditorManager 尚未建立，留待下一階段
+             if(typeof scheduleEditorManager !== 'undefined') scheduleEditorManager.init(id);
+             else container.innerHTML = '<div style="padding:20px;">排班編輯器開發中...</div>';
         }
     },
 
