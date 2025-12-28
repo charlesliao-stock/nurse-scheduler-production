@@ -9,9 +9,10 @@ const router = {
         '/admin/shifts': 'shifts',             
         '/admin/groups': 'groups',             
         '/admin/menus': 'menus',               
-        '/admin/pre_schedules': 'pre_schedules',         
+        '/admin/pre_schedules': 'pre_schedules',         // 管理者：預班管理
         '/admin/pre_schedule_matrix': 'pre_schedule_matrix', 
-        '/staff/pre_schedule': 'staff_pre_schedule'      // [新增] 員工填寫頁
+        '/staff/pre_schedule_list': 'staff_pre_schedule_list', // [新增] 使用者：預班列表
+        '/staff/pre_schedule': 'staff_pre_schedule'      // 使用者：填寫介面
     },
 
     currentView: null,
@@ -23,7 +24,6 @@ const router = {
         const [cleanPath, queryString] = path.split('?');
         const viewName = this.routes[cleanPath];
         
-        // 簡單防止重複載入
         if(this.currentView === viewName && !queryString) return;
 
         const urlParams = new URLSearchParams(queryString);
@@ -31,9 +31,9 @@ const router = {
 
         console.log(`Router: ${cleanPath} -> ${viewName}, ID: ${id}`);
 
-        if (!viewName) {
-            console.warn("404 Not Found");
-            return;
+        if (!viewName) { 
+            console.warn("404 Not Found"); 
+            return; 
         }
 
         const container = document.getElementById('content-area');
@@ -59,7 +59,7 @@ const router = {
     },
 
     initModule: function(viewName, id) {
-        if (viewName === 'dashboard') { console.log("Dashboard"); }
+        if (viewName === 'dashboard') { /* ... */ }
         else if (viewName === 'staff' && typeof staffManager !== 'undefined') staffManager.init();
         else if (viewName === 'units' && typeof unitManager !== 'undefined') unitManager.init();
         else if (viewName === 'shifts' && typeof shiftManager !== 'undefined') shiftManager.init();
@@ -72,7 +72,11 @@ const router = {
         else if (viewName === 'pre_schedule_matrix') { 
             if(typeof matrixManager !== 'undefined') matrixManager.init(id); 
         }
-        // [新增]
+        // [新增] 使用者列表
+        else if (viewName === 'staff_pre_schedule_list') {
+            if(typeof staffPreScheduleListManager !== 'undefined') staffPreScheduleListManager.init();
+        }
+        // 使用者填寫頁
         else if (viewName === 'staff_pre_schedule') {
             if(typeof staffPreScheduleManager !== 'undefined') staffPreScheduleManager.init(id);
         }
