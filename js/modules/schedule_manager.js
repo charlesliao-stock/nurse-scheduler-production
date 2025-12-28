@@ -1,5 +1,5 @@
 // js/modules/schedule_manager.js
-// 🤖 AI 排班演算法引擎 (Auto-Scheduler v5.3 - Fully Customizable)
+// 🤖 AI 排班演算法引擎 (Auto-Scheduler v5.4 - Aggressive Balancing)
 
 const scheduleManager = {
     docId: null,
@@ -74,11 +74,13 @@ const scheduleManager = {
             const lastShift = this.matrix[u.uid]['last_0'] || null;
             const pref = this.matrix[u.uid].preferences || {};
 
+            // 簡化長假判定，避免誤判
             let reqOffCount = 0;
             for(let d=1; d<=this.daysInMonth; d++) {
                 if(this.matrix[u.uid][`current_${d}`] === 'REQ_OFF') reqOffCount++;
             }
-            const isLongLeave = reqOffCount >= (this.rules.policy?.longLeaveThres || 5);
+            // 只有當使用者明確預休超過 7 天才算長假
+            const isLongLeave = reqOffCount >= 7;
 
             this.stats[u.uid] = {
                 consecutiveDays: (lastShift && lastShift !== 'OFF') ? 1 : 0,
@@ -100,23 +102,18 @@ const scheduleManager = {
         });
     },
 
-    // --- 生成選項 (基於設定值) ---
     generateOptions: async function() {
-        // 從規則中讀取設定，若無則使用預設
         const ai = this.rules.aiParams || {};
-        const baseWBalance = ai.w_balance || 200;
-        const baseWContinuity = ai.w_continuity || 50;
-        const baseWSurplus = ai.w_surplus || 150;
+        // 預設權重調整：降低連續性，提高平衡性
+        const baseWBalance = ai.w_balance || 300; // 提高平衡權重
+        const baseWContinuity = ai.w_continuity || 30; // 降低連續權重
         const baseTolerance = ai.tolerance || 2;
 
         const options = [];
         const strategies = [
-            // 方案 A: 使用者設定 (標準)
-            { name: "方案 A (標準設定)", wBal: baseWBalance, wCont: baseWContinuity, tol: baseTolerance },
-            // 方案 B: 強調平衡 (權重 +50%, 容忍度 -1)
-            { name: "方案 B (嚴格平衡)", wBal: baseWBalance * 1.5, wCont: baseWContinuity * 0.8, tol: Math.max(1, baseTolerance - 1) },
-            // 方案 C: 強調連續 (平衡權重減半, 容忍度放寬)
-            { name: "方案 C (連續優先)", wBal: baseWBalance * 0.5, wCont: baseWContinuity * 1.5, tol: baseTolerance + 2 }
+            { name: "方案 A (標準平衡)", wBal: baseWBalance, wCont: baseWContinuity, tol: baseTolerance },
+            { name: "方案 B (強制平均)", wBal: 500, wCont: 10, tol: 1 }, // 極端平衡策略
+            { name: "方案 C (寬鬆連續)", wBal: 100, wCont: 80, tol: 4 }
         ];
 
         const originalMatrix = JSON.parse(JSON.stringify(this.matrix));
@@ -165,7 +162,6 @@ const scheduleManager = {
         };
     },
 
-    // --- 核心入口 ---
     runAutoSchedule: async function(strategy) {
         for (let day = 1; day <= this.daysInMonth; day++) {
             this.cycle1_foundation(day);
@@ -182,8 +178,10 @@ const scheduleManager = {
         shuffledStaff.forEach(staff => {
             const uid = staff.uid;
             if (this.isLocked(uid, day)) return;
-            const limit = this.stats[uid].isLongLeave 
-                ? (this.rules.policy?.longLeaveMaxCons || 7) : (this.rules.policy?.maxConsDays || 6);
+            
+            // 統一連續上限，暫時忽略長假特權，避免造成其他人負擔
+            const limit = this.rules.policy?.maxConsDays || 6; 
+            
             if (this.stats[uid].consecutiveDays >= limit) {
                 this.assign(uid, day, 'OFF'); return;
             }
@@ -201,6 +199,7 @@ const scheduleManager = {
     cycle2_scoringFill: function(day, strategy) {
         const shifts = Object.keys(this.shiftMap);
         let maxIterations = 50; 
+        
         let totalOffSum = 0;
         this.staffList.forEach(u => totalOffSum += this.stats[u.uid].totalOff);
         const avgOff = totalOffSum / this.staffList.length;
@@ -225,6 +224,7 @@ const scheduleManager = {
             const staffOnShift = this.staffList.filter(u => 
                 this.matrix[u.uid] && this.matrix[u.uid][`current_${day}`] === shiftCode && !this.isLocked(u.uid, day)
             );
+            // 讓積假少的人優先去休假 (避免過勞)
             staffOnShift.sort((a, b) => this.stats[a.uid].totalOff - this.stats[b.uid].totalOff);
             for (let i = 0; i < surplus && i < staffOnShift.length; i++) {
                 this.assign(staffOnShift[i].uid, day, 'OFF');
@@ -241,11 +241,8 @@ const scheduleManager = {
     },
 
     attemptBacktrack: function(day, targetShift) {
-        // 從參數讀取限制
-        const ai = this.rules.aiParams || {};
-        const MAX_DEPTH = ai.backtrack_depth || 3;
-        const MAX_ATTEMPTS = ai.max_attempts || 20;
-        
+        const MAX_DEPTH = 3; 
+        const MAX_ATTEMPTS = 20; 
         let attemptsCount = 0;
 
         for (let depth = 1; depth <= MAX_DEPTH; depth++) {
@@ -275,10 +272,10 @@ const scheduleManager = {
 
     calculateBestMoves: function(day, targetShift, avgOff, strategy) {
         const moves = [];
-        const tolerance = strategy.tol; // 使用當前策略的容忍值
+        const tolerance = strategy.tol; 
         const wBal = strategy.wBal;
         const wCont = strategy.wCont;
-        const wSurp = (this.rules.aiParams?.w_surplus || 150); // 支援調度權重
+        const wSurp = 150; 
 
         this.staffList.forEach(staff => {
             const uid = staff.uid;
@@ -292,12 +289,22 @@ const scheduleManager = {
             const myOff = this.stats[uid].totalOff;
             const diff = myOff - avgOff; 
 
+            // 基礎分：若是 OFF 或 Null，可以抓
             if (!currentCode || currentCode === 'OFF') {
-                score += 0; 
+                score += 100; 
+                
+                // [關鍵] 強力平衡機制
                 if (diff > tolerance) {
-                    // 積假過多，強力抓回來，分數由 wBal 決定
-                    score += wBal; 
+                    // 積假太多 (比平均多 > 2 天)，瘋狂加分，一定要抓來上班
+                    score += wBal * 2; 
+                } else if (diff > 0) {
+                    // 比平均多一點點，加分
+                    score += wBal;
                 } else if (diff < -tolerance) {
+                    // 積假太少 (比平均少 > 2 天)，瘋狂扣分，保護他休假
+                    score -= wBal * 2;
+                } else {
+                    // 比平均少一點點，扣分
                     score -= wBal;
                 }
             } else if (this.getShiftSurplus(day, currentCode) > 0) {
@@ -306,10 +313,13 @@ const scheduleManager = {
 
             const prevCode = this.stats[uid].lastShiftCode;
             if (prevCode === targetShift) {
-                score += wCont; // 連續性分數
+                score += wCont; 
             } else if (this.checkRotationPattern(prevCode, targetShift)) {
-                score += (wCont * 0.6); // 順向分數略低於連續
+                score += (wCont * 0.6); 
             }
+
+            // 加入隨機擾動，避免每次都選同一人 (當分數接近時)
+            score += Math.random() * 10;
 
             moves.push({ uid, from: currentCode, to: targetShift, score });
         });
@@ -346,8 +356,8 @@ const scheduleManager = {
         }
         if (shiftCode !== 'OFF') {
             if (optionalPrevCode !== 'OFF') {
-                const limit = this.stats[uid].isLongLeave 
-                    ? (this.rules.policy?.longLeaveMaxCons || 7) : (this.rules.policy?.maxConsDays || 6);
+                // 統一限制，避免特權導致分配不均
+                const limit = this.rules.policy?.maxConsDays || 6;
                 if (this.stats[uid].consecutiveDays >= limit) return false;
             }
         }
