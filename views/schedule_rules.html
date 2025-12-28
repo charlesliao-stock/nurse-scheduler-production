@@ -1,0 +1,183 @@
+<div class="page-section active">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <h2 style="margin:0;"><i class="fas fa-cogs"></i> 排班規則設定</h2>
+    </div>
+    
+    <div class="toolbar" style="background:#fff; padding:15px; border-radius:5px; box-shadow:0 2px 5px rgba(0,0,0,0.05); margin-bottom:20px;">
+        <label style="margin-right:10px; font-weight:bold;">設定單位：</label>
+        <select id="ruleUnitSelect" style="padding:8px; border-radius:4px; border:1px solid #ccc; width: 250px;">
+            <option value="">載入中...</option>
+        </select>
+        <button class="btn btn-add" onclick="scheduleRuleManager.saveData()" style="margin-left:auto;">
+            <i class="fas fa-save"></i> 儲存規則
+        </button>
+    </div>
+
+    <div id="rulesContainer" style="display:none; background:#fff; border-radius:5px; box-shadow:0 2px 5px rgba(0,0,0,0.05); min-height:600px;">
+        
+        <div class="tab-header" style="padding: 15px 20px 0 20px; border-bottom:1px solid #ddd;">
+            <button class="tab-btn active" onclick="scheduleRuleManager.switchTab('hard')" style="border-top: 3px solid #e74c3c;">1. 法規硬限制</button>
+            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('policy')" style="border-top: 3px solid #3498db;">2. 單位規範</button>
+            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('pattern')" style="border-top: 3px solid #f1c40f;">3. 輪替邏輯</button>
+            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('fairness')" style="border-top: 3px solid #2ecc71;">4. 公平性</button>
+        </div>
+
+        <div class="tab-content-wrapper" style="padding: 20px;">
+            
+            <div id="tab-hard" class="tab-content active">
+                <h4 style="color:#e74c3c; margin-top:0;">法規硬限制 (違反視為非法)</h4>
+                <div class="rule-card">
+                    <label><input type="checkbox" id="rule_minGap11" checked> 1. 工時與休息：班與班間隔超過 11 小時 (勞基法)</label>
+                </div>
+                <div class="rule-card">
+                    <label><input type="checkbox" id="rule_maxDiversity3" checked> 2. 班別多樣性：一週內不得有 3 種班別</label>
+                </div>
+                <div class="rule-card">
+                    <label><input type="checkbox" id="rule_protectPregnant" checked> 3. 特定身份：懷孕/哺乳期間保護 (自動排除 22-06 勤務)</label>
+                </div>
+                <div class="rule-card">
+                    <label><input type="checkbox" id="rule_twoOffPerFortnight" checked> 4. 休假強制性：2 週內需有 2 個 OFF</label>
+                    <div class="rule-detail">OFF 間隔不得大於 <input type="number" id="rule_offGapMax" value="12" style="width:60px;"> 天</div>
+                </div>
+                <div class="rule-card">
+                    <label>5. 週期定義：一週的第一天為</label>
+                    <select id="rule_weekStartDay" style="margin-left:10px; padding:4px;">
+                        <option value="1">週一</option>
+                        <option value="0">週日</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="tab-policy" class="tab-content">
+                <h4 style="color:#3498db; margin-top:0;">單位運作規範</h4>
+                
+                <div class="rule-card">
+                    <label>1. 預班承諾 (權重)</label>
+                    <div class="rule-detail" style="display:flex; gap:20px; align-items:center;">
+                        <div>
+                            預休 (REQ_OFF): 
+                            <select id="rule_reqOffWeight">
+                                <option value="must">必定滿足</option>
+                                <option value="high">部分滿足 (盡量)</option>
+                            </select>
+                        </div>
+                        <div>
+                            勿排 (!X): 
+                            <select id="rule_reqBanWeight">
+                                <option value="must">必定滿足</option>
+                                <option value="high">部分滿足 (盡量)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="rule-card">
+                    <label><input type="checkbox" id="rule_limitConsecutive" checked> 2. 連續上班限制</label>
+                    <div class="rule-detail">一般上限 <input type="number" id="rule_maxConsDays" value="6" style="width:50px;"> 天</div>
+                </div>
+
+                <div class="rule-card">
+                    <label><input type="checkbox" id="rule_longLeaveAdjust" checked> 3. 長假前後調整</label>
+                    <div class="rule-detail">
+                        預休達 <input type="number" id="rule_longLeaveThres" value="5" style="width:50px;"> 天視為長假，
+                        該月允許連上 <input type="number" id="rule_longLeaveMaxCons" value="7" style="width:50px;"> 天。
+                    </div>
+                </div>
+
+                <div class="rule-card">
+                    <label><input type="checkbox" id="rule_bundleNightOnly" checked> 4. 包班人員規範：鎖定單一夜班</label>
+                </div>
+
+                <div class="rule-card">
+                    <label><input type="checkbox" id="rule_noNightAfterOff" checked> 5. 非包班人員規範：OFF 後隔天班別限制</label>
+                    <div class="rule-detail" style="display:flex; gap:15px;">
+                        <label><input type="checkbox" id="rule_noNightAfterOff_N" checked> 不排大夜 (N)</label>
+                        <label><input type="checkbox" id="rule_noNightAfterOff_E" checked> 不排小夜 (E)</label>
+                    </div>
+                </div>
+
+                <div class="rule-card">
+                    <label>6. 新進人員保護</label>
+                    <div class="rule-detail">
+                        <div><label><input type="checkbox" id="rule_newbie_noNight3m"> 到職 3 個月內不排夜班 (E/N)</label></div>
+                        <div><label><input type="checkbox" id="rule_newbie_noBigNight1m"> 到職 1 個月內不排大夜 (N)</label></div>
+                        <div><label><input type="checkbox" id="rule_newbie_noSolo1m"> 到職 1 個月內不排單獨上班</label></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-pattern" class="tab-content">
+                <h4 style="color:#f1c40f; margin-top:0;">班別銜接邏輯</h4>
+                
+                <div class="rule-card">
+                    <label>1. 每日起始定義</label>
+                    <select id="rule_dayStartShift" style="margin-left:10px;">
+                        <option value="D">白班 (00:00大夜算前一日)</option>
+                        <option value="N">大夜 (00:00大夜算當日第一班)</option>
+                    </select>
+                </div>
+
+                <div class="rule-card">
+                    <label>2. 正向輪替規則 (優先順序)</label>
+                    <div class="rule-detail">
+                        <input type="text" id="rule_rotationOrder" value="OFF,N,D,E" style="width:100%; padding:8px;">
+                        <div style="color:#666; font-size:0.85rem; margin-top:3px;">以逗號分隔，例如: OFF,N,D,E</div>
+                    </div>
+                </div>
+
+                <div class="rule-card">
+                    <label><input type="checkbox" id="rule_consecutivePref" checked> 3. 班別連續性</label>
+                    <div class="rule-detail">同種班別盡量連續 <input type="number" id="rule_minConsecutive" value="2" style="width:50px;"> 天</div>
+                </div>
+
+                <div class="rule-card">
+                    <label><input type="checkbox" id="rule_avoidLonelyOff" checked> 4. 孤兒假避免 (盡量連休2天)</label>
+                </div>
+
+                <div class="rule-card">
+                    <label><input type="checkbox" id="rule_monthBuffer" checked> 5. 接上月班 (月初緩衝)</label>
+                    <div class="rule-detail">月初 <input type="number" id="rule_monthBufferDays" value="7" style="width:50px;"> 天內延續上月夜班種類</div>
+                </div>
+            </div>
+
+            <div id="tab-fairness" class="tab-content">
+                <h4 style="color:#2ecc71; margin-top:0;">公平性與技能</h4>
+                
+                <div class="rule-card">
+                    <label><input type="checkbox" id="rule_fairOff" checked> 1. 總放假天數平均化</label>
+                    <div class="rule-detail">
+                        差異不超過 <input type="number" id="rule_fairOffVar" value="2" style="width:50px;"> 天。
+                        <label style="margin-left:15px; color:#d35400;">
+                            <input type="checkbox" id="rule_fairOffExcludeLong" checked> 排除長假 > <input type="number" value="6" style="width:40px;" id="rule_fairOffExcludeDays"> 天者
+                        </label>
+                    </div>
+                </div>
+
+                <div class="rule-card">
+                    <label><input type="checkbox" id="rule_fairHoliday" checked> 2. 假日放假次數平均化</label>
+                    <div class="rule-detail">
+                        差異不超過 <input type="number" id="rule_fairHolidayVar" value="2" style="width:50px;"> 次。
+                        <label style="margin-left:15px;">
+                            <input type="checkbox" id="rule_fairHolidayIncNational" checked> 包含國定假日
+                        </label>
+                    </div>
+                </div>
+
+                <div class="rule-card">
+                    <label><input type="checkbox" id="rule_fairNight" checked> 3. 夜班總數平均化</label>
+                    <div class="rule-detail">差異不超過 <input type="number" id="rule_fairNightVar" value="2" style="width:50px;"> 天 (分包班/非包班計算)</div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<style>
+    .rule-card { background: #f9f9f9; padding: 12px; margin-bottom: 12px; border-radius: 4px; border-left: 4px solid #ccc; }
+    .rule-detail { margin-top: 8px; margin-left: 20px; font-size: 0.95rem; color: #555; }
+    .tab-btn { padding: 8px 15px; margin-right: 5px; border: 1px solid #ddd; background: #fff; cursor: pointer; border-radius: 4px 4px 0 0; }
+    .tab-btn.active { background: #f0f0f0; font-weight: bold; border-bottom: 2px solid transparent; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+</style>
