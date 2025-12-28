@@ -1,0 +1,32 @@
+<div class="page-section active">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <h2 style="margin:0;"><i class="fas fa-calendar-check"></i> 排班作業列表</h2>
+    </div>
+    
+    <div class="toolbar">
+        <label style="margin-right:10px; font-weight:bold;">選擇單位：</label>
+        <select id="filterScheduleUnit" style="padding:8px; border-radius:4px; border:1px solid #ccc; width: 200px;">
+            <option value="">載入中...</option>
+        </select>
+        
+        <div style="margin-left:auto; color:#666; font-size:0.9rem;">
+            <i class="fas fa-info-circle"></i> 僅列出已建立預班表的月份
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table id="scheduleListTable">
+            <thead>
+                <tr>
+                    <th style="width: 15%;">單位名稱</th>
+                    <th style="width: 15%;">月份</th>
+                    <th style="width: 15%;">預班狀態</th>
+                    <th style="width: 15%;">排班狀態</th>
+                    <th style="width: 20%;">最後更新</th>
+                    <th style="width: 20%;">操作</th>
+                </tr>
+            </thead>
+            <tbody id="scheduleListBody"></tbody>
+        </table>
+    </div>
+</div>
