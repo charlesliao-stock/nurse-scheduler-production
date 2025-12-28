@@ -20,6 +20,7 @@
             <button class="tab-btn" onclick="scheduleRuleManager.switchTab('policy')" style="border-top: 3px solid #3498db;">2. 單位規範</button>
             <button class="tab-btn" onclick="scheduleRuleManager.switchTab('pattern')" style="border-top: 3px solid #f1c40f;">3. 輪替邏輯</button>
             <button class="tab-btn" onclick="scheduleRuleManager.switchTab('fairness')" style="border-top: 3px solid #2ecc71;">4. 公平性</button>
+            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('ai')" style="border-top: 3px solid #8e44ad;">5. AI 權重</button>
         </div>
 
         <div class="tab-content-wrapper" style="padding: 20px;">
@@ -170,6 +171,58 @@
                 <div class="rule-card">
                     <label><input type="checkbox" id="rule_fairNight" checked> 3. 夜班總數平均化</label>
                     <div class="rule-detail">差異不超過 <input type="number" id="rule_fairNightVar" value="2" style="width:50px;"> 天 (分包班/非包班計算)</div>
+                </div>
+            </div>
+
+            <div id="tab-ai" class="tab-content">
+                <h4 style="color:#8e44ad; margin-top:0;">AI 運算參數微調</h4>
+                <div class="alert-box" style="background:#f4ecf7; color:#8e44ad; padding:10px; border-radius:4px; margin-bottom:15px; font-size:0.9rem;">
+                    <i class="fas fa-info-circle"></i> 調整此處數值可改變 AI 排班的優先順序。數值越高代表越優先考量。
+                </div>
+
+                <div class="rule-card">
+                    <label>1. 決策權重 (分數越高越重要)</label>
+                    <div class="rule-detail">
+                        <div style="margin-bottom:10px; display:flex; align-items:center;">
+                            <span style="width:120px;">⚖️ 平衡積假:</span>
+                            <input type="number" id="ai_w_balance" value="200" style="width:70px; margin-right:10px;">
+                            <span style="color:#666; font-size:0.85rem;">(劫富濟貧的力度，越高越平均)</span>
+                        </div>
+                        <div style="margin-bottom:10px; display:flex; align-items:center;">
+                            <span style="width:120px;">🔗 連續上班:</span>
+                            <input type="number" id="ai_w_continuity" value="50" style="width:70px; margin-right:10px;">
+                            <span style="color:#666; font-size:0.85rem;">(同班別延續的力度，越高越少跳班)</span>
+                        </div>
+                        <div style="margin-bottom:10px; display:flex; align-items:center;">
+                            <span style="width:120px;">🔄 支援調度:</span>
+                            <input type="number" id="ai_w_surplus" value="150" style="width:70px; margin-right:10px;">
+                            <span style="color:#666; font-size:0.85rem;">(從人力過剩班調人的意願)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="rule-card">
+                    <label>2. 運算限制 (影響速度與解題能力)</label>
+                    <div class="rule-detail">
+                        <div style="margin-bottom:10px;">
+                            回溯深度: <input type="number" id="ai_backtrack_depth" value="3" style="width:60px;"> 天
+                            <span style="color:#666; font-size:0.85rem; margin-left:10px;">(遇到死局時往回修改的天數)</span>
+                        </div>
+                        <div>
+                            單格嘗試次數: <input type="number" id="ai_max_attempts" value="20" style="width:60px;"> 次
+                            <span style="color:#666; font-size:0.85rem; margin-left:10px;">(防止系統空轉)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="rule-card">
+                    <label>3. 容許誤差 (Tolerance)</label>
+                    <div class="rule-detail">
+                        平均休假容許差異: <input type="number" id="ai_tolerance" value="2" style="width:60px;"> 天
+                        <div style="color:#666; font-size:0.85rem; margin-top:5px;">
+                            差異在此範圍內時，AI 會優先考慮連續性；超過此範圍則強制平衡。
+                        </div>
+                    </div>
                 </div>
             </div>
 
