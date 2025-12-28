@@ -1,4 +1,4 @@
-// js/router.js (更新版)
+// js/router.js
 
 const router = {
     routes: {
@@ -11,8 +11,8 @@ const router = {
         '/admin/menus': 'menus',               
         '/admin/pre_schedules': 'pre_schedules',         
         '/admin/pre_schedule_matrix': 'pre_schedule_matrix',
-        '/staff/pre_schedule_list': 'staff_pre_schedule_list', // [新增] 使用者列表
-        '/staff/pre_schedule': 'staff_pre_schedule'            // [新增] 使用者填寫
+        '/staff/pre_schedule_list': 'staff_pre_schedule_list', 
+        '/staff/pre_schedule': 'staff_pre_schedule'            
     },
 
     currentView: null,
@@ -65,19 +65,24 @@ const router = {
         else if (viewName === 'shifts' && typeof shiftManager !== 'undefined') shiftManager.init();
         else if (viewName === 'groups' && typeof groupManager !== 'undefined') groupManager.init();
         else if (viewName === 'menus' && typeof menuManager !== 'undefined') menuManager.init();
-        
         else if (viewName === 'pre_schedules') { 
             if(typeof preScheduleManager !== 'undefined') preScheduleManager.init(); 
         }
         else if (viewName === 'pre_schedule_matrix') { 
             if(typeof matrixManager !== 'undefined') matrixManager.init(id); 
         }
-        // [新增]
         else if (viewName === 'staff_pre_schedule_list') {
             if(typeof staffPreScheduleListManager !== 'undefined') staffPreScheduleListManager.init();
         }
         else if (viewName === 'staff_pre_schedule') {
             if(typeof staffPreScheduleManager !== 'undefined') staffPreScheduleManager.init(id);
         }
+    },
+
+    // [重要] 用於登出時清除狀態，避免登入不同帳號時顯示舊資料
+    reset: function() {
+        this.currentView = null;
+        this.isLoading = false;
+        console.log("Router reset.");
     }
 };
