@@ -118,10 +118,14 @@
                 </div>
 
                 <div class="rule-card">
-                    <label>2. 正向輪替規則 (優先順序)</label>
+                    <label style="margin-bottom:10px; display:block;">2. 正向輪替規則 (請拖曳方塊調整順序)</label>
                     <div class="rule-detail">
-                        <input type="text" id="rule_rotationOrder" value="OFF,N,D,E" style="width:100%; padding:8px;">
-                        <div style="color:#666; font-size:0.85rem; margin-top:3px;">以逗號分隔，例如: OFF,N,D,E</div>
+                        <div id="rotationContainer" class="rotation-wrapper">
+                            <div style="color:#999;">載入中...</div>
+                        </div>
+                        <div style="margin-top:10px; color:#666; font-size:0.85rem;">
+                            <i class="fas fa-info-circle"></i> 系統將優先依照此順序安排換班 (由左至右)。
+                        </div>
                     </div>
                 </div>
 
@@ -180,4 +184,43 @@
     .tab-btn.active { background: #f0f0f0; font-weight: bold; border-bottom: 2px solid transparent; }
     .tab-content { display: none; }
     .tab-content.active { display: block; }
+
+    /* 拖曳區塊樣式 */
+    .rotation-wrapper {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        padding: 10px;
+        background: #eee;
+        border-radius: 6px;
+        border: 1px dashed #bbb;
+    }
+    .sortable-item {
+        background: #fff;
+        border: 1px solid #ccc;
+        padding: 8px 15px;
+        border-radius: 4px;
+        cursor: grab;
+        display: flex;
+        align-items: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        font-weight: bold;
+        color: #2c3e50;
+        user-select: none;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .sortable-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        border-color: #3498db;
+    }
+    .sortable-item.dragging {
+        opacity: 0.5;
+        border: 2px dashed #3498db;
+    }
+    .sortable-arrow {
+        color: #999;
+        font-size: 1.2rem;
+    }
 </style>
