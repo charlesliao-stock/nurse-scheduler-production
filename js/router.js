@@ -12,7 +12,8 @@ const router = {
         '/admin/pre_schedules': 'pre_schedules',         
         '/admin/pre_schedule_matrix': 'pre_schedule_matrix',
         '/staff/pre_schedule_list': 'staff_pre_schedule_list', 
-        '/staff/pre_schedule': 'staff_pre_schedule'            
+        '/staff/pre_schedule': 'staff_pre_schedule',
+        '/admin/schedule_rules': 'schedule_rules' // [新增] 排班規則設定
     },
 
     currentView: null,
@@ -77,9 +78,12 @@ const router = {
         else if (viewName === 'staff_pre_schedule') {
             if(typeof staffPreScheduleManager !== 'undefined') staffPreScheduleManager.init(id);
         }
+        // [新增]
+        else if (viewName === 'schedule_rules') {
+            if(typeof scheduleRuleManager !== 'undefined') scheduleRuleManager.init();
+        }
     },
 
-    // [重要] 用於登出時清除狀態，避免登入不同帳號時顯示舊資料
     reset: function() {
         this.currentView = null;
         this.isLoading = false;
