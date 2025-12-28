@@ -9,6 +9,7 @@ const matrixManager = {
     globalClickListener: null,
     isLoading: false,
 
+    // --- 初始化 ---
     init: async function(id) {
         console.log("🎯 Matrix Manager Init:", id);
         
@@ -23,11 +24,13 @@ const matrixManager = {
         
         try {
             this.showLoading();
+            
             await Promise.all([
                 this.loadShifts(),
                 this.loadUsers(),
                 this.loadScheduleData()
             ]);
+            
             this.restoreTableStructure();
             this.renderMatrix();
             this.updateStats();
@@ -39,6 +42,7 @@ const matrixManager = {
             }
             
             console.log("✅ Matrix 初始化完成");
+            
         } catch(error) {
             console.error("❌ Matrix 初始化失敗:", error);
             alert("載入失敗: " + error.message);
@@ -96,7 +100,7 @@ const matrixManager = {
         }
     },
 
-    // --- 渲染矩陣 ---
+    // --- 渲染矩陣 (修正：圖示過期檢查) ---
     renderMatrix: function() {
         const thead = document.getElementById('matrixHead');
         const tbody = document.getElementById('matrixBody');
@@ -107,7 +111,9 @@ const matrixManager = {
         const year = this.data.year;
         const month = this.data.month;
         const daysInMonth = new Date(year, month, 0).getDate();
+        const today = new Date().toISOString().split('T')[0];
         
+        // 1. 表頭
         let header1 = `<tr><th rowspan="2">員編</th><th rowspan="2">姓名</th><th rowspan="2">特註</th><th rowspan="2">偏好</th><th colspan="6" style="background:#eee;">上月</th><th colspan="${daysInMonth}">本月 ${month} 月</th><th rowspan="2" style="background:#fff; position:sticky; right:0; z-index:20; border-left:2px solid #ccc; width:60px;">統計<br>(OFF)</th></tr>`;
         let header2 = `<tr>`;
         
@@ -125,17 +131,23 @@ const matrixManager = {
         header2 += `</tr>`;
         thead.innerHTML = header1 + header2;
 
+        // 2. 內容
         let bodyHtml = '';
         const staffList = this.data.staffList || [];
         staffList.sort((a,b) => (a.empId||'').localeCompare(b.empId||''));
 
         staffList.forEach(u => {
             const userInfo = this.usersMap[u.uid] || {};
+            const params = userInfo.schedulingParams || {};
             let noteIcon = '';
-            if (userInfo.schedulingParams?.isPregnant) noteIcon += '<i class="fas fa-baby" title="孕" style="color:#e67e22;"></i> ';
-            if (userInfo.schedulingParams?.isBreastfeeding) noteIcon += '<i class="fas fa-cookie" title="哺" style="color:#d35400;"></i>';
+
+            // [修正] 檢查日期是否有效
+            const isPregnant = params.isPregnant && (!params.pregnantExpiry || params.pregnantExpiry >= today);
+            const isBreastfeeding = params.isBreastfeeding && (!params.breastfeedingExpiry || params.breastfeedingExpiry >= today);
+
+            if (isPregnant) noteIcon += '<i class="fas fa-baby" title="孕" style="color:#e67e22;"></i> ';
+            if (isBreastfeeding) noteIcon += '<i class="fas fa-cookie" title="哺" style="color:#d35400;"></i>';
             
-            // [修正] 顯示偏好字串 (HTML)
             const assign = this.localAssignments[u.uid] || {};
             const pref = assign.preferences || {};
             let prefHtml = '';
@@ -143,7 +155,6 @@ const matrixManager = {
                 prefHtml += `<div class="badge" style="background:#3498db; margin-bottom:2px;">包 (${pref.bundleShift})</div>`;
             }
             let orders = [];
-            // 檢查有幾個志願
             for(let i=1; i<=3; i++) {
                 if(pref[`priority_${i}`]) orders.push(pref[`priority_${i}`]);
             }
@@ -181,6 +192,7 @@ const matrixManager = {
         });
         tbody.innerHTML = bodyHtml;
 
+        // 3. 底部
         let footHtml = `<tr><td colspan="4">每日OFF小計</td>`;
         for(let i=0; i<6; i++) footHtml += `<td class="cell-narrow" style="background:#eee;">-</td>`;
         for(let d=1; d<=daysInMonth; d++) {
@@ -198,7 +210,8 @@ const matrixManager = {
         return `<span class="shift-normal">${val}</span>`;
     },
 
-    // --- 偏好編輯 Modal (新增) ---
+    // ... (其餘所有函式 openPreferenceModal, updateAdminPrefOptions, savePreferences, closePrefModal, onCellClick, handleLeftClick, handleRightClick, setShift, updateStats, setupEvents, cleanup, saveData, executeSchedule 均保持不變) ...
+    // 為確保檔案完整性，請直接保留前一版的其餘程式碼，這裡不重複列出以節省空間
     openPreferenceModal: function(uid, name) {
         const modal = document.getElementById('prefModal');
         if(!modal) return;
@@ -207,20 +220,17 @@ const matrixManager = {
         document.getElementById('prefTargetName').textContent = `人員：${name}`;
         modal.classList.add('show');
 
-        // 1. 初始化包班選項
         const bundleSel = document.getElementById('editBundleShift');
         bundleSel.innerHTML = '<option value="">無 (不包班)</option>';
-        // 篩選出該單位且可包班的
         const validShifts = this.shifts.filter(sh => sh.unitId === this.data.unitId && sh.isBundleAvailable);
         validShifts.forEach(sh => {
             bundleSel.innerHTML += `<option value="${sh.code}">${sh.name} (${sh.code})</option>`;
         });
 
-        // 2. 初始化志願序容器
         const prefContainer = document.getElementById('editPrefContainer');
         prefContainer.innerHTML = '';
         const s = this.data.settings || {};
-        const mode = s.shiftTypeMode; // "2" or "3"
+        const mode = s.shiftTypeMode; 
         const allowThree = s.allowThreeShifts;
         let count = 0;
         if (mode === "2") count = 2;
@@ -241,19 +251,13 @@ const matrixManager = {
             prefContainer.innerHTML = '<div style="color:#999;">此設定模式無需排班志願。</div>';
         }
 
-        // 3. 載入現有值
         const assign = this.localAssignments[uid] || {};
         const pref = assign.preferences || {};
         
         bundleSel.value = pref.bundleShift || "";
-        
-        // 4. 設定監聽器 (連動邏輯)
         bundleSel.onchange = () => this.updateAdminPrefOptions(uid);
-        
-        // 5. 填入初始選項
         this.updateAdminPrefOptions(uid);
         
-        // 6. 填入志願序的值 (需在 update 選項後執行，否則沒 option 可選)
         for(let i=1; i<=count; i++) {
             const sel = document.getElementById(`edit_priority_${i}`);
             if(sel && pref[`priority_${i}`]) sel.value = pref[`priority_${i}`];
@@ -268,12 +272,11 @@ const matrixManager = {
         
         const selects = document.querySelectorAll('.pref-select-admin');
         selects.forEach(sel => {
-            const currentVal = sel.value; // 暫存
+            const currentVal = sel.value; 
             sel.innerHTML = '<option value="">請選擇</option>';
             
             unitShifts.forEach(sh => {
                 let isHidden = false;
-                // 連動邏輯：2班制且已包班 -> 隱藏其他可包班項目
                 if (mode === "2" && bundleVal !== "") {
                     if (sh.isBundleAvailable && sh.code !== bundleVal) {
                         isHidden = true;
@@ -300,12 +303,12 @@ const matrixManager = {
         
         const selects = document.querySelectorAll('.pref-select-admin');
         selects.forEach(sel => {
-            const key = sel.id.replace('edit_', ''); // priority_1
+            const key = sel.id.replace('edit_', ''); 
             pref[key] = sel.value;
         });
 
         this.closePrefModal();
-        this.renderMatrix(); // 重繪表格以顯示更新後的偏好
+        this.renderMatrix(); 
     },
 
     closePrefModal: function() {
@@ -313,7 +316,6 @@ const matrixManager = {
         if(modal) modal.classList.remove('show');
     },
 
-    // ... (其餘 onCellClick, handleLeftClick, handleRightClick, setShift, updateStats, setupEvents, cleanup, saveData, executeSchedule 保持不變) ...
     onCellClick: function(e, cell) {
         if (e.button === 2) {
             e.preventDefault();
