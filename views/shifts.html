@@ -31,10 +31,10 @@
                     <th style="width: 20%; cursor:pointer;" onclick="shiftManager.sortData('startTime')">
                         起訖時間 <i id="sort_icon_shift_startTime" class="fas fa-sort"></i>
                     </th>
-                    <th style="width: 15%; cursor:pointer;" onclick="shiftManager.sortData('hours')">
-                        工時 (小時) <i id="sort_icon_shift_hours" class="fas fa-sort"></i>
+                    <th style="width: 10%; cursor:pointer;" onclick="shiftManager.sortData('hours')">
+                        工時 <i id="sort_icon_shift_hours" class="fas fa-sort"></i>
                     </th>
-                    <th style="width: 15%;">操作</th>
+                    <th style="width: 10%;">包班</th> <th style="width: 10%;">操作</th>
                 </tr>
             </thead>
             <tbody id="shiftTableBody"></tbody>
@@ -53,7 +53,6 @@
                 <label>所屬單位 *</label>
                 <select id="inputShiftUnit" disabled style="background:#f9f9f9;">
                 </select>
-                <small style="color:#666;">班別必須隸屬於特定單位</small>
             </div>
         </div>
 
@@ -70,11 +69,11 @@
 
         <div class="form-row">
             <div class="form-group">
-                <label>上班時間 (整點) *</label>
+                <label>上班時間 *</label>
                 <input type="time" id="inputStartTime" step="3600"> 
             </div>
             <div class="form-group">
-                <label>下班時間 (30分) *</label>
+                <label>下班時間 *</label>
                 <input type="time" id="inputEndTime" step="1800">
             </div>
         </div>
@@ -92,6 +91,14 @@
                     <span id="colorHexCode" style="color:#666;">#3498db</span>
                 </div>
             </div>
+        </div>
+
+        <div class="form-group" style="background:#f9f9f9; padding:10px; border-radius:4px; margin-top:10px;">
+            <label style="cursor:pointer; display:flex; align-items:center;">
+                <input type="checkbox" id="checkIsBundle" style="width:auto; margin-right:10px;">
+                列入「包班意願」選項
+            </label>
+            <small style="color:#7f8c8d; display:block; margin-top:5px;">勾選後，同仁在填寫預班時可選擇包此班別 (如：大夜包班)。</small>
         </div>
 
         <div style="text-align:right; margin-top:25px;">
