@@ -132,46 +132,80 @@ const staffPreScheduleManager = {
         }
     },
 
-    // --- 右側面板 ---
+    // --- 右側面板 (核心修正：日期檢查與班別過濾) ---
     renderRightPanel: function() {
         const user = app.currentUser;
         
         db.collection('users').doc(user.uid).get().then(doc => {
             const uData = doc.data();
             const params = uData.schedulingParams || {};
-            
-            document.getElementById('badgePregnant').style.display = params.isPregnant ? 'inline-block' : 'none';
-            document.getElementById('badgeBreastfeeding').style.display = params.isBreastfeeding ? 'inline-block' : 'none';
-            if(params.isPregnant || params.isBreastfeeding) document.getElementById('specialStatusArea').style.display = 'block';
+            const today = new Date().toISOString().split('T')[0];
 
-            // 1. 包班意願選單
+            // 1. 檢查是否有效 (Check && Date not expired)
+            const isPregnant = params.isPregnant && (!params.pregnantExpiry || params.pregnantExpiry >= today);
+            const isBreastfeeding = params.isBreastfeeding && (!params.breastfeedingExpiry || params.breastfeedingExpiry >= today);
+            
+            // UI 顯示
+            document.getElementById('badgePregnant').style.display = isPregnant ? 'inline-block' : 'none';
+            document.getElementById('badgeBreastfeeding').style.display = isBreastfeeding ? 'inline-block' : 'none';
+            document.getElementById('specialStatusArea').style.display = (isPregnant || isBreastfeeding) ? 'block' : 'none';
+
+            // [邏輯] 判斷是否需要過濾班別
+            // 規則：若是懷孕或哺乳，不能上 Start>=22 或 End>22 (或跨夜) 的班
+            const isRestricted = isPregnant || isBreastfeeding;
+
+            // 2. 包班意願選單
             if(params.canBundleShifts) {
                 document.getElementById('bundleGroup').style.display = 'block';
                 const sel = document.getElementById('inputBundleShift');
                 sel.innerHTML = '<option value="">無 (不包班)</option>';
                 
-                // 只顯示 unitId 吻合 且 開放包班 的班別
-                const validShifts = this.shifts.filter(sh => sh.unitId === this.data.unitId && sh.isBundleAvailable);
+                // 篩選：(同單位) AND (開放包班) AND (如果受限則過濾時間)
+                const validShifts = this.shifts.filter(sh => {
+                    if (sh.unitId !== this.data.unitId || !sh.isBundleAvailable) return false;
+                    
+                    if (isRestricted) {
+                        return !this.isLateShift(sh); // 排除晚班
+                    }
+                    return true;
+                });
+
                 validShifts.forEach(sh => {
                     sel.innerHTML += `<option value="${sh.code}">${sh.name} (${sh.code})</option>`;
                 });
 
                 if (this.userPreferences.bundleShift) sel.value = this.userPreferences.bundleShift;
-
-                // [新增] 監聽變更，觸發排班偏好連動
-                sel.onchange = () => this.updatePreferenceOptions();
+                sel.onchange = () => this.updatePreferenceOptions(isRestricted);
             }
             
-            // 2. 初始化排班偏好下拉選單 (結構)
-            this.initPreferenceSelects();
-            
-            // 3. 執行一次過濾邏輯 (根據當前包班值)
-            this.updatePreferenceOptions();
+            // 3. 初始化並填入排班偏好 (傳入受限狀態)
+            this.initPreferenceSelects(isRestricted);
+            this.updatePreferenceOptions(isRestricted);
         });
     },
 
-    // [新增] 初始化偏好下拉選單結構
-    initPreferenceSelects: function() {
+    // [新增] 檢查是否為超過 22:00 的班別
+    isLateShift: function(shift) {
+        if (!shift.startTime || !shift.endTime) return false;
+        
+        const [sh, sm] = shift.startTime.split(':').map(Number);
+        const [eh, em] = shift.endTime.split(':').map(Number);
+        
+        // 條件 1: 上班時間 >= 22:00
+        if (sh >= 22) return true;
+        
+        // 條件 2: 下班時間 > 22:00 (例如 23:00, 24:00)
+        // 條件 3: 跨夜 (結束時間 < 開始時間，例如 16:00 ~ 02:00，或 20:00 ~ 04:00)
+        // 注意：如果是 08:00 ~ 16:00，eh(16) < sh(8) 是 false。
+        // 如果是 16:00 ~ 00:00 (eh=0)，0 < 16 是 true -> 跨夜 -> true (不能上)
+        
+        if (eh > 22) return true;
+        if (eh < sh) return true; // 跨夜視為夜間工作
+        
+        return false;
+    },
+
+    initPreferenceSelects: function(isRestricted) {
         const s = this.data.settings || {};
         const prefContainer = document.getElementById('prefContainer');
         prefContainer.innerHTML = '';
@@ -204,16 +238,19 @@ const staffPreScheduleManager = {
         }
     },
 
-    // [新增] 更新偏好選項內容 (連動邏輯核心)
-    updatePreferenceOptions: function() {
+    updatePreferenceOptions: function(isRestricted) {
         const s = this.data.settings || {};
         const mode = s.shiftTypeMode; 
         const bundleVal = document.getElementById('inputBundleShift')?.value || "";
         
-        // 取得該單位所有班別
-        const unitShifts = this.shifts.filter(sh => sh.unitId === this.data.unitId);
+        // 篩選該單位所有班別
+        const unitShifts = this.shifts.filter(sh => {
+            if (sh.unitId !== this.data.unitId) return false;
+            // [新增] 套用特殊身份過濾
+            if (isRestricted && this.isLateShift(sh)) return false;
+            return true;
+        });
         
-        // 找出所有偏好下拉選單
         const selects = document.querySelectorAll('.pref-select');
         if(selects.length === 0) return;
 
@@ -223,25 +260,16 @@ const staffPreScheduleManager = {
             
             unitShifts.forEach(sh => {
                 let isHidden = false;
-
-                // 邏輯規則：
-                // 若模式為 2 (固定班)，且已選擇包班 (例如包 E)
-                // 則偏好中不能出現「其他可包班的項目」 (例如 N)
-                // 假設：所有 isBundleAvailable=true 的都是夜班類
                 if (mode === "2" && bundleVal !== "") {
-                    // 如果這個選項是「可包班」的班別，且不等於目前包的班別 -> 隱藏
-                    // 意即：包了E，就不能選N；包了N，就不能選E。但可以選D (isBundleAvailable=false)
                     if (sh.isBundleAvailable && sh.code !== bundleVal) {
                         isHidden = true;
                     }
                 }
-
                 if (!isHidden) {
                     sel.innerHTML += `<option value="${sh.code}">${sh.name}</option>`;
                 }
             });
 
-            // 嘗試還原數值 (若該數值已被隱藏，則變回空)
             sel.value = currentVal;
             if (sel.selectedIndex === -1) sel.value = "";
         });
