@@ -1,5 +1,5 @@
 // js/modules/schedule_manager.js
-// 🤖 AI 排班演算法引擎 (Auto-Scheduler v4.9 - Multi-Options & Draft Support)
+// 🤖 AI 排班演算法引擎 (Auto-Scheduler v5.3 - Safe Backtracking)
 
 const scheduleManager = {
     docId: null,
@@ -71,14 +71,20 @@ const scheduleManager = {
         this.staffList.forEach(u => {
             if (!this.matrix[u.uid]) this.matrix[u.uid] = {};
             
-            // 安全讀取
             const lastShift = this.matrix[u.uid]['last_0'] || null;
             const pref = this.matrix[u.uid].preferences || {};
+
+            let reqOffCount = 0;
+            for(let d=1; d<=this.daysInMonth; d++) {
+                if(this.matrix[u.uid][`current_${d}`] === 'REQ_OFF') reqOffCount++;
+            }
+            const isLongLeave = reqOffCount >= (this.rules.policy?.longLeaveThres || 5);
 
             this.stats[u.uid] = {
                 consecutiveDays: (lastShift && lastShift !== 'OFF') ? 1 : 0,
                 totalOff: 0,
                 lastShiftCode: lastShift,
+                isLongLeave: isLongLeave,
                 isPregnant: u.schedulingParams?.isPregnant || false,
                 isBreastfeeding: u.schedulingParams?.isBreastfeeding || false,
                 canBundle: u.schedulingParams?.canBundleShifts || false,
@@ -94,48 +100,40 @@ const scheduleManager = {
         });
     },
 
-    // --- [新增] 生成 3 種方案 ---
+    // --- 生成選項 ---
     generateOptions: async function() {
         const options = [];
         const strategies = [
-            { name: "方案 A (均衡優先)", type: 'balanced' },
-            { name: "方案 B (隨機探索)", type: 'random1' },
-            { name: "方案 C (隨機探索 II)", type: 'random2' }
+            { name: "方案 A (標準平衡)", tolerance: 2 },
+            { name: "方案 B (嚴格平衡)", tolerance: 1 },
+            { name: "方案 C (連續優先)", tolerance: 4 }
         ];
 
-        // 備份原始 Matrix (因為每次跑都會修改 this.matrix)
         const originalMatrix = JSON.parse(JSON.stringify(this.matrix));
         const originalStats = JSON.parse(JSON.stringify(this.stats));
 
         for (let strategy of strategies) {
-            // 1. 還原狀態
             this.matrix = JSON.parse(JSON.stringify(originalMatrix));
             this.stats = JSON.parse(JSON.stringify(originalStats));
-
-            // 2. 執行排班
-            await this.runAutoSchedule();
-
-            // 3. 評估結果
-            const metrics = this.evaluateResult();
             
-            // 4. 儲存結果
+            await this.runAutoSchedule(strategy);
+
+            const metrics = this.evaluateResult();
             options.push({
                 name: strategy.name,
-                assignments: JSON.parse(JSON.stringify(this.matrix)), // 深拷貝結果
+                assignments: JSON.parse(JSON.stringify(this.matrix)),
                 metrics: metrics
             });
         }
 
-        // 還原回最後一個狀態 (或初始狀態)
         this.matrix = originalMatrix;
         this.stats = originalStats;
-
         return options;
     },
 
     evaluateResult: function() {
         let totalOffs = [];
-        let totalNights = []; // 大夜 + 小夜
+        let totalNights = [];
         
         this.staffList.forEach(u => {
             let off = 0;
@@ -149,7 +147,6 @@ const scheduleManager = {
             totalNights.push(night);
         });
 
-        // 計算標準差 (Standard Deviation) - 越小越平均
         const stdDev = (arr) => {
             const n = arr.length;
             if(n === 0) return 0;
@@ -165,30 +162,34 @@ const scheduleManager = {
     },
 
     // --- 核心入口 ---
-    runAutoSchedule: async function() {
+    runAutoSchedule: async function(strategy) {
         for (let day = 1; day <= this.daysInMonth; day++) {
-            // await this.yieldToMain(); // 跑多次時若不卡頓可先拿掉，或減少頻率
-            this.cycle1_basicAssignment(day);
-            this.cycle2_smartFill(day);
-            this.cycle3_trimExcess(day);
+            this.cycle1_foundation(day);
+            this.cycle2_scoringFill(day, strategy);
+            this.cycle3_trimAndBacktrack(day);
             this.updateDailyStats(day);
         }
         this.fillRemainingOffs();
         return this.matrix;
     },
 
-    // --- Cycles (邏輯與之前相同，但確保 shuffledStaff 每次都隨機) ---
-    cycle1_basicAssignment: function(day) {
-        // [關鍵] 每次呼叫都重新洗牌，這就是產生不同結果的來源
+    // --- Cycle 1: 基礎鋪底 ---
+    cycle1_foundation: function(day) {
         const shuffledStaff = [...this.staffList].sort(() => 0.5 - Math.random());
 
         shuffledStaff.forEach(staff => {
             const uid = staff.uid;
             if (this.isLocked(uid, day)) return;
-            if (this.stats[uid].consecutiveDays >= (this.rules.policy?.maxConsDays || 6)) {
-                this.assign(uid, day, 'OFF');
+
+            const limit = this.stats[uid].isLongLeave 
+                ? (this.rules.policy?.longLeaveMaxCons || 7)
+                : (this.rules.policy?.maxConsDays || 6);
+
+            if (this.stats[uid].consecutiveDays >= limit) {
+                this.assign(uid, day, 'OFF'); 
                 return;
             }
+
             const lastCode = this.stats[uid].lastShiftCode;
             if (lastCode && lastCode !== 'OFF' && lastCode !== 'REQ_OFF') {
                 if (this.getShiftGap(day, lastCode) > 0) {
@@ -200,37 +201,153 @@ const scheduleManager = {
         });
     },
 
-    cycle2_smartFill: function(day) {
+    // --- Cycle 2: 競價填補 ---
+    cycle2_scoringFill: function(day, strategy) {
         const shifts = Object.keys(this.shiftMap);
         let maxIterations = 50; 
+        
+        let totalOffSum = 0;
+        this.staffList.forEach(u => totalOffSum += this.stats[u.uid].totalOff);
+        const avgOff = totalOffSum / this.staffList.length;
+
         while (this.hasAnyGap(day) && maxIterations > 0) {
             shifts.forEach(targetShift => {
                 if (this.getShiftGap(day, targetShift) <= 0) return;
-                const moves = this.calculateBestMoves(day, targetShift);
+
+                const moves = this.calculateBestMoves(day, targetShift, avgOff, strategy);
+                
                 if (moves.length > 0) {
-                    const bestMove = moves[0]; // 這裡可以加隨機性：有時候選第二好的
-                    this.executeMove(day, bestMove);
+                    this.executeMove(day, moves[0]);
                 }
             });
             maxIterations--;
         }
     },
 
-    cycle3_trimExcess: function(day) {
+    // --- Cycle 3: 修剪與回溯 (含限制機制) ---
+    cycle3_trimAndBacktrack: function(day) {
         const shifts = Object.keys(this.shiftMap);
+        
+        // A. 修剪
         shifts.forEach(shiftCode => {
             let surplus = this.getShiftSurplus(day, shiftCode);
             if (surplus <= 0) return;
+
             const staffOnShift = this.staffList.filter(u => 
                 this.matrix[u.uid] && 
                 this.matrix[u.uid][`current_${day}`] === shiftCode && 
                 !this.isLocked(u.uid, day)
             );
+
             staffOnShift.sort((a, b) => this.stats[a.uid].totalOff - this.stats[b.uid].totalOff);
+
             for (let i = 0; i < surplus && i < staffOnShift.length; i++) {
                 this.assign(staffOnShift[i].uid, day, 'OFF');
             }
         });
+
+        // B. 回溯 (Backtrack) - 僅在仍有缺口時執行
+        if (this.hasAnyGap(day)) {
+            shifts.forEach(targetShift => {
+                if (this.getShiftGap(day, targetShift) <= 0) return;
+                // 執行受限的回溯
+                this.attemptBacktrack(day, targetShift);
+            });
+        }
+    },
+
+    // [新增] 安全回溯邏輯
+    attemptBacktrack: function(day, targetShift) {
+        const MAX_DEPTH = 3; // 最大回溯天數 (避免影響過遠)
+        const MAX_ATTEMPTS = 20; // 最大嘗試次數 (避免死迴圈)
+        let attemptsCount = 0;
+
+        // 從昨天開始，最多往前找 3 天
+        for (let depth = 1; depth <= MAX_DEPTH; depth++) {
+            const prevDay = day - depth;
+            if (prevDay < 1) break;
+
+            const candidates = [...this.staffList].sort(() => 0.5 - Math.random());
+
+            for (let staff of candidates) {
+                if (attemptsCount >= MAX_ATTEMPTS) return; // 超過次數停止
+
+                const uid = staff.uid;
+                if (this.isLocked(uid, day) || this.isLocked(uid, prevDay)) continue;
+
+                // 找尋目標：今天沒排班 (因為被規則卡住)，但昨天有上班的人
+                const currentCode = this.matrix[uid][`current_${day}`];
+                if (currentCode && currentCode !== 'OFF') continue; // 已經有班的人不需回溯
+
+                const prevCode = this.matrix[uid][`current_${prevDay}`];
+                
+                // 條件：昨天的班必須是「有餘裕 (Surplus >= 0)」的，少他一個沒關係
+                // 或者昨天是 OFF (比較少見，因為 OFF 通常不會卡今天，除非連休限制)
+                if (prevCode && prevCode !== 'OFF' && this.getShiftSurplus(prevDay, prevCode) >= 0) {
+                    
+                    attemptsCount++;
+
+                    // 模擬：如果昨天改成 OFF，今天能上嗎？
+                    // 這裡使用 'OFF' 作為 optionalPrevCode 傳入 checkHardRules 進行模擬檢查
+                    // 注意：這裡只檢查 Shift Gap，無法動態重算連續天數，但改成 OFF 通常能解套連續限制
+                    if (this.checkHardRules(uid, day, targetShift, 'OFF')) {
+                        
+                        // 執行修改
+                        // 1. 昨天改休
+                        this.assign(uid, prevDay, 'OFF');
+                        // 2. 今天補位
+                        this.assign(uid, day, targetShift);
+                        
+                        console.log(`🔄 Backtrack: ${staff.name} Day ${prevDay} [${prevCode}->OFF] -> Day ${day} [${targetShift}]`);
+                        
+                        // 補到一個就停，避免過度修改
+                        if (this.getShiftGap(day, targetShift) <= 0) return;
+                    }
+                }
+            }
+        }
+    },
+
+    // --- 計分邏輯 ---
+    calculateBestMoves: function(day, targetShift, avgOff, strategy) {
+        const moves = [];
+        const tolerance = strategy.tolerance || 2;
+
+        this.staffList.forEach(staff => {
+            const uid = staff.uid;
+            if (!this.matrix[uid]) this.matrix[uid] = {};
+            if (this.isLocked(uid, day)) return;
+
+            const currentCode = this.matrix[uid][`current_${day}`] || null; 
+            if (currentCode === targetShift) return; 
+            if (!this.checkHardRules(uid, day, targetShift)) return;
+
+            let score = 0;
+            const myOff = this.stats[uid].totalOff;
+            const diff = myOff - avgOff; 
+
+            if (!currentCode || currentCode === 'OFF') {
+                score += 0; 
+                if (diff > tolerance) {
+                    score += 200; 
+                } else if (diff < -tolerance) {
+                    score -= 200;
+                }
+            } else if (this.getShiftSurplus(day, currentCode) > 0) {
+                score += 150;
+            }
+
+            const prevCode = this.stats[uid].lastShiftCode;
+            if (prevCode === targetShift) {
+                score += 50; 
+            } else if (this.checkRotationPattern(prevCode, targetShift)) {
+                score += 30; 
+            }
+
+            moves.push({ uid, from: currentCode, to: targetShift, score });
+        });
+
+        return moves.sort((a, b) => b.score - a.score);
     },
 
     // --- 輔助函式 ---
@@ -241,34 +358,7 @@ const scheduleManager = {
         if (oldCode === 'OFF' || oldCode === 'REQ_OFF') this.stats[uid].totalOff--;
         if (code === 'OFF' || code === 'REQ_OFF') this.stats[uid].totalOff++;
     },
-
     executeMove: function(day, move) { this.assign(move.uid, day, move.to); },
-
-    calculateBestMoves: function(day, targetShift) {
-        const moves = [];
-        this.staffList.forEach(staff => {
-            const uid = staff.uid;
-            if (!this.matrix[uid]) this.matrix[uid] = {};
-            if (this.isLocked(uid, day)) return;
-            const currentCode = this.matrix[uid][`current_${day}`] || null; 
-            if (currentCode === targetShift) return; 
-            if (!this.checkHardRules(uid, day, targetShift)) return;
-
-            let score = 0;
-            if (!currentCode || currentCode === 'OFF') {
-                score += 100;
-                score += (this.stats[uid].totalOff * 5); 
-            } else if (this.getShiftSurplus(day, currentCode) > 0) {
-                score += 200; 
-            }
-            const prevCode = this.stats[uid].lastShiftCode;
-            if (this.checkRotationPattern(prevCode, targetShift)) score += 50;
-            if (this.stats[uid].consecutiveDays > 4) score -= 50; 
-            moves.push({ uid, from: currentCode, to: targetShift, score });
-        });
-        return moves.sort((a, b) => b.score - a.score);
-    },
-
     updateDailyStats: function(day) {
         this.staffList.forEach(u => {
             const code = this.matrix[u.uid] ? this.matrix[u.uid][`current_${day}`] : null;
@@ -277,20 +367,29 @@ const scheduleManager = {
             this.stats[u.uid].lastShiftCode = code;
         });
     },
-
-    // Validator & Getters
     isLocked: function(uid, day) {
         const val = this.matrix[uid] ? this.matrix[uid][`current_${day}`] : null;
         return (val === 'REQ_OFF' || (val && val.startsWith('!')));
     },
-    checkHardRules: function(uid, day, shiftCode) {
-        const lastCode = this.stats[uid].lastShiftCode;
+    checkHardRules: function(uid, day, shiftCode, optionalPrevCode) {
+        let lastCode = optionalPrevCode || this.stats[uid].lastShiftCode;
+        
         if (lastCode && !this.checkGap11(lastCode, shiftCode)) return false;
         if (this.stats[uid].isPregnant || this.stats[uid].isBreastfeeding) {
             if (this.isLateShift(shiftCode)) return false;
         }
         if (shiftCode !== 'OFF') {
-            if (this.stats[uid].consecutiveDays >= (this.rules.policy?.maxConsDays || 6)) return false;
+            // 注意：若回溯修改了昨天，這裡的 consecutiveDays 其實是不準的 (因為 stats 沒重算)
+            // 但因為回溯是把昨天改成 OFF，這通常意味著今天 consecutive 為 1 (只有今天)，所以絕對不會爆
+            // 故此處保持原邏輯即可，optionalPrevCode === 'OFF' 時其實暗示連班斷了
+            if (optionalPrevCode === 'OFF') {
+                // 如果昨天改 OFF，今天連班數歸零(再加今天1)，一定小於 limit
+            } else {
+                const limit = this.stats[uid].isLongLeave 
+                    ? (this.rules.policy?.longLeaveMaxCons || 7)
+                    : (this.rules.policy?.maxConsDays || 6);
+                if (this.stats[uid].consecutiveDays >= limit) return false;
+            }
         }
         if (this.rules.policy?.bundleNightOnly && this.stats[uid].canBundle) {
             const bundleCode = this.stats[uid].bundleShift;
