@@ -1,4 +1,4 @@
-// js/router.js
+// js/router.js (更新版)
 
 const router = {
     routes: {
@@ -9,10 +9,10 @@ const router = {
         '/admin/shifts': 'shifts',             
         '/admin/groups': 'groups',             
         '/admin/menus': 'menus',               
-        '/admin/pre_schedules': 'pre_schedules',         // 管理者：預班管理
-        '/admin/pre_schedule_matrix': 'pre_schedule_matrix', 
-        '/staff/pre_schedule_list': 'staff_pre_schedule_list', // [新增] 使用者：預班列表
-        '/staff/pre_schedule': 'staff_pre_schedule'      // 使用者：填寫介面
+        '/admin/pre_schedules': 'pre_schedules',         
+        '/admin/pre_schedule_matrix': 'pre_schedule_matrix',
+        '/staff/pre_schedule_list': 'staff_pre_schedule_list', // [新增] 使用者列表
+        '/staff/pre_schedule': 'staff_pre_schedule'            // [新增] 使用者填寫
     },
 
     currentView: null,
@@ -72,11 +72,10 @@ const router = {
         else if (viewName === 'pre_schedule_matrix') { 
             if(typeof matrixManager !== 'undefined') matrixManager.init(id); 
         }
-        // [新增] 使用者列表
+        // [新增]
         else if (viewName === 'staff_pre_schedule_list') {
             if(typeof staffPreScheduleListManager !== 'undefined') staffPreScheduleListManager.init();
         }
-        // 使用者填寫頁
         else if (viewName === 'staff_pre_schedule') {
             if(typeof staffPreScheduleManager !== 'undefined') staffPreScheduleManager.init(id);
         }
