@@ -124,11 +124,30 @@
 
         <hr style="border:0; border-top:1px solid #eee; margin:15px 0;">
         
-        <h4>排班相關設定</h4>
-        <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-            <label style="cursor:pointer;"><input type="checkbox" id="checkPregnant"> 懷孕中 (避免大夜)</label>
-            <label style="cursor:pointer;"><input type="checkbox" id="checkBreastfeeding"> 哺乳中 (避免長時間)</label>
-            <label style="cursor:pointer;"><input type="checkbox" id="checkBundle"> 可包班</label>
+        <h4>排班相關設定 (特殊身份)</h4>
+        
+        <div style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <label style="cursor:pointer; width:100px;">
+                    <input type="checkbox" id="checkPregnant"> 懷孕中
+                </label>
+                <input type="date" id="datePregnant" style="padding:6px; border:1px solid #ccc; border-radius:4px;">
+                <span style="font-size:0.9rem; color:#666;">(預產期)</span>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:10px;">
+                <label style="cursor:pointer; width:100px;">
+                    <input type="checkbox" id="checkBreastfeeding"> 哺乳中
+                </label>
+                <input type="date" id="dateBreastfeeding" style="padding:6px; border:1px solid #ccc; border-radius:4px;">
+                <span style="font-size:0.9rem; color:#666;">(期限)</span>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:10px;">
+                <label style="cursor:pointer;">
+                    <input type="checkbox" id="checkBundle"> 開放包班權限
+                </label>
+            </div>
         </div>
 
         <div style="text-align:right; margin-top:25px;">
