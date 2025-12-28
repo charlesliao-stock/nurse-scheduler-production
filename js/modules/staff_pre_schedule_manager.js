@@ -132,7 +132,7 @@ const staffPreScheduleManager = {
         }
     },
 
-    // --- 右側面板 (核心修正：日期檢查與班別過濾) ---
+    // --- 右側面板 (邏輯修正) ---
     renderRightPanel: function() {
         const user = app.currentUser;
         
@@ -141,17 +141,18 @@ const staffPreScheduleManager = {
             const params = uData.schedulingParams || {};
             const today = new Date().toISOString().split('T')[0];
 
-            // 1. 檢查是否有效 (Check && Date not expired)
+            // 1. 檢查是否有效 (勾選 且 日期未過期)
+            // 若 pregnantExpiry 空值，視為無期限限制（或視為無效，依您的需求，這裡假設沒填日期就是永久有效直到取消勾選，或者更嚴謹應該要求必填）
+            // 這裡邏輯：如果有填日期，且日期 < 今天 -> 過期 (失效)
             const isPregnant = params.isPregnant && (!params.pregnantExpiry || params.pregnantExpiry >= today);
             const isBreastfeeding = params.isBreastfeeding && (!params.breastfeedingExpiry || params.breastfeedingExpiry >= today);
             
-            // UI 顯示
+            // UI 標籤顯示
             document.getElementById('badgePregnant').style.display = isPregnant ? 'inline-block' : 'none';
             document.getElementById('badgeBreastfeeding').style.display = isBreastfeeding ? 'inline-block' : 'none';
             document.getElementById('specialStatusArea').style.display = (isPregnant || isBreastfeeding) ? 'block' : 'none';
 
-            // [邏輯] 判斷是否需要過濾班別
-            // 規則：若是懷孕或哺乳，不能上 Start>=22 或 End>22 (或跨夜) 的班
+            // 是否需要過濾夜班 (懷孕或哺乳)
             const isRestricted = isPregnant || isBreastfeeding;
 
             // 2. 包班意願選單
@@ -160,13 +161,10 @@ const staffPreScheduleManager = {
                 const sel = document.getElementById('inputBundleShift');
                 sel.innerHTML = '<option value="">無 (不包班)</option>';
                 
-                // 篩選：(同單位) AND (開放包班) AND (如果受限則過濾時間)
+                // 篩選：同單位 + 開放包班 + (若受限則過濾時間)
                 const validShifts = this.shifts.filter(sh => {
                     if (sh.unitId !== this.data.unitId || !sh.isBundleAvailable) return false;
-                    
-                    if (isRestricted) {
-                        return !this.isLateShift(sh); // 排除晚班
-                    }
+                    if (isRestricted && this.isLateShift(sh)) return false; // 排除夜班
                     return true;
                 });
 
@@ -178,29 +176,35 @@ const staffPreScheduleManager = {
                 sel.onchange = () => this.updatePreferenceOptions(isRestricted);
             }
             
-            // 3. 初始化並填入排班偏好 (傳入受限狀態)
+            // 3. 初始化排班偏好
             this.initPreferenceSelects(isRestricted);
             this.updatePreferenceOptions(isRestricted);
         });
     },
 
-    // [新增] 檢查是否為超過 22:00 的班別
+    // [修正] 檢查是否為 22:00-06:00 區間的班別
     isLateShift: function(shift) {
         if (!shift.startTime || !shift.endTime) return false;
         
         const [sh, sm] = shift.startTime.split(':').map(Number);
         const [eh, em] = shift.endTime.split(':').map(Number);
         
-        // 條件 1: 上班時間 >= 22:00
-        if (sh >= 22) return true;
+        const start = sh + sm / 60;
+        const end = eh + em / 60;
         
-        // 條件 2: 下班時間 > 22:00 (例如 23:00, 24:00)
-        // 條件 3: 跨夜 (結束時間 < 開始時間，例如 16:00 ~ 02:00，或 20:00 ~ 04:00)
-        // 注意：如果是 08:00 ~ 16:00，eh(16) < sh(8) 是 false。
-        // 如果是 16:00 ~ 00:00 (eh=0)，0 < 16 是 true -> 跨夜 -> true (不能上)
+        // 1. 跨夜班 (Overnight): 結束 < 開始 (如 16:00 ~ 00:30)
+        // 只要跨日，必定經過 24:00 (即 00:00)，這屬於禁區 (22~06)
+        if (end < start) return true;
         
-        if (eh > 22) return true;
-        if (eh < sh) return true; // 跨夜視為夜間工作
+        // 2. 當日班 (Same day):
+        // 條件 A: 開始時間在 00:00 ~ 06:00 之間 (如 00:00 大夜, 05:00 早班)
+        if (start < 6) return true;
+        
+        // 條件 B: 開始時間 >= 22:00 (如 23:00)
+        if (start >= 22) return true;
+        
+        // 條件 C: 結束時間 > 22:00 (如 14:00 ~ 23:00)
+        if (end > 22) return true;
         
         return false;
     },
@@ -243,11 +247,10 @@ const staffPreScheduleManager = {
         const mode = s.shiftTypeMode; 
         const bundleVal = document.getElementById('inputBundleShift')?.value || "";
         
-        // 篩選該單位所有班別
+        // 篩選該單位所有班別 + 特殊身份過濾
         const unitShifts = this.shifts.filter(sh => {
             if (sh.unitId !== this.data.unitId) return false;
-            // [新增] 套用特殊身份過濾
-            if (isRestricted && this.isLateShift(sh)) return false;
+            if (isRestricted && this.isLateShift(sh)) return false; // 排除夜班
             return true;
         });
         
@@ -260,6 +263,7 @@ const staffPreScheduleManager = {
             
             unitShifts.forEach(sh => {
                 let isHidden = false;
+                // 連動邏輯：2班制且已包班 -> 隱藏其他可包班項目
                 if (mode === "2" && bundleVal !== "") {
                     if (sh.isBundleAvailable && sh.code !== bundleVal) {
                         isHidden = true;
@@ -271,11 +275,12 @@ const staffPreScheduleManager = {
             });
 
             sel.value = currentVal;
+            // 如果原本選的值被過濾掉了 (例如變成懷孕，原本選大夜)，則清空
             if (sel.selectedIndex === -1) sel.value = "";
         });
     },
 
-    // ... (其餘 calcRemaining, renderCalendar, toggleDay, handleRightClick, setShift, checkLimits, updateStats, setupEvents, cleanup, saveRequest 保持不變) ...
+    // ... (以下渲染月曆、事件處理等代碼保持不變，直接複製即可) ...
     calcRemaining: function(day) {
         const date = new Date(this.data.year, this.data.month - 1, day);
         const dayIdx = (date.getDay() + 6) % 7; 
