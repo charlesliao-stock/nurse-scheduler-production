@@ -2,7 +2,7 @@
 
 const scheduleRuleManager = {
     currentUnitId: null,
-    activeShifts: [], // 儲存該單位的班別
+    activeShifts: [], 
     
     init: async function() {
         console.log("Scheduling Rules Manager Loaded.");
@@ -48,7 +48,6 @@ const scheduleRuleManager = {
         }
     },
 
-    // 載入單位資料 (班別 + 規則)
     loadUnitData: async function(unitId) {
         this.currentUnitId = unitId;
         const container = document.getElementById('rulesContainer');
@@ -138,18 +137,16 @@ const scheduleRuleManager = {
         // 2. 依照儲存的順序排序
         const savedArr = savedOrderStr.split(',').map(s => s.trim());
         items.sort((a, b) => {
-            const idxA = savedArr.indexOf(a.code);
-            const idxB = savedArr.indexOf(b.code);
-            // 如果都不在清單中，維持原順序；如果在清單中，照清單排；未在清單者排最後
-            if (idxA === -1 && idxB === -1) return 0;
-            if (idxA === -1) return 1;
-            if (idxB === -1) return -1;
+            let idxA = savedArr.indexOf(a.code);
+            let idxB = savedArr.indexOf(b.code);
+            if (idxA === -1) idxA = 999;
+            if (idxB === -1) idxB = 999;
             return idxA - idxB;
         });
 
         // 3. 產生 DOM
         items.forEach((item, index) => {
-            // 加入箭頭 (除了最後一個)
+            // 加入箭頭 (除了第一個)
             if (index > 0) {
                 const arrow = document.createElement('div');
                 arrow.className = 'sortable-arrow';
@@ -189,17 +186,15 @@ const scheduleRuleManager = {
             item.addEventListener('dragend', () => {
                 draggedItem = null;
                 item.classList.remove('dragging');
-                // 拖曳結束後重新渲染箭頭 (因為順序變了)
-                this.refreshArrows();
+                this.refreshArrows(); // 重新整理箭頭
             });
 
             item.addEventListener('dragover', (e) => {
-                e.preventDefault(); // 必要：允許 Drop
+                e.preventDefault(); 
                 e.dataTransfer.dropEffect = 'move';
                 
                 const target = e.target.closest('.sortable-item');
                 if (target && target !== draggedItem) {
-                    // 判斷滑鼠位置在目標的前半還後半
                     const rect = target.getBoundingClientRect();
                     const next = (e.clientX - rect.left) / (rect.right - rect.left) > 0.5;
                     // 交換位置
@@ -212,10 +207,8 @@ const scheduleRuleManager = {
 
     refreshArrows: function() {
         const container = document.getElementById('rotationContainer');
-        // 先移除所有舊箭頭
         container.querySelectorAll('.sortable-arrow').forEach(el => el.remove());
         
-        // 重新插入箭頭
         const items = container.querySelectorAll('.sortable-item');
         items.forEach((item, index) => {
             if (index > 0) {
@@ -227,7 +220,6 @@ const scheduleRuleManager = {
         });
     },
 
-    // 取得當前排序字串
     getRotationOrderString: function() {
         const items = document.querySelectorAll('#rotationContainer .sortable-item');
         const codes = Array.from(items).map(el => el.dataset.code);
@@ -264,7 +256,7 @@ const scheduleRuleManager = {
             },
             pattern: {
                 dayStartShift: document.getElementById('rule_dayStartShift').value,
-                rotationOrder: this.getRotationOrderString(), // [修改] 從拖曳區取得順序
+                rotationOrder: this.getRotationOrderString(), // [修改] 從拖曳區取得字串
                 consecutivePref: document.getElementById('rule_consecutivePref').checked,
                 minConsecutive: parseInt(document.getElementById('rule_minConsecutive').value) || 2,
                 avoidLonelyOff: document.getElementById('rule_avoidLonelyOff').checked,
