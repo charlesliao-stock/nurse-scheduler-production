@@ -3,6 +3,7 @@
 const preScheduleManager = {
     currentUnitId: null,
     currentUnitGroups: [],
+    activeShifts: [], // [新增] 儲存該單位的班別列表，用於產生需求矩陣
     staffListSnapshot: [], 
     staffSortState: { field: 'isSupport', order: 'asc' },
     isLoading: false,
@@ -11,34 +12,35 @@ const preScheduleManager = {
     init: async function() {
         console.log("Pre-Schedule Manager Loaded.");
         
-        if (app.userRole === 'user') {
-            document.getElementById('content-area').innerHTML = `
-                <div class="empty-state">
-                    <i class="fas fa-lock"></i>
-                    <h3>權限不足</h3>
-                    <p>一般使用者無法管理預班表</p>
-                </div>
-            `;
-            return;
+        // 根據權限隱藏/顯示管理者工具列 (新增按鈕)
+        const adminToolbar = document.getElementById('adminToolbar');
+        if (adminToolbar) {
+            // 只有一般使用者 (user) 隱藏新增按鈕，其他管理角色顯示
+            if (app.userRole === 'user') {
+                adminToolbar.style.display = 'none';
+            } else {
+                adminToolbar.style.display = 'block';
+            }
         }
-        
+
         await this.loadUnitDropdown();
     },
 
-    // --- 1. 載入單位 ---
+    // --- 1. 載入單位 (含鎖定邏輯) ---
     loadUnitDropdown: async function() {
         const select = document.getElementById('filterPreUnit');
         if(!select) return;
 
         select.innerHTML = '<option value="">載入中...</option>';
+        select.disabled = false; // 預設開啟
         
         try {
             let query = db.collection('units');
+            const isManager = ['unit_manager', 'unit_scheduler', 'user'].includes(app.userRole);
             
-            if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
-                if(app.userUnitId) {
-                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
-                }
+            // 如果是單位管理者或一般使用者，只撈取自己的單位
+            if (isManager && app.userUnitId) {
+                query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
             }
             
             const snapshot = await query.get();
@@ -51,7 +53,13 @@ const preScheduleManager = {
                 select.appendChild(option);
             });
             
-            if (snapshot.size === 1) {
+            // 自動選擇並鎖定
+            if (isManager && app.userUnitId) {
+                select.value = app.userUnitId;
+                select.disabled = true; // [關鍵] 鎖定下拉選單
+                this.loadData();
+            } else if (snapshot.size === 1) {
+                // 只有一個單位可選時也自動選
                 select.selectedIndex = 1;
                 this.loadData();
             }
@@ -68,25 +76,27 @@ const preScheduleManager = {
     loadData: async function() {
         const unitId = document.getElementById('filterPreUnit').value;
         this.currentUnitId = unitId;
+        const select = document.getElementById('filterPreUnit');
+        const unitName = select.options[select.selectedIndex]?.text || '';
         
         const tbody = document.getElementById('preScheduleTableBody');
         if(!tbody) return;
 
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">載入中...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">載入中...</td></tr>';
 
         if (!unitId) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:30px; color:#999;"><i class="fas fa-arrow-up" style="font-size:2rem; display:block; margin-bottom:10px;"></i>請先選擇單位</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:#999;">請先選擇單位</td></tr>';
             return;
         }
 
-        // 載入單位組別
+        // [新增] 預先載入該單位的班別 (為了後續 Modal 設定矩陣用)
         try {
+            const shiftsSnap = await db.collection('shifts').where('unitId', '==', unitId).get();
+            this.activeShifts = shiftsSnap.docs.map(d => d.data());
+            
             const unitDoc = await db.collection('units').doc(unitId).get();
             this.currentUnitGroups = unitDoc.exists ? (unitDoc.data().groups || []) : [];
-        } catch(e) {
-            console.error("Load Unit Groups Error:", e);
-            this.currentUnitGroups = [];
-        }
+        } catch(e) { console.error("Load Shifts/Groups Error:", e); }
 
         try {
             const snapshot = await db.collection('pre_schedules')
@@ -96,7 +106,12 @@ const preScheduleManager = {
                 .get();
 
             if (snapshot.empty) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:30px; color:#999;">尚無預班表<br><button class="btn btn-add" style="margin-top:10px;" onclick="preScheduleManager.openModal()">立即新增</button></td></tr>';
+                let emptyMsg = '尚無預班表';
+                // 只有管理者才提示新增
+                if(app.userRole !== 'user') {
+                    emptyMsg += '<br><button class="btn btn-add" style="margin-top:10px;" onclick="preScheduleManager.openModal()">立即新增</button>';
+                }
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:30px; color:#999;">${emptyMsg}</td></tr>`;
                 return;
             }
 
@@ -109,35 +124,64 @@ const preScheduleManager = {
                 const s = d.settings || {};
                 const openDate = s.openDate || '9999-12-31';
                 const closeDate = s.closeDate || '1970-01-01';
-                
                 const period = `${openDate} ~ ${closeDate}`;
-                const progress = d.progress ? `${d.progress.submitted} / ${d.progress.total}` : '0 / 0';
+                const progress = d.progress ? `${d.progress.submitted} / ${d.progress.total}` : '-';
                 
-                // 狀態判斷
-                let statusHtml = '<span class="badge" style="background:#95a5a6;">未知</span>';
-                if(d.status === 'closed') {
-                    statusHtml = '<span class="badge" style="background:#e74c3c;">已截止</span>';
+                // 狀態判斷邏輯
+                let statusText = '未知';
+                let statusColor = '#95a5a6';
+                let isFillable = false; // 是否可填寫
+
+                if (d.status === 'closed') {
+                    statusText = '已截止 (鎖定)';
+                    statusColor = '#e74c3c'; // 紅
+                } else if (today < openDate) {
+                    statusText = '準備中';
+                    statusColor = '#f39c12'; // 橘
+                } else if (today > closeDate) {
+                    statusText = '已截止 (日期)';
+                    statusColor = '#e74c3c'; // 紅
                 } else {
-                    if (today < openDate) {
-                        statusHtml = '<span class="badge" style="background:#f39c12;">準備中</span>';
-                    } else if (today > closeDate) {
-                        statusHtml = '<span class="badge" style="background:#e74c3c;">已截止</span>';
+                    statusText = '開放中';
+                    statusColor = '#2ecc71'; // 綠
+                    isFillable = true;
+                }
+
+                // 操作按鈕邏輯
+                let actionsHtml = '';
+                
+                if (app.userRole === 'user') {
+                    // 一般使用者：檢查是否為參與人員
+                    const isParticipant = (d.staffList || []).some(u => u.uid === app.currentUser.uid);
+                    
+                    if (isParticipant) {
+                        if (isFillable) {
+                            // 開放中 -> 填寫
+                            actionsHtml = `<button class="btn btn-add" onclick="staffPreScheduleManager.open('${doc.id}')"><i class="fas fa-edit"></i> 填寫預班</button>`;
+                        } else {
+                            // 已截止/準備中 -> 檢視 (唯讀)
+                            actionsHtml = `<button class="btn" style="background:#95a5a6;" onclick="staffPreScheduleManager.open('${doc.id}')"><i class="fas fa-eye"></i> 檢視</button>`;
+                        }
                     } else {
-                        statusHtml = '<span class="badge" style="background:#2ecc71;">開放中</span>';
+                        actionsHtml = `<span style="color:#999; font-size:0.9rem;">非參與人員</span>`;
                     }
+                } else {
+                    // 管理者：管理、設定、刪除
+                    actionsHtml = `
+                        <button class="btn btn-primary" style="padding:4px 8px;" onclick="preScheduleManager.manage('${doc.id}')">管理</button>
+                        <button class="btn btn-edit" style="padding:4px 8px;" onclick="preScheduleManager.openModal('${doc.id}')">設定</button>
+                        <button class="btn btn-delete" style="padding:4px 8px;" onclick="preScheduleManager.deleteSchedule('${doc.id}')">刪除</button>
+                    `;
                 }
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
+                    <td>${unitName}</td>
                     <td style="font-weight:bold;">${d.year} 年 ${d.month} 月</td>
                     <td><small>${period}</small></td>
+                    <td><span class="badge" style="background:${statusColor};">${statusText}</span></td>
                     <td>${progress}</td>
-                    <td>${statusHtml}</td>
-                    <td>
-                        <button class="btn btn-primary" onclick="preScheduleManager.manage('${doc.id}')">管理</button>
-                        <button class="btn btn-edit" onclick="preScheduleManager.openModal('${doc.id}')">設定</button>
-                        <button class="btn btn-delete" onclick="preScheduleManager.deleteSchedule('${doc.id}')">刪除</button>
-                    </td>
+                    <td>${actionsHtml}</td>
                 `;
                 fragment.appendChild(tr);
             });
@@ -146,11 +190,11 @@ const preScheduleManager = {
             
         } catch (e) {
             console.error("Load Data Error:", e);
-            tbody.innerHTML = `<tr><td colspan="5" style="color:red;">載入失敗: ${e.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6" style="color:red;">載入失敗: ${e.message}</td></tr>`;
         }
     },
 
-    // --- 3. Modal 操作 ---
+    // --- 3. Modal 操作 (設定) ---
     openModal: async function(docId = null) {
         if(!this.currentUnitId) { 
             alert("請先選擇單位"); 
@@ -170,7 +214,7 @@ const preScheduleManager = {
         this.switchTab('basic');
 
         if (docId) {
-            // 編輯
+            // 編輯模式
             document.getElementById('btnImportLast').style.display = 'none';
             try {
                 const doc = await db.collection('pre_schedules').doc(docId).get();
@@ -183,14 +227,15 @@ const preScheduleManager = {
                 this.fillForm(data); 
                 this.staffListSnapshot = data.staffList || [];
                 this.renderStaffList();
-                this.renderGroupLimitsTable(data.groupLimits || {});
+                this.renderGroupLimitsTable(data.groupLimits);
+                this.renderDailyNeedsTable(data.dailyNeeds); // [新增] 載入需求矩陣
             } catch(e) {
                 console.error("Load Schedule Error:", e);
                 alert("載入失敗: " + e.message);
                 this.closeModal();
             }
         } else {
-            // 新增
+            // 新增模式
             document.getElementById('btnImportLast').style.display = 'inline-block';
             
             const nextMonth = new Date();
@@ -205,7 +250,7 @@ const preScheduleManager = {
 
             document.getElementById('inputMaxOff').value = 8;
             document.getElementById('inputMaxHoliday').value = 2;
-            document.getElementById('inputDailyReserve').value = 2;
+            document.getElementById('inputDailyReserve').value = 1; // 預設保留 1
             document.getElementById('checkShowAllNames').checked = true;
             document.getElementById('inputShiftMode').value = "3";
             this.toggleThreeShiftOption();
@@ -213,6 +258,7 @@ const preScheduleManager = {
             await this.loadCurrentUnitStaff();
             this.renderStaffList();
             this.renderGroupLimitsTable({});
+            this.renderDailyNeedsTable({}); // [新增] 空矩陣
         }
     },
 
@@ -221,18 +267,15 @@ const preScheduleManager = {
         if(modal) modal.classList.remove('show');
     },
 
-    // [關鍵] 頁籤切換
     switchTab: function(tabName) {
         const modal = document.getElementById('preScheduleModal');
         if (!modal) return;
         
-        // 切換內容
         const contents = modal.querySelectorAll('.tab-content');
         contents.forEach(c => c.classList.remove('active'));
         const target = modal.querySelector(`#tab-${tabName}`);
         if(target) target.classList.add('active');
         
-        // 切換按鈕狀態
         const btns = modal.querySelectorAll('.tab-btn');
         btns.forEach(btn => {
             btn.classList.remove('active');
@@ -248,7 +291,7 @@ const preScheduleManager = {
         if(div) div.style.display = (mode === "2") ? 'block' : 'none';
     },
 
-    // --- 4. 人員與搜尋 ---
+    // --- 4. 人員管理 ---
     loadCurrentUnitStaff: async function() {
         try {
             const snapshot = await db.collection('users')
@@ -369,7 +412,6 @@ const preScheduleManager = {
         
         document.getElementById('staffTotalCount').textContent = this.staffListSnapshot.length;
 
-        // 排序 icon
         document.querySelectorAll('th i[id^="sort_icon_pre_"]').forEach(i => i.className = 'fas fa-sort');
         const icon = document.getElementById(`sort_icon_pre_${this.staffSortState.field}`);
         if(icon) icon.className = this.staffSortState.order === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
@@ -413,7 +455,45 @@ const preScheduleManager = {
         }
     },
 
-    // --- 5. 限制表格 ---
+    // --- 5. 限制表格 (含每日需求矩陣) ---
+    
+    // [新增] 渲染每日需求矩陣 (Daily Needs Matrix)
+    renderDailyNeedsTable: function(savedNeeds = {}) {
+        const table = document.getElementById('dailyNeedsTable');
+        if(!table) return;
+        table.innerHTML = '';
+
+        const days = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
+        
+        // 表頭
+        let thead = '<thead><tr><th style="background:#f8f9fa;">班別 \\ 星期</th>';
+        days.forEach(d => thead += `<th style="background:#f8f9fa; min-width:60px;">${d}</th>`);
+        thead += '</tr></thead>';
+        table.innerHTML = thead;
+
+        // 內容
+        let tbody = '<tbody>';
+        if (this.activeShifts.length === 0) {
+            tbody += `<tr><td colspan="8" style="padding:20px; text-align:center; color:#999;">此單位無班別設定，請先至「班別管理」新增。</td></tr>`;
+        } else {
+            this.activeShifts.forEach(shift => {
+                tbody += `<tr><td style="font-weight:bold;">${shift.name} (${shift.code})</td>`;
+                
+                // 0=Mon ... 6=Sun
+                for(let i=0; i<7; i++) {
+                    // key 格式: "SHIFTCODE_DAYINDEX" (e.g. "D_0")
+                    const key = `${shift.code}_${i}`; 
+                    const val = (savedNeeds && savedNeeds[key] !== undefined) ? savedNeeds[key] : '';
+                    tbody += `<td><input type="number" class="limit-input needs-input" data-key="${key}" value="${val}" style="width:100%; text-align:center;"></td>`;
+                }
+                tbody += `</tr>`;
+            });
+        }
+        tbody += '</tbody>';
+        table.innerHTML += tbody;
+    },
+
+    // 渲染組別限制表格 (原功能)
     renderGroupLimitsTable: function(savedLimits = {}) {
         const table = document.getElementById('groupLimitTable');
         if(!table) return;
@@ -461,6 +541,7 @@ const preScheduleManager = {
             const lastData = snapshot.docs[0].data();
             this.fillForm(lastData);
             this.renderGroupLimitsTable(lastData.groupLimits || {});
+            this.renderDailyNeedsTable(lastData.dailyNeeds || {}); // [新增]
             this.staffListSnapshot = lastData.staffList || [];
             this.renderStaffList();
             alert("已帶入資料！");
@@ -477,7 +558,7 @@ const preScheduleManager = {
         document.getElementById('inputCloseDate').value = s.closeDate || '';
         document.getElementById('inputMaxOff').value = s.maxOffDays || 8;
         document.getElementById('inputMaxHoliday').value = s.maxHolidayOffs || 2;
-        document.getElementById('inputDailyReserve').value = s.dailyReserved || 2;
+        document.getElementById('inputDailyReserve').value = s.dailyReserved || 1;
         document.getElementById('checkShowAllNames').checked = s.showAllNames !== false;
         document.getElementById('inputShiftMode').value = s.shiftTypeMode || "3";
         this.toggleThreeShiftOption(); 
@@ -516,20 +597,30 @@ const preScheduleManager = {
             return; 
         }
 
+        // 蒐集 Group Limits
         const groupLimits = {};
-        document.querySelectorAll('.limit-input').forEach(inp => {
+        document.querySelectorAll('#groupLimitTable .limit-input').forEach(inp => {
             const g = inp.dataset.group;
             const k = inp.dataset.key;
             if(!groupLimits[g]) groupLimits[g] = {};
             groupLimits[g][k] = inp.value === '' ? null : parseInt(inp.value);
         });
 
+        // [新增] 蒐集 Daily Needs
+        const dailyNeeds = {};
+        document.querySelectorAll('.needs-input').forEach(inp => {
+            if(inp.value) {
+                dailyNeeds[inp.dataset.key] = parseInt(inp.value);
+            }
+        });
+
         const data = {
-            unitId, year, month,
+            unitId: this.currentUnitId, year, month,
             status: 'open',
             progress: { submitted: 0, total: this.staffListSnapshot.length },
             settings,
             groupLimits,
+            dailyNeeds, // [新增]
             staffList: this.staffListSnapshot,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
