@@ -1,5 +1,6 @@
 // js/modules/schedule_manager.js
-// 🤖 AI 排班演算法引擎 (Auto-Scheduler v5.9 - Dynamic Rules & Params)
+// 🤖 AI 排班演算法引擎 (Auto-Scheduler v5.11 - Robin Hood "Tax the Rich" Logic)
+// 重大更新：新增「富人搶班」機制，主動將積假多的人強制安插進班表，替換掉積假少的人。
 
 const scheduleManager = {
     docId: null,
@@ -35,7 +36,6 @@ const scheduleManager = {
                 sourceData = sourceDoc.data();
             }
 
-            // 載入規則，若無則給予空物件防呆
             if(sourceData.rules) {
                 this.rules = sourceData.rules;
             } else {
@@ -69,8 +69,6 @@ const scheduleManager = {
 
     prepareContext: async function() {
         this.stats = {};
-        
-        // 從規則讀取長假定義，預設 5 天
         const longLeaveThres = this.rules.policy?.longLeaveThres || 5;
 
         this.staffList.forEach(u => {
@@ -79,7 +77,6 @@ const scheduleManager = {
             const lastShift = this.matrix[u.uid]['last_0'] || null;
             const pref = this.matrix[u.uid].preferences || {};
 
-            // 判斷長假
             let reqOffCount = 0;
             for(let d=1; d<=this.daysInMonth; d++) {
                 if(this.matrix[u.uid][`current_${d}`] === 'REQ_OFF') reqOffCount++;
@@ -97,7 +94,6 @@ const scheduleManager = {
                 bundleShift: pref.bundleShift || null
             };
 
-            // 初始統計
             for(let d=1; d<=this.daysInMonth; d++) {
                 const val = this.matrix[u.uid][`current_${d}`];
                 if(val === 'REQ_OFF') {
@@ -108,17 +104,17 @@ const scheduleManager = {
     },
 
     generateOptions: async function() {
-        // [動態讀取 AI 參數]
+        // 強制使用高強度平衡參數
         const ai = this.rules.aiParams || {};
-        const baseWBalance = ai.w_balance || 200;
-        const baseWContinuity = ai.w_continuity || 50;
-        const baseTolerance = ai.tolerance || 2;
+        const baseWBalance = 8000; // 超高權重
+        const baseWContinuity = 20; // 降低連續性權重，避免鎖死
+        const baseTolerance = 1; // 容忍度極低
 
         const options = [];
         const strategies = [
-            { name: "方案 A (標準平衡)", wBal: baseWBalance, wCont: baseWContinuity, tol: baseTolerance },
-            { name: "方案 B (強制平均)", wBal: baseWBalance * 2.5, wCont: baseWContinuity * 0.2, tol: Math.max(1, baseTolerance - 1) }, 
-            { name: "方案 C (連續優先)", wBal: baseWBalance * 0.5, wCont: baseWContinuity * 2, tol: baseTolerance + 2 }
+            { name: "方案 A (劫富濟貧)", wBal: baseWBalance, wCont: baseWContinuity, tol: baseTolerance },
+            { name: "方案 B (絕對平均)", wBal: 10000, wCont: 0, tol: 0 }, 
+            { name: "方案 C (彈性平衡)", wBal: 5000, wCont: 100, tol: 2 }
         ];
 
         const originalMatrix = JSON.parse(JSON.stringify(this.matrix));
@@ -167,33 +163,33 @@ const scheduleManager = {
     // --- 核心入口 ---
     runAutoSchedule: async function(strategy) {
         for (let day = 1; day <= this.daysInMonth; day++) {
-            // Cycle 1: 鋪底
+            // 1. 鋪底 (僅硬規則檢查)
             this.cycle1_foundation(day);
             
-            // Cycle 2: 填補
+            // 2. 填補 (競價)
             this.cycle2_scoringFill(day, strategy);
             
-            // Cycle 3: 主動平衡 & 回溯
-            this.cycle3_activeSwap(day, strategy);
+            // 3. [核心] 富人搶班 (Tax The Rich)
+            // 取代原本的 Active Swap，改用更激進的邏輯
+            this.cycle3_taxTheRich(day, strategy);
+            
+            // 4. 回溯救急
             this.cycle3_backtrack(day);
             
-            // Cycle 4: 修剪
+            // 5. 修剪過剩
             this.cycle4_trimExcess(day);
             
-            // Cycle 5: 日結
+            // 6. 日結算
             this.cycle5_dailySettlement(day);
         }
         return this.matrix;
     },
 
     cycle1_foundation: function(day) {
-        const shuffledStaff = [...this.staffList].sort(() => 0.5 - Math.random());
-        shuffledStaff.forEach(staff => {
+        this.staffList.forEach(staff => {
             const uid = staff.uid;
             if (this.isLocked(uid, day)) return;
             
-            // [動態讀取連續上限]
-            // 若開啟長假調整(longLeaveAdjust)，且是長假人員，則使用 longLeaveMaxCons，否則使用 maxConsDays
             let limit = this.rules.policy?.maxConsDays || 6;
             if (this.rules.policy?.longLeaveAdjust && this.stats[uid].isLongLeave) {
                 limit = this.rules.policy?.longLeaveMaxCons || 7;
@@ -201,29 +197,14 @@ const scheduleManager = {
             
             if (this.stats[uid].consecutiveDays >= limit) {
                 this.assign(uid, day, 'OFF'); 
-                return;
             }
-
-            const lastCode = this.stats[uid].lastShiftCode;
-            
-            // 慣性延續
-            if (lastCode && lastCode !== 'OFF' && lastCode !== 'REQ_OFF') {
-                if (this.getShiftGap(day, lastCode) > 0) {
-                    if (this.checkHardRules(uid, day, lastCode)) {
-                        this.assign(uid, day, lastCode);
-                        return;
-                    }
-                }
-            }
+            // 移除慣性延續，強迫進入 Cycle 2 重新競價
         });
     },
 
     cycle2_scoringFill: function(day, strategy) {
         let maxIterations = 50; 
         
-        // 優先序：大夜(N) > 白班(D) > 小夜(E) (依賴 shiftMap 的 code)
-        // 這裡不寫死，而是依賴 rules.pattern.rotationOrder (若有) 或預設邏輯
-        // 為了確保單向流動安全性，N->D->E 仍是最佳解
         const sortedShifts = Object.keys(this.shiftMap).sort((a, b) => {
             const score = code => {
                 if (code === 'N') return 1;
@@ -248,35 +229,51 @@ const scheduleManager = {
         }
     },
 
-    cycle3_activeSwap: function(day, strategy) {
-        const tolerance = strategy.tol;
-        let totalOffSum = 0;
-        this.staffList.forEach(u => totalOffSum += this.stats[u.uid].totalOff);
-        const avgOff = totalOffSum / this.staffList.length;
+    // [v5.11 新增] 富人搶班機制 (Tax The Rich)
+    // 邏輯：找出當天沒上班的「富人」，強制掃描所有班別，看能不能把「窮人」擠掉
+    cycle3_taxTheRich: function(day, strategy) {
+        // 1. 排序：積假越多的越前面 (富人優先)
+        const richStaff = [...this.staffList].sort((a, b) => this.stats[b.uid].totalOff - this.stats[a.uid].totalOff);
+        
+        for (let richUser of richStaff) {
+            // 如果富人今天已經有班，或是被鎖定，跳過
+            if (this.isLocked(richUser.uid, day)) continue;
+            const currentCode = this.matrix[richUser.uid][`current_${day}`];
+            if (currentCode && currentCode !== 'OFF') continue;
 
-        const overworkedStaff = this.staffList.filter(u => {
-            const code = this.matrix[u.uid][`current_${day}`];
-            const isWorking = (code && code !== 'OFF' && code !== 'REQ_OFF');
-            const isPoor = (this.stats[u.uid].totalOff < (avgOff - tolerance));
-            return isWorking && isPoor && !this.isLocked(u.uid, day);
-        });
+            // 富人開始尋找獵物
+            const shifts = Object.keys(this.shiftMap);
+            for (let shiftCode of shifts) {
+                // 富人能上這個班嗎？
+                if (!this.checkHardRules(richUser.uid, day, shiftCode)) continue;
 
-        overworkedStaff.forEach(poorGuy => {
-            const poorShift = this.matrix[poorGuy.uid][`current_${day}`];
-            const replacement = this.staffList.find(u => {
-                const code = this.matrix[u.uid][`current_${day}`];
-                const isFree = (!code || code === 'OFF'); 
-                const isRich = (this.stats[u.uid].totalOff > (avgOff + tolerance));
-                const notLocked = !this.isLocked(u.uid, day);
-                const canWork = this.checkHardRules(u.uid, day, poorShift);
-                return isFree && isRich && notLocked && canWork;
-            });
+                // 找出這個班目前是誰在上 (潛在獵物)
+                const workersOnShift = this.staffList.filter(u => 
+                    this.matrix[u.uid][`current_${day}`] === shiftCode && 
+                    !this.isLocked(u.uid, day)
+                );
 
-            if (replacement) {
-                this.assign(replacement.uid, day, poorShift);
-                this.assign(poorGuy.uid, day, 'OFF'); 
+                // 排序獵物：積假最少的 (最窮的) 排前面
+                workersOnShift.sort((a, b) => this.stats[a.uid].totalOff - this.stats[b.uid].totalOff);
+
+                if (workersOnShift.length > 0) {
+                    const poorUser = workersOnShift[0];
+                    
+                    // 只有當「富人 OFF」顯著多於「窮人 OFF」時才搶 (例如多 2 天以上)
+                    // 這樣可以避免無意義的微小交換
+                    if (this.stats[richUser.uid].totalOff > this.stats[poorUser.uid].totalOff + 1) {
+                        
+                        console.log(`💰 Tax The Rich (Day ${day}): ${richUser.name} (${this.stats[richUser.uid].totalOff}) 搶了 ${poorUser.name} (${this.stats[poorUser.uid].totalOff}) 的 ${shiftCode}`);
+                        
+                        // 執行交換
+                        this.assign(richUser.uid, day, shiftCode);
+                        this.assign(poorUser.uid, day, 'OFF'); // 窮人去休息
+                        
+                        break; // 富人找到工作了，停止尋找
+                    }
+                }
             }
-        });
+        }
     },
 
     cycle3_backtrack: function(day) {
@@ -325,7 +322,6 @@ const scheduleManager = {
         const tolerance = strategy.tol; 
         const wBal = strategy.wBal;
         const wCont = strategy.wCont;
-        // [動態讀取調度權重]
         const wSurp = this.rules.aiParams?.w_surplus || 150;
 
         this.staffList.forEach(staff => {
@@ -342,12 +338,10 @@ const scheduleManager = {
 
             if (!currentCode || currentCode === 'OFF') {
                 score += 100; 
-                // 平衡性權重
                 if (diff > tolerance) score += (diff * wBal * 3); 
                 else if (diff < -tolerance) score -= (Math.abs(diff) * wBal * 3);
                 else score += (diff * wBal);
             } else if (this.getShiftSurplus(day, currentCode) > 0) {
-                // 支援調度權重
                 score += wSurp; 
             }
 
@@ -358,7 +352,7 @@ const scheduleManager = {
                 score += (wCont * 0.5); 
             }
 
-            score += Math.random() * 5; 
+            score += Math.random() * 10; 
             moves.push({ uid, from: currentCode, to: targetShift, score });
         });
 
@@ -366,11 +360,10 @@ const scheduleManager = {
     },
 
     attemptBacktrack: function(day, targetShift) {
-        // [動態讀取回溯參數]
         const MAX_DEPTH = this.rules.aiParams?.backtrack_depth || 3;
         const MAX_ATTEMPTS = this.rules.aiParams?.max_attempts || 20;
-        
         let attemptsCount = 0;
+
         for (let depth = 1; depth <= MAX_DEPTH; depth++) {
             const prevDay = day - depth; if (prevDay < 1) break;
             const candidates = [...this.staffList].sort(() => 0.5 - Math.random());
@@ -380,6 +373,7 @@ const scheduleManager = {
                 const uid = staff.uid;
                 if (this.isLocked(uid, day) || this.isLocked(uid, prevDay)) continue;
                 const prevCode = this.matrix[uid][`current_${prevDay}`];
+                
                 if (prevCode && prevCode !== 'OFF' && this.getShiftSurplus(prevDay, prevCode) >= 0) {
                     attemptsCount++;
                     if (this.checkHardRules(uid, day, targetShift, 'OFF')) {
@@ -408,80 +402,52 @@ const scheduleManager = {
         return (val === 'REQ_OFF' || (val && val.startsWith('!')));
     },
 
-    // --- Hard Rules Checker (全面動態化) ---
     checkHardRules: function(uid, day, shiftCode, optionalPrevCode) {
         let lastCode = optionalPrevCode || this.stats[uid].lastShiftCode;
-        
-        // 1. 班別間隔 (minGap11)
         if (this.rules.hard?.minGap11 !== false) {
             if (lastCode && !this.checkGap11(lastCode, shiftCode)) return false;
         }
-        
-        // 2. 孕哺保護 (protectPregnant)
         if (this.rules.hard?.protectPregnant !== false) {
             if (this.stats[uid].isPregnant || this.stats[uid].isBreastfeeding) {
                 if (this.isLateShift(shiftCode)) return false;
             }
         }
-        
-        // 3. 連續上班限制 (limitConsecutive)
         if (this.rules.policy?.limitConsecutive !== false && shiftCode !== 'OFF') {
             if (optionalPrevCode !== 'OFF') {
-                // 動態讀取上限值
                 let limit = this.rules.policy?.maxConsDays || 6;
-                // 長假調整
                 if (this.rules.policy?.longLeaveAdjust && this.stats[uid].isLongLeave) {
                     limit = this.rules.policy?.longLeaveMaxCons || 7;
                 }
                 if (this.stats[uid].consecutiveDays >= limit) return false;
             }
         }
-        
-        // 4. 包班限制 (bundleNightOnly)
         if (this.rules.policy?.bundleNightOnly !== false && this.stats[uid].canBundle) {
             const bundleCode = this.stats[uid].bundleShift;
             if (bundleCode && shiftCode !== 'OFF' && shiftCode !== bundleCode) return false;
         }
-
-        // 5. 每週單一夜班限制 (核心邏輯，保留檢查)
         if (!this.checkWeeklyConsistency(uid, day, shiftCode)) return false;
-
         return true;
     },
 
     checkWeeklyConsistency: function(uid, day, shiftCode) {
         if (shiftCode !== 'N' && shiftCode !== 'E') return true;
-        
-        // 讀取每週起始日設定 (預設 1=週一)
         const startDay = parseInt(this.rules.hard?.weekStartDay || 1); 
-        
         const date = new Date(this.year, this.month - 1, day);
-        let dayOfWeek = date.getDay(); // 0=Sun
+        let dayOfWeek = date.getDay(); 
+        if (dayOfWeek === 0) dayOfWeek = 7;
         
-        // 計算當前日期距離本週起始日幾天
-        // 若 startDay=1(Mon), dayOfWeek=0(Sun) -> diff = -1 (X), should handle wrap
-        // 簡單算法：往前找，直到遇到 startDay
         const daysToCheck = [];
-        let tempDate = new Date(date);
         let checkDay = day;
-        
-        // 往前檢查本週已排班表 (含今日)
-        // 限制最多檢查 7 天，避免死迴圈
         for(let i=0; i<7; i++) {
             if (checkDay < 1) break;
             const dObj = new Date(this.year, this.month - 1, checkDay);
-            const dw = dObj.getDay();
-            
+            const dw = dObj.getDay() === 0 ? 7 : dObj.getDay();
             daysToCheck.push(checkDay);
-            
-            if (dw === startDay) break; // 遇到週起始日，停止
+            if (dw === startDay) break; 
             checkDay--;
         }
-
         for (let d of daysToCheck) {
-            // 排除今日 (因為還沒填進去)
             if (d === day) continue;
-            
             const code = this.matrix[uid][`current_${d}`];
             if (shiftCode === 'N' && code === 'E') return false; 
             if (shiftCode === 'E' && code === 'N') return false; 
@@ -546,5 +512,5 @@ const scheduleManager = {
         const shifts = Object.keys(this.shiftMap);
         return shifts.some(s => this.getShiftGap(day, s) > 0);
     },
-    fillRemainingOffs: function() { /* 已整合至日結算 */ }
+    fillRemainingOffs: function() { }
 };
