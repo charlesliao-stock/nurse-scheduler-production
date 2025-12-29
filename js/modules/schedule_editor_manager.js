@@ -1,4 +1,4 @@
-// js/modules/schedule_editor_manager.js
+// js/modules/schedule_editor_manager.js 2.1
 
 const scheduleEditorManager = {
     scheduleId: null,
