@@ -1,6 +1,7 @@
 // js/modules/schedule_manager.js
-// 🤖 AI 排班演算法 (v5.18 - Strict Preference Whitelist)
-// Fix: 嚴格遵守「白名單」邏輯。若員工有設定包班或志願，絕對禁止安排該範圍以外的班別。
+// 🤖 AI 排班演算法 (v5.19 - Historical Trace Fix)
+// Fix: 1. 修正 prepareContext 中連續天數的計算，改為「回溯上月真實天數」直到遇見 OFF。
+//      2. 確保 Day 1 能正確繼承上個月的疲勞度，嚴格執行「第 7 天強制 OFF」。
 
 const scheduleManager = {
     docId: null, rules: {}, staffList: [], shifts: [], shiftMap: {}, matrix: {}, dailyNeeds: {}, stats: {}, daysInMonth: 0, year: 0, month: 0, sourceData: null,
@@ -56,12 +57,42 @@ const scheduleManager = {
         this.stats = {};
         const longLeaveThres = this.rules.policy?.longLeaveThres || 5;
         
-        console.group("🤖 AI Context Check (Strict Mode)");
+        // [關鍵修正] 計算上個月的最後一天是幾號 (例如 30, 31, 28)
+        const prevMonthDate = new Date(this.year, this.month - 1, 0); 
+        const lastDayOfPrevMonth = prevMonthDate.getDate();
+
+        console.group("🤖 AI Context Check (Consecutive Trace)");
+        
         this.staffList.forEach(u => {
             if (!this.matrix[u.uid]) this.matrix[u.uid] = {};
-            const lastShift = this.matrix[u.uid]['last_0'] || null;
             const monthlyPref = this.matrix[u.uid].preferences || {};
             const userParams = u.schedulingParams || {};
+
+            // 1. [核心修正] 回溯計算連續上班天數 (Look-back Algorithm)
+            let consecutive = 0;
+            let lastShiftCode = null;
+
+            // 往前檢查最多 14 天 (足夠覆蓋連六限制)
+            for (let k = 0; k < 14; k++) {
+                const d = lastDayOfPrevMonth - k;
+                if (d < 1) break; // 邊界檢查
+                
+                // 預班表儲存的 key 是 last_31, last_30...
+                const key = `last_${d}`;
+                const code = this.matrix[u.uid][key];
+
+                // 紀錄最後一天的班別 (for 間隔檢查)
+                if (k === 0) lastShiftCode = code;
+
+                // 判斷是否為上班
+                // 若 code 存在且不是 OFF/REQ_OFF，則視為上班 -> 累加
+                if (code && code !== 'OFF' && code !== 'REQ_OFF') {
+                    consecutive++;
+                } else {
+                    // 遇到 OFF 或空值，中斷計數
+                    break;
+                }
+            }
 
             // 判斷包班
             const canBundle = userParams.canBundleShifts === true;
@@ -70,7 +101,7 @@ const scheduleManager = {
             let reqOffCount = 0;
             for(let d=1; d<=this.daysInMonth; d++) { if(this.matrix[u.uid][`current_${d}`] === 'REQ_OFF') reqOffCount++; }
             
-            // 建立白名單集合 (Set)
+            // 建立白名單
             const allowedShifts = new Set();
             if (canBundle && targetBundle) allowedShifts.add(targetBundle);
             if (monthlyPref.priority_1) allowedShifts.add(monthlyPref.priority_1);
@@ -78,9 +109,10 @@ const scheduleManager = {
             if (monthlyPref.priority_3) allowedShifts.add(monthlyPref.priority_3);
 
             this.stats[u.uid] = {
-                consecutiveDays: (lastShift && lastShift !== 'OFF') ? 1 : 0,
+                // 使用回溯計算出的精確天數
+                consecutiveDays: consecutive, 
                 totalOff: 0,
-                lastShiftCode: lastShift,
+                lastShiftCode: lastShiftCode || null, // 確保最後一天班別正確
                 isLongLeave: reqOffCount >= longLeaveThres,
                 isPregnant: userParams.isPregnant,
                 isBreastfeeding: userParams.isBreastfeeding,
@@ -92,16 +124,12 @@ const scheduleManager = {
                 p2: monthlyPref.priority_2,
                 p3: monthlyPref.priority_3,
                 
-                // [關鍵] 將允許的班別轉為 Array 存起來
-                // 如果是空陣列，代表「無偏好 (隨便排)」
                 allowedList: Array.from(allowedShifts) 
             };
             
-            // Debug: 顯示每人的允許班別
-            if (this.stats[u.uid].allowedList.length > 0) {
-                console.log(`🔒 ${u.name}: 僅限排 [${this.stats[u.uid].allowedList.join(', ')}]`);
-            } else {
-                console.log(`🔓 ${u.name}: 無限制 (全能工)`);
+            // Debug Log: 確認是否正確抓到上個月的尾巴
+            if (consecutive > 0) {
+                console.log(`📊 ${u.name}: 上月結轉連上 ${consecutive} 天 (Last: ${lastShiftCode})`);
             }
 
             for(let d=1; d<=this.daysInMonth; d++) {
@@ -113,7 +141,6 @@ const scheduleManager = {
 
     generateOptions: async function() {
         const options = [];
-        // [參數調整] 因為範圍已經被硬規則鎖死，這裡的權重主要影響「在合法範圍內」誰先被選中
         const strategies = [
             { name: "方案 A (均衡優先)", wBal: 8000, wCont: 20, tol: 1 },
             { name: "方案 B (偏好權重)", wBal: 5000, wCont: 50, tol: 2 },
@@ -147,11 +174,18 @@ const scheduleManager = {
         return this.matrix;
     },
 
+    // Cycle 1: 基礎鋪底 (強制執行連續上班限制)
     cycle1_foundation: function(day) {
         this.staffList.forEach(u => {
             if(this.isLocked(u.uid, day)) return;
+            
             const limit = (this.stats[u.uid].isLongLeave && this.rules.policy?.longLeaveAdjust) ? 7 : (this.rules.policy?.maxConsDays || 6);
-            if(this.stats[u.uid].consecutiveDays >= limit) this.assign(u.uid, day, 'OFF');
+            
+            // 如果目前累積天數 >= 限制 (例如已連上 6 天)
+            // 則當日 (第 7 天) 強制排 OFF
+            if(this.stats[u.uid].consecutiveDays >= limit) {
+                this.assign(u.uid, day, 'OFF');
+            }
         });
     },
 
@@ -181,7 +215,6 @@ const scheduleManager = {
             const cur = this.matrix[uid][`current_${day}`] || null;
             if(cur === targetShift) return; 
             
-            // 🛑 硬規則檢查 (含嚴格白名單)
             if(!this.checkHardRules(uid, day, targetShift)) return;
 
             let score = 0;
@@ -189,7 +222,6 @@ const scheduleManager = {
             const myOff = st.totalOff;
             const diff = myOff - avgOff; 
 
-            // 1. 基礎分
             if(!cur || cur==='OFF') {
                 score += 500; 
                 if(diff > tol) score += (diff * wBal); 
@@ -199,18 +231,14 @@ const scheduleManager = {
                 score += 300; 
             }
 
-            // 2. 偏好加分 (區分志願序)
-            // 這裡的加分只是為了在「合法候選人」中區分高下
             if(st.bundleShift === targetShift) score += 5000;
             else if(st.p1 === targetShift) score += 3000;
             else if(st.p2 === targetShift) score += 1500;
             else if(st.p3 === targetShift) score += 500;
 
-            // 3. 連續性
             const prev = st.lastShiftCode;
             if(prev === targetShift) score += wCont;
 
-            // 4. 缺口救火 (現在只對合法的人有效)
             if(this.getShiftGap(day, targetShift) > 0) score += 2000;
 
             moves.push({ uid, from: cur, to: targetShift, score });
@@ -228,7 +256,7 @@ const scheduleManager = {
 
             const shifts = Object.keys(this.shiftMap);
             for (let s of shifts) {
-                if (!this.checkHardRules(richUser.uid, day, s)) continue; // 必須合規
+                if (!this.checkHardRules(richUser.uid, day, s)) continue;
                 
                 const workers = this.staffList.filter(u => this.matrix[u.uid][`current_${day}`]===s && !this.isLocked(u.uid, day));
                 workers.sort((a, b) => this.stats[a.uid].totalOff - this.stats[b.uid].totalOff);
@@ -265,20 +293,17 @@ const scheduleManager = {
     executeMove: function(day, m) { this.assign(m.uid, day, m.to); },
     isLocked: function(uid, day) { const v = this.matrix[uid]?.[`current_${day}`]; return v==='REQ_OFF' || (v&&v.startsWith('!')); },
 
-    // --- [核心] 硬規則檢查 (Strict Whitelist) ---
     checkHardRules: function(uid, day, shiftCode) {
         const st = this.stats[uid];
         
-        // 1. [絕對白名單] 偏好限制
-        // 如果此人有設定任何「允許班別」(包班或 P1/P2/P3)
-        // 則除此之外的班別一律禁止 (OFF 除外)
+        // 1. 白名單 (偏好/包班)
         if (st.allowedList.length > 0) {
             if (shiftCode !== 'OFF' && !st.allowedList.includes(shiftCode)) {
-                return false; // 非白名單內的班別，禁止！
+                return false; 
             }
         }
 
-        // 2. 雙向間隔檢查
+        // 2. 雙向間隔
         let lastCode = st.lastShiftCode;
         if (this.rules.hard?.minGap11 !== false) {
             if (lastCode && !this.checkGap11(lastCode, shiftCode)) return false;
@@ -298,9 +323,10 @@ const scheduleManager = {
             if ((st.isPregnant || st.isBreastfeeding) && this.isLateShift(shiftCode)) return false;
         }
 
-        // 4. 連續
+        // 4. 連續上班 (嚴格執行)
         if (shiftCode !== 'OFF') {
             const limit = (st.isLongLeave && this.rules.policy?.longLeaveAdjust) ? 7 : (this.rules.policy?.maxConsDays || 6);
+            // 如果目前已經連上 X 天 (例如 6)，則今天 (第 7 天) 不能再排班
             if (st.consecutiveDays >= limit) return false;
         }
 
