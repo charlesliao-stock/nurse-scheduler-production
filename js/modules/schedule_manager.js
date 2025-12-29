@@ -1,6 +1,7 @@
 // js/modules/schedule_manager.js
-// 🤖 AI 排班演算法引擎 (Auto-Scheduler v5.11 - Robin Hood "Tax the Rich" Logic)
-// 重大更新：新增「富人搶班」機制，主動將積假多的人強制安插進班表，替換掉積假少的人。
+// 🤖 AI 排班演算法引擎 (Auto-Scheduler v5.12 - Anti-Fragmentation "Sticky" Logic)
+// 修正重點：在「富人搶班」機制中加入慣性，避免「做一休一」。
+// 若富人昨天有上班，鼓勵他今天繼續搶 (連上)；若昨天休假，除非差距過大，否則不輕易搶 (連休)。
 
 const scheduleManager = {
     docId: null,
@@ -104,17 +105,18 @@ const scheduleManager = {
     },
 
     generateOptions: async function() {
-        // 強制使用高強度平衡參數
+        // [參數設定]
         const ai = this.rules.aiParams || {};
-        const baseWBalance = 8000; // 超高權重
-        const baseWContinuity = 20; // 降低連續性權重，避免鎖死
-        const baseTolerance = 1; // 容忍度極低
+        // 這些權重主要影響 Cycle 2 的填補
+        const baseWBalance = 8000; 
+        const baseWContinuity = 20; 
+        const baseTolerance = 1; 
 
         const options = [];
         const strategies = [
-            { name: "方案 A (劫富濟貧)", wBal: baseWBalance, wCont: baseWContinuity, tol: baseTolerance },
-            { name: "方案 B (絕對平均)", wBal: 10000, wCont: 0, tol: 0 }, 
-            { name: "方案 C (彈性平衡)", wBal: 5000, wCont: 100, tol: 2 }
+            { name: "方案 A (平衡且連續)", wBal: baseWBalance, wCont: baseWContinuity, tol: baseTolerance },
+            { name: "方案 B (強制平均)", wBal: 10000, wCont: 0, tol: 0 }, 
+            { name: "方案 C (寬鬆模式)", wBal: 5000, wCont: 100, tol: 2 }
         ];
 
         const originalMatrix = JSON.parse(JSON.stringify(this.matrix));
@@ -160,26 +162,24 @@ const scheduleManager = {
         };
     },
 
-    // --- 核心入口 ---
     runAutoSchedule: async function(strategy) {
         for (let day = 1; day <= this.daysInMonth; day++) {
-            // 1. 鋪底 (僅硬規則檢查)
+            // 1. 鋪底 (僅硬規則)
             this.cycle1_foundation(day);
             
             // 2. 填補 (競價)
             this.cycle2_scoringFill(day, strategy);
             
-            // 3. [核心] 富人搶班 (Tax The Rich)
-            // 取代原本的 Active Swap，改用更激進的邏輯
+            // 3. [核心] 慣性搶班 (Sticky Tax The Rich)
             this.cycle3_taxTheRich(day, strategy);
             
-            // 4. 回溯救急
+            // 4. 回溯
             this.cycle3_backtrack(day);
             
-            // 5. 修剪過剩
+            // 5. 修剪
             this.cycle4_trimExcess(day);
             
-            // 6. 日結算
+            // 6. 日結
             this.cycle5_dailySettlement(day);
         }
         return this.matrix;
@@ -198,13 +198,11 @@ const scheduleManager = {
             if (this.stats[uid].consecutiveDays >= limit) {
                 this.assign(uid, day, 'OFF'); 
             }
-            // 移除慣性延續，強迫進入 Cycle 2 重新競價
         });
     },
 
     cycle2_scoringFill: function(day, strategy) {
         let maxIterations = 50; 
-        
         const sortedShifts = Object.keys(this.shiftMap).sort((a, b) => {
             const score = code => {
                 if (code === 'N') return 1;
@@ -229,47 +227,47 @@ const scheduleManager = {
         }
     },
 
-    // [v5.11 新增] 富人搶班機制 (Tax The Rich)
-    // 邏輯：找出當天沒上班的「富人」，強制掃描所有班別，看能不能把「窮人」擠掉
+    // [核心] 慣性富人搶班
     cycle3_taxTheRich: function(day, strategy) {
-        // 1. 排序：積假越多的越前面 (富人優先)
         const richStaff = [...this.staffList].sort((a, b) => this.stats[b.uid].totalOff - this.stats[a.uid].totalOff);
         
         for (let richUser of richStaff) {
-            // 如果富人今天已經有班，或是被鎖定，跳過
             if (this.isLocked(richUser.uid, day)) continue;
             const currentCode = this.matrix[richUser.uid][`current_${day}`];
             if (currentCode && currentCode !== 'OFF') continue;
 
-            // 富人開始尋找獵物
+            // --- 慣性判斷 ---
+            // 取得該富人昨天的班別
+            const lastCode = this.stats[richUser.uid].lastShiftCode;
+            const wasWorkingYesterday = (lastCode && lastCode !== 'OFF' && lastCode !== 'REQ_OFF');
+            
+            // 設定搶班門檻 (Diff Threshold)
+            // 如果昨天有上班 -> 門檻低 (0)，鼓勵連上，避免做一休一
+            // 如果昨天是 OFF -> 門檻高 (3)，除非貧富差距真的很大，否則不要輕易打斷休假
+            let dynamicThreshold = wasWorkingYesterday ? 0 : 3;
+
             const shifts = Object.keys(this.shiftMap);
             for (let shiftCode of shifts) {
-                // 富人能上這個班嗎？
                 if (!this.checkHardRules(richUser.uid, day, shiftCode)) continue;
 
-                // 找出這個班目前是誰在上 (潛在獵物)
+                // 找獵物 (窮人)
                 const workersOnShift = this.staffList.filter(u => 
                     this.matrix[u.uid][`current_${day}`] === shiftCode && 
                     !this.isLocked(u.uid, day)
                 );
-
-                // 排序獵物：積假最少的 (最窮的) 排前面
                 workersOnShift.sort((a, b) => this.stats[a.uid].totalOff - this.stats[b.uid].totalOff);
 
                 if (workersOnShift.length > 0) {
                     const poorUser = workersOnShift[0];
                     
-                    // 只有當「富人 OFF」顯著多於「窮人 OFF」時才搶 (例如多 2 天以上)
-                    // 這樣可以避免無意義的微小交換
-                    if (this.stats[richUser.uid].totalOff > this.stats[poorUser.uid].totalOff + 1) {
+                    // 執行交換判定
+                    if (this.stats[richUser.uid].totalOff > (this.stats[poorUser.uid].totalOff + dynamicThreshold)) {
                         
-                        console.log(`💰 Tax The Rich (Day ${day}): ${richUser.name} (${this.stats[richUser.uid].totalOff}) 搶了 ${poorUser.name} (${this.stats[poorUser.uid].totalOff}) 的 ${shiftCode}`);
+                        console.log(`💰 Sticky Tax (Day ${day}): ${richUser.name} (${wasWorkingYesterday?'連':'斷'}) 搶了 ${poorUser.name}`);
                         
-                        // 執行交換
                         this.assign(richUser.uid, day, shiftCode);
-                        this.assign(poorUser.uid, day, 'OFF'); // 窮人去休息
-                        
-                        break; // 富人找到工作了，停止尋找
+                        this.assign(poorUser.uid, day, 'OFF'); 
+                        break; 
                     }
                 }
             }
@@ -338,6 +336,7 @@ const scheduleManager = {
 
             if (!currentCode || currentCode === 'OFF') {
                 score += 100; 
+                // 平衡性權重
                 if (diff > tolerance) score += (diff * wBal * 3); 
                 else if (diff < -tolerance) score -= (Math.abs(diff) * wBal * 3);
                 else score += (diff * wBal);
