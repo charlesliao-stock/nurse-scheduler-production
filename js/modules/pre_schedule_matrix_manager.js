@@ -54,7 +54,7 @@ const matrixManager = {
     showLoading: function() {
         const container = document.getElementById('matrixContainer');
         if(container) {
-            container.innerHTML = '<div style="padding:60px; text-align:center; color:#666;"><i class="fas fa-spinner fa-spin" style="font-size:3rem; margin-bottom:20px;"></i><br>載入排班矩陣中...</div>';
+            container.innerHTML = '<div style="padding:60px; text-align:center; color:#666;"><i class="fas fa-spinner fa-spin" style="font-size:3rem; margin-bottom:20px;"></i><br>載入預班矩陣中...</div>';
         }
     },
 
@@ -100,7 +100,105 @@ const matrixManager = {
         }
     },
 
-    // --- 渲染矩陣 (修正：圖示過期檢查) ---
+    // --- [修改] 執行排班邏輯 ---
+    executeSchedule: async function() {
+        // 1. 檢查紅字警告 (違反預班限制)
+        if (document.querySelector('.text-danger')) {
+            if(!confirm("⚠️ 警告：目前有部分人員預休超過上限 (紅字)！\n\n確定要強制執行嗎？")) return;
+        }
+
+        // 2. 檢查未預班人員
+        const totalStaff = this.data.staffList.length;
+        let submittedCount = 0;
+        this.data.staffList.forEach(u => {
+            // 只要 assignments 中有該 user 的 key，且不為空物件，視為有參與 (或至少有上月資料)
+            // 更嚴格的判定：看當月是否有填寫 REQ_OFF 或任何班
+            if (this.localAssignments[u.uid]) {
+                submittedCount++;
+            }
+        });
+        
+        const unsubmittedCount = totalStaff - submittedCount;
+        let msg = `準備執行排班作業：\n\n總人數：${totalStaff} 人\n已預班：${submittedCount} 人`;
+        
+        if (unsubmittedCount > 0) {
+            msg += `\n⚠️ 未預班：${unsubmittedCount} 人 (這些人將視為無預班需求)`;
+        }
+        
+        msg += `\n\n執行後，將建立「排班草稿」並鎖定此預班表。\n確定繼續？`;
+
+        if(!confirm(msg)) return;
+
+        try {
+            this.isLoading = true;
+
+            // 3. 準備快照資料 (Snapshot)
+            // 關鍵：將使用者當下的屬性 (usersMap) 合併進 staffList
+            // 這樣排班作業就能讀到最新的懷孕、包班、年資等參數
+            const snapshotStaffList = this.data.staffList.map(u => {
+                const userProfile = this.usersMap[u.uid] || {};
+                return {
+                    ...u, // uid, name, level, empId
+                    // 將排班參數快照進去
+                    schedulingParams: userProfile.schedulingParams || {},
+                    notes: userProfile.note || "" // 特註
+                };
+            });
+
+            // 4. 準備寫入 schedules 的資料
+            const newScheduleData = {
+                unitId: this.data.unitId,
+                year: this.data.year,
+                month: this.data.month,
+                sourceId: this.docId, // 關聯來源
+                status: 'draft',
+                
+                // 完整複製人員名單 (含參數快照)
+                staffList: JSON.parse(JSON.stringify(snapshotStaffList)),
+                
+                // 完整複製預班結果 (含上月積假、預休)
+                assignments: JSON.parse(JSON.stringify(this.localAssignments)),
+                
+                // 複製當下的規則與需求 (若預班表有存就用預班表的，否則用單位的)
+                rules: this.data.rules || {}, // 這裡假設您在預班階段有存 rules，若無，schedule_manager 載入時會去抓 Unit
+                dailyNeeds: JSON.parse(JSON.stringify(this.data.dailyNeeds || {})),
+
+                createdBy: app.currentUser.uid,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+
+            // 5. 寫入 DB
+            const batch = db.batch();
+            
+            // A. 新增排班草稿
+            const newDocRef = db.collection('schedules').doc();
+            batch.set(newDocRef, newScheduleData);
+            
+            // B. 更新預班表狀態為 'scheduled' (代表已轉排班)
+            const preDocRef = db.collection('pre_schedules').doc(this.docId);
+            batch.update(preDocRef, {
+                status: 'scheduled',
+                assignments: this.localAssignments, // 順便存最後一次修改
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            await batch.commit();
+
+            alert("✅ 排班草稿建立成功！\n即將進入排班作業頁面...");
+            
+            // 6. 跳轉
+            window.location.hash = `/admin/schedule_editor/${newDocRef.id}`;
+
+        } catch(e) {
+            console.error(e);
+            alert("執行失敗: " + e.message);
+        } finally {
+            this.isLoading = false;
+        }
+    },
+
+    // --- 其餘功能保持不變 ---
     renderMatrix: function() {
         const thead = document.getElementById('matrixHead');
         const tbody = document.getElementById('matrixBody');
@@ -113,7 +211,6 @@ const matrixManager = {
         const daysInMonth = new Date(year, month, 0).getDate();
         const today = new Date().toISOString().split('T')[0];
         
-        // 1. 表頭
         let header1 = `<tr><th rowspan="2">員編</th><th rowspan="2">姓名</th><th rowspan="2">特註</th><th rowspan="2">偏好</th><th colspan="6" style="background:#eee;">上月</th><th colspan="${daysInMonth}">本月 ${month} 月</th><th rowspan="2" style="background:#fff; position:sticky; right:0; z-index:20; border-left:2px solid #ccc; width:60px;">統計<br>(OFF)</th></tr>`;
         let header2 = `<tr>`;
         
@@ -131,7 +228,6 @@ const matrixManager = {
         header2 += `</tr>`;
         thead.innerHTML = header1 + header2;
 
-        // 2. 內容
         let bodyHtml = '';
         const staffList = this.data.staffList || [];
         staffList.sort((a,b) => (a.empId||'').localeCompare(b.empId||''));
@@ -141,7 +237,6 @@ const matrixManager = {
             const params = userInfo.schedulingParams || {};
             let noteIcon = '';
 
-            // [修正] 檢查日期是否有效
             const isPregnant = params.isPregnant && (!params.pregnantExpiry || params.pregnantExpiry >= today);
             const isBreastfeeding = params.isBreastfeeding && (!params.breastfeedingExpiry || params.breastfeedingExpiry >= today);
 
@@ -192,7 +287,6 @@ const matrixManager = {
         });
         tbody.innerHTML = bodyHtml;
 
-        // 3. 底部
         let footHtml = `<tr><td colspan="4">每日OFF小計</td>`;
         for(let i=0; i<6; i++) footHtml += `<td class="cell-narrow" style="background:#eee;">-</td>`;
         for(let d=1; d<=daysInMonth; d++) {
@@ -210,8 +304,6 @@ const matrixManager = {
         return `<span class="shift-normal">${val}</span>`;
     },
 
-    // ... (其餘所有函式 openPreferenceModal, updateAdminPrefOptions, savePreferences, closePrefModal, onCellClick, handleLeftClick, handleRightClick, setShift, updateStats, setupEvents, cleanup, saveData, executeSchedule 均保持不變) ...
-    // 為確保檔案完整性，請直接保留前一版的其餘程式碼，這裡不重複列出以節省空間
     openPreferenceModal: function(uid, name) {
         const modal = document.getElementById('prefModal');
         if(!modal) return;
@@ -489,25 +581,6 @@ const matrixManager = {
             });
             alert("✅ 草稿已儲存");
         } catch(e) { console.error(e); alert("儲存失敗: " + e.message); }
-        finally { this.isLoading = false; }
-    },
-
-    executeSchedule: async function() {
-        if (document.querySelector('.text-danger')) {
-            if(!confirm("⚠️ 警告：有紅字！確定強制執行？")) return;
-        } else {
-            if(!confirm("確定執行排班？執行後將截止預班。")) return;
-        }
-        try {
-            this.isLoading = true;
-            await db.collection('pre_schedules').doc(this.docId).update({
-                assignments: this.localAssignments,
-                status: 'closed', 
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            alert("✅ 執行成功！");
-            history.back(); 
-        } catch(e) { alert("執行失敗: " + e.message); }
         finally { this.isLoading = false; }
     }
 };
