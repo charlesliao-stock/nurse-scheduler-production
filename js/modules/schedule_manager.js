@@ -1,6 +1,6 @@
 // js/modules/schedule_manager.js
-// 🤖 AI 排班演算法 (v5.15 - Strict Gap Check & Preference Boost)
-// Fix: 1. 雙向檢查 (前後日) 防止 E接D/N 2. 提高填補缺口優先級 3. 加重個人偏好權重
+// 🤖 AI 排班演算法 (v5.18 - Strict Preference Whitelist)
+// Fix: 嚴格遵守「白名單」邏輯。若員工有設定包班或志願，絕對禁止安排該範圍以外的班別。
 
 const scheduleManager = {
     docId: null, rules: {}, staffList: [], shifts: [], shiftMap: {}, matrix: {}, dailyNeeds: {}, stats: {}, daysInMonth: 0, year: 0, month: 0, sourceData: null,
@@ -55,40 +55,69 @@ const scheduleManager = {
     prepareContext: async function() {
         this.stats = {};
         const longLeaveThres = this.rules.policy?.longLeaveThres || 5;
+        
+        console.group("🤖 AI Context Check (Strict Mode)");
         this.staffList.forEach(u => {
             if (!this.matrix[u.uid]) this.matrix[u.uid] = {};
             const lastShift = this.matrix[u.uid]['last_0'] || null;
-            const pref = this.matrix[u.uid].preferences || {};
-            
+            const monthlyPref = this.matrix[u.uid].preferences || {};
+            const userParams = u.schedulingParams || {};
+
+            // 判斷包班
+            const canBundle = userParams.canBundleShifts === true;
+            const targetBundle = monthlyPref.bundleShift || userParams.bundleShift || null;
+
             let reqOffCount = 0;
             for(let d=1; d<=this.daysInMonth; d++) { if(this.matrix[u.uid][`current_${d}`] === 'REQ_OFF') reqOffCount++; }
             
+            // 建立白名單集合 (Set)
+            const allowedShifts = new Set();
+            if (canBundle && targetBundle) allowedShifts.add(targetBundle);
+            if (monthlyPref.priority_1) allowedShifts.add(monthlyPref.priority_1);
+            if (monthlyPref.priority_2) allowedShifts.add(monthlyPref.priority_2);
+            if (monthlyPref.priority_3) allowedShifts.add(monthlyPref.priority_3);
+
             this.stats[u.uid] = {
                 consecutiveDays: (lastShift && lastShift !== 'OFF') ? 1 : 0,
                 totalOff: 0,
                 lastShiftCode: lastShift,
                 isLongLeave: reqOffCount >= longLeaveThres,
-                isPregnant: u.schedulingParams?.isPregnant,
-                canBundle: u.schedulingParams?.canBundleShifts,
-                bundleShift: pref.bundleShift || null,
-                p1: pref.priority_1,
-                p2: pref.priority_2,
-                p3: pref.priority_3
+                isPregnant: userParams.isPregnant,
+                isBreastfeeding: userParams.isBreastfeeding,
+                
+                canBundle: canBundle,
+                bundleShift: targetBundle,
+                
+                p1: monthlyPref.priority_1,
+                p2: monthlyPref.priority_2,
+                p3: monthlyPref.priority_3,
+                
+                // [關鍵] 將允許的班別轉為 Array 存起來
+                // 如果是空陣列，代表「無偏好 (隨便排)」
+                allowedList: Array.from(allowedShifts) 
             };
             
+            // Debug: 顯示每人的允許班別
+            if (this.stats[u.uid].allowedList.length > 0) {
+                console.log(`🔒 ${u.name}: 僅限排 [${this.stats[u.uid].allowedList.join(', ')}]`);
+            } else {
+                console.log(`🔓 ${u.name}: 無限制 (全能工)`);
+            }
+
             for(let d=1; d<=this.daysInMonth; d++) {
                 if(this.matrix[u.uid][`current_${d}`] === 'REQ_OFF') this.stats[u.uid].totalOff++;
             }
         });
+        console.groupEnd();
     },
 
     generateOptions: async function() {
         const options = [];
-        // [調整] 提高 Preference 權重，並確保缺口填補
+        // [參數調整] 因為範圍已經被硬規則鎖死，這裡的權重主要影響「在合法範圍內」誰先被選中
         const strategies = [
-            { name: "方案 A (均衡)", wBal: 5000, wCont: 20, tol: 1 },
-            { name: "方案 B (偏好優先)", wBal: 3000, wCont: 50, tol: 2 },
-            { name: "方案 C (強力填補)", wBal: 1000, wCont: 100, tol: 3 } // 降低平衡權重，讓缺口更容易被填滿
+            { name: "方案 A (均衡優先)", wBal: 8000, wCont: 20, tol: 1 },
+            { name: "方案 B (偏好權重)", wBal: 5000, wCont: 50, tol: 2 },
+            { name: "方案 C (連續性優先)", wBal: 3000, wCont: 200, tol: 3 }
         ];
         const originalMatrix = JSON.parse(JSON.stringify(this.matrix));
         for (let s of strategies) {
@@ -129,7 +158,6 @@ const scheduleManager = {
     cycle2_scoringFill: function(day, strategy) {
         const shifts = Object.keys(this.shiftMap);
         let maxIter = 50;
-        
         let totalOff = 0; this.staffList.forEach(u => totalOff+=this.stats[u.uid].totalOff);
         const avgOff = totalOff / this.staffList.length;
 
@@ -153,39 +181,37 @@ const scheduleManager = {
             const cur = this.matrix[uid][`current_${day}`] || null;
             if(cur === targetShift) return; 
             
-            // [關鍵] 檢查 Hard Rules (包含前後日)
+            // 🛑 硬規則檢查 (含嚴格白名單)
             if(!this.checkHardRules(uid, day, targetShift)) return;
 
             let score = 0;
-            const myOff = this.stats[uid].totalOff;
+            const st = this.stats[uid];
+            const myOff = st.totalOff;
             const diff = myOff - avgOff; 
 
-            // 1. 基礎分 (從 OFF 抓人)
+            // 1. 基礎分
             if(!cur || cur==='OFF') {
-                score += 500; // 提高基礎分，鼓勵填坑
-                // 平衡性 (OFF 越多越容易被抓)
+                score += 500; 
                 if(diff > tol) score += (diff * wBal); 
                 else if(diff < -tol) score -= (Math.abs(diff) * wBal); 
                 else score += (diff * wBal * 0.5);
             } else if(this.getShiftSurplus(day, cur) > 0) {
-                score += 300; // 支援調度
+                score += 300; 
             }
 
-            // 2. 偏好加分 (大幅提高權重)
-            const p = this.stats[uid];
-            if(p.p1 === targetShift) score += 5000; // 第一志願：絕對優先
-            else if(p.p2 === targetShift) score += 2000;
-            else if(p.p3 === targetShift) score += 1000;
+            // 2. 偏好加分 (區分志願序)
+            // 這裡的加分只是為了在「合法候選人」中區分高下
+            if(st.bundleShift === targetShift) score += 5000;
+            else if(st.p1 === targetShift) score += 3000;
+            else if(st.p2 === targetShift) score += 1500;
+            else if(st.p3 === targetShift) score += 500;
 
             // 3. 連續性
-            const prev = this.stats[uid].lastShiftCode;
+            const prev = st.lastShiftCode;
             if(prev === targetShift) score += wCont;
 
-            // 4. [新增] 缺口救火分
-            // 如果這個班目前很缺人，且該員能上，大幅加分，避免留白
-            if(this.getShiftGap(day, targetShift) > 0) {
-                score += 1000;
-            }
+            // 4. 缺口救火 (現在只對合法的人有效)
+            if(this.getShiftGap(day, targetShift) > 0) score += 2000;
 
             moves.push({ uid, from: cur, to: targetShift, score });
         });
@@ -200,7 +226,6 @@ const scheduleManager = {
             const cur = this.matrix[richUser.uid][`current_${day}`];
             if (cur && cur !== 'OFF') continue;
 
-            // 嘗試搶班
             const shifts = Object.keys(this.shiftMap);
             for (let s of shifts) {
                 if (!this.checkHardRules(richUser.uid, day, s)) continue; // 必須合規
@@ -240,66 +265,55 @@ const scheduleManager = {
     executeMove: function(day, m) { this.assign(m.uid, day, m.to); },
     isLocked: function(uid, day) { const v = this.matrix[uid]?.[`current_${day}`]; return v==='REQ_OFF' || (v&&v.startsWith('!')); },
 
-    // --- [核心修正] 硬規則檢查 (包含前後日) ---
+    // --- [核心] 硬規則檢查 (Strict Whitelist) ---
     checkHardRules: function(uid, day, shiftCode) {
-        // 1. 檢查前一日 (Backward)
-        let lastCode = this.stats[uid].lastShiftCode;
+        const st = this.stats[uid];
+        
+        // 1. [絕對白名單] 偏好限制
+        // 如果此人有設定任何「允許班別」(包班或 P1/P2/P3)
+        // 則除此之外的班別一律禁止 (OFF 除外)
+        if (st.allowedList.length > 0) {
+            if (shiftCode !== 'OFF' && !st.allowedList.includes(shiftCode)) {
+                return false; // 非白名單內的班別，禁止！
+            }
+        }
+
+        // 2. 雙向間隔檢查
+        let lastCode = st.lastShiftCode;
         if (this.rules.hard?.minGap11 !== false) {
             if (lastCode && !this.checkGap11(lastCode, shiftCode)) return false;
         }
-
-        // 2. [新增] 檢查後一日 (Forward / Look-ahead)
-        // 防止今天排了 E，結果明天已經鎖定 D，造成 E->D
         const nextDay = day + 1;
         if (nextDay <= this.daysInMonth) {
             const nextCode = this.matrix[uid][`current_${nextDay}`];
             if (nextCode && nextCode !== 'OFF' && nextCode !== 'REQ_OFF') {
-                // 如果明天有班，檢查 "今天->明天" 是否合法
                 if (this.rules.hard?.minGap11 !== false) {
                     if (!this.checkGap11(shiftCode, nextCode)) return false;
                 }
             }
         }
 
-        // 3. 孕哺限制
+        // 3. 孕哺
         if (this.rules.hard?.protectPregnant !== false) {
-            if ((this.stats[uid].isPregnant || this.stats[uid].isBreastfeeding) && this.isLateShift(shiftCode)) return false;
+            if ((st.isPregnant || st.isBreastfeeding) && this.isLateShift(shiftCode)) return false;
         }
 
-        // 4. 連續上班限制
+        // 4. 連續
         if (shiftCode !== 'OFF') {
-            const limit = (this.stats[uid].isLongLeave && this.rules.policy?.longLeaveAdjust) ? 7 : (this.rules.policy?.maxConsDays || 6);
-            if (this.stats[uid].consecutiveDays >= limit) return false;
-        }
-
-        // 5. 包班限制
-        if (this.rules.policy?.bundleNightOnly !== false && this.stats[uid].canBundle) {
-            const bundleCode = this.stats[uid].bundleShift;
-            if (bundleCode && shiftCode !== 'OFF' && shiftCode !== bundleCode) return false;
+            const limit = (st.isLongLeave && this.rules.policy?.longLeaveAdjust) ? 7 : (this.rules.policy?.maxConsDays || 6);
+            if (st.consecutiveDays >= limit) return false;
         }
 
         return true;
     },
 
-    // --- [核心修正] 11小時/逆向排班檢查 ---
     checkGap11: function(prev, curr) {
         if (!prev || prev === 'OFF' || prev === 'REQ_OFF') return true;
         if (!curr || curr === 'OFF' || curr === 'REQ_OFF') return true;
-        
-        // 嚴格禁止逆向 (Retrograde Rotation)
-        // E (16-24) -> D (08-16): 間隔 8hr -> 禁止
         if (prev === 'E' && curr === 'D') return false; 
-        
-        // E (16-24) -> N (00-08): 間隔 0hr -> 禁止
         if (prev === 'E' && curr === 'N') return false; 
-        
-        // D (08-16) -> N (00-08): 間隔 8hr -> 禁止 (雖非法規11hr但通常不排)
         if (prev === 'D' && curr === 'N') return false; 
-        
-        // N (00-08) -> E (16-24): 間隔 8hr -> 禁止 (若需嚴格11hr)
-        // 如果貴單位允許 N -> E (間隔8hr)，可註解掉下面這行
-        if (prev === 'N' && curr === 'E') return false;
-
+        if (prev === 'N' && curr === 'E') return false; 
         return true;
     },
 
@@ -316,7 +330,6 @@ const scheduleManager = {
     isLateShift: function(code) {
         const s = this.shiftMap[code];
         if (!s) return false;
-        // 簡單判定：N 或 E 算晚班
-        return code === 'N' || code === 'E';
+        return code === 'N' || code === 'E'; 
     }
 };
