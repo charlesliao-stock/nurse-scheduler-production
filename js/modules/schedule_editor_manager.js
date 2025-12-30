@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 完整修正版 (vFinal): 包含懸浮預覽列、正確讀取包班屬性、AI 資料轉譯
+// 完整修正版 (vFinal_UI_Fix): 修復按鈕文字看不見的問題 (高對比配色)
 
 const scheduleEditorManager = {
     scheduleId: null,
@@ -18,7 +18,7 @@ const scheduleEditorManager = {
         
         try {
             await this.loadContext();
-            // 初始化 AI 引擎 (傳入 'schedules' 以便讀取快照規則)
+            // 初始化 AI 引擎
             if (typeof scheduleManager !== 'undefined') {
                 await scheduleManager.loadContext(id, 'schedules'); 
             }
@@ -115,7 +115,7 @@ const scheduleEditorManager = {
         }, 100);
     },
 
-    // 資料轉譯：Staff (修正包班屬性讀取)
+    // 資料轉譯：Staff
     _prepareStaffDataForAI: function() {
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
         
@@ -125,7 +125,7 @@ const scheduleEditorManager = {
             const pref = assign.preferences || {};
             const params = u.schedulingParams || {};
 
-            // [修正] 讀取包班屬性 (優先看當月偏好，再看個人參數)
+            // 讀取包班屬性
             let pkgType = null;
             if (pref.bundleShift && pref.bundleShift !== '') {
                 pkgType = pref.bundleShift;
@@ -133,7 +133,6 @@ const scheduleEditorManager = {
                 pkgType = params.bundleShift;
             }
 
-            // 每日偏好處理
             const aiPrefs = {};
             for (let d = 1; d <= daysInMonth; d++) {
                 const dateStr = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
@@ -157,7 +156,6 @@ const scheduleEditorManager = {
         });
     },
 
-    // 資料轉譯：Last Month
     _prepareLastMonthData: function() {
         const result = {};
         if (typeof scheduleManager !== 'undefined' && scheduleManager.stats) {
@@ -171,6 +169,7 @@ const scheduleEditorManager = {
         return result;
     },
 
+    // --- [UI修正] 渲染選項卡片 (強制內聯樣式以確保對比度) ---
     renderAiOptions: function() {
         const c = document.getElementById('aiOptionsContainer'); 
         if(!c) return;
@@ -185,6 +184,10 @@ const scheduleEditorManager = {
             const gap = o.metrics.gapCount;
             const gapColor = gap === 0 ? 'color:green' : 'color:red';
             const isRec = o.info.code === 'V3'; // 推薦 V3
+
+            // 使用 style 屬性強制設定按鈕顏色，避免 CSS 衝突
+            const btnPreviewStyle = isError ? '' : 'background-color:#17a2b8; color:white; border:none; font-weight:bold;';
+            const btnApplyStyle = isError ? '' : 'background-color:#28a745; color:white; border:none; font-weight:bold;';
 
             c.innerHTML += `
                 <div class="ai-option-card" style="${isRec ? 'border:2px solid #3498db; background:#f0f8ff;' : ''}">
@@ -202,10 +205,10 @@ const scheduleEditorManager = {
                     }
                     
                     <div style="text-align:right;">
-                        <button class="btn btn-sm btn-info" onclick="scheduleEditorManager.previewOption(${i})" ${isError?'disabled':''}>
+                        <button class="btn btn-sm" style="${btnPreviewStyle}" onclick="scheduleEditorManager.previewOption(${i})" ${isError?'disabled':''}>
                             <i class="fas fa-eye"></i> 預覽
                         </button>
-                        <button class="btn btn-sm btn-success" onclick="scheduleEditorManager.applyAiOption(${i})" ${isError?'disabled':''}>
+                        <button class="btn btn-sm" style="${btnApplyStyle}" onclick="scheduleEditorManager.applyAiOption(${i})" ${isError?'disabled':''}>
                             <i class="fas fa-check"></i> 套用
                         </button>
                     </div>
@@ -214,7 +217,7 @@ const scheduleEditorManager = {
         });
     },
 
-    // --- [核心] 懸浮預覽控制列 ---
+    // --- [UI修正] 懸浮預覽控制列 (高對比度配色) ---
     showPreviewBar: function(planName, index) {
         let bar = document.getElementById('aiPreviewBar');
         if (!bar) {
@@ -222,21 +225,28 @@ const scheduleEditorManager = {
             bar.id = 'aiPreviewBar';
             bar.style.cssText = `
                 position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-                background: rgba(0,0,0,0.85); color: white; padding: 15px 30px;
+                background: rgba(33, 37, 41, 0.95); color: white; padding: 15px 30px;
                 border-radius: 50px; z-index: 9999; display: flex; align-items: center; gap: 20px;
-                box-shadow: 0 5px 20px rgba(0,0,0,0.4); backdrop-filter: blur(5px);
-                font-family: 'Segoe UI', sans-serif;
+                box-shadow: 0 5px 20px rgba(0,0,0,0.5); backdrop-filter: blur(5px);
+                font-family: 'Segoe UI', sans-serif; border: 1px solid #444;
             `;
             document.body.appendChild(bar);
         }
         
+        // 按鈕樣式：白色按鈕配黑字，綠色按鈕配白字，確保絕對清晰
         bar.innerHTML = `
-            <span style="font-weight:bold; font-size:1.1rem; color:#fff;">👁️ 正在預覽：<span style="color:#3498db;">${planName}</span></span>
-            <div style="width:1px; height:20px; background:#555;"></div>
-            <button class="btn btn-sm btn-secondary" onclick="scheduleEditorManager.backToAiModal()" style="border-radius:20px;">
+            <span style="font-weight:bold; font-size:1.1rem; color:#fff; text-shadow:0 1px 2px black;">
+                👁️ 正在預覽：<span style="color:#4db8ff;">${planName}</span>
+            </span>
+            <div style="width:1px; height:20px; background:#666;"></div>
+            
+            <button class="btn btn-sm" onclick="scheduleEditorManager.backToAiModal()" 
+                style="background: #ffffff; color: #333; border: none; border-radius: 20px; font-weight: bold; padding: 8px 20px;">
                 <i class="fas fa-arrow-left"></i> 返回選擇
             </button>
-            <button class="btn btn-sm btn-success" onclick="scheduleEditorManager.confirmApply(${index})" style="border-radius:20px;">
+            
+            <button class="btn btn-sm" onclick="scheduleEditorManager.confirmApply(${index})" 
+                style="background: #28a745; color: #fff; border: none; border-radius: 20px; font-weight: bold; padding: 8px 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">
                 <i class="fas fa-check"></i> 確認套用
             </button>
         `;
@@ -259,7 +269,7 @@ const scheduleEditorManager = {
         this.hidePreviewBar();
     },
 
-    // --- [修改] 預覽功能：切換為懸浮模式 ---
+    // --- 預覽功能 ---
     previewOption: function(i) {
         const opt = this.tempOptions[i];
         if(!opt || opt.error) return;
@@ -299,6 +309,9 @@ const scheduleEditorManager = {
             this.renderMatrix(); 
             this.updateRealTimeStats();
             
+            const titleEl = document.getElementById('schTitle');
+            if(titleEl) titleEl.textContent = `${this.data.year} 年 ${this.data.month} 月 - 排班作業`;
+            
             alert(`已成功套用：${opt.info.name}\n請記得點擊「儲存」以寫入資料庫。`);
         }
     },
@@ -309,6 +322,8 @@ const scheduleEditorManager = {
             this._snapshot = null;
             this.renderMatrix();
             this.updateRealTimeStats();
+            const titleEl = document.getElementById('schTitle');
+            if(titleEl) titleEl.textContent = `${this.data.year} 年 ${this.data.month} 月 - 排班作業`;
         }
         const modal = document.getElementById('aiResultModal');
         if(modal) modal.classList.remove('show');
@@ -318,10 +333,8 @@ const scheduleEditorManager = {
     setupModalEvents: function() {
         const modal = document.getElementById('aiResultModal');
         if(modal) {
-            // 綁定關閉按鈕
             const closeBtn = modal.querySelector('.close');
             if(closeBtn) closeBtn.onclick = () => this.cancelPreview();
-            // 點擊背景關閉
             window.onclick = (event) => {
                 if (event.target == modal) this.cancelPreview();
             };
@@ -405,7 +418,7 @@ const scheduleEditorManager = {
             for(let i=5; i>=0; i--) {
                 const d = lastMonthLastDay - i;
                 const val = assign[`last_${d}`] || '';
-                bodyHtml += `<td class="cell-last-month">${val}</td>`;
+                bodyHtml += `<td class="cell-last-month cell-narrow">${val}</td>`;
             }
 
             // 本月
