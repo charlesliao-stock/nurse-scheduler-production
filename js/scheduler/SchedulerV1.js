@@ -1,27 +1,23 @@
 /**
- * 策略 V1: 全域分層法 (Global Layered) - 動態供需節奏版
- * * 修正重點：
- * 1. [Init] 不再使用固定的月休 8 天。
- * 2. [Init] 初始化時動態計算全月總需求，推算出「平均月休天數」與「休息節奏」。
- * - 如果人力吃緊，節奏會自動拉長 (例如上 6 休 1)。
- * - 如果人力充裕，節奏會自動縮短 (例如上 3 休 1)。
- * 3. [Cycle 0] 包班 VIP 依然受「滿員檢查」限制，但休息節奏改用上述動態值。
+ * 策略 V1: 全域分層法 (Step 1: 暴力填滿版)
+ * 目前進度：
+ * 1. 保留了動態參數初始化 (供後續計算參考)。
+ * 2. 排班邏輯僅執行「包班填滿」，無視任何限制 (爆量、節奏)。
  */
 class SchedulerV1 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
         super(allStaff, year, month, lastMonthData, rules);
         
-        // --- Step 1: 初始化與參數準備 ---
+        // --- Step 1: 初始化與參數準備 (保留您提供的動態計算) ---
         this.initDynamicPacing();
     }
 
-    // [核心修正] 動態計算供需與節奏
+    // [核心修正] 動態計算供需與節奏 (保留)
     initDynamicPacing() {
         // 1. 計算全月總需求 (Total Demand)
         let totalDemand = 0;
         for (let d = 1; d <= this.daysInMonth; d++) {
             const dateStr = this.getDateStr(d);
-            // 累加 N, E, D 的需求
             ['N', 'E', 'D'].forEach(shift => {
                 totalDemand += this.getDemand(dateStr, shift);
             });
@@ -35,144 +31,69 @@ class SchedulerV1 extends BaseScheduler {
         const totalOffs = totalSupply - totalDemand;
         
         // 4. 計算平均每人月休 (Avg Offs)
-        // 防呆：如果 staffCount 為 0
         this.avgMonthlyOffs = staffCount > 0 ? (totalOffs / staffCount) : 0;
 
         // 5. 推估放假節奏 (Pacing Limit)
-        // 公式：(月天數 - 月休) / 月休 = 平均連上幾天
         if (this.avgMonthlyOffs <= 0) {
-            // 極端缺人：完全沒假放
             this.pacingLimit = 999; 
             console.warn(`[V1 Init] 人力嚴重不足！需求 ${totalDemand} > 供給 ${totalSupply}，無法排休。`);
         } else {
             const workDays = this.daysInMonth - this.avgMonthlyOffs;
             const ratio = workDays / this.avgMonthlyOffs;
-            // 無條件進位並 +1 寬限，例如算出來 3.5 -> 4 -> 寬限為 5 (連上5天再強制休)
             this.pacingLimit = Math.ceil(ratio) + 1;
         }
 
         console.log(`=== V1 初始化參數 ===`);
         console.log(`- 總人力: ${staffCount} 人`);
         console.log(`- 總需求人次: ${totalDemand}`);
-        console.log(`- 總供給人次: ${totalSupply}`);
         console.log(`- 預估平均月休: ${this.avgMonthlyOffs.toFixed(2)} 天`);
-        console.log(`- 動態節奏: 每連上 ${this.pacingLimit} 天建議休假 (若人力允許)`);
+        console.log(`- 動態節奏: 每連上 ${this.pacingLimit} 天建議休假 (此階段暫不啟用)`);
     }
 
     run() {
-        // Cycle 0: 包班 VIP (動態節奏 + 嚴格滿員限制)
-        this.runCycle0_PackageVIP_Strict();
+        console.log("=== V1 Step 1 執行: 包班暴力填滿 (無視爆量) ===");
 
-        // Cycle 1: 一般志願 (隨機抽籤)
-        this.runCycle1_Preferences_Lottery();
+        // 執行: 針對包班人員，填滿整月
+        this.runStep1_FillPackageVIP();
 
-        // Cycle 3: 全域強制補缺 (填坑)
-        this.runCycle3_ForceFill_Global();
-
+        // 暫時不跑其他 Cycle，一步一步來
         return this.schedule;
     }
 
     // ==========================================
-    // Cycle 0: 包班 VIP (嚴格模式 + 動態節奏)
+    // Step 1 核心: 包班 VIP 填好填滿
     // ==========================================
-    runCycle0_PackageVIP_Strict() {
+    runStep1_FillPackageVIP() {
+        // 1. 篩選出有包班屬性 (N 或 E) 的人員
         const packageStaff = this.staffList.filter(s => s.packageType && ['N', 'E'].includes(s.packageType));
-        this.shuffleArray(packageStaff);
+        
+        console.log(`[Step 1] 處理包班人員共 ${packageStaff.length} 位`);
 
         packageStaff.forEach(staff => {
-            const targetShift = staff.packageType; 
-            
-            // 移除固定的 maxWorkDays 限制，改由 pacing 和 demand 控制
-            // 因為如果真的很缺人，VIP 確實可能只休 4 天
+            const targetShift = staff.packageType; // 他包的班別 (N 或 E)
 
             for (let d = 1; d <= this.daysInMonth; d++) {
                 const dateStr = this.getDateStr(d);
                 
-                // A. 鎖定檢查
-                if (this.getShiftByDate(dateStr, staff.id) !== 'OFF') continue;
+                // 檢查目前狀態
+                // 只有當天是 'OFF' (空白) 時才動作
+                // 若已是 'REQ_OFF' (預休) 則跳過
+                const currentStatus = this.getShiftByDate(dateStr, staff.id);
 
-                // B. [絕對限制] 滿員檢查
-                const demand = this.getDemand(dateStr, targetShift);
-                const currentCount = this.schedule[dateStr][targetShift].length;
-                if (currentCount >= demand) continue; // 滿了就跳過
-
-                // C. [動態節奏] 檢查
-                const currentCons = this.getConsecutiveWorkDays(staff.id, dateStr);
-                if (currentCons >= this.pacingLimit) {
-                    // 達到節奏點，檢查是否有其他人可以頂？
-                    const potentialSupply = this.getPotentialSupply(dateStr, targetShift, staff.id);
-                    
-                    // 如果 (潛在供給 >= 需求)，代表我不上也有別人能上 -> 我休息
-                    if (potentialSupply >= demand) { 
-                        continue; 
+                if (currentStatus === 'OFF') {
+                    // 這裡只做最基本的生理連續性檢查 (確保符合 BaseScheduler 規則)
+                    // 完全不檢查 getDemand (每日需求)，也不管 pacingLimit (節奏)
+                    if (this.isValidContinuity(staff, dateStr, targetShift)) {
+                        this.updateShift(dateStr, staff.id, 'OFF', targetShift);
                     }
-                    // 如果 (潛在供給 < 需求)，代表我不上會開天窗 -> 我繼續上 (無視節奏)
-                }
-
-                // D. 連續性檢查 (生理極限)
-                if (this.isValidContinuity(staff, dateStr, targetShift)) {
-                    this.updateShift(dateStr, staff.id, 'OFF', targetShift);
                 }
             }
         });
     }
 
     // ==========================================
-    // Cycle 1 & 3 & Helpers (維持原樣)
+    // 輔助函式 (保留原樣)
     // ==========================================
-    runCycle1_Preferences_Lottery() {
-        for (let d = 1; d <= this.daysInMonth; d++) {
-            const dateStr = this.getDateStr(d);
-            ['N', 'E', 'D'].forEach(shiftType => {
-                const demand = this.getDemand(dateStr, shiftType);
-                const currentCount = this.schedule[dateStr][shiftType].length;
-                let slotsOpen = demand - currentCount;
-                if (slotsOpen <= 0) return; 
-
-                let candidates = this.staffList.filter(s => 
-                    this.getShiftByDate(dateStr, s.id) === 'OFF' && 
-                    this.getPreference(s, dateStr, 1) === shiftType && 
-                    this.isValidContinuity(s, dateStr, shiftType)
-                );
-
-                if (candidates.length <= slotsOpen) {
-                    candidates.forEach(s => this.updateShift(dateStr, s.id, 'OFF', shiftType));
-                } else {
-                    this.shuffleArray(candidates);
-                    const winners = candidates.slice(0, slotsOpen);
-                    winners.forEach(s => this.updateShift(dateStr, s.id, 'OFF', shiftType));
-                }
-            });
-        }
-    }
-
-    runCycle3_ForceFill_Global() {
-        let allGaps = [];
-        for (let d = 1; d <= this.daysInMonth; d++) {
-            const dateStr = this.getDateStr(d);
-            ['N', 'E', 'D'].forEach(shift => {
-                const gap = this.getDemand(dateStr, shift) - this.schedule[dateStr][shift].length;
-                if (gap > 0) allGaps.push({ dateStr, shift, gap });
-            });
-        }
-        allGaps.sort((a, b) => b.gap - a.gap);
-
-        for (const { dateStr, shift } of allGaps) {
-            let currentGap = this.getDemand(dateStr, shift) - this.schedule[dateStr][shift].length;
-            if (currentGap <= 0) continue;
-
-            let candidates = this.staffList.filter(s => this.getShiftByDate(dateStr, s.id) === 'OFF');
-            candidates = candidates.filter(s => this.isInWhiteList(s, shift) && this.isValidContinuity(s, dateStr, shift));
-            candidates.sort((a, b) => this.compareForWork(a, b, shift));
-
-            const fillCount = Math.min(currentGap, candidates.length);
-            for (let i = 0; i < fillCount; i++) {
-                this.updateShift(dateStr, candidates[i].id, 'OFF', shift);
-            }
-        }
-    }
-
-    // 輔助函式
     getPotentialSupply(dateStr, shiftType, excludeStaffId) {
         let count = 0;
         this.staffList.forEach(s => {
