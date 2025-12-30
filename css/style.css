@@ -158,3 +158,34 @@ th { background-color: #f8f9fa; font-weight: bold; white-space: nowrap; }
 .sortable-item:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15); border-color: #3498db; }
 .sortable-item.dragging { opacity: 0.5; border: 2px dashed #3498db; }
 .sortable-arrow { color: #999; font-size: 1.2rem; }
+
+/* --- Fix: AI 排班視窗按鈕可讀性修正 --- */
+
+/* 1. 預覽按鈕 (藍綠色底 + 白字) */
+.ai-option-card .btn-info {
+    background-color: #17a2b8 !important;
+    border-color: #17a2b8 !important;
+    color: #ffffff !important;
+    font-weight: bold;
+}
+
+/* 2. 套用按鈕 (綠色底 + 白字) */
+.ai-option-card .btn-success {
+    background-color: #28a745 !important;
+    border-color: #28a745 !important;
+    color: #ffffff !important;
+    font-weight: bold;
+}
+
+/* 3. 禁用狀態 (灰色底 + 深灰字) */
+.ai-option-card .btn:disabled {
+    background-color: #e2e6ea !important;
+    border-color: #dae0e5 !important;
+    color: #6c757d !important;
+    opacity: 0.6;
+}
+
+/* 4. 懸浮預覽列的文字增強 */
+#aiPreviewBar span {
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
