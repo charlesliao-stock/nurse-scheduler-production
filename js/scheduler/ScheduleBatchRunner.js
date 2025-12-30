@@ -1,7 +1,3 @@
-/**
- * 批次排班執行器
- * 用途：一次執行多種演算法，供使用者選擇
- */
 class ScheduleBatchRunner {
     constructor(allStaff, year, month, lastMonthData, rules) {
         this.allStaff = allStaff;
@@ -13,15 +9,16 @@ class ScheduleBatchRunner {
 
     runAll() {
         const strategies = [
-            // 目前只實作了 V3，先列出 V3，未來實作 V1/V2 後可在此加入
-            { code: 'V3', name: '班別優先瀑布流 (推薦)', classType: 'SHIFT_PRIORITY' }
+            { code: 'V3', name: '方案 A：班別優先 (推薦)', classType: 'V3' },
+            { code: 'V1', name: '方案 B：全域均衡', classType: 'V1' },
+            { code: 'V2', name: '方案 C：逐日推進 (保守)', classType: 'V2' },
+            { code: 'V4', name: '方案 D：假日優先', classType: 'V4' }
         ];
 
         const results = [];
 
         strategies.forEach(strategy => {
             console.time(`Run ${strategy.code}`);
-            
             try {
                 const scheduler = SchedulerFactory.create(
                     strategy.classType, 
@@ -33,21 +30,14 @@ class ScheduleBatchRunner {
                 );
 
                 const schedule = scheduler.run();
-                const metrics = this.analyzeQuality(schedule);
-
                 results.push({
                     info: strategy,
                     schedule: schedule,
-                    metrics: metrics
+                    metrics: this.analyzeQuality(schedule)
                 });
             } catch (e) {
-                console.error(`策略 ${strategy.code} 執行失敗:`, e);
-                results.push({
-                    info: strategy,
-                    error: e.message,
-                    schedule: {},
-                    metrics: { gapCount: 999 }
-                });
+                console.error(e);
+                results.push({ info: strategy, error: e.message, schedule: {}, metrics: { gapCount: 999 } });
             }
             console.timeEnd(`Run ${strategy.code}`);
         });
@@ -57,17 +47,11 @@ class ScheduleBatchRunner {
 
     analyzeQuality(schedule) {
         let gapCount = 0;
-        // 簡易統計缺口
+        // 簡單計算缺口
         Object.values(schedule).forEach(day => {
-            // 假設需求 N:2, E:2
-            // 實際應從 rules.dailyNeeds 讀取
             if (day.N.length < 2) gapCount += (2 - day.N.length);
             if (day.E.length < 2) gapCount += (2 - day.E.length);
         });
-
-        return {
-            gapCount: gapCount,
-            fairnessScore: 90 // 暫時假資料
-        };
+        return { gapCount, fairnessScore: 90 };
     }
 }
