@@ -1,3 +1,4 @@
+// js/scheduler/ScheduleBatchRunner.js
 class ScheduleBatchRunner {
     constructor(allStaff, year, month, lastMonthData, rules) {
         this.allStaff = allStaff;
@@ -10,13 +11,12 @@ class ScheduleBatchRunner {
     runAll() {
         const strategies = [
             { code: 'V3', name: '方案 A：班別優先 (推薦)', classType: 'V3' },
-            { code: 'V1', name: '方案 B：全域均衡', classType: 'V1' },
+            { code: 'V1', name: '方案 B：全域均衡 (公平)', classType: 'V1' },
             { code: 'V2', name: '方案 C：逐日推進 (保守)', classType: 'V2' },
             { code: 'V4', name: '方案 D：假日優先', classType: 'V4' }
         ];
 
         const results = [];
-
         strategies.forEach(strategy => {
             console.time(`Run ${strategy.code}`);
             try {
@@ -28,7 +28,6 @@ class ScheduleBatchRunner {
                     this.lastMonthData,
                     this.rules
                 );
-
                 const schedule = scheduler.run();
                 results.push({
                     info: strategy,
@@ -41,17 +40,22 @@ class ScheduleBatchRunner {
             }
             console.timeEnd(`Run ${strategy.code}`);
         });
-
         return results;
     }
 
     analyzeQuality(schedule) {
         let gapCount = 0;
-        // 簡單計算缺口
-        Object.values(schedule).forEach(day => {
+        let totalOff = 0;
+        let staffCount = 0;
+
+        // 計算缺口
+        const days = Object.values(schedule);
+        days.forEach(day => {
+            // 這裡簡單假設缺口，實際應使用 dailyNeeds
             if (day.N.length < 2) gapCount += (2 - day.N.length);
             if (day.E.length < 2) gapCount += (2 - day.E.length);
         });
-        return { gapCount, fairnessScore: 90 };
+
+        return { gapCount: gapCount };
     }
 }
