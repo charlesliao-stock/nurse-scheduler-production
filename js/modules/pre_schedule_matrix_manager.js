@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_matrix_manager.js
-// Fix: 補齊互動邏輯 (點擊、偏好、統計、儲存)，修復預班矩陣失效問題
+// 完整版 Fix: 修復 openPreferenceModal 報錯問題 (自動清除殘留 DOM)、補齊所有互動功能
 
 const matrixManager = {
     docId: null,
@@ -7,7 +7,8 @@ const matrixManager = {
     shifts: [],
     localAssignments: {},
     usersMap: {}, 
-    contextTarget: null, // [新增] 用於右鍵選單定位
+    contextTarget: null, // 用於右鍵選單定位
+    currentPrefUid: null, // 當前正在編輯偏好的 User ID
     isLoading: false,
 
     init: async function(id) {
@@ -16,6 +17,9 @@ const matrixManager = {
         this.isLoading = true;
         
         try {
+            // [新增] 初始化前先執行清理，確保沒有殘留的 Modal 或選單
+            this.cleanup();
+
             this.showLoading();
             await Promise.all([
                 this.loadShifts(),
@@ -43,7 +47,6 @@ const matrixManager = {
 
     restoreTableStructure: function() {
         const c = document.getElementById('matrixContainer');
-        // 確保基本表格結構存在
         if(c) c.innerHTML = `
             <table id="scheduleMatrix" oncontextmenu="return false;">
                 <thead id="matrixHead"></thead>
@@ -58,6 +61,7 @@ const matrixManager = {
     },
 
     loadUsers: async function() {
+        // 載入所有人員資料，用於取得最新的特註與參數
         const s = await db.collection('users').where('isActive', '==', true).get();
         s.forEach(d => { this.usersMap[d.id] = d.data(); });
     },
@@ -81,10 +85,12 @@ const matrixManager = {
 
     // --- [核心] 執行排班：建立完整快照 ---
     executeSchedule: async function() {
+        // 1. 檢查紅字 (違反規則)
         if (document.querySelector('.text-danger')) {
             if(!confirm("⚠️ 警告：目前有人員預休超過上限 (紅字)！\n確定要強制執行嗎？")) return;
         }
 
+        // 2. 統計未預班人數
         let submittedCount = 0;
         this.data.staffList.forEach(u => { if (this.localAssignments[u.uid]) submittedCount++; });
         const unsubmitted = this.data.staffList.length - submittedCount;
@@ -95,43 +101,52 @@ const matrixManager = {
         try {
             this.isLoading = true;
 
-            // 建立人員資料快照
+            // 3. 建立人員資料快照 (Snapshot)
             const snapshotStaffList = this.data.staffList.map(u => {
                 const userProfile = this.usersMap[u.uid] || {};
                 const params = userProfile.schedulingParams || {};
-                const note = userProfile.note || "";
+                const note = userProfile.note || ""; 
                 
                 return {
-                    ...u,
-                    schedulingParams: params,
-                    note: note
+                    ...u, // uid, name, level, empId
+                    schedulingParams: params, // 快照排班參數
+                    note: note // 快照特註
                 };
             });
 
-            // 準備排班草稿資料
+            // 4. 準備排班草稿資料
             const newScheduleData = {
                 unitId: this.data.unitId,
                 year: this.data.year,
                 month: this.data.month,
-                sourceId: this.docId,
+                sourceId: this.docId, // 關聯來源
                 status: 'draft',
+                
+                // 完整複製：人員快照
                 staffList: JSON.parse(JSON.stringify(snapshotStaffList)),
+                
+                // 完整複製：預班結果
                 assignments: JSON.parse(JSON.stringify(this.localAssignments)),
+                
+                // 複製當下規則與需求
                 rules: this.data.rules || {}, 
                 dailyNeeds: JSON.parse(JSON.stringify(this.data.dailyNeeds || {})),
+
                 createdBy: app.currentUser.uid,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
 
+            // 5. 寫入資料庫 (Batch)
             const batch = db.batch();
+            
             const newDocRef = db.collection('schedules').doc();
             batch.set(newDocRef, newScheduleData);
             
             const preDocRef = db.collection('pre_schedules').doc(this.docId);
             batch.update(preDocRef, {
                 status: 'scheduled',
-                assignments: this.localAssignments,
+                assignments: this.localAssignments, // 順便存最後狀態
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
 
@@ -226,7 +241,7 @@ const matrixManager = {
         return `<b>${v}</b>`;
     },
 
-    // --- [修復] 互動事件處理 ---
+    // --- [互動功能] 點擊處理 ---
     onCellClick: function(e, cell) {
         if(e.button === 2) { // 右鍵
             this.handleRightClick(e, cell);
@@ -286,9 +301,18 @@ const matrixManager = {
         if(menu) menu.style.display = 'none';
     },
 
-    // --- [修復] 偏好設定 Modal ---
+    // --- [修復重點] 偏好設定 Modal ---
     openPreferenceModal: function(uid, name) {
+        // 1. 檢查是否存在舊的 Modal (避免 DOM 殘留導致找不到 ID)
         let modal = document.getElementById('prefModal');
+        const userNameSpan = document.getElementById('prefUserName');
+
+        // 如果 modal 存在但 span 不存在 (代表是舊版本的殘留)，則移除重建
+        if (modal && !userNameSpan) {
+            modal.remove();
+            modal = null;
+        }
+
         // 動態建立 Modal (如果不存在)
         if(!modal) {
             modal = document.createElement('div');
@@ -344,7 +368,7 @@ const matrixManager = {
         this.saveData();
     },
 
-    // --- [修復] 統計更新 ---
+    // --- [互動功能] 統計更新 ---
     updateStats: function() {
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
         const colCounts = {};
@@ -404,7 +428,14 @@ const matrixManager = {
         }
     },
     
-    cleanup: function() { /* 清理舊事件用 */ }
+    // --- [修復重點] 清除殘留 DOM ---
+    cleanup: function() {
+        const ids = ['prefModal', 'customContextMenu', 'scheduleMatrix'];
+        ids.forEach(id => {
+            const el = document.getElementById(id);
+            if(el) el.remove();
+        });
+    }
 };
 
 // Hook Init 以確保清理
