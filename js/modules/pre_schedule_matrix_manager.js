@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_matrix_manager.js
-// 完整版 Fix: 修復 openPreferenceModal 報錯問題 (自動清除殘留 DOM)、補齊所有互動功能
+// Fix: 預班表矩陣增加「人力供需 (A/B)」即時統計列，並修復互動功能
 
 const matrixManager = {
     docId: null,
@@ -17,7 +17,7 @@ const matrixManager = {
         this.isLoading = true;
         
         try {
-            // [新增] 初始化前先執行清理，確保沒有殘留的 Modal 或選單
+            // 初始化前先清理舊 DOM
             this.cleanup();
 
             this.showLoading();
@@ -51,7 +51,7 @@ const matrixManager = {
             <table id="scheduleMatrix" oncontextmenu="return false;">
                 <thead id="matrixHead"></thead>
                 <tbody id="matrixBody"></tbody>
-                <tfoot id="matrixFoot" style="position:sticky; bottom:0; background:#f9f9f9; z-index:25; border-top:2px solid #ddd;"></tfoot>
+                <tfoot id="matrixFoot" style="position:sticky; bottom:0; background:#f9f9f9; z-index:25; border-top:2px solid #ddd; box-shadow: 0 -2px 5px rgba(0,0,0,0.1);"></tfoot>
             </table>`;
     },
 
@@ -61,7 +61,6 @@ const matrixManager = {
     },
 
     loadUsers: async function() {
-        // 載入所有人員資料，用於取得最新的特註與參數
         const s = await db.collection('users').where('isActive', '==', true).get();
         s.forEach(d => { this.usersMap[d.id] = d.data(); });
     },
@@ -83,14 +82,12 @@ const matrixManager = {
         }
     },
 
-    // --- [核心] 執行排班：建立完整快照 ---
+    // --- [核心] 執行排班 ---
     executeSchedule: async function() {
-        // 1. 檢查紅字 (違反規則)
         if (document.querySelector('.text-danger')) {
             if(!confirm("⚠️ 警告：目前有人員預休超過上限 (紅字)！\n確定要強制執行嗎？")) return;
         }
 
-        // 2. 統計未預班人數
         let submittedCount = 0;
         this.data.staffList.forEach(u => { if (this.localAssignments[u.uid]) submittedCount++; });
         const unsubmitted = this.data.staffList.length - submittedCount;
@@ -101,57 +98,40 @@ const matrixManager = {
         try {
             this.isLoading = true;
 
-            // 3. 建立人員資料快照 (Snapshot)
             const snapshotStaffList = this.data.staffList.map(u => {
                 const userProfile = this.usersMap[u.uid] || {};
                 const params = userProfile.schedulingParams || {};
                 const note = userProfile.note || ""; 
-                
-                return {
-                    ...u, // uid, name, level, empId
-                    schedulingParams: params, // 快照排班參數
-                    note: note // 快照特註
-                };
+                return { ...u, schedulingParams: params, note: note };
             });
 
-            // 4. 準備排班草稿資料
             const newScheduleData = {
                 unitId: this.data.unitId,
                 year: this.data.year,
                 month: this.data.month,
-                sourceId: this.docId, // 關聯來源
+                sourceId: this.docId,
                 status: 'draft',
-                
-                // 完整複製：人員快照
                 staffList: JSON.parse(JSON.stringify(snapshotStaffList)),
-                
-                // 完整複製：預班結果
                 assignments: JSON.parse(JSON.stringify(this.localAssignments)),
-                
-                // 複製當下規則與需求
                 rules: this.data.rules || {}, 
                 dailyNeeds: JSON.parse(JSON.stringify(this.data.dailyNeeds || {})),
-
                 createdBy: app.currentUser.uid,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
 
-            // 5. 寫入資料庫 (Batch)
             const batch = db.batch();
-            
             const newDocRef = db.collection('schedules').doc();
             batch.set(newDocRef, newScheduleData);
             
             const preDocRef = db.collection('pre_schedules').doc(this.docId);
             batch.update(preDocRef, {
                 status: 'scheduled',
-                assignments: this.localAssignments, // 順便存最後狀態
+                assignments: this.localAssignments, 
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
 
             await batch.commit();
-
             alert("✅ 排班草稿建立成功！\n即將進入排班作業頁面...");
             window.location.hash = `/admin/schedule_editor/${newDocRef.id}`;
 
@@ -163,12 +143,10 @@ const matrixManager = {
         }
     },
 
-    // --- 渲染矩陣 ---
+    // --- 渲染矩陣主體 ---
     renderMatrix: function() {
         const thead = document.getElementById('matrixHead');
         const tbody = document.getElementById('matrixBody');
-        const tfoot = document.getElementById('matrixFoot');
-        if(!thead || !tbody) return;
         
         const year = this.data.year;
         const month = this.data.month;
@@ -176,7 +154,16 @@ const matrixManager = {
         const lastMonthLastDay = new Date(year, month - 1, 0).getDate();
         
         // 表頭
-        let h1 = `<tr><th rowspan="2">員編</th><th rowspan="2">姓名</th><th rowspan="2">特註</th><th rowspan="2">偏好</th><th colspan="6" style="background:#eee;">上月</th><th colspan="${daysInMonth}">本月 ${month} 月</th><th rowspan="2" style="background:#fff; position:sticky; right:0; border-left:2px solid #ccc;">統計</th></tr>`;
+        let h1 = `<tr>
+            <th rowspan="2" style="min-width:60px; position:sticky; left:0; z-index:30; background:#f8f9fa;">員編</th>
+            <th rowspan="2" style="min-width:70px; position:sticky; left:60px; z-index:30; background:#f8f9fa;">姓名</th>
+            <th rowspan="2" style="width:40px; z-index:20;">註</th>
+            <th rowspan="2" style="min-width:50px; z-index:20;">偏好</th>
+            <th colspan="6" style="background:#eee;">上月</th>
+            <th colspan="${daysInMonth}">本月 ${month} 月</th>
+            <th rowspan="2" style="background:#fff; position:sticky; right:0; border-left:2px solid #ccc; z-index:30;">統計</th>
+        </tr>`;
+        
         let h2 = `<tr>`;
         for(let i=5; i>=0; i--) h2 += `<th class="cell-last-month cell-narrow">${lastMonthLastDay - i}</th>`;
         for(let d=1; d<=daysInMonth; d++) {
@@ -198,17 +185,17 @@ const matrixManager = {
             let icon = '';
             if(params.isPregnant) icon += '🤰 ';
             if(params.isBreastfeeding) icon += '🤱 ';
-            if(userProfile.note) icon += '📝 ';
+            if(userProfile.note) icon += `<span title="${userProfile.note}">📝</span>`;
             
             const assign = this.localAssignments[u.uid] || {};
             const pref = assign.preferences || {};
-            let prefInfo = pref.bundleShift ? `<span class="badge bg-info">包${pref.bundleShift}</span>` : '';
+            let prefInfo = pref.bundleShift ? `<span class="badge bg-info">包${pref.bundleShift}</span>` : '設定';
 
             bodyHtml += `<tr data-uid="${u.uid}">
-                <td>${u.empId}</td>
-                <td>${u.name}</td>
-                <td title="${userProfile.note||''}">${icon}</td>
-                <td style="cursor:pointer; color:blue;" onclick="matrixManager.openPreferenceModal('${u.uid}','${u.name}')">${prefInfo || '設定'}</td>`;
+                <td style="position:sticky; left:0; background:#fff; z-index:10;">${u.empId}</td>
+                <td style="position:sticky; left:60px; background:#fff; z-index:10;">${u.name}</td>
+                <td>${icon}</td>
+                <td style="cursor:pointer; color:blue;" onclick="matrixManager.openPreferenceModal('${u.uid}','${u.name}')">${prefInfo}</td>`;
             
             // 上月
             for(let i=5; i>=0; i--) {
@@ -225,11 +212,40 @@ const matrixManager = {
         });
         tbody.innerHTML = bodyHtml;
         
-        // 底部
-        let f = `<tr><td colspan="4" style="text-align:right;">每日OFF小計:</td>`;
-        for(let i=0; i<6; i++) f += `<td style="background:#eee;">-</td>`;
-        for(let d=1; d<=daysInMonth; d++) f += `<td id="stat_col_${d}" class="font-bold" style="text-align:center;">0</td>`;
-        f += `<td>-</td></tr>`;
+        // 渲染 Footer
+        this.renderFooter(daysInMonth);
+    },
+
+    // --- [新增] 渲染 Footer (含每日 OFF 小計與各班別供需) ---
+    renderFooter: function(daysInMonth) {
+        const tfoot = document.getElementById('matrixFoot');
+        let f = '';
+
+        // 1. 每日 OFF 小計列
+        f += `<tr>
+            <td colspan="4" style="text-align:right; font-weight:bold; background:#eee; position:sticky; left:0;">每日 OFF 小計</td>
+            <td colspan="6" style="background:#eee;">-</td>`; // 上月 padding
+        for(let d=1; d<=daysInMonth; d++) {
+            f += `<td id="stat_col_OFF_${d}" style="text-align:center; font-weight:bold; background:#eee;">0</td>`;
+        }
+        f += `<td style="background:#eee; position:sticky; right:0;">-</td></tr>`;
+
+        // 2. 各班別供需列 (A/B)
+        // 根據 shifts 動態生成
+        this.shifts.forEach(shift => {
+            f += `<tr style="border-top: 1px solid #ddd;">
+                <td colspan="4" style="text-align:right; font-weight:bold; color:${shift.color || '#333'}; position:sticky; left:0; background:#fff;">
+                    ${shift.name} (${shift.code}) 缺口:
+                </td>
+                <td colspan="6" style="background:#fff;">-</td>`;
+            
+            for(let d=1; d<=daysInMonth; d++) {
+                // 給予唯一 ID，方便 updateStats 更新
+                f += `<td id="stat_col_${shift.code}_${d}" style="text-align:center; font-size:0.85em; background:#fff;">-</td>`;
+            }
+            f += `<td style="background:#fff; position:sticky; right:0;">-</td></tr>`;
+        });
+
         tfoot.innerHTML = f;
     },
 
@@ -241,7 +257,88 @@ const matrixManager = {
         return `<b>${v}</b>`;
     },
 
-    // --- [互動功能] 點擊處理 ---
+    // --- [核心] 統計更新 (含 A/B 供需計算) ---
+    updateStats: function() {
+        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+        
+        // 1. 初始化計數器
+        const dailyCounts = {}; // { 1: { OFF:0, N:0, E:0 ... }, 2: ... }
+        for(let d=1; d<=daysInMonth; d++) {
+            dailyCounts[d] = { OFF: 0, REQ_OFF: 0 };
+            this.shifts.forEach(s => dailyCounts[d][s.code] = 0);
+        }
+
+        // 2. 遍歷所有人員，計算行統計與累積每日計數
+        this.data.staffList.forEach(u => {
+            let rowCount = 0;
+            const assign = this.localAssignments[u.uid] || {};
+            for(let d=1; d<=daysInMonth; d++) {
+                const val = assign[`current_${d}`];
+                if(val) {
+                    if(!dailyCounts[d][val]) dailyCounts[d][val] = 0;
+                    dailyCounts[d][val]++;
+                }
+                
+                if(val === 'OFF' || val === 'REQ_OFF') {
+                    rowCount++;
+                }
+            }
+            // 更新行統計 (右側)
+            const rowEl = document.getElementById(`stat_row_${u.uid}`);
+            if(rowEl) rowEl.textContent = rowCount;
+        });
+
+        // 3. 更新 Footer (底部)
+        const dailyNeeds = this.data.dailyNeeds || {};
+
+        // 3.1 更新 OFF 小計
+        for(let d=1; d<=daysInMonth; d++) {
+            const offCount = (dailyCounts[d]['OFF'] || 0) + (dailyCounts[d]['REQ_OFF'] || 0);
+            const el = document.getElementById(`stat_col_OFF_${d}`);
+            if(el) el.textContent = offCount;
+        }
+
+        // 3.2 更新各班別供需 (A/B)
+        this.shifts.forEach(s => {
+            for(let d=1; d<=daysInMonth; d++) {
+                const el = document.getElementById(`stat_col_${s.code}_${d}`);
+                if(el) {
+                    // 計算需求
+                    const date = new Date(this.data.year, this.data.month - 1, d);
+                    const dayIdx = (date.getDay() + 6) % 7; // JS 0=Sun, 轉為 0=Mon
+                    const needKey = `${s.code}_${dayIdx}`;
+                    const demand = dailyNeeds[needKey] ? parseInt(dailyNeeds[needKey]) : 0;
+                    const supply = dailyCounts[d][s.code] || 0;
+
+                    // 顯示邏輯
+                    if (demand > 0) {
+                        el.textContent = `${supply} / ${demand}`; // A / B
+                        
+                        // 顏色判斷
+                        if (supply < demand) {
+                            // 缺人：紅底紅字
+                            el.style.backgroundColor = '#ffebee';
+                            el.style.color = '#c0392b';
+                            el.style.fontWeight = 'bold';
+                        } else {
+                            // 足夠：綠字
+                            el.style.backgroundColor = 'transparent';
+                            el.style.color = '#27ae60';
+                            el.style.fontWeight = 'normal';
+                        }
+                    } else {
+                        // 無需求
+                        el.textContent = supply > 0 ? supply : '-';
+                        el.style.backgroundColor = 'transparent';
+                        el.style.color = '#ccc';
+                        el.style.fontWeight = 'normal';
+                    }
+                }
+            }
+        });
+    },
+
+    // --- 互動功能 ---
     onCellClick: function(e, cell) {
         if(e.button === 2) { // 右鍵
             this.handleRightClick(e, cell);
@@ -254,10 +351,9 @@ const matrixManager = {
         
         this.handleLeftClick(uid, `current_${day}`);
         
-        // 局部更新 UI
         const val = this.localAssignments[uid][`current_${day}`];
         cell.innerHTML = this.renderCell(val);
-        this.updateStats();
+        this.updateStats(); // 即時更新統計
         this.saveData(); // 自動儲存
     },
 
@@ -265,7 +361,7 @@ const matrixManager = {
         if(!this.localAssignments[uid]) this.localAssignments[uid] = {};
         const cur = this.localAssignments[uid][key];
         
-        // 循環邏輯: 空 -> REQ_OFF (休) -> OFF (排休) -> 空
+        // 循環邏輯: 空 -> REQ_OFF -> OFF -> 空
         if(!cur) this.localAssignments[uid][key] = 'REQ_OFF';
         else if(cur === 'REQ_OFF') this.localAssignments[uid][key] = 'OFF';
         else delete this.localAssignments[uid][key];
@@ -301,19 +397,12 @@ const matrixManager = {
         if(menu) menu.style.display = 'none';
     },
 
-    // --- [修復重點] 偏好設定 Modal ---
     openPreferenceModal: function(uid, name) {
-        // 1. 檢查是否存在舊的 Modal (避免 DOM 殘留導致找不到 ID)
+        // 清除舊 Modal
         let modal = document.getElementById('prefModal');
         const userNameSpan = document.getElementById('prefUserName');
+        if (modal && !userNameSpan) { modal.remove(); modal = null; }
 
-        // 如果 modal 存在但 span 不存在 (代表是舊版本的殘留)，則移除重建
-        if (modal && !userNameSpan) {
-            modal.remove();
-            modal = null;
-        }
-
-        // 動態建立 Modal (如果不存在)
         if(!modal) {
             modal = document.createElement('div');
             modal.id = 'prefModal';
@@ -322,15 +411,15 @@ const matrixManager = {
                 <div style="background:white; padding:20px; border-radius:8px; width:400px; box-shadow:0 4px 15px rgba(0,0,0,0.3);">
                     <h3 style="margin-top:0;">排班偏好 - <span id="prefUserName" style="color:blue;"></span></h3>
                     <div style="margin-bottom:15px;">
-                        <label>包班請求 (例如: N 或 1.N):</label>
+                        <label>包班請求 (例如: N):</label>
                         <input type="text" id="prefBundle" style="width:100%; padding:8px; margin-top:5px;">
                     </div>
                     <div style="margin-bottom:15px;">
-                        <label>志願序 1 (Priority 1):</label>
+                        <label>志願序 1:</label>
                         <input type="text" id="prefP1" style="width:100%; padding:8px; margin-top:5px;">
                     </div>
                     <div style="margin-bottom:15px;">
-                        <label>志願序 2 (Priority 2):</label>
+                        <label>志願序 2:</label>
                         <input type="text" id="prefP2" style="width:100%; padding:8px; margin-top:5px;">
                     </div>
                     <div style="text-align:right;">
@@ -364,37 +453,10 @@ const matrixManager = {
         p.priority_2 = document.getElementById('prefP2').value.trim();
         
         document.getElementById('prefModal').style.display = 'none';
-        this.renderMatrix(); // 重繪以顯示 Badge
+        this.renderMatrix(); 
         this.saveData();
     },
 
-    // --- [互動功能] 統計更新 ---
-    updateStats: function() {
-        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
-        const colCounts = {};
-        for(let d=1; d<=daysInMonth; d++) colCounts[d] = 0;
-
-        this.data.staffList.forEach(u => {
-            let rowCount = 0;
-            const assign = this.localAssignments[u.uid] || {};
-            for(let d=1; d<=daysInMonth; d++) {
-                const val = assign[`current_${d}`];
-                if(val === 'OFF' || val === 'REQ_OFF') {
-                    rowCount++;
-                    colCounts[d]++;
-                }
-            }
-            const rowEl = document.getElementById(`stat_row_${u.uid}`);
-            if(rowEl) rowEl.textContent = rowCount;
-        });
-
-        for(let d=1; d<=daysInMonth; d++) {
-            const colEl = document.getElementById(`stat_col_${d}`);
-            if(colEl) colEl.textContent = colCounts[d];
-        }
-    },
-
-    // --- 自動儲存 ---
     saveData: async function() {
         if(!this.docId) return;
         try {
@@ -402,19 +464,15 @@ const matrixManager = {
                 assignments: this.localAssignments,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-        } catch(e) {
-            console.error("Auto save failed", e);
-        }
+        } catch(e) { console.error("Auto save failed", e); }
     },
 
-    // --- 初始化事件 (含右鍵選單注入) ---
     setupEvents: function() {
         document.addEventListener('click', e => {
-            const menu = document.getElementById('customContextMenu');
-            if(menu) menu.style.display = 'none';
+            const m = document.getElementById('customContextMenu');
+            if(m && !m.contains(e.target)) m.style.display='none';
         });
         
-        // 注入右鍵選單 (如果不存在)
         if(!document.getElementById('customContextMenu')) {
             const menu = document.createElement('div');
             menu.id = 'customContextMenu';
@@ -428,7 +486,6 @@ const matrixManager = {
         }
     },
     
-    // --- [修復重點] 清除殘留 DOM ---
     cleanup: function() {
         const ids = ['prefModal', 'customContextMenu', 'scheduleMatrix'];
         ids.forEach(id => {
@@ -438,7 +495,7 @@ const matrixManager = {
     }
 };
 
-// Hook Init 以確保清理
+// Hook Init
 const _origInit = matrixManager.init;
 matrixManager.init = function(id) { 
     if(this.cleanup) this.cleanup(); 
