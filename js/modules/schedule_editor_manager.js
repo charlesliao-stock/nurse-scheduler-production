@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 完整版 Fix: 包含 UI 渲染、預覽快照機制、AI 資料轉譯
+// 完整修正版 (vFinal): 包含懸浮預覽列、正確讀取包班屬性、AI 資料轉譯
 
 const scheduleEditorManager = {
     scheduleId: null,
@@ -115,7 +115,7 @@ const scheduleEditorManager = {
         }, 100);
     },
 
-    // 資料轉譯：Staff
+    // 資料轉譯：Staff (修正包班屬性讀取)
     _prepareStaffDataForAI: function() {
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
         
@@ -125,10 +125,13 @@ const scheduleEditorManager = {
             const pref = assign.preferences || {};
             const params = u.schedulingParams || {};
 
-            // 讀取包班屬性 (優先看偏好，再看參數)
+            // [修正] 讀取包班屬性 (優先看當月偏好，再看個人參數)
             let pkgType = null;
-            if (pref.bundleShift && pref.bundleShift !== '') pkgType = pref.bundleShift;
-            else if (params.canBundleShifts && params.bundleShift) pkgType = params.bundleShift;
+            if (pref.bundleShift && pref.bundleShift !== '') {
+                pkgType = pref.bundleShift;
+            } else if (params.canBundleShifts && params.bundleShift) {
+                pkgType = params.bundleShift;
+            }
 
             // 每日偏好處理
             const aiPrefs = {};
@@ -211,6 +214,52 @@ const scheduleEditorManager = {
         });
     },
 
+    // --- [核心] 懸浮預覽控制列 ---
+    showPreviewBar: function(planName, index) {
+        let bar = document.getElementById('aiPreviewBar');
+        if (!bar) {
+            bar = document.createElement('div');
+            bar.id = 'aiPreviewBar';
+            bar.style.cssText = `
+                position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+                background: rgba(0,0,0,0.85); color: white; padding: 15px 30px;
+                border-radius: 50px; z-index: 9999; display: flex; align-items: center; gap: 20px;
+                box-shadow: 0 5px 20px rgba(0,0,0,0.4); backdrop-filter: blur(5px);
+                font-family: 'Segoe UI', sans-serif;
+            `;
+            document.body.appendChild(bar);
+        }
+        
+        bar.innerHTML = `
+            <span style="font-weight:bold; font-size:1.1rem; color:#fff;">👁️ 正在預覽：<span style="color:#3498db;">${planName}</span></span>
+            <div style="width:1px; height:20px; background:#555;"></div>
+            <button class="btn btn-sm btn-secondary" onclick="scheduleEditorManager.backToAiModal()" style="border-radius:20px;">
+                <i class="fas fa-arrow-left"></i> 返回選擇
+            </button>
+            <button class="btn btn-sm btn-success" onclick="scheduleEditorManager.confirmApply(${index})" style="border-radius:20px;">
+                <i class="fas fa-check"></i> 確認套用
+            </button>
+        `;
+        bar.style.display = 'flex';
+    },
+
+    hidePreviewBar: function() {
+        const bar = document.getElementById('aiPreviewBar');
+        if(bar) bar.style.display = 'none';
+    },
+
+    backToAiModal: function() {
+        this.hidePreviewBar();
+        const modal = document.getElementById('aiResultModal');
+        if(modal) modal.classList.add('show');
+    },
+
+    confirmApply: function(index) {
+        this.applyAiOption(index);
+        this.hidePreviewBar();
+    },
+
+    // --- [修改] 預覽功能：切換為懸浮模式 ---
     previewOption: function(i) {
         const opt = this.tempOptions[i];
         if(!opt || opt.error) return;
@@ -226,8 +275,10 @@ const scheduleEditorManager = {
         this.renderMatrix(); 
         this.updateRealTimeStats();
         
-        const titleEl = document.getElementById('schTitle');
-        if(titleEl) titleEl.innerHTML = `${this.data.year} / ${this.data.month} - <span style="color:#e67e22; font-weight:bold;">[預覽模式] ${opt.info.name}</span>`;
+        // 隱藏 Modal，顯示懸浮條
+        const modal = document.getElementById('aiResultModal');
+        if(modal) modal.classList.remove('show');
+        this.showPreviewBar(opt.info.name, i);
     },
 
     applyAiOption: function(i) {
@@ -243,12 +294,10 @@ const scheduleEditorManager = {
             
             const modal = document.getElementById('aiResultModal');
             if(modal) modal.classList.remove('show');
+            this.hidePreviewBar();
             
             this.renderMatrix(); 
             this.updateRealTimeStats();
-            
-            const titleEl = document.getElementById('schTitle');
-            if(titleEl) titleEl.textContent = `${this.data.year} 年 ${this.data.month} 月 - 排班作業`;
             
             alert(`已成功套用：${opt.info.name}\n請記得點擊「儲存」以寫入資料庫。`);
         }
@@ -260,11 +309,10 @@ const scheduleEditorManager = {
             this._snapshot = null;
             this.renderMatrix();
             this.updateRealTimeStats();
-            const titleEl = document.getElementById('schTitle');
-            if(titleEl) titleEl.textContent = `${this.data.year} 年 ${this.data.month} 月 - 排班作業`;
         }
         const modal = document.getElementById('aiResultModal');
         if(modal) modal.classList.remove('show');
+        this.hidePreviewBar();
     },
 
     setupModalEvents: function() {
@@ -305,11 +353,9 @@ const scheduleEditorManager = {
         });
     },
 
-    // --- 完整的渲染函式 (Fix Blank Screen) ---
     renderMatrix: function() {
         const thead = document.getElementById('schHead');
         const tbody = document.getElementById('schBody');
-        const tfoot = document.getElementById('schFoot');
         
         if(!thead || !tbody) {
             console.error("找不到表格容器 (schHead/schBody)");
@@ -381,7 +427,7 @@ const scheduleEditorManager = {
                     oncontextmenu="scheduleEditorManager.handleRightClick(event,'${u.uid}',${d})">${disp}</td>`;
             }
 
-            // 統計欄位 (先給 0，稍後 updateRealTimeStats 會填入)
+            // 統計欄位
             bodyHtml += `<td id="stat_off_${u.uid}">0</td>
                          <td id="stat_hol_${u.uid}">0</td>
                          <td id="stat_n_${u.uid}">0</td>
@@ -389,7 +435,6 @@ const scheduleEditorManager = {
         });
         tbody.innerHTML = bodyHtml;
 
-        // 3. 底部缺口渲染
         this.renderFooter(daysInMonth);
     },
 
@@ -474,7 +519,6 @@ const scheduleEditorManager = {
     },
 
     handleCellClick: function(uid, d) {
-        // 可選：點擊高亮或觸發右鍵選單邏輯
         console.log(`Clicked ${uid}, Day ${d}`);
     },
 
