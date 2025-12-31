@@ -1,9 +1,11 @@
 /**
- * 策略 V1: 全域分層法 (Step 1 獨立驗證版)
- * * * 執行邏輯：
+ * 策略 V1: 全域分層法 (Step 1: 嚴格包班填滿)
+ * * 執行邏輯：
  * 1. [Step 0] 重置：將所有非預休 (REQ_OFF) 的格子清空為 OFF。
- * 2. [Step 1] 包班填滿：針對有設定包班 (N/E) 的人員，無視任何規則，將所有空位填滿。
- * 3. [STOP]  暫停執行後續步驟，以利驗證 Step 1 結果。
+ * 2. [Step 1] 包班填滿：
+ * - 鎖定對象：僅限偏好設定為「包N」或「包E」的人員 (packageType 不為空)。
+ * - 執行動作：將整個月的空位全部填滿，不檢查任何規則 (爆量、連七都不管)。
+ * 3. [STOP] 暫停，不處理一般人員 (如 1.D, 1.N)，他們應維持全空。
  */
 class SchedulerV1 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -11,16 +13,14 @@ class SchedulerV1 extends BaseScheduler {
     }
 
     run() {
-        console.log("=== V1 (Step 1 Only): 重置並暴力填滿包班 ===");
+        console.log("=== V1 (Step 1): 嚴格鎖定包班人員填滿 ===");
 
-        // [Step 0] 先把盤面清乾淨 (只保留 REQ_OFF)
-        // 確保非包班的人員不會殘留之前的班表
+        // [Step 0] 重置盤面 (只保留 REQ_OFF)
         this.resetAllToOff();
 
-        // [Step 1] 針對包班人員，填滿整月
-        this.runStep1_FillPackageVIP();
+        // [Step 1] 針對「包班」人員，填滿整月
+        this.runStep1_FillPackageOnly();
 
-        // [STOP] 這裡直接回傳結果，不執行後續的一般人員填班
         return this.schedule;
     }
 
@@ -43,14 +43,13 @@ class SchedulerV1 extends BaseScheduler {
     }
 
     // ==========================================
-    // Step 1: 包班 VIP 填好填滿 (暴力模式)
+    // Step 1: 嚴格篩選包班人員並填滿
     // ==========================================
-    runStep1_FillPackageVIP() {
-        // 1. 嚴格篩選包班人員
-        // 必須是 packageType 為 'N' 或 'E' 的人
+    runStep1_FillPackageOnly() {
+        // 1. 篩選條件：必須有 packageType (由 Editor Manager 傳入，對應 UI 的 '包N'/'包E')
         const packageStaff = this.staffList.filter(s => s.packageType && ['N', 'E'].includes(s.packageType));
         
-        console.log(`[Step 1] 鎖定包班人員: ${packageStaff.map(s=>s.name).join(', ')}`);
+        console.log(`[Step 1] 鎖定包班名單 (${packageStaff.length}人): ${packageStaff.map(s=>s.name).join(', ')}`);
 
         packageStaff.forEach(staff => {
             const targetShift = staff.packageType; // N 或 E
@@ -59,8 +58,8 @@ class SchedulerV1 extends BaseScheduler {
                 const dateStr = this.getDateStr(d);
                 const currentStatus = this.getShiftByDate(dateStr, staff.id);
 
-                // 邏輯：只要不是預休，就填入包班班別
-                // 這裡我們不檢查連續性、不檢查人數上限，純粹填滿
+                // 2. 暴力填入：只要這天沒預休，就填入包班班別
+                // 不管是否連七，不管當天是否已爆量，全部填滿
                 if (currentStatus !== 'REQ_OFF' && currentStatus !== 'LEAVE') {
                     this.updateShift(dateStr, staff.id, 'OFF', targetShift);
                 }
@@ -69,12 +68,12 @@ class SchedulerV1 extends BaseScheduler {
     }
 
     // ==========================================
-    // 輔助函式 (保留但此階段未用到)
+    // 輔助函式 (保留結構，此階段未用)
     // ==========================================
     getPotentialSupply(dateStr, shiftType, excludeStaffId) { return 0; }
-    shuffleArray(array) { for (let i = array.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [array[i], array[j]] = [array[j], array[i]]; } }
+    shuffleArray(array) { /* ... */ }
     compareForWork(a, b, shift) { return 0; }
     isInWhiteList(staff, shift) { return true; }
-    getDemand(dateStr, shift) { return 2; } // 假資料，Step 1 不檢查
+    getDemand(dateStr, shift) { return 2; } 
     getPreference(staff, dateStr, level) { return null; }
 }
