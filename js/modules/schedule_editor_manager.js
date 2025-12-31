@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// Fix: 加入頂部「重置」按鈕，可清除排班結果並還原至預班狀態 (保留 REQ_OFF)
+// Fix: 強制顯示頂部「重置」按鈕 (增強定位邏輯)，並優化重置功能
 
 const scheduleEditorManager = {
     scheduleId: null,
@@ -20,12 +20,12 @@ const scheduleEditorManager = {
         try {
             await this.loadContext();
             
-            // 初始化 AI 引擎 (傳入 'schedules' 以便讀取快照規則)
+            // 初始化 AI 引擎
             if (typeof scheduleManager !== 'undefined') {
                 await scheduleManager.loadContext(id, 'schedules'); 
             }
 
-            this.renderToolbar(); // [新增] 渲染上方工具列按鈕
+            this.renderToolbar(); // [重點] 渲染上方工具列
             this.renderMatrix();
             this.updateRealTimeStats();
             this.setupEvents();
@@ -63,33 +63,53 @@ const scheduleEditorManager = {
             badge.textContent = st === 'published' ? '已發布' : '草稿';
             badge.className = `badge ${st === 'published' ? 'bg-success' : 'bg-warning'}`;
         }
-        // 按鈕狀態控制 (如發布後鎖定) 可在此擴充
     },
 
-    // --- [新增] 渲染工具列 (加入重置按鈕) ---
+    // --- [核心修正] 強制渲染重置按鈕 ---
     renderToolbar: function() {
-        // 嘗試找到工具列容器 (通常在 AI 按鈕附近)
-        const btnAI = document.getElementById('btnAI');
-        if (!btnAI) return; // 如果找不到按鈕，可能 HTML 結構不同
-
-        const toolbar = btnAI.parentNode;
-        
-        // 避免重複加入
+        // 防止重複渲染
         if (document.getElementById('btnResetSchedule')) return;
 
-        // 建立重置按鈕
+        // 1. 建立重置按鈕
         const btnReset = document.createElement('button');
         btnReset.id = 'btnResetSchedule';
-        btnReset.className = 'btn btn-danger'; // 紅色按鈕
-        btnReset.innerHTML = '<i class="fas fa-undo"></i> 重置';
-        btnReset.style.marginRight = '10px'; // 與 AI 按鈕保持距離
+        btnReset.className = 'btn btn-danger';
+        btnReset.innerHTML = '<i class="fas fa-trash-alt"></i> 重置';
+        btnReset.style.marginRight = '10px';
+        btnReset.style.fontWeight = 'bold';
         btnReset.onclick = () => this.resetSchedule();
 
-        // 將重置按鈕插入到 AI 按鈕的左邊
-        toolbar.insertBefore(btnReset, btnAI);
+        // 2. 尋找插入點 (定位錨點)
+        // 優先找 btnAI, 其次找 btnSave, 最後找任何文字包含 "AI" 或 "儲存" 的按鈕
+        let anchor = document.getElementById('btnAI') || document.getElementById('btnSave');
+        
+        if (!anchor) {
+            const allBtns = document.querySelectorAll('button');
+            for(let b of allBtns) {
+                if(b.textContent.includes('AI') || b.textContent.includes('儲存')) {
+                    anchor = b;
+                    break;
+                }
+            }
+        }
+
+        // 3. 執行插入
+        if (anchor && anchor.parentNode) {
+            anchor.parentNode.insertBefore(btnReset, anchor);
+            console.log("重置按鈕已插入至工具列");
+        } else {
+            // 如果真的找不到按鈕，嘗試插入到標題列右側或主要容器頂部
+            console.warn("找不到工具列按鈕，嘗試插入至標題旁");
+            const header = document.querySelector('.d-flex.justify-content-between') || document.getElementById('schTitle')?.parentNode;
+            if(header) {
+                header.appendChild(btnReset);
+            } else {
+                console.error("無法定位插入點，重置按鈕渲染失敗");
+            }
+        }
     },
 
-    // --- [核心] 重置功能：還原到預班結果 ---
+    // --- [核心功能] 重置班表 (保留預休) ---
     resetSchedule: async function() {
         if(!confirm("⚠️ 警告：這將清除所有已排的班別（僅保留預休與請假），還原至初始狀態。\n\n確定要重置嗎？")) return;
         
@@ -113,7 +133,7 @@ const scheduleEditorManager = {
             this.saveDraft(true); // 自動儲存
             alert("✅ 已重置完畢，恢復為預班初始狀態。");
         } else {
-            alert("目前沒有需要重置的內容。");
+            alert("目前沒有需要重置的內容 (已經是初始狀態)。");
         }
     },
 
