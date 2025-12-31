@@ -1,8 +1,8 @@
 // js/modules/schedule_editor_manager.js
 // Fix: 
-// 1. 強制修復「重置按鈕」消失問題 (改用文字內容搜尋定位)。
-// 2. 確保重置功能為「重新同步預班表」。
-// 3. 確保按鈕顏色正確。
+// 1. 介面顯示完整偏好 (支援顯示 1.N 與 2.D)。
+// 2. 重置功能：強制從「預班表」同步最新資料 (含特註、偏好)。
+// 3. 按鈕樣式與定位優化。
 
 const scheduleEditorManager = {
     scheduleId: null,
@@ -23,12 +23,12 @@ const scheduleEditorManager = {
         try {
             await this.loadContext();
             
-            // 初始化 AI
+            // 初始化 AI 引擎
             if (typeof scheduleManager !== 'undefined') {
                 await scheduleManager.loadContext(id, 'schedules'); 
             }
 
-            this.renderToolbar(); // 渲染按鈕
+            this.renderToolbar(); // 渲染工具列按鈕
             this.renderMatrix();
             this.updateRealTimeStats();
             this.setupEvents();
@@ -49,6 +49,7 @@ const scheduleEditorManager = {
         this.shifts = shiftsSnap.docs.map(d => d.data());
         this.shifts.forEach(s => this.shiftMap[s.code] = s);
 
+        // 建立人員索引
         this.data.staffList.forEach(u => this.staffMap[u.uid] = u);
 
         const titleEl = document.getElementById('schTitle');
@@ -69,7 +70,7 @@ const scheduleEditorManager = {
         // 強制設定發布按鈕樣式
         const btnPublish = document.getElementById('btnPublish');
         if(btnPublish) {
-            btnPublish.className = 'btn btn-success';
+            btnPublish.className = 'btn btn-success'; // 綠色
             btnPublish.style.opacity = '1';
             btnPublish.textContent = st === 'published' ? '撤回發布' : '發布班表';
             if(st === 'published') btnPublish.className = 'btn btn-secondary';
@@ -77,15 +78,15 @@ const scheduleEditorManager = {
         }
     },
 
-    // --- [核心修正] 強力渲染重置按鈕 ---
+    // --- [核心修正] 渲染工具列 (重置按鈕) ---
     renderToolbar: function() {
-        // 1. 如果已經存在，就不重複加
+        // 防止重複渲染
         if (document.getElementById('btnResetSchedule')) return;
 
-        // 2. 建立按鈕物件
+        // 建立重置按鈕
         const btnReset = document.createElement('button');
         btnReset.id = 'btnResetSchedule';
-        btnReset.className = 'btn btn-danger'; // 鮮紅色
+        btnReset.className = 'btn btn-danger'; // 紅色
         btnReset.innerHTML = '<i class="fas fa-undo"></i> 重置';
         btnReset.style.marginRight = '8px';
         btnReset.style.fontWeight = 'bold';
@@ -93,10 +94,8 @@ const scheduleEditorManager = {
         btnReset.title = "清除目前排班，並重新同步預班表的最新設定";
         btnReset.onclick = () => this.resetSchedule();
 
-        // 3. 尋找插入點 (不依賴特定 ID，改找內容)
+        // 尋找插入點 (優先找 AI 按鈕，其次找儲存按鈕)
         let targetAnchor = null;
-        
-        // 優先找「AI」按鈕
         const allBtns = document.querySelectorAll('button');
         for(let btn of allBtns) {
             if(btn.textContent.includes('AI') || btn.textContent.includes('自動')) {
@@ -104,31 +103,21 @@ const scheduleEditorManager = {
                 break;
             }
         }
+        if(!targetAnchor) targetAnchor = document.getElementById('btnSave');
 
-        // 如果找不到 AI 按鈕，找「儲存」按鈕
-        if(!targetAnchor) {
-            targetAnchor = document.getElementById('btnSave');
-        }
-
-        // 4. 插入按鈕
+        // 執行插入
         if (targetAnchor && targetAnchor.parentNode) {
             targetAnchor.parentNode.insertBefore(btnReset, targetAnchor);
-            console.log("重置按鈕已成功插入 (Anchor模式)");
         } else {
-            // 萬一真的都找不到，直接插在標題列後面
+            // 備案：掛在標題列
             const header = document.querySelector('.d-flex') || document.getElementById('schTitle')?.parentNode;
-            if(header) {
-                header.appendChild(btnReset);
-                console.log("重置按鈕已插入 (Header模式)");
-            } else {
-                console.warn("找不到任何地方可以放重置按鈕！");
-            }
+            if(header) header.appendChild(btnReset);
         }
     },
 
-    // --- [核心功能] 重置並同步 ---
+    // --- [核心功能] 重置並同步預班表 ---
     resetSchedule: async function() {
-        if(!confirm("⚠️ [重置確認]\n這將清除目前所有排班內容！\n系統將會重新從「預班表」載入最新的特註、偏好設定與預休假。\n\n確定要執行嗎？")) return;
+        if(!confirm("⚠️ [重置確認]\n這將清除目前所有排班內容！\n系統將會重新從「預班表」載入最新的特註、偏好設定(含第一/第二志願)與預休假。\n\n確定要執行嗎？")) return;
         
         try {
             if (!this.data.sourceId) {
@@ -136,7 +125,7 @@ const scheduleEditorManager = {
                 return;
             }
 
-            // 讀取最新預班表
+            // 1. 讀取最新預班表
             const preDoc = await db.collection('pre_schedules').doc(this.data.sourceId).get();
             if (!preDoc.exists) {
                 alert("錯誤：找不到原始預班表資料。");
@@ -144,18 +133,17 @@ const scheduleEditorManager = {
             }
             const preData = preDoc.data();
 
-            // 準備覆蓋的資料
+            // 2. 準備覆蓋的資料 (深拷貝以防參照問題)
             const newStaffList = preData.staffList || this.data.staffList;
             
-            // 覆蓋本地記憶體
             this.assignments = JSON.parse(JSON.stringify(preData.assignments || {})); 
             this.data.staffList = JSON.parse(JSON.stringify(newStaffList)); 
             if (preData.dailyNeeds) this.data.dailyNeeds = JSON.parse(JSON.stringify(preData.dailyNeeds));
 
-            // 更新索引
+            // 3. 更新索引
             this.data.staffList.forEach(u => this.staffMap[u.uid] = u);
 
-            // 寫入資料庫
+            // 4. 寫入資料庫
             await db.collection('schedules').doc(this.scheduleId).update({
                 assignments: this.assignments,
                 staffList: this.data.staffList,
@@ -163,7 +151,7 @@ const scheduleEditorManager = {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
 
-            // 重繪介面
+            // 5. 重繪介面
             this.renderMatrix();
             this.updateRealTimeStats();
             
@@ -175,7 +163,7 @@ const scheduleEditorManager = {
         }
     },
 
-    // --- AI 相關邏輯 ---
+    // --- AI 排班流程 ---
     runAI: async function() {
         if(!confirm("系統將運算 4 種排班方案供您選擇。\n這可能需要幾秒鐘，確定執行？")) return;
         
@@ -211,6 +199,7 @@ const scheduleEditorManager = {
         }, 100);
     },
 
+    // 資料轉譯：將人員資料轉給演算法
     _prepareStaffDataForAI: function() {
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
         
@@ -220,6 +209,7 @@ const scheduleEditorManager = {
             const pref = assign.preferences || {};
             const params = u.schedulingParams || {};
 
+            // 確保 packageType 正確解析 (給 V1 使用)
             let pkgType = null;
             if (pref.bundleShift && pref.bundleShift !== '') {
                 pkgType = pref.bundleShift;
@@ -227,6 +217,7 @@ const scheduleEditorManager = {
                 pkgType = params.bundleShift;
             }
 
+            // 轉譯每日偏好 (給 V2/V3 使用)
             const aiPrefs = {};
             for (let d = 1; d <= daysInMonth; d++) {
                 const dateStr = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
@@ -234,16 +225,23 @@ const scheduleEditorManager = {
                 
                 if (val === 'REQ_OFF' || (val && val.startsWith('!'))) {
                     aiPrefs[dateStr] = 'REQ_OFF'; 
-                } else if (pref.priority_1) {
-                     if(!aiPrefs[dateStr]) aiPrefs[dateStr] = {};
-                     aiPrefs[dateStr][1] = pref.priority_1;
+                } else {
+                    // 傳入第一與第二志願
+                    if (pref.priority_1) {
+                         if(!aiPrefs[dateStr]) aiPrefs[dateStr] = {};
+                         aiPrefs[dateStr][1] = pref.priority_1;
+                    }
+                    if (pref.priority_2) {
+                         if(!aiPrefs[dateStr]) aiPrefs[dateStr] = {};
+                         aiPrefs[dateStr][2] = pref.priority_2;
+                    }
                 }
             }
 
             return {
                 id: uid,
                 name: u.name,
-                packageType: pkgType,
+                packageType: pkgType, // 這裡確保了 SchedulerV1 能讀到 N 或 E
                 prefs: aiPrefs,
                 isPregnant: params.isPregnant
             };
@@ -439,6 +437,7 @@ const scheduleEditorManager = {
         });
     },
 
+    // --- [核心修正] 渲染矩陣：加入特註、偏好 (支援 1.N 2.D) ---
     renderMatrix: function() {
         const thead = document.getElementById('schHead');
         const tbody = document.getElementById('schBody');
@@ -450,12 +449,12 @@ const scheduleEditorManager = {
         const daysInMonth = new Date(year, month, 0).getDate();
         const lastMonthLastDay = new Date(year, month - 1, 0).getDate();
 
-        // 1. 表頭
+        // 1. 表頭 (加寬偏好欄位)
         let h1 = `<tr>
             <th rowspan="2" class="sticky-col" style="min-width:60px; left:0; z-index:20;">員編</th>
             <th rowspan="2" class="sticky-col" style="min-width:70px; left:60px; z-index:20;">姓名</th>
             <th rowspan="2" style="width:40px; z-index:20;">註</th>
-            <th rowspan="2" style="min-width:50px; z-index:20;">偏好</th>
+            <th rowspan="2" style="min-width:80px; z-index:20;">偏好</th> 
             <th colspan="6" class="header-last" style="background:#eee;">上月</th>`;
         
         for(let d=1; d<=daysInMonth; d++) {
@@ -485,11 +484,15 @@ const scheduleEditorManager = {
             if(params.isBreastfeeding) iconHtml += '🤱 ';
             if(note) iconHtml += `<span title="${note}" style="cursor:help;">📝</span>`;
 
+            // [修正] 完整顯示偏好
             let prefHtml = '';
             if (pref.bundleShift) {
                 prefHtml = `<span class="badge bg-info">包${pref.bundleShift}</span>`;
             } else if (pref.priority_1) {
-                prefHtml = `<span style="color:blue; font-size:0.8em;">1.${pref.priority_1}</span>`;
+                prefHtml = `<span style="color:blue; font-size:0.8em; font-weight:bold;">1.${pref.priority_1}</span>`;
+                if (pref.priority_2) {
+                    prefHtml += `<br><span style="color:gray; font-size:0.8em;">2.${pref.priority_2}</span>`;
+                }
             } else if (params.canBundleShifts && params.bundleShift) {
                 prefHtml = `<span class="badge bg-info">包${params.bundleShift}</span>`;
             } else {
@@ -566,12 +569,14 @@ const scheduleEditorManager = {
         const dim = new Date(this.data.year, this.data.month, 0).getDate();
         const dailyNeeds = this.data.dailyNeeds || {};
 
+        // 1. 初始化每日計數
         const dailyCounts = {}; 
         for(let d=1; d<=dim; d++) {
             dailyCounts[d] = {};
             this.shifts.forEach(s => dailyCounts[d][s.code] = 0);
         }
 
+        // 2. 遍歷人員
         this.data.staffList.forEach(u => {
             let off=0, n=0, e=0, hol=0;
             const assign = this.assignments[u.uid] || {};
@@ -596,6 +601,7 @@ const scheduleEditorManager = {
             set(`stat_e_${u.uid}`, e);
         });
 
+        // 3. 更新底部
         this.shifts.forEach(s => {
             for(let d=1; d<=dim; d++) {
                 const el = document.getElementById(`stat_col_${s.code}_${d}`);
