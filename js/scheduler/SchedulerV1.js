@@ -42,31 +42,48 @@ class SchedulerV1 extends BaseScheduler {
         console.log("[Step 0] 已重置所有非預休班別為 OFF");
     }
 
-    // ==========================================
-    // Step 1: 嚴格篩選包班人員並填滿
-    // ==========================================
-    runStep1_FillPackageOnly() {
-        // 1. 篩選條件：必須有 packageType (由 Editor Manager 傳入，對應 UI 的 '包N'/'包E')
-        const packageStaff = this.staffList.filter(s => s.packageType && ['N', 'E'].includes(s.packageType));
+// ==========================================
+// Step 1: 嚴格篩選包班人員並填滿
+// ==========================================
+runStep1_FillPackageOnly() {
+    // 1. 篩選條件：檢查 preference 欄位是否包含"包"字
+    const packageStaff = this.staffList.filter(s => {
+        // 確保 preference 存在且包含"包"字
+        if (!s.preference) return false;
         
-        console.log(`[Step 1] 鎖定包班名單 (${packageStaff.length}人): ${packageStaff.map(s=>s.name).join(', ')}`);
-
-        packageStaff.forEach(staff => {
-            const targetShift = staff.packageType; // N 或 E
-
-            for (let d = 1; d <= this.daysInMonth; d++) {
-                const dateStr = this.getDateStr(d);
-                const currentStatus = this.getShiftByDate(dateStr, staff.id);
-
-                // 2. 暴力填入：只要這天沒預休，就填入包班班別
-                // 不管是否連七，不管當天是否已爆量，全部填滿
-                if (currentStatus !== 'REQ_OFF' && currentStatus !== 'LEAVE') {
-                    this.updateShift(dateStr, staff.id, 'OFF', targetShift);
-                }
+        const pref = s.preference.toString().trim();
+        if (!pref.includes('包')) return false;
+        
+        // 解析包班類型 (包N 或 包E)
+        if (pref.includes('包N')) {
+            s.packageType = 'N';
+            return true;
+        } else if (pref.includes('包E')) {
+            s.packageType = 'E';
+            return true;
+        }
+        return false;
+    });
+    
+    console.log(`[Step 1] 鎖定包班名單 (${packageStaff.length}人): ${packageStaff.map(s=>s.name).join(', ')}`);
+    
+    packageStaff.forEach(staff => {
+        const targetShift = staff.packageType; // N 或 E
+        console.log(`  → ${staff.name} 包班類型: ${targetShift}`);
+        
+        for (let d = 1; d <= this.daysInMonth; d++) {
+            const dateStr = this.getDateStr(d);
+            const currentStatus = this.getShiftByDate(dateStr, staff.id);
+            
+            // 2. 暴力填入：只要這天沒預休或請假，就填入包班班別
+            if (currentStatus !== 'REQ_OFF' && currentStatus !== 'LEAVE') {
+                this.updateShift(dateStr, staff.id, 'OFF', targetShift);
             }
-        });
-    }
-
+        }
+    });
+    
+    console.log(`[Step 1] 完成 ${packageStaff.length} 位包班人員的班表填滿`);
+}
     // ==========================================
     // 輔助函式 (保留結構，此階段未用)
     // ==========================================
