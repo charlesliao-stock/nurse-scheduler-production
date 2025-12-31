@@ -1,7 +1,8 @@
 // js/modules/schedule_editor_manager.js
 // Fix: 
-// 1. 重置功能改為「重新同步預班表」(Sync from Source)，確保特註/偏好最新。
-// 2. 修正按鈕顏色過淡問題 (強制不透明)。
+// 1. 強制修復「重置按鈕」消失問題 (改用文字內容搜尋定位)。
+// 2. 確保重置功能為「重新同步預班表」。
+// 3. 確保按鈕顏色正確。
 
 const scheduleEditorManager = {
     scheduleId: null,
@@ -9,10 +10,10 @@ const scheduleEditorManager = {
     shifts: [],
     shiftMap: {},
     staffMap: {}, 
-    assignments: {}, // 當前顯示的班表
-    _snapshot: null, // AI 預覽前的備份
+    assignments: {}, 
+    _snapshot: null, 
     tempOptions: [], 
-    targetCell: null, // 右鍵選單目標
+    targetCell: null, 
 
     init: async function(id) {
         console.log("Schedule Editor Init:", id);
@@ -22,12 +23,12 @@ const scheduleEditorManager = {
         try {
             await this.loadContext();
             
-            // 初始化 AI 引擎
+            // 初始化 AI
             if (typeof scheduleManager !== 'undefined') {
                 await scheduleManager.loadContext(id, 'schedules'); 
             }
 
-            this.renderToolbar(); // 渲染上方工具列
+            this.renderToolbar(); // 渲染按鈕
             this.renderMatrix();
             this.updateRealTimeStats();
             this.setupEvents();
@@ -48,7 +49,6 @@ const scheduleEditorManager = {
         this.shifts = shiftsSnap.docs.map(d => d.data());
         this.shifts.forEach(s => this.shiftMap[s.code] = s);
 
-        // 建立人員索引
         this.data.staffList.forEach(u => this.staffMap[u.uid] = u);
 
         const titleEl = document.getElementById('schTitle');
@@ -57,7 +57,6 @@ const scheduleEditorManager = {
         this.updateStatusUI();
     },
 
-    // --- [UI修正] 按鈕狀態與顏色 ---
     updateStatusUI: function() {
         const st = this.data.status;
         const badge = document.getElementById('schStatus');
@@ -67,56 +66,77 @@ const scheduleEditorManager = {
             badge.className = `badge ${st === 'published' ? 'bg-success' : 'bg-warning'}`;
         }
 
-        // 強制修正發布按鈕顏色
+        // 強制設定發布按鈕樣式
         const btnPublish = document.getElementById('btnPublish');
         if(btnPublish) {
-            btnPublish.className = 'btn btn-success'; // 鮮綠色
-            btnPublish.style.opacity = '1'; // 確保不透明
+            btnPublish.className = 'btn btn-success';
+            btnPublish.style.opacity = '1';
             btnPublish.textContent = st === 'published' ? '撤回發布' : '發布班表';
             if(st === 'published') btnPublish.className = 'btn btn-secondary';
             btnPublish.onclick = () => this.togglePublish();
         }
     },
 
-    // --- [UI修正] 渲染工具列 (重置按鈕) ---
+    // --- [核心修正] 強力渲染重置按鈕 ---
     renderToolbar: function() {
+        // 1. 如果已經存在，就不重複加
         if (document.getElementById('btnResetSchedule')) return;
 
-        // 建立重置按鈕
+        // 2. 建立按鈕物件
         const btnReset = document.createElement('button');
         btnReset.id = 'btnResetSchedule';
         btnReset.className = 'btn btn-danger'; // 鮮紅色
-        btnReset.innerHTML = '<i class="fas fa-undo"></i> 重置 (重新載入預班)';
-        btnReset.style.marginRight = '10px';
+        btnReset.innerHTML = '<i class="fas fa-undo"></i> 重置';
+        btnReset.style.marginRight = '8px';
         btnReset.style.fontWeight = 'bold';
-        btnReset.style.opacity = '1'; // 確保不透明
+        btnReset.style.opacity = '1';
+        btnReset.title = "清除目前排班，並重新同步預班表的最新設定";
         btnReset.onclick = () => this.resetSchedule();
 
-        // 插入到 AI 按鈕左側
-        let anchor = document.getElementById('btnAI');
-        if (!anchor) anchor = document.getElementById('btnSave'); // 備案
+        // 3. 尋找插入點 (不依賴特定 ID，改找內容)
+        let targetAnchor = null;
+        
+        // 優先找「AI」按鈕
+        const allBtns = document.querySelectorAll('button');
+        for(let btn of allBtns) {
+            if(btn.textContent.includes('AI') || btn.textContent.includes('自動')) {
+                targetAnchor = btn;
+                break;
+            }
+        }
 
-        if (anchor && anchor.parentNode) {
-            anchor.parentNode.insertBefore(btnReset, anchor);
+        // 如果找不到 AI 按鈕，找「儲存」按鈕
+        if(!targetAnchor) {
+            targetAnchor = document.getElementById('btnSave');
+        }
+
+        // 4. 插入按鈕
+        if (targetAnchor && targetAnchor.parentNode) {
+            targetAnchor.parentNode.insertBefore(btnReset, targetAnchor);
+            console.log("重置按鈕已成功插入 (Anchor模式)");
         } else {
-            // 如果真的找不到，掛在標題旁
-            const header = document.querySelector('.d-flex.justify-content-between');
-            if(header) header.appendChild(btnReset);
+            // 萬一真的都找不到，直接插在標題列後面
+            const header = document.querySelector('.d-flex') || document.getElementById('schTitle')?.parentNode;
+            if(header) {
+                header.appendChild(btnReset);
+                console.log("重置按鈕已插入 (Header模式)");
+            } else {
+                console.warn("找不到任何地方可以放重置按鈕！");
+            }
         }
     },
 
-    // --- [核心邏輯] 重置功能：從預班表重新同步資料 ---
+    // --- [核心功能] 重置並同步 ---
     resetSchedule: async function() {
-        if(!confirm("⚠️ 警告：這將清除目前所有排班結果！\n系統將重新從「預班表」載入最新的特註、偏好與預休。\n\n確定要重置嗎？")) return;
+        if(!confirm("⚠️ [重置確認]\n這將清除目前所有排班內容！\n系統將會重新從「預班表」載入最新的特註、偏好設定與預休假。\n\n確定要執行嗎？")) return;
         
         try {
-            // 1. 檢查是否有來源預班表 ID
             if (!this.data.sourceId) {
-                alert("錯誤：此班表沒有連結的預班來源，無法同步重置。");
+                alert("錯誤：此班表沒有連結的預班來源，無法同步。");
                 return;
             }
 
-            // 2. 從資料庫抓取最新的預班表資料
+            // 讀取最新預班表
             const preDoc = await db.collection('pre_schedules').doc(this.data.sourceId).get();
             if (!preDoc.exists) {
                 alert("錯誤：找不到原始預班表資料。");
@@ -124,20 +144,18 @@ const scheduleEditorManager = {
             }
             const preData = preDoc.data();
 
-            // 3. 準備新的 Snapshot
-            // 為了確保特註(Notes)和參數(Params)是最新的，我們需要重新建立 staffList 快照
-            // 如果預班表裡面的 staffList 已經是最新的，直接用它
+            // 準備覆蓋的資料
             const newStaffList = preData.staffList || this.data.staffList;
             
-            // 4. 覆蓋本地資料
-            this.assignments = JSON.parse(JSON.stringify(preData.assignments || {})); // 載入預班的 assignments (含 preferences, REQ_OFF)
-            this.data.staffList = JSON.parse(JSON.stringify(newStaffList)); // 載入最新人員清單 (含 Note)
-            if (preData.dailyNeeds) this.data.dailyNeeds = JSON.parse(JSON.stringify(preData.dailyNeeds)); // 同步需求設定
+            // 覆蓋本地記憶體
+            this.assignments = JSON.parse(JSON.stringify(preData.assignments || {})); 
+            this.data.staffList = JSON.parse(JSON.stringify(newStaffList)); 
+            if (preData.dailyNeeds) this.data.dailyNeeds = JSON.parse(JSON.stringify(preData.dailyNeeds));
 
-            // 5. 更新本地索引
+            // 更新索引
             this.data.staffList.forEach(u => this.staffMap[u.uid] = u);
 
-            // 6. 存回資料庫 (Schedules)
+            // 寫入資料庫
             await db.collection('schedules').doc(this.scheduleId).update({
                 assignments: this.assignments,
                 staffList: this.data.staffList,
@@ -145,11 +163,11 @@ const scheduleEditorManager = {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
 
-            // 7. 重繪畫面
+            // 重繪介面
             this.renderMatrix();
             this.updateRealTimeStats();
             
-            alert("✅ 已成功重置！資料已同步至預班表最新狀態。");
+            alert("✅ 重置成功！已還原至預班表最新狀態。");
 
         } catch(e) {
             console.error(e);
@@ -157,7 +175,7 @@ const scheduleEditorManager = {
         }
     },
 
-    // --- AI 排班核心入口 ---
+    // --- AI 相關邏輯 ---
     runAI: async function() {
         if(!confirm("系統將運算 4 種排班方案供您選擇。\n這可能需要幾秒鐘，確定執行？")) return;
         
@@ -193,7 +211,6 @@ const scheduleEditorManager = {
         }, 100);
     },
 
-    // 資料轉譯：Staff
     _prepareStaffDataForAI: function() {
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
         
@@ -433,7 +450,7 @@ const scheduleEditorManager = {
         const daysInMonth = new Date(year, month, 0).getDate();
         const lastMonthLastDay = new Date(year, month - 1, 0).getDate();
 
-        // 1. 表頭渲染
+        // 1. 表頭
         let h1 = `<tr>
             <th rowspan="2" class="sticky-col" style="min-width:60px; left:0; z-index:20;">員編</th>
             <th rowspan="2" class="sticky-col" style="min-width:70px; left:60px; z-index:20;">姓名</th>
@@ -455,7 +472,7 @@ const scheduleEditorManager = {
 
         thead.innerHTML = h1 + h2;
 
-        // 2. 內容渲染
+        // 2. 內容
         let bodyHtml = '';
         this.data.staffList.forEach(u => {
             const assign = this.assignments[u.uid] || {};
@@ -511,7 +528,7 @@ const scheduleEditorManager = {
                     oncontextmenu="scheduleEditorManager.handleRightClick(event,'${u.uid}',${d})">${disp}</td>`;
             }
 
-            // 統計欄位
+            // 統計
             bodyHtml += `<td id="stat_off_${u.uid}">0</td>
                          <td id="stat_hol_${u.uid}">0</td>
                          <td id="stat_n_${u.uid}">0</td>
@@ -519,7 +536,7 @@ const scheduleEditorManager = {
         });
         tbody.innerHTML = bodyHtml;
 
-        // 3. 渲染底部 (A/B 模式)
+        // 3. 底部
         this.renderFooter(daysInMonth);
     },
 
