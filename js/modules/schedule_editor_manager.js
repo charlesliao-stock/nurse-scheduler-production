@@ -1,5 +1,7 @@
 // js/modules/schedule_editor_manager.js
-// Fix: 強制顯示頂部「重置」按鈕 (增強定位邏輯)，並優化重置功能
+// Fix: 
+// 1. 重置功能改為「重新同步預班表」(Sync from Source)，確保特註/偏好最新。
+// 2. 修正按鈕顏色過淡問題 (強制不透明)。
 
 const scheduleEditorManager = {
     scheduleId: null,
@@ -25,7 +27,7 @@ const scheduleEditorManager = {
                 await scheduleManager.loadContext(id, 'schedules'); 
             }
 
-            this.renderToolbar(); // [重點] 渲染上方工具列
+            this.renderToolbar(); // 渲染上方工具列
             this.renderMatrix();
             this.updateRealTimeStats();
             this.setupEvents();
@@ -55,6 +57,7 @@ const scheduleEditorManager = {
         this.updateStatusUI();
     },
 
+    // --- [UI修正] 按鈕狀態與顏色 ---
     updateStatusUI: function() {
         const st = this.data.status;
         const badge = document.getElementById('schStatus');
@@ -63,77 +66,94 @@ const scheduleEditorManager = {
             badge.textContent = st === 'published' ? '已發布' : '草稿';
             badge.className = `badge ${st === 'published' ? 'bg-success' : 'bg-warning'}`;
         }
+
+        // 強制修正發布按鈕顏色
+        const btnPublish = document.getElementById('btnPublish');
+        if(btnPublish) {
+            btnPublish.className = 'btn btn-success'; // 鮮綠色
+            btnPublish.style.opacity = '1'; // 確保不透明
+            btnPublish.textContent = st === 'published' ? '撤回發布' : '發布班表';
+            if(st === 'published') btnPublish.className = 'btn btn-secondary';
+            btnPublish.onclick = () => this.togglePublish();
+        }
     },
 
-    // --- [核心修正] 強制渲染重置按鈕 ---
+    // --- [UI修正] 渲染工具列 (重置按鈕) ---
     renderToolbar: function() {
-        // 防止重複渲染
         if (document.getElementById('btnResetSchedule')) return;
 
-        // 1. 建立重置按鈕
+        // 建立重置按鈕
         const btnReset = document.createElement('button');
         btnReset.id = 'btnResetSchedule';
-        btnReset.className = 'btn btn-danger';
-        btnReset.innerHTML = '<i class="fas fa-trash-alt"></i> 重置';
+        btnReset.className = 'btn btn-danger'; // 鮮紅色
+        btnReset.innerHTML = '<i class="fas fa-undo"></i> 重置 (重新載入預班)';
         btnReset.style.marginRight = '10px';
         btnReset.style.fontWeight = 'bold';
+        btnReset.style.opacity = '1'; // 確保不透明
         btnReset.onclick = () => this.resetSchedule();
 
-        // 2. 尋找插入點 (定位錨點)
-        // 優先找 btnAI, 其次找 btnSave, 最後找任何文字包含 "AI" 或 "儲存" 的按鈕
-        let anchor = document.getElementById('btnAI') || document.getElementById('btnSave');
-        
-        if (!anchor) {
-            const allBtns = document.querySelectorAll('button');
-            for(let b of allBtns) {
-                if(b.textContent.includes('AI') || b.textContent.includes('儲存')) {
-                    anchor = b;
-                    break;
-                }
-            }
-        }
+        // 插入到 AI 按鈕左側
+        let anchor = document.getElementById('btnAI');
+        if (!anchor) anchor = document.getElementById('btnSave'); // 備案
 
-        // 3. 執行插入
         if (anchor && anchor.parentNode) {
             anchor.parentNode.insertBefore(btnReset, anchor);
-            console.log("重置按鈕已插入至工具列");
         } else {
-            // 如果真的找不到按鈕，嘗試插入到標題列右側或主要容器頂部
-            console.warn("找不到工具列按鈕，嘗試插入至標題旁");
-            const header = document.querySelector('.d-flex.justify-content-between') || document.getElementById('schTitle')?.parentNode;
-            if(header) {
-                header.appendChild(btnReset);
-            } else {
-                console.error("無法定位插入點，重置按鈕渲染失敗");
-            }
+            // 如果真的找不到，掛在標題旁
+            const header = document.querySelector('.d-flex.justify-content-between');
+            if(header) header.appendChild(btnReset);
         }
     },
 
-    // --- [核心功能] 重置班表 (保留預休) ---
+    // --- [核心邏輯] 重置功能：從預班表重新同步資料 ---
     resetSchedule: async function() {
-        if(!confirm("⚠️ 警告：這將清除所有已排的班別（僅保留預休與請假），還原至初始狀態。\n\n確定要重置嗎？")) return;
+        if(!confirm("⚠️ 警告：這將清除目前所有排班結果！\n系統將重新從「預班表」載入最新的特註、偏好與預休。\n\n確定要重置嗎？")) return;
         
-        const dim = new Date(this.data.year, this.data.month, 0).getDate();
-        let changed = false;
-
-        Object.keys(this.assignments).forEach(uid => {
-            for(let d=1; d<=dim; d++) {
-                const val = this.assignments[uid][`current_${d}`];
-                // 如果不是「預休 (REQ_OFF)」或「請假 (LEAVE)」，就刪除
-                if (val && val !== 'REQ_OFF' && val !== 'LEAVE') {
-                    delete this.assignments[uid][`current_${d}`];
-                    changed = true;
-                }
+        try {
+            // 1. 檢查是否有來源預班表 ID
+            if (!this.data.sourceId) {
+                alert("錯誤：此班表沒有連結的預班來源，無法同步重置。");
+                return;
             }
-        });
 
-        if (changed) {
+            // 2. 從資料庫抓取最新的預班表資料
+            const preDoc = await db.collection('pre_schedules').doc(this.data.sourceId).get();
+            if (!preDoc.exists) {
+                alert("錯誤：找不到原始預班表資料。");
+                return;
+            }
+            const preData = preDoc.data();
+
+            // 3. 準備新的 Snapshot
+            // 為了確保特註(Notes)和參數(Params)是最新的，我們需要重新建立 staffList 快照
+            // 如果預班表裡面的 staffList 已經是最新的，直接用它
+            const newStaffList = preData.staffList || this.data.staffList;
+            
+            // 4. 覆蓋本地資料
+            this.assignments = JSON.parse(JSON.stringify(preData.assignments || {})); // 載入預班的 assignments (含 preferences, REQ_OFF)
+            this.data.staffList = JSON.parse(JSON.stringify(newStaffList)); // 載入最新人員清單 (含 Note)
+            if (preData.dailyNeeds) this.data.dailyNeeds = JSON.parse(JSON.stringify(preData.dailyNeeds)); // 同步需求設定
+
+            // 5. 更新本地索引
+            this.data.staffList.forEach(u => this.staffMap[u.uid] = u);
+
+            // 6. 存回資料庫 (Schedules)
+            await db.collection('schedules').doc(this.scheduleId).update({
+                assignments: this.assignments,
+                staffList: this.data.staffList,
+                dailyNeeds: this.data.dailyNeeds || {},
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            // 7. 重繪畫面
             this.renderMatrix();
             this.updateRealTimeStats();
-            this.saveDraft(true); // 自動儲存
-            alert("✅ 已重置完畢，恢復為預班初始狀態。");
-        } else {
-            alert("目前沒有需要重置的內容 (已經是初始狀態)。");
+            
+            alert("✅ 已成功重置！資料已同步至預班表最新狀態。");
+
+        } catch(e) {
+            console.error(e);
+            alert("重置失敗: " + e.message);
         }
     },
 
@@ -529,14 +549,12 @@ const scheduleEditorManager = {
         const dim = new Date(this.data.year, this.data.month, 0).getDate();
         const dailyNeeds = this.data.dailyNeeds || {};
 
-        // 1. 初始化每日計數
         const dailyCounts = {}; 
         for(let d=1; d<=dim; d++) {
             dailyCounts[d] = {};
             this.shifts.forEach(s => dailyCounts[d][s.code] = 0);
         }
 
-        // 2. 遍歷人員
         this.data.staffList.forEach(u => {
             let off=0, n=0, e=0, hol=0;
             const assign = this.assignments[u.uid] || {};
@@ -561,7 +579,6 @@ const scheduleEditorManager = {
             set(`stat_e_${u.uid}`, e);
         });
 
-        // 3. 更新底部
         this.shifts.forEach(s => {
             for(let d=1; d<=dim; d++) {
                 const el = document.getElementById(`stat_col_${s.code}_${d}`);
