@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// Fix: UI 增強版 - 加入 Reset 按鈕、顯示特註/偏好、底部顯示供需 (A/B)
+// Fix: 加入頂部「重置」按鈕，可清除排班結果並還原至預班狀態 (保留 REQ_OFF)
 
 const scheduleEditorManager = {
     scheduleId: null,
@@ -8,7 +8,7 @@ const scheduleEditorManager = {
     shiftMap: {},
     staffMap: {}, 
     assignments: {}, // 當前顯示的班表
-    _snapshot: null, // 預覽前的備份
+    _snapshot: null, // AI 預覽前的備份
     tempOptions: [], 
     targetCell: null, // 右鍵選單目標
 
@@ -25,7 +25,7 @@ const scheduleEditorManager = {
                 await scheduleManager.loadContext(id, 'schedules'); 
             }
 
-            this.renderToolbar(); // [新增] 渲染工具列 (含 Reset 按鈕)
+            this.renderToolbar(); // [新增] 渲染上方工具列按鈕
             this.renderMatrix();
             this.updateRealTimeStats();
             this.setupEvents();
@@ -59,36 +59,61 @@ const scheduleEditorManager = {
         const st = this.data.status;
         const badge = document.getElementById('schStatus');
         
-        // 這些按鈕通常在 HTML 裡，這裡只控制狀態
-        // Reset 按鈕現在由 renderToolbar 動態生成
         if(badge) {
             badge.textContent = st === 'published' ? '已發布' : '草稿';
             badge.className = `badge ${st === 'published' ? 'bg-success' : 'bg-warning'}`;
         }
+        // 按鈕狀態控制 (如發布後鎖定) 可在此擴充
     },
 
-    // [新增] 動態渲染工具列 (加入 Reset 按鈕)
+    // --- [新增] 渲染工具列 (加入重置按鈕) ---
     renderToolbar: function() {
-        const toolbar = document.querySelector('.editor-toolbar') || document.getElementById('editorToolbar');
-        if (!toolbar) return; // 如果找不到容器，請確認 HTML 結構
+        // 嘗試找到工具列容器 (通常在 AI 按鈕附近)
+        const btnAI = document.getElementById('btnAI');
+        if (!btnAI) return; // 如果找不到按鈕，可能 HTML 結構不同
 
-        // 簡單檢查是否已存在，避免重複
+        const toolbar = btnAI.parentNode;
+        
+        // 避免重複加入
         if (document.getElementById('btnResetSchedule')) return;
 
-        // 在 AI 按鈕旁加入 Reset
+        // 建立重置按鈕
         const btnReset = document.createElement('button');
         btnReset.id = 'btnResetSchedule';
-        btnReset.className = 'btn btn-danger';
-        btnReset.innerHTML = '<i class="fas fa-trash-alt"></i> 重置班表';
-        btnReset.style.marginLeft = '10px';
+        btnReset.className = 'btn btn-danger'; // 紅色按鈕
+        btnReset.innerHTML = '<i class="fas fa-undo"></i> 重置';
+        btnReset.style.marginRight = '10px'; // 與 AI 按鈕保持距離
         btnReset.onclick = () => this.resetSchedule();
 
-        // 插入位置：通常在 AI 按鈕後面
-        const btnAI = document.getElementById('btnAI');
-        if (btnAI && btnAI.parentNode) {
-            btnAI.parentNode.insertBefore(btnReset, btnAI.nextSibling);
+        // 將重置按鈕插入到 AI 按鈕的左邊
+        toolbar.insertBefore(btnReset, btnAI);
+    },
+
+    // --- [核心] 重置功能：還原到預班結果 ---
+    resetSchedule: async function() {
+        if(!confirm("⚠️ 警告：這將清除所有已排的班別（僅保留預休與請假），還原至初始狀態。\n\n確定要重置嗎？")) return;
+        
+        const dim = new Date(this.data.year, this.data.month, 0).getDate();
+        let changed = false;
+
+        Object.keys(this.assignments).forEach(uid => {
+            for(let d=1; d<=dim; d++) {
+                const val = this.assignments[uid][`current_${d}`];
+                // 如果不是「預休 (REQ_OFF)」或「請假 (LEAVE)」，就刪除
+                if (val && val !== 'REQ_OFF' && val !== 'LEAVE') {
+                    delete this.assignments[uid][`current_${d}`];
+                    changed = true;
+                }
+            }
+        });
+
+        if (changed) {
+            this.renderMatrix();
+            this.updateRealTimeStats();
+            this.saveDraft(true); // 自動儲存
+            alert("✅ 已重置完畢，恢復為預班初始狀態。");
         } else {
-            toolbar.appendChild(btnReset);
+            alert("目前沒有需要重置的內容。");
         }
     },
 
@@ -357,7 +382,6 @@ const scheduleEditorManager = {
         });
     },
 
-    // --- [核心修正] 渲染矩陣：加入特註、偏好、底部供需 ---
     renderMatrix: function() {
         const thead = document.getElementById('schHead');
         const tbody = document.getElementById('schBody');
@@ -369,7 +393,7 @@ const scheduleEditorManager = {
         const daysInMonth = new Date(year, month, 0).getDate();
         const lastMonthLastDay = new Date(year, month - 1, 0).getDate();
 
-        // 1. 表頭渲染 (增加特註與偏好)
+        // 1. 表頭渲染
         let h1 = `<tr>
             <th rowspan="2" class="sticky-col" style="min-width:60px; left:0; z-index:20;">員編</th>
             <th rowspan="2" class="sticky-col" style="min-width:70px; left:60px; z-index:20;">姓名</th>
@@ -397,15 +421,13 @@ const scheduleEditorManager = {
             const assign = this.assignments[u.uid] || {};
             const pref = assign.preferences || {};
             const params = u.schedulingParams || {};
-            const note = u.note || ""; // 快照中的特註
+            const note = u.note || ""; 
 
-            // 特註圖示
             let iconHtml = '';
             if(params.isPregnant) iconHtml += '🤰 ';
             if(params.isBreastfeeding) iconHtml += '🤱 ';
             if(note) iconHtml += `<span title="${note}" style="cursor:help;">📝</span>`;
 
-            // 偏好顯示 (包班 or 志願)
             let prefHtml = '';
             if (pref.bundleShift) {
                 prefHtml = `<span class="badge bg-info">包${pref.bundleShift}</span>`;
@@ -413,6 +435,8 @@ const scheduleEditorManager = {
                 prefHtml = `<span style="color:blue; font-size:0.8em;">1.${pref.priority_1}</span>`;
             } else if (params.canBundleShifts && params.bundleShift) {
                 prefHtml = `<span class="badge bg-info">包${params.bundleShift}</span>`;
+            } else {
+                 prefHtml = `<span style="color:#999; font-size:0.8em;">設定</span>`;
             }
             
             bodyHtml += `<tr data-uid="${u.uid}">
@@ -459,7 +483,6 @@ const scheduleEditorManager = {
         this.renderFooter(daysInMonth);
     },
 
-    // [新增] 底部渲染 (顯示各班別供需)
     renderFooter: function(daysInMonth) {
         const tfoot = document.getElementById('schFoot');
         if(!tfoot) return;
@@ -467,7 +490,6 @@ const scheduleEditorManager = {
         let f = '';
         const dailyNeeds = this.data.dailyNeeds || {};
 
-        // 遍歷所有班別 (N, E, D...)
         this.shifts.forEach(shift => {
             f += `<tr style="border-top: 1px solid #ddd;">
                 <td colspan="4" style="text-align:right; font-weight:bold; color:${shift.color || '#333'}; position:sticky; left:0; background:#fff;">
@@ -476,7 +498,6 @@ const scheduleEditorManager = {
                 <td colspan="6" style="background:#fff;">-</td>`;
             
             for(let d=1; d<=daysInMonth; d++) {
-                // 給予 ID 方便 updateRealTimeStats 更新
                 f += `<td id="stat_col_${shift.code}_${d}" style="text-align:center; font-size:0.85em; background:#fff;">-</td>`;
             }
             f += `<td colspan="4" style="background:#fff;">-</td></tr>`;
@@ -484,7 +505,6 @@ const scheduleEditorManager = {
         tfoot.innerHTML = f;
     },
 
-    // [核心修正] 更新即時統計 (含底部供需 A/B)
     updateRealTimeStats: function() {
         const dim = new Date(this.data.year, this.data.month, 0).getDate();
         const dailyNeeds = this.data.dailyNeeds || {};
@@ -496,7 +516,7 @@ const scheduleEditorManager = {
             this.shifts.forEach(s => dailyCounts[d][s.code] = 0);
         }
 
-        // 2. 遍歷人員，計算行統計與每日累計
+        // 2. 遍歷人員
         this.data.staffList.forEach(u => {
             let off=0, n=0, e=0, hol=0;
             const assign = this.assignments[u.uid] || {};
@@ -504,19 +524,16 @@ const scheduleEditorManager = {
             for(let d=1; d<=dim; d++) {
                 const v = assign[`current_${d}`];
                 
-                // 行統計
                 if(v==='OFF' || !v) off++;
                 else if(v==='REQ_OFF') { off++; hol++; }
                 else if(v==='N') n++;
                 else if(v==='E') e++;
 
-                // 每日累計
                 if(v && dailyCounts[d][v] !== undefined) {
                     dailyCounts[d][v]++;
                 }
             }
             
-            // 更新右側
             const set = (k,v) => { const el=document.getElementById(k); if(el) el.textContent=v; };
             set(`stat_off_${u.uid}`, off); 
             set(`stat_hol_${u.uid}`, hol);
@@ -524,20 +541,19 @@ const scheduleEditorManager = {
             set(`stat_e_${u.uid}`, e);
         });
 
-        // 3. 更新底部 (A/B 供需)
+        // 3. 更新底部
         this.shifts.forEach(s => {
             for(let d=1; d<=dim; d++) {
                 const el = document.getElementById(`stat_col_${s.code}_${d}`);
                 if(el) {
-                    // 計算需求
                     const date = new Date(this.data.year, this.data.month - 1, d);
-                    const dayIdx = (date.getDay() + 6) % 7; // Mon=0
+                    const dayIdx = (date.getDay() + 6) % 7; 
                     const needKey = `${s.code}_${dayIdx}`;
                     const demand = dailyNeeds[needKey] ? parseInt(dailyNeeds[needKey]) : 0;
                     const supply = dailyCounts[d][s.code] || 0;
 
                     if (demand > 0) {
-                        el.textContent = `${supply} / ${demand}`; // A / B
+                        el.textContent = `${supply} / ${demand}`; 
                         if (supply < demand) {
                             el.style.backgroundColor = '#ffebee';
                             el.style.color = '#c0392b';
@@ -556,27 +572,6 @@ const scheduleEditorManager = {
                 }
             }
         });
-    },
-
-    // [新增] 重置功能：清空所有非預休班別
-    resetSchedule: async function() {
-        if(!confirm("⚠️ 警告：這將清空所有已排的班別（僅保留預休），確定要重置嗎？")) return;
-        
-        const dim = new Date(this.data.year, this.data.month, 0).getDate();
-        
-        Object.keys(this.assignments).forEach(uid => {
-            for(let d=1; d<=dim; d++) {
-                const val = this.assignments[uid][`current_${d}`];
-                if (val !== 'REQ_OFF') {
-                    delete this.assignments[uid][`current_${d}`]; // 刪除班別 = 變回 OFF
-                }
-            }
-        });
-
-        this.renderMatrix();
-        this.updateRealTimeStats();
-        this.saveDraft(true); // 自動儲存
-        alert("已重置完畢！");
     },
 
     saveDraft: async function(silent) {
