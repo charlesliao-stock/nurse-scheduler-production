@@ -200,6 +200,7 @@ const scheduleEditorManager = {
     },
 
     // 資料轉譯：將人員資料轉給演算法
+// ... existing code ...
     _prepareStaffDataForAI: function() {
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
         
@@ -209,7 +210,6 @@ const scheduleEditorManager = {
             const pref = assign.preferences || {};
             const params = u.schedulingParams || {};
 
-            // 確保 packageType 正確解析 (給 V1 使用)
             let pkgType = null;
             if (pref.bundleShift && pref.bundleShift !== '') {
                 pkgType = pref.bundleShift;
@@ -217,7 +217,7 @@ const scheduleEditorManager = {
                 pkgType = params.bundleShift;
             }
 
-            // 轉譯每日偏好 (給 V2/V3 使用)
+            // 轉譯每日偏好 (給 V1 使用)
             const aiPrefs = {};
             for (let d = 1; d <= daysInMonth; d++) {
                 const dateStr = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
@@ -226,27 +226,26 @@ const scheduleEditorManager = {
                 if (val === 'REQ_OFF' || (val && val.startsWith('!'))) {
                     aiPrefs[dateStr] = 'REQ_OFF'; 
                 } else {
-                    // 傳入第一與第二志願
-                    if (pref.priority_1) {
-                         if(!aiPrefs[dateStr]) aiPrefs[dateStr] = {};
-                         aiPrefs[dateStr][1] = pref.priority_1;
-                    }
-                    if (pref.priority_2) {
-                         if(!aiPrefs[dateStr]) aiPrefs[dateStr] = {};
-                         aiPrefs[dateStr][2] = pref.priority_2;
-                    }
+                    // [修正] 完整傳遞三個志願
+                    if(!aiPrefs[dateStr]) aiPrefs[dateStr] = {};
+                    if (pref.priority_1) aiPrefs[dateStr][1] = pref.priority_1;
+                    if (pref.priority_2) aiPrefs[dateStr][2] = pref.priority_2;
+                    if (pref.priority_3) aiPrefs[dateStr][3] = pref.priority_3;
                 }
             }
 
             return {
                 id: uid,
                 name: u.name,
-                packageType: pkgType, // 這裡確保了 SchedulerV1 能讀到 N 或 E
+                packageType: pkgType, 
                 prefs: aiPrefs,
-                isPregnant: params.isPregnant
+                isPregnant: params.isPregnant,
+                // [新增] 傳遞特註
+                isBreastfeeding: params.isBreastfeeding
             };
         });
     },
+
 
     _prepareLastMonthData: function() {
         const result = {};
