@@ -10,12 +10,13 @@ class ScheduleBatchRunner {
     }
 
     runAll() {
+        // [修正] 暫時只執行 V1，並將其設為方案 A
+        // 其他方案暫時註解掉，專注調優 V1
         const strategies = [
-            // [修正] 將 V1 (Step 1 測試版) 改為方案 A
-            { code: 'V1', name: '方案 A：Step 1 測試 (包班優先)', classType: 'V1' }, 
-            { code: 'V3', name: '方案 B：標準排班 (V3)', classType: 'V3' },
-            { code: 'V2', name: '方案 C：逐日推進 (V2)', classType: 'V2' },
-            { code: 'V4', name: '方案 D：假日優先 (V4)', classType: 'V4' }
+            { code: 'V1', name: '方案 A：標準排班 (V1)', classType: 'V1' },
+            // { code: 'V2', name: '方案 B：權重計分 (V2)', classType: 'V2' },
+            // { code: 'V3', name: '方案 C：隨機優化 (V3)', classType: 'V3' },
+            // { code: 'V4', name: '方案 D：規則窮舉 (V4)', classType: 'V4' }
         ];
 
         const results = [];
@@ -23,6 +24,7 @@ class ScheduleBatchRunner {
         strategies.forEach(strategy => {
             console.time(`Run ${strategy.code}`);
             try {
+                // 工廠模式創建
                 const scheduler = SchedulerFactory.create(
                     strategy.classType, 
                     this.allStaff, 
@@ -57,9 +59,11 @@ class ScheduleBatchRunner {
 
     analyzeQuality(schedule) {
         let gapCount = 0;
+        // 簡易統計缺口
         Object.values(schedule).forEach(day => {
             if (day.N.length < 2) gapCount += (2 - day.N.length);
-            if (day.E.length < 2) gapCount += (2 - day.E.length);
+            if (day.E.length < 3) gapCount += (3 - day.E.length);
+            if (day.D.length < 4) gapCount += (4 - day.D.length);
         });
         return { gapCount: gapCount };
     }
