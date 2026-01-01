@@ -1,6 +1,7 @@
 /**
  * 策略 V1: 標準排班 (Standard Shift Scheduling)
  * 依據「修訂後精簡操作流程」實作
+ * Fix: 補回遺漏的 resetAllToOff 函式
  */
 class SchedulerV1 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -22,6 +23,24 @@ class SchedulerV1 extends BaseScheduler {
         // [Phase 3] 收尾優化 (暫略，先確保核心邏輯正確)
         
         return this.schedule;
+    }
+
+    // ==========================================
+    // [Fix] 補回：重置全月班表 (只保留預休)
+    // ==========================================
+    resetAllToOff() {
+        this.staffList.forEach(staff => {
+            for (let d = 1; d <= this.daysInMonth; d++) {
+                const dateStr = this.getDateStr(d);
+                const currentStatus = this.getShiftByDate(dateStr, staff.id);
+                
+                // 只要不是「預休 (REQ_OFF)」或「請假 (LEAVE)」，全部清成 OFF
+                if (currentStatus !== 'REQ_OFF' && currentStatus !== 'LEAVE') {
+                    this.updateShift(dateStr, staff.id, 'OFF', 'OFF'); 
+                }
+            }
+        });
+        console.log("[Phase 0] 已重置為初始狀態 (保留預休)");
     }
 
     // ==========================================
@@ -111,20 +130,9 @@ class SchedulerV1 extends BaseScheduler {
         if (!this.checkWeeklyVariety(staff.id, dateStr, shift)) return false;
 
         // 3. 連續上班天數
-        // 若今天排班，則連續天數 = 昨天的連續天數 + 1
-        // 若 > 5 (或 6)，則違規
         const maxCons = this.rules.policy?.maxConsDays || 5; 
-        // 注意：這裡需要高效計算，暫時用 getConsecutiveWorkDays
-        // (若 prevShift 是 OFF，consecutive 為 0，加 1 為 1，合法)
         if (['N', 'E', 'D'].includes(prevShift)) {
-            const currentCons = this.getConsecutiveWorkDays(staff.id, dateStr); // 此函式會往前算
-            // getConsecutiveWorkDays 算的是「截至昨天」還是「包含今天」？
-            // BaseScheduler 裡的實作是往前算。如果在 updateShift 之前呼叫，它算的是「如果今天排班...」嗎？
-            // 不，BaseScheduler 是讀取 schedule。因為我們還沒 updateShift，所以讀到的是 OFF (初始)。
-            // 所以要算的是「昨天的連續天數」。
-            // 修正 BaseScheduler 邏輯或在此手動算：
-            // 簡單解法：讀取昨天的班，如果是上班，則連續天數+1
-            // 由於 performance 考量，這裡簡化判斷：
+            // 這裡簡單檢查：如果昨天已經連上 maxCons 天，今天就不能再排
             if (this.getConsecutiveWorkDays(staff.id, dateStr) >= maxCons) return false;
         }
 
@@ -162,21 +170,16 @@ class SchedulerV1 extends BaseScheduler {
         // B. 處理過剩 (Surplus)
         // 決策 2: 輪流轉 OFF
         ['N', 'E', 'D'].forEach(shift => {
-            while (count[shift] > demand[shift]) { // 嚴格等於需求，不留緩衝
+            while (count[shift] > demand[shift]) { 
                 const success = this.reduceSurplus(dateStr, shift);
                 if (success) count[shift]--;
                 else break;
             }
         });
-
-        // C. 如果仍有缺額，觸發回溯 (簡單版：只回溯前一天)
-        // (這裡先標記，若需要可實作 resolveShortageWithBacktrack)
     }
 
     fillShortage(dateStr, targetShift) {
         // 尋找候選人：目前是 OFF 或 過剩班別，且白名單有 targetShift
-        // 排序：優先級高者 (總OFF數多 > 白名單順位高)
-        
         let candidates = [];
         this.staffList.forEach(s => {
             const current = this.getShiftByDate(dateStr, s.id);
@@ -188,7 +191,7 @@ class SchedulerV1 extends BaseScheduler {
             // 檢查白名單
             const whitelist = this.createWhitelist(s, dateStr);
             const prefIndex = whitelist.indexOf(targetShift); // 0 is best
-            if (prefIndex === -1) return; // 不在白名單不排 (除非強制)
+            if (prefIndex === -1) return; // 不在白名單不排
 
             candidates.push({
                 id: s.id,
@@ -200,10 +203,7 @@ class SchedulerV1 extends BaseScheduler {
 
         if (candidates.length === 0) return false;
 
-        // 排序：
-        // 1. 若 current 是過剩班別 (暫略，需計算即時過剩，這裡先簡化為優先抓 OFF)
-        // 2. prefIndex 小 (偏好高)
-        // 3. totalOff 大 (休假多的人優先抓回來上班)
+        // 排序：偏好高 > 休假多
         candidates.sort((a, b) => {
             if (a.prefIndex !== b.prefIndex) return a.prefIndex - b.prefIndex;
             return b.totalOff - a.totalOff;
@@ -211,9 +211,6 @@ class SchedulerV1 extends BaseScheduler {
 
         const best = candidates[0];
         this.updateShift(dateStr, best.id, best.current, targetShift);
-        // 如果原本是上班，這一轉可能會造成原本班別缺人，需遞迴處理？
-        // 為了避免無窮迴圈，建議只從 OFF 抓人，或從「明確過剩」的班抓人。
-        // 這裡 V1 簡化：只從 OFF 抓人 (因為前面 isValidAssignment 會擋轉班，所以幾乎只能從 OFF 抓)
         return true;
     }
 
@@ -225,22 +222,15 @@ class SchedulerV1 extends BaseScheduler {
         let candidates = [];
         workers.forEach(uid => {
             const s = this.staffList.find(st => st.id === uid);
-            // 包班人員盡量不動？ (看需求，決策2說「白名單偏好較低者優先」)
-            // 這裡依據決策 2：
-            // 1. forcedOffCount 少 (輪替)
-            // 2. totalOff 少
             candidates.push({
                 id: s.id,
-                forcedOff: this.counters[s.id].forcedOffCount,
+                forcedOff: this.counters[s.id].forcedOffCount || 0,
                 totalOff: this.counters[s.id].OFF,
-                uidVal: parseInt(s.id) || 0 // 員編
+                uidVal: parseInt(s.id) || 0 
             });
         });
 
-        // 排序：找「最應該被休假」的人
-        // 1. forcedOffCount 少 (讓他休)
-        // 2. totalOff 少
-        // 3. 員編小
+        // 排序：找「最應該被休假」的人 (輪替制)
         candidates.sort((a, b) => {
             if (a.forcedOff !== b.forcedOff) return a.forcedOff - b.forcedOff;
             if (a.totalOff !== b.totalOff) return a.totalOff - b.totalOff;
@@ -249,12 +239,15 @@ class SchedulerV1 extends BaseScheduler {
 
         const victim = candidates[0];
         this.updateShift(dateStr, victim.id, sourceShift, 'OFF');
-        this.counters[victim.id].forcedOffCount++; // 增加被強迫休假的計數
+        
+        // 增加被強迫休假的計數
+        if (!this.counters[victim.id].forcedOffCount) this.counters[victim.id].forcedOffCount = 0;
+        this.counters[victim.id].forcedOffCount++; 
+        
         return true;
     }
 
     getDailyDemand(shift, dayIdx) {
-        // key format: "N_0", "D_1"...
         const key = `${shift}_${dayIdx}`;
         if (this.rules.dailyNeeds && this.rules.dailyNeeds[key] !== undefined) {
             return parseInt(this.rules.dailyNeeds[key]);
