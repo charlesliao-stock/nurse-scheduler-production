@@ -1,5 +1,4 @@
 // js/router.js
-
 const router = {
     routes: {
         '/admin/dashboard': 'dashboard',       
@@ -14,12 +13,12 @@ const router = {
         '/staff/pre_schedule_list': 'staff_pre_schedule_list', 
         '/staff/pre_schedule': 'staff_pre_schedule',
         '/admin/schedule_rules': 'schedule_rules',
-        // [新增] 排班作業
         '/admin/schedule_list': 'schedule_list',
         '/admin/schedule_matrix': 'schedule_matrix'
     },
 
     currentView: null,
+    currentManager: null, // [新增] 追蹤當前的 Manager 實體
     isLoading: false,
 
     load: async function(path) {
@@ -30,15 +29,26 @@ const router = {
         
         if(this.currentView === viewName && !queryString) return;
 
-        const urlParams = new URLSearchParams(queryString);
-        const id = urlParams.get('id');
-
-        console.log(`Router: ${cleanPath} -> ${viewName}, ID: ${id}`);
-
         if (!viewName) { 
             console.warn("404 Not Found"); 
             return; 
         }
+
+        // [修正] 1. 切換前清理舊資源
+        if (this.currentManager && typeof this.currentManager.cleanup === 'function') {
+            console.log(`🧹 Cleaning up: ${this.currentView}`);
+            try {
+                this.currentManager.cleanup();
+            } catch (e) {
+                console.error("Cleanup Error:", e);
+            }
+        }
+        this.currentManager = null;
+
+        const urlParams = new URLSearchParams(queryString);
+        const id = urlParams.get('id');
+
+        console.log(`Router: ${cleanPath} -> ${viewName}, ID: ${id}`);
 
         const container = document.getElementById('content-area');
         if(!container) return;
@@ -52,7 +62,8 @@ const router = {
             container.innerHTML = html;
             this.currentView = viewName;
 
-            this.initModule(viewName, id);
+            // [修正] 2. 初始化並儲存 Manager 實體
+            this.currentManager = this.initModule(viewName, id);
 
         } catch (error) {
             console.error("View Load Error:", error);
@@ -63,39 +74,36 @@ const router = {
     },
 
     initModule: function(viewName, id) {
-        if (viewName === 'dashboard') { /* ... */ }
-        else if (viewName === 'staff' && typeof staffManager !== 'undefined') staffManager.init();
-        else if (viewName === 'units' && typeof unitManager !== 'undefined') unitManager.init();
-        else if (viewName === 'shifts' && typeof shiftManager !== 'undefined') shiftManager.init();
-        else if (viewName === 'groups' && typeof groupManager !== 'undefined') groupManager.init();
-        else if (viewName === 'menus' && typeof menuManager !== 'undefined') menuManager.init();
-        else if (viewName === 'pre_schedules') { 
-            if(typeof preScheduleManager !== 'undefined') preScheduleManager.init(); 
+        let manager = null;
+
+        // 對照表映射
+        if (viewName === 'staff' && typeof staffManager !== 'undefined') manager = staffManager;
+        else if (viewName === 'units' && typeof unitManager !== 'undefined') manager = unitManager;
+        else if (viewName === 'shifts' && typeof shiftManager !== 'undefined') manager = shiftManager;
+        else if (viewName === 'groups' && typeof groupManager !== 'undefined') manager = groupManager;
+        else if (viewName === 'menus' && typeof menuManager !== 'undefined') manager = menuManager;
+        else if (viewName === 'pre_schedules' && typeof preScheduleManager !== 'undefined') manager = preScheduleManager;
+        else if (viewName === 'pre_schedule_matrix' && typeof matrixManager !== 'undefined') manager = matrixManager;
+        else if (viewName === 'staff_pre_schedule_list' && typeof staffPreScheduleListManager !== 'undefined') manager = staffPreScheduleListManager;
+        else if (viewName === 'staff_pre_schedule' && typeof staffPreScheduleManager !== 'undefined') manager = staffPreScheduleManager;
+        else if (viewName === 'schedule_rules' && typeof scheduleRuleManager !== 'undefined') manager = scheduleRuleManager;
+        else if (viewName === 'schedule_list' && typeof scheduleListManager !== 'undefined') manager = scheduleListManager;
+        else if (viewName === 'schedule_matrix' && typeof scheduleEditorManager !== 'undefined') manager = scheduleEditorManager;
+
+        // 統一執行 init
+        if (manager && typeof manager.init === 'function') {
+            manager.init(id);
         }
-        else if (viewName === 'pre_schedule_matrix') { 
-            if(typeof matrixManager !== 'undefined') matrixManager.init(id); 
-        }
-        else if (viewName === 'staff_pre_schedule_list') {
-            if(typeof staffPreScheduleListManager !== 'undefined') staffPreScheduleListManager.init();
-        }
-        else if (viewName === 'staff_pre_schedule') {
-            if(typeof staffPreScheduleManager !== 'undefined') staffPreScheduleManager.init(id);
-        }
-        else if (viewName === 'schedule_rules') {
-            if(typeof scheduleRuleManager !== 'undefined') scheduleRuleManager.init();
-        }
-        // [新增] 排班作業模組初始化
-        else if (viewName === 'schedule_list') {
-            if(typeof scheduleListManager !== 'undefined') scheduleListManager.init();
-        }
-        else if (viewName === 'schedule_matrix') {
-            // scheduleEditorManager 尚未建立，留待下一階段
-             if(typeof scheduleEditorManager !== 'undefined') scheduleEditorManager.init(id);
-             else container.innerHTML = '<div style="padding:20px;">排班編輯器開發中...</div>';
-        }
+
+        return manager;
     },
 
     reset: function() {
+        // 登出或重置時也要清理
+        if (this.currentManager && typeof this.currentManager.cleanup === 'function') {
+            this.currentManager.cleanup();
+        }
+        this.currentManager = null;
         this.currentView = null;
         this.isLoading = false;
         console.log("Router reset.");
