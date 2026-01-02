@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_matrix_manager.js
-// Fix: 還原原始 UI 架構 (含統計列)，並修復預班顯示與互動邏輯
+// Fix: 基於原版架構修復，補回前月資料與正確的點擊互動
 
 const matrixManager = {
     docId: null,
@@ -8,8 +8,8 @@ const matrixManager = {
     shifts: [],
     shiftsMap: {},
     usersMap: {},
-    staffList: [],
-    localAssignments: {}, // 本地暫存，提升操作流暢度
+    staffList: [],   // 排序後的人員列表
+    localAssignments: {}, // 本地暫存
     contextTarget: null,
     isLoading: false,
 
@@ -20,27 +20,28 @@ const matrixManager = {
         
         try {
             this.showLoading();
-            this.cleanup();
+            this.cleanup(); // 清理舊監聽
 
-            // 1. 平行載入所有資料 (解決效能問題)
-            // 先載入文件以取得 unitId, year, month
+            // 1. 先讀取主文件 (取得年份月份)
             const doc = await db.collection('pre_schedules').doc(this.docId).get();
             if(!doc.exists) throw new Error("文件不存在");
             this.data = doc.data();
             this.localAssignments = this.data.assignments || {};
 
-            // 接著載入關聯資料
+            // 2. 平行載入所有參照資料 (包含前一個月)
             await Promise.all([
                 this.loadShifts(),
                 this.loadUsers(),
-                this.loadPreviousMonthData() // 載入前月最後幾天
+                this.loadPreviousMonthData() // [新增] 載入前月資料
             ]);
             
-            // 2. 還原表格結構與渲染
+            // 3. 還原表格結構 (這是您原本的關鍵函式)
             this.restoreTableStructure();
+            
+            // 4. 渲染與統計
             this.renderMatrix();
-            this.updateStats(); // 計算統計
-            this.setupEvents(); // 綁定事件
+            this.updateStats(); 
+            this.setupEvents(); 
             
             // 設定標題
             const titleEl = document.getElementById('matrixTitle');
@@ -60,7 +61,7 @@ const matrixManager = {
     cleanup: function() {
         const oldMenu = document.getElementById('customContextMenu');
         if(oldMenu) oldMenu.remove();
-        document.onclick = null;
+        document.onclick = null; 
     },
 
     showLoading: function() {
@@ -75,7 +76,6 @@ const matrixManager = {
         const snap = await db.collection('shifts').where('unitId', '==', unitId).get();
         this.shifts = snap.docs.map(d => d.data());
         this.shifts.sort((a,b) => (a.code || '').localeCompare(b.code || '')); 
-        
         this.shiftsMap = {};
         this.shifts.forEach(s => this.shiftsMap[s.code] = s);
     },
@@ -94,18 +94,17 @@ const matrixManager = {
             this.usersMap[u.id] = { uid: u.id, ...userData };
             this.staffList.push({ uid: u.id, ...userData });
         });
-        // 排序
         this.staffList.sort((a,b) => (a.employeeId || '').localeCompare(b.employeeId || ''));
     },
 
+    // [新增] 載入前月資料
     loadPreviousMonthData: async function() {
-        // 計算前一個月
         let pYear = this.data.year;
         let pMonth = this.data.month - 1;
         if (pMonth === 0) { pMonth = 12; pYear--; }
 
         try {
-            // 嘗試讀取前一個月的「正式班表」
+            // 讀取前月正式班表
             const snaps = await db.collection('schedules')
                 .where('unitId', '==', this.data.unitId)
                 .where('year', '==', pYear)
@@ -115,24 +114,23 @@ const matrixManager = {
 
             if (!snaps.empty) {
                 const docData = snaps.docs[0].data();
-                // 轉換格式: assignments[uid][dateStr]
+                // 格式: assignments[uid][dateStr]
                 this.prevData = docData.assignments || {}; 
             } else {
                 this.prevData = {};
             }
         } catch (e) {
-            console.warn("前月資料載入失敗或無資料", e);
+            console.warn("前月資料載入失敗", e);
             this.prevData = {};
         }
     },
 
-    // --- 結構還原與渲染 (核心修復) ---
+    // --- 版面結構 (保留您原本的設計) ---
 
     restoreTableStructure: function() {
         const container = document.getElementById('matrixContainer');
         if(!container) return;
 
-        // 還原完整的 Table 架構 (含 sticky header/footer)
         container.innerHTML = `
             <div style="overflow:auto; height: calc(100vh - 140px); border:1px solid #ddd; position:relative;">
                 <table id="scheduleMatrix" style="width:100%; border-collapse: separate; border-spacing: 0;">
@@ -144,40 +142,40 @@ const matrixManager = {
         `;
     },
 
+    // --- 核心渲染 ---
+
     renderMatrix: function() {
         const thead = document.getElementById('matrixHead');
         const tbody = document.getElementById('matrixBody');
-        const tfoot = document.getElementById('matrixFoot');
-        
         if(!thead || !tbody) return;
 
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
 
-        // 計算前月最後 6 天
+        // 0. 準備所有日期 (包含前月最後 6 天)
         let pYear = this.data.year;
         let pMonth = this.data.month - 1;
         if(pMonth === 0) { pMonth = 12; pYear--; }
         const daysInPrevMonth = new Date(pYear, pMonth, 0).getDate();
         const prevStartDay = daysInPrevMonth - 5; 
         
-        const allDays = [];
-        // 前月日期物件
+        this.allDays = []; // 存入全域變數供 updateStats 使用
+
+        // 前月
         for(let d = prevStartDay; d <= daysInPrevMonth; d++) {
-            allDays.push({
+            this.allDays.push({
                 d: d,
                 dateStr: `${pYear}-${String(pMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}`,
                 isPrev: true
             });
         }
-        // 當月日期物件
+        // 當月
         for(let d = 1; d <= daysInMonth; d++) {
-            allDays.push({
+            this.allDays.push({
                 d: d,
                 dateStr: `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`,
                 isPrev: false
             });
         }
-        this.cachedAllDays = allDays; // 存起來供 updateStats 使用
 
         // 1. 渲染表頭
         let headHtml = `<tr style="background:#f8f9fa;">
@@ -185,7 +183,7 @@ const matrixManager = {
             <th class="sticky-col" style="min-width:80px; left:60px; z-index:31; border-right:1px solid #ddd; border-bottom:1px solid #ddd; padding:8px;">姓名</th>
             <th class="sticky-col" style="min-width:40px; left:140px; z-index:31; border-right:2px solid #ccc; border-bottom:1px solid #ddd; padding:8px;">層級</th>`;
         
-        allDays.forEach(dayInfo => {
+        this.allDays.forEach(dayInfo => {
             const dateObj = new Date(dayInfo.dateStr);
             const dayOfWeek = dateObj.getDay();
             const dayName = ['日','一','二','三','四','五','六'][dayOfWeek];
@@ -207,14 +205,14 @@ const matrixManager = {
 
         // 2. 渲染表身
         if (this.staffList.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="${allDays.length + 4}" style="padding:20px; text-align:center;">無人員資料</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="${this.allDays.length + 4}" style="padding:20px; text-align:center;">無人員資料</td></tr>`;
             return;
         }
 
         this.staffList.forEach(user => {
             const tr = document.createElement('tr');
             
-            // 固定欄位
+            // 左側固定欄位
             let rowHtml = `
                 <td class="sticky-col" style="left:0; background:#fff; border-right:1px solid #ddd; border-bottom:1px solid #eee; padding:5px;">${user.employeeId}</td>
                 <td class="sticky-col" style="left:60px; background:#fff; border-right:1px solid #ddd; border-bottom:1px solid #eee; padding:5px;">${user.displayName}</td>
@@ -223,7 +221,7 @@ const matrixManager = {
 
             let offCount = 0;
 
-            allDays.forEach(dayInfo => {
+            this.allDays.forEach(dayInfo => {
                 let cellStyle = 'text-align:center; border-bottom:1px solid #eee; border-right:1px solid #eee; font-size:0.9rem;';
                 let cellText = '';
                 let events = '';
@@ -233,11 +231,19 @@ const matrixManager = {
                     cellStyle += 'background:#f0f0f0; color:#888; cursor:default;';
                     if(dayInfo.d === daysInPrevMonth) cellStyle += 'border-right:2px solid #999;';
                     
-                    // 這裡要注意資料結構，可能是 assignments[uid][dateStr]
+                    // 從 prevData 讀取 (注意結構)
                     const uData = this.prevData[user.uid] || {};
-                    const code = uData[dayInfo.dateStr] || '';
-                    cellText = code;
+                    // 有可能直接是字串，或在 assignments 物件下
+                    const code = uData[dayInfo.dateStr] || (uData.assignments ? uData.assignments[dayInfo.dateStr] : '') || '';
                     
+                    if(this.shiftsMap[code]) {
+                         const color = this.shiftsMap[code].color;
+                         cellStyle += `background:${color}44; color:#000; font-weight:bold;`; // 變淡
+                         cellText = code;
+                    } else {
+                        cellText = code;
+                    }
+
                 } else {
                     // --- 當月資料 (可互動) ---
                     cellStyle += 'cursor:pointer;';
@@ -273,31 +279,33 @@ const matrixManager = {
         });
     },
 
-    // --- 3. 統計列 (恢復您原本的功能) ---
+    // --- 3. 統計列 (恢復您的 A/B 統計) ---
     updateStats: function() {
         const tfoot = document.getElementById('matrixFoot');
-        if(!tfoot || !this.cachedAllDays) return;
+        if(!tfoot || !this.allDays) return;
 
         let footHtml = `<tr>
             <td class="sticky-col" colspan="3" style="left:0; background:#f9f9f9; border-top:2px solid #ddd; border-right:2px solid #ccc; padding:8px; text-align:right; font-weight:bold;">
                 人力供需 (需/現)
             </td>`;
         
-        this.cachedAllDays.forEach(dayInfo => {
+        this.allDays.forEach(dayInfo => {
             let cellStyle = 'text-align:center; font-size:0.85rem; color:#666; border-right:1px solid #eee; padding:5px; border-top:2px solid #ddd;';
+            
             if (dayInfo.isPrev) {
                 cellStyle += 'background:#e0e0e0;';
-                if(dayInfo.d === this.cachedAllDays[5].d) cellStyle += 'border-right:2px solid #999;'; // 分隔線對齊
+                if(dayInfo.d === this.allDays[5].d) cellStyle += 'border-right:2px solid #999;'; 
                 footHtml += `<td style="${cellStyle}">-</td>`;
             } else {
-                // 計算當日人數 (Supply)
+                // 計算當日可用人數 (Supply)
                 let supply = 0;
                 this.staffList.forEach(u => {
                     const code = (this.localAssignments[u.uid]?.[dayInfo.dateStr]);
+                    // 只要不是休假，就算有人力
                     if(code && code !== 'OFF' && code !== 'REQ_OFF') supply++;
                 });
                 
-                // 這裡暫時顯示 Supply，Demand 可從 rules 讀取
+                // 這裡暫時顯示 Supply (Demand 可從 rules 讀取)
                 footHtml += `<td style="${cellStyle}">- / ${supply}</td>`;
             }
         });
@@ -306,10 +314,10 @@ const matrixManager = {
         tfoot.innerHTML = footHtml;
     },
 
-    // --- 互動邏輯 (修正版) ---
+    // --- 互動邏輯 ---
 
     setupEvents: function() {
-        // 點擊空白處關閉選單
+        // [修正] 全域點擊只負責關閉選單，不干擾其他操作
         document.onclick = (e) => {
             const menu = document.getElementById('customContextMenu');
             if(menu && menu.style.display === 'block') {
@@ -321,7 +329,7 @@ const matrixManager = {
     },
 
     handleCellClick: function(e, uid, dateStr) {
-        // [修正] 左鍵點擊： 空 -> OFF -> 空
+        // [修正] 左鍵預設行為： 空 -> OFF -> 空
         if(!this.localAssignments[uid]) this.localAssignments[uid] = {};
 
         const current = this.localAssignments[uid][dateStr];
