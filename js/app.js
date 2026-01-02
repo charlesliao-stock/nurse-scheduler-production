@@ -1,5 +1,4 @@
 // js/app.js
-
 const app = {
     currentUser: null,
     userRole: null,
@@ -15,12 +14,15 @@ const app = {
 
         if(!this.authStateInitialized) {
             this.authStateInitialized = true;
+            
+            // [修正] 完整的 Auth 錯誤處理
             auth.onAuthStateChanged(async (user) => {
                 try {
                     if (user) {
                         console.log("✅ User logged in:", user.uid);
-                        this.currentUser = user;
+                        // 嘗試載入使用者資料
                         await this.loadUserContext(user.uid);
+                        this.currentUser = user;
                         
                         document.getElementById('login-view').style.display = 'none';
                         document.getElementById('app-view').style.display = 'flex';
@@ -33,10 +35,23 @@ const app = {
                         console.log("❌ User logged out");
                         this.handleLogout();
                     }
-                } catch(error) {
+                } catch (error) {
                     console.error("Auth State Error:", error);
-                    // 發生錯誤時強制登出，避免卡在錯誤狀態
+                    
+                    // 根據錯誤類型給予友善提示
+                    let msg = "系統登入異常";
+                    if (error.message.includes('找不到使用者資料')) {
+                        msg = "找不到您的員工檔案，請聯繫管理員確認是否已建檔。";
+                    } else if (error.message.includes('停用')) {
+                        msg = "您的帳號已被停用。";
+                    } else {
+                        msg = `登入失敗: ${error.message}`;
+                    }
+                    
+                    alert(msg);
+                    // 出錯時強制登出，避免卡在中間狀態
                     if (user) auth.signOut();
+                    this.handleLogout();
                 }
             });
         }
@@ -49,10 +64,6 @@ const app = {
 
     setupEventListeners: function() {
         window.addEventListener('hashchange', () => {
-            const path = window.location.hash.slice(1);
-            if (path && typeof router !== 'undefined') router.load(path);
-        });
-        window.addEventListener('popstate', () => {
             const path = window.location.hash.slice(1);
             if (path && typeof router !== 'undefined') router.load(path);
         });
@@ -100,7 +111,6 @@ const app = {
         if(confirm("確定要登出嗎？")) {
             auth.signOut().catch((error) => {
                 console.error("Logout Error:", error);
-                alert("登出失敗: " + error.message);
             });
         }
     },
@@ -111,29 +121,15 @@ const app = {
         this.userUnitId = null;
         this.permissions = [];
         
-        const emailInput = document.getElementById('loginEmail');
-        const passInput = document.getElementById('loginPassword');
-        const errorMsg = document.getElementById('loginError');
-        if(emailInput) emailInput.value = '';
-        if(passInput) passInput.value = '';
-        if(errorMsg) errorMsg.textContent = '';
+        document.getElementById('loginEmail').value = '';
+        document.getElementById('loginPassword').value = '';
+        document.getElementById('loginError').textContent = '';
         
-        // [關鍵修正] 加入安全檢查，防止 router.reset 不存在時報錯
-        if(typeof router !== 'undefined') {
-            if (typeof router.reset === 'function') {
-                router.reset();
-            } else {
-                console.warn("router.reset is not defined. Skipping router reset.");
-                // 手動重置基本狀態
-                if (router.currentView) router.currentView = null;
-                if (router.isLoading) router.isLoading = false;
-            }
-        }
+        if(typeof router !== 'undefined') router.reset();
         
         document.getElementById('login-view').style.display = 'flex';
         document.getElementById('app-view').style.display = 'none';
         
-        // 只有當 hash 不為空時才清除，避免無窮迴圈
         if (window.location.hash) {
             history.pushState("", document.title, window.location.pathname + window.location.search);
         }
@@ -141,38 +137,34 @@ const app = {
 
     // --- 4. 載入使用者 ---
     loadUserContext: async function(uid) {
-        try {
-            const userDoc = await db.collection('users').doc(uid).get();
-            if(!userDoc.exists) throw new Error("找不到使用者資料");
-            
-            const data = userDoc.data();
-            if(data.isActive === false) throw new Error("此帳號已被停用");
+        // ... (保持原樣，需確保 db 已定義) ...
+        const userDoc = await db.collection('users').doc(uid).get();
+        if(!userDoc.exists) throw new Error("找不到使用者資料");
+        
+        const data = userDoc.data();
+        if(data.isActive === false) throw new Error("此帳號已被停用");
 
-            this.userRole = data.role || 'user'; 
-            this.userUnitId = data.unitId;
+        this.userRole = data.role || 'user'; 
+        this.userUnitId = data.unitId;
 
-            const nameEl = document.getElementById('displayUserName');
-            const roleEl = document.getElementById('displayUserRole');
-            if(nameEl) nameEl.textContent = data.displayName || '使用者';
-            if(roleEl) roleEl.textContent = this.translateRole(this.userRole);
+        // UI 更新
+        const nameEl = document.getElementById('displayUserName');
+        const roleEl = document.getElementById('displayUserRole');
+        if(nameEl) nameEl.textContent = data.displayName || '使用者';
+        if(roleEl) roleEl.textContent = this.translateRole(this.userRole);
 
-            const roleDoc = await db.collection('system_roles').doc(this.userRole).get();
-            this.permissions = roleDoc.exists ? (roleDoc.data().permissions || []) : [];
+        // 載入權限
+        const roleDoc = await db.collection('system_roles').doc(this.userRole).get();
+        this.permissions = roleDoc.exists ? (roleDoc.data().permissions || []) : [];
 
-            console.log(`👤 使用者: ${data.displayName} | 角色: ${this.userRole}`);
-            await this.renderMenu();
-
-        } catch (error) {
-            console.error("Load Context Error:", error);
-            throw error;
-        }
+        console.log(`👤 使用者: ${data.displayName} | 角色: ${this.userRole}`);
+        await this.renderMenu();
     },
 
-    // --- 5. 選單 ---
+    // --- 5. 選單與權限 (保持原樣) ---
     renderMenu: async function() {
         const menuList = document.getElementById('dynamicMenu');
         if(!menuList) return;
-
         menuList.innerHTML = '<li style="padding:10px; text-align:center; color:#999;">載入選單中...</li>';
 
         try {
@@ -187,17 +179,14 @@ const app = {
                 return;
             }
 
-            let menuCount = 0;
             snapshot.forEach(doc => {
                 const menu = doc.data();
                 if(this.checkPermission(menu.requiredPermission)) {
                     const li = document.createElement('li');
                     li.innerHTML = `<a class="menu-link" href="#${menu.path}"><i class="${menu.icon}"></i> ${menu.label}</a>`;
                     menuList.appendChild(li);
-                    menuCount++;
                 }
             });
-            console.log(`✅ 載入 ${menuCount} 個選單項目`);
         } catch (e) {
             console.error("Menu Render Error:", e);
             menuList.innerHTML = '<li style="padding:10px; text-align:center; color:red;">選單載入失敗</li>';
@@ -205,8 +194,7 @@ const app = {
     },
 
     toggleSidebar: function() {
-        const sidebar = document.getElementById('sidebar');
-        if(sidebar) sidebar.classList.toggle('collapsed');
+        document.getElementById('sidebar')?.classList.toggle('collapsed');
     },
 
     checkPermission: function(reqPerm) {
@@ -227,6 +215,5 @@ const app = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log("📄 DOM Content Loaded");
     app.init();
 });
