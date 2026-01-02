@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>醫院排班系統 - 帳號開通</title>
+    <link rel="stylesheet" href="css/style.css">
+    
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+</head>
+<body style="background: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh;">
+
+    <div class="login-card" style="width: 400px; padding: 30px;">
+        <h2 style="color: #2c3e50; text-align: center; margin-bottom: 20px;">
+            <i class="fas fa-user-check"></i> 帳號開通認領
+        </h2>
+        
+        <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px;">
+            請輸入您的員工資訊以驗證身分。驗證通過後即可設定密碼。
+        </p>
+
+        <div class="form-group" style="margin-bottom: 15px;">
+            <label style="display:block; margin-bottom:5px; font-weight:bold;">員工編號</label>
+            <input type="text" id="verifyEmpId" placeholder="例如: N1001" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;">
+        </div>
+
+        <div class="form-group" style="margin-bottom: 15px;">
+            <label style="display:block; margin-bottom:5px; font-weight:bold;">Email (必須與建檔一致)</label>
+            <input type="email" id="verifyEmail" placeholder="您的 Email" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;">
+        </div>
+
+        <div class="form-group" style="margin-bottom: 20px;">
+            <label style="display:block; margin-bottom:5px; font-weight:bold;">設定新密碼</label>
+            <input type="password" id="newPwd" placeholder="請設定 6 位數以上密碼" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;">
+        </div>
+
+        <button class="btn btn-primary" onclick="activateAccount()" id="btnSubmit">
+            確認開通
+        </button>
+        
+        <p id="msg" style="color: red; margin-top: 15px; text-align: center; font-size: 0.9rem;"></p>
+
+        <div style="text-align: center; margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px;">
+            <a href="index.html" style="color: #3498db; text-decoration: none;">已有帳號？直接登入</a>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script>
+        async function activateAccount() {
+            const empId = document.getElementById('verifyEmpId').value.trim();
+            const email = document.getElementById('verifyEmail').value.trim();
+            const pwd = document.getElementById('newPwd').value;
+            const msg = document.getElementById('msg');
+            const btn = document.getElementById('btnSubmit');
+
+            if(!empId || !email || !pwd) {
+                msg.textContent = "請填寫所有欄位"; return;
+            }
+            if(pwd.length < 6) {
+                msg.textContent = "密碼長度至少需 6 碼"; return;
+            }
+
+            msg.textContent = "正在驗證資料...";
+            msg.style.color = "blue";
+            btn.disabled = true;
+
+            try {
+                // 1. 查詢資料庫：是否有名單？
+                const snapshot = await db.collection('users')
+                    .where('employeeId', '==', empId)
+                    .where('email', '==', email)
+                    .get();
+
+                if (snapshot.empty) {
+                    throw new Error("找不到此員工資料，或 Email/員編 不符。");
+                }
+
+                const oldDoc = snapshot.docs[0];
+                const userData = oldDoc.data();
+
+                // 2. 檢查是否已經註冊過
+                if (userData.isRegistered && userData.uid) {
+                    throw new Error("此帳號已經開通，請直接前往登入頁面。");
+                }
+
+                msg.textContent = "驗證通過，正在建立帳號...";
+
+                // 3. 建立 Firebase Auth 帳號 (這一步會登入該新帳號)
+                const userCredential = await auth.createUserWithEmailAndPassword(email, pwd);
+                const newUid = userCredential.user.uid;
+
+                // 4. 資料遷移：建立新文件 (ID=UID) -> 刪除舊文件
+                const batch = db.batch();
+                
+                // 新文件參照
+                const newDocRef = db.collection('users').doc(newUid);
+                
+                // 複製舊資料並更新狀態
+                const newData = { ...userData };
+                delete newData.uid; 
+                
+                batch.set(newDocRef, {
+                    ...newData,
+                    uid: newUid,           // 綁定真實 UID
+                    isRegistered: true,    // 標記已註冊
+                    activatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                // 刪除舊的暫存文件
+                batch.delete(oldDoc.ref);
+
+                await batch.commit();
+
+                alert("🎉 開通成功！\n系統將自動引導至首頁，請使用剛設定的密碼登入。");
+                window.location.href = 'index.html';
+
+            } catch (error) {
+                console.error(error);
+                let text = error.message;
+                if(error.code === 'auth/email-already-in-use') text = "此 Email 已經被註冊過了 (Auth)，請嘗試直接登入。";
+                msg.style.color = "red";
+                msg.textContent = text;
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
