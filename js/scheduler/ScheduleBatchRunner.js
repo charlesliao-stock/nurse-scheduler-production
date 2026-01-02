@@ -1,17 +1,17 @@
 // js/scheduler/ScheduleBatchRunner.js
 
 class ScheduleBatchRunner {
-    constructor(allStaff, year, month, lastMonthData, rules) {
+    constructor(allStaff, year, month, lastMonthData, rules, shifts) {
         this.allStaff = allStaff;
         this.year = year;
         this.month = month;
         this.lastMonthData = lastMonthData;
         this.rules = rules;
+        this.shifts = shifts || [];
     }
 
     runAll() {
         // [修正] 暫時只執行 V1，並將其設為方案 A
-        // 其他方案暫時註解掉，專注調優 V1
         const strategies = [
             { code: 'V1', name: '方案 A：標準排班 (V1)', classType: 'V1' },
             // { code: 'V2', name: '方案 B：權重計分 (V2)', classType: 'V2' },
@@ -24,14 +24,15 @@ class ScheduleBatchRunner {
         strategies.forEach(strategy => {
             console.time(`Run ${strategy.code}`);
             try {
-                // 工廠模式創建
+                // 工廠模式創建，傳入 shifts
                 const scheduler = SchedulerFactory.create(
                     strategy.classType, 
                     this.allStaff, 
                     this.year, 
                     this.month, 
                     this.lastMonthData,
-                    this.rules
+                    this.rules,
+                    this.shifts
                 );
 
                 const schedule = scheduler.run();
@@ -59,7 +60,6 @@ class ScheduleBatchRunner {
 
     analyzeQuality(schedule) {
         let gapCount = 0;
-        // 簡易統計缺口
         Object.values(schedule).forEach(day => {
             if (day.N.length < 2) gapCount += (2 - day.N.length);
             if (day.E.length < 3) gapCount += (3 - day.E.length);
