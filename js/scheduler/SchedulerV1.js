@@ -1,12 +1,11 @@
 /**
- * 策略 V1: 標準排班 - 嚴格規則版
+ * 策略 V1: 標準排班 - 嚴格合規版
  * 特性：
- * 1. 白名單即為「合法可行名單」 (Whitelist = Allowed & Valid)
- * 2. 嚴格遵守間隔與連續上班限制
- * 3. 支援無偏好人員的預設排班
+ * 1. 嚴格白名單 (Whitelist is strictly filtered by rules)
+ * 2. 解決連續上班過長與間隔不足問題
+ * 3. 解決缺口填補時的合規性
  */
 class SchedulerV1 extends BaseScheduler {
-    // 建構子需接收 shifts
     constructor(allStaff, year, month, lastMonthData, rules, shifts) {
         super(allStaff, year, month, lastMonthData, rules, shifts);
         this.dailyNeeds = rules.dailyNeeds || { "N_0":2, "E_0":3, "D_0":4 }; 
@@ -14,13 +13,12 @@ class SchedulerV1 extends BaseScheduler {
     }
 
     run() {
-        console.log("=== V1 排班開始 (嚴格規則版) ===");
+        console.log("=== V1 排班開始 (嚴格合規版) ===");
         this.resetAllToOff();
         
         for (let d = 1; d <= this.daysInMonth; d++) {
             this.scheduleDay(d);
             this.fixDailyGaps(d);
-            
             if (d % this.checkInterval === 0 || d === this.daysInMonth) {
                 this.performHealthCheck(d);
             }
@@ -37,26 +35,20 @@ class SchedulerV1 extends BaseScheduler {
             const currentStatus = this.getShiftByDate(dateStr, staff.id);
             if (currentStatus === 'REQ_OFF' || currentStatus === 'LEAVE') return;
 
-            // 1. 產生合法的白名單 (已過濾掉違規班別)
+            // [關鍵] 取得「經過規則過濾」的白名單
+            // 如果連上 6 天，這裡回傳的 list 會是空，或不包含上班班別
             const whitelist = this.createWhitelist(staff, dateStr);
             const prevShift = this.getYesterdayShift(staff.id, dateStr);
             
             let candidate = 'OFF';
 
-            // 2. 決策邏輯
             if (whitelist.length > 0) {
-                // 優先順序：
-                // A. 如果昨天上班，且該班別仍在今日白名單內 -> 優先順接 (減少換班)
+                // 優先順接
                 if (['N', 'E', 'D'].includes(prevShift) && whitelist.includes(prevShift)) {
                     candidate = prevShift;
-                } 
-                // B. 否則選白名單的第一順位
-                else {
+                } else {
                     candidate = whitelist[0];
                 }
-            } else {
-                // 白名單為空 (代表今天排任何班都會違規，或者真的不想上班) -> OFF
-                candidate = 'OFF';
             }
 
             this.updateShift(dateStr, staff.id, 'OFF', candidate);
@@ -72,43 +64,33 @@ class SchedulerV1 extends BaseScheduler {
         let rawList = [];
 
         // 1. 收集意願
-        // A. 包班
+        // 包班
         if (staff.packageType && ['N', 'E', 'D'].includes(staff.packageType)) {
             rawList.push(staff.packageType);
         }
-        
-        // B. 每日偏好 (1, 2, 3)
+        // 偏好
         if (staff.prefs && staff.prefs[dateStr]) {
             if (staff.prefs[dateStr][1]) rawList.push(staff.prefs[dateStr][1]);
             if (staff.prefs[dateStr][2]) rawList.push(staff.prefs[dateStr][2]);
             if (staff.prefs[dateStr][3]) rawList.push(staff.prefs[dateStr][3]);
         }
 
-        // C. 無偏好處理 (Open Availability)
-        // 如果當天沒有劃休，也沒有填志願，視為可排任意班 (D/E/N)
-        // 這是解決「巫宇涵未補 D」的關鍵
+        // 無偏好 -> 開放 (解決巫宇涵問題)
         if (rawList.length === 0) {
             rawList = ['D', 'E', 'N']; 
         }
 
-        // 去重
         rawList = [...new Set(rawList)];
 
-        // 2. 過濾規則 (Filter by Rules)
-        // 只有通過 isValidAssignment 的班別才能進入最終白名單
-        // 這解決了「連續上班太長」的問題 (一旦滿6天，D/E/N 都會被濾掉，回傳空陣列 -> 只能 OFF)
-        const validList = rawList.filter(shift => {
-            return this.isValidAssignment(staff, dateStr, shift);
-        });
-
-        return validList;
+        // 2. 嚴格過濾規則 (Filter)
+        // 只有通過檢查的班別才能留在清單中
+        return rawList.filter(shift => this.isValidAssignment(staff, dateStr, shift));
     }
 
-    // 合規檢查
     isValidAssignment(staff, dateStr, shift) {
         if (shift === 'OFF') return true;
 
-        // 1. 間隔 (Check Rest Period via DB Shifts)
+        // 1. 間隔 (使用新版 checkRestPeriod，動態時間)
         const prevShift = this.getYesterdayShift(staff.id, dateStr);
         if (!this.checkRestPeriod(prevShift, shift)) return false;
 
@@ -118,8 +100,7 @@ class SchedulerV1 extends BaseScheduler {
         // 3. 連續上班天數 (嚴格限制)
         const maxCons = this.rules.policy?.maxConsDays || 6; 
         const currentCons = this.getConsecutiveWorkDays(staff.id, dateStr);
-        
-        // 若昨天已達上限，今天不能再排
+        // 若「截至昨天」已達 6 天，今天再排班就是 7 -> 違規
         if (currentCons >= maxCons) return false;
 
         return true;
@@ -149,18 +130,18 @@ class SchedulerV1 extends BaseScheduler {
         });
     }
 
+    // [修正] 嚴格補缺：只從白名單抓人
     fillShortage(dateStr, targetShift) {
         let candidates = [];
         this.staffList.forEach(s => {
             const current = this.getShiftByDate(dateStr, s.id);
             if (current !== 'OFF') return; 
             
-            // 使用 createWhitelist 取得該員當天「所有合法班別」
-            // 因為 createWhitelist 已經內建 isValidAssignment 檢查，所以這裡只要看 targetShift 是否在名單內即可
+            // 使用 createWhitelist (已內含 isValidAssignment)
             const whitelist = this.createWhitelist(s, dateStr);
             const prefIndex = whitelist.indexOf(targetShift); 
             
-            // 必須在合法白名單內 (遵守不放寬原則)
+            // 必須在白名單內 (遵守不可放寬原則)
             if (prefIndex === -1) return; 
 
             candidates.push({
@@ -210,7 +191,6 @@ class SchedulerV1 extends BaseScheduler {
         return true;
     }
 
-    // 每日回溯 (呼叫 fillShortage 再次嘗試)
     fixDailyGaps(day) {
         const dateStr = this.getDateStr(day);
         const dayIdx = (new Date(dateStr).getDay() + 6) % 7;
@@ -224,7 +204,6 @@ class SchedulerV1 extends BaseScheduler {
         });
     }
 
-    // OFF 平衡 (同前)
     performHealthCheck(currentDay) {
         for (let k = 0; k < 50; k++) {
             let minOff = 999, maxOff = -1;
@@ -244,13 +223,11 @@ class SchedulerV1 extends BaseScheduler {
                 const richShift = this.getShiftByDate(dateStr, richStaff.id);
                 
                 if (['N', 'E', 'D'].includes(poorShift) && richShift === 'OFF') {
-                    // 交換檢查：雙方交換後都必須在自己的 whitelist 內 (且合規)
-                    const poorWL = this.createWhitelist(poorStaff, dateStr); // 含 'OFF'? createWhitelist return valid shifts usually excluding OFF
-                    // OFF 總是合規，所以只需檢查 rich 是否能接 poorShift
+                    // 交換檢查：使用新版 createWhitelist 確保合規
                     const richWL = this.createWhitelist(richStaff, dateStr);
                     
                     if (richWL.includes(poorShift)) {
-                        // 雖然在白名單內 (表示合規且有意願)，但還需檢查「明天」的影響 (BaseScheduler 未實作未來檢查，這裡做簡單 check)
+                        // 額外檢查明天
                         if (this.isSafeSwap(dateStr, richStaff, poorShift) && this.isSafeSwap(dateStr, poorStaff, 'OFF')) {
                             this.updateShift(dateStr, poorStaff.id, poorShift, 'OFF');
                             this.updateShift(dateStr, richStaff.id, 'OFF', poorShift);
@@ -265,8 +242,6 @@ class SchedulerV1 extends BaseScheduler {
     }
 
     isSafeSwap(dateStr, staff, newShift) {
-        // 白名單已包含 isValidAssignment (當日檢查)，這裡額外檢查「明天」
-        // (因為 createWhitelist 只看昨天，沒看明天)
         const d = new Date(dateStr);
         d.setDate(d.getDate() + 1);
         if (d.getMonth() + 1 === this.month && d.getDate() <= this.daysInMonth) {
