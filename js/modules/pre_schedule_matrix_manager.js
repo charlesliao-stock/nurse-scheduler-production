@@ -7,6 +7,7 @@ const matrixManager = {
     shiftsMap: {},  // 班別對照表 (Code -> Info)
     usersMap: {},   // 人員對照表 (UID -> Info)
     staffList: [],  // 排序後的人員列表
+    contextTarget: null, // 右鍵選單的目標儲存格
     isLoading: false,
 
     init: async function(id) {
@@ -22,27 +23,36 @@ const matrixManager = {
             // 2. 平行載入所有必要資料 (解決 N+1 問題)
             await Promise.all([
                 this.loadShifts(),
-                this.loadContextAndUsers() // 包含載入文件與對應的人員資料
+                this.loadContextAndUsers() 
             ]);
             
-            // 3. 渲染
+            // 3. 渲染與設定
             this.renderMatrix();
             this.updateStats();
-            this.setupEvents();
+            this.setupEvents(); // [修正點] 現在這個函式已經被定義了
             
+            // 設定標題
+            const titleEl = document.getElementById('matrixTitle');
+            if(titleEl && this.data) {
+                titleEl.textContent = `${this.data.year} 年 ${this.data.month} 月預班表`;
+            }
+
         } catch(error) {
             console.error(error);
-            document.getElementById('matrixContainer').innerHTML = `<div style="color:red; padding:20px;">載入失敗: ${error.message}</div>`;
+            const c = document.getElementById('matrixContainer');
+            if(c) c.innerHTML = `<div style="color:red; padding:20px;">載入失敗: ${error.message}</div>`;
         } finally {
             this.isLoading = false;
         }
     },
 
     cleanup: function() {
-        // 移除可能殘留的全局監聽
+        // 移除可能殘留的 DOM
         const oldMenu = document.getElementById('customContextMenu');
         if(oldMenu) oldMenu.remove();
-        document.onclick = null; // 簡單重置，若有其他全域事件需謹慎
+        
+        // 清除全域事件 (避免重複綁定)
+        document.onclick = null; 
     },
 
     showLoading: function() {
@@ -50,19 +60,29 @@ const matrixManager = {
         if(c) c.innerHTML = '<div style="padding:50px; text-align:center; color:#666;"><i class="fas fa-spinner fa-spin"></i> 資料載入中...</div>';
     },
 
+    // --- [新增] 遺漏的事件設定函式 ---
+    setupEvents: function() {
+        // 點擊空白處關閉右鍵選單
+        document.onclick = (e) => {
+            const menu = document.getElementById('customContextMenu');
+            if(menu && menu.style.display === 'block') {
+                // 如果點擊的不是選單本身，就關閉它
+                if (!menu.contains(e.target)) {
+                    menu.style.display = 'none';
+                }
+            }
+        };
+    },
+
     // --- 資料載入層 ---
 
     loadShifts: async function() {
-        // 讀取該單位的班別設定 (假設 userUnitId 已在 app.js 載入)
-        // 若要更嚴謹，應讀取 pre_schedule 文件內的 unitId，但在 init 階段可能還不知道，
-        // 這裡先抓全域或預設。更好的做法是 loadContext 後再 loadShifts。
-        // 為求效能，這裡先假設當前使用者的 unit。
         const unitId = app.userUnitId;
         if(!unitId) return;
 
         const snap = await db.collection('shifts').where('unitId', '==', unitId).get();
         this.shifts = snap.docs.map(d => d.data());
-        this.shifts.sort((a,b) => (a.code || '').localeCompare(b.code || '')); // 排序
+        this.shifts.sort((a,b) => (a.code || '').localeCompare(b.code || '')); 
         
         this.shiftsMap = {};
         this.shifts.forEach(s => this.shiftsMap[s.code] = s);
@@ -74,9 +94,7 @@ const matrixManager = {
         if(!doc.exists) throw new Error("文件不存在");
         this.data = doc.data();
         
-        // 2. 根據文件內的 assignments 或 unitId 載入人員
-        // 這裡示範載入同單位所有人員 (或是只載入 snapshot)
-        // 為了即時性，我們重拉一次 User 資料
+        // 2. 載入人員
         const userSnap = await db.collection('users')
             .where('unitId', '==', this.data.unitId)
             .where('isActive', '==', true)
@@ -91,7 +109,7 @@ const matrixManager = {
             this.staffList.push({ uid: u.id, ...userData });
         });
 
-        // 排序 (依層級或員編)
+        // 排序
         this.staffList.sort((a,b) => (a.employeeId || '').localeCompare(b.employeeId || ''));
     },
 
@@ -99,19 +117,22 @@ const matrixManager = {
 
     renderMatrix: function() {
         const container = document.getElementById('matrixContainer');
-        // 重建 Table 結構
+        if(!container) return;
+
         container.innerHTML = `
-            <table id="scheduleMatrix">
-                <thead id="matrixHead"></thead>
-                <tbody id="matrixBody"></tbody>
-            </table>
+            <div style="overflow:auto; height: calc(100vh - 120px);">
+                <table id="scheduleMatrix">
+                    <thead id="matrixHead"></thead>
+                    <tbody id="matrixBody"></tbody>
+                </table>
+            </div>
         `;
         
         const thead = document.getElementById('matrixHead');
         const tbody = document.getElementById('matrixBody');
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
 
-        // 1. 表頭渲染 (動態日期)
+        // 1. 表頭
         let headHtml = `<tr>
             <th class="sticky-col" style="min-width:60px; left:0; z-index:20;">員編</th>
             <th class="sticky-col" style="min-width:80px; left:60px; z-index:20;">姓名</th>
@@ -122,12 +143,13 @@ const matrixManager = {
             const dayOfWeek = dateObj.getDay();
             const isWeekend = (dayOfWeek===0 || dayOfWeek===6);
             const color = isWeekend ? 'color:red;' : '';
-            headHtml += `<th style="min-width:35px; ${color}">${d}<br><small>${['日','一','二','三','四','五','六'][dayOfWeek]}</small></th>`;
+            const dayName = ['日','一','二','三','四','五','六'][dayOfWeek];
+            headHtml += `<th style="min-width:35px; text-align:center; ${color}">${d}<br><small>${dayName}</small></th>`;
         }
-        headHtml += `<th style="min-width:50px;">統計</th></tr>`;
+        headHtml += `<th style="min-width:50px;">OFF數</th></tr>`;
         thead.innerHTML = headHtml;
 
-        // 2. 表身渲染 (解決 N+1：資料全從 this.usersMap 拿)
+        // 2. 表身
         this.staffList.forEach(user => {
             const tr = document.createElement('tr');
             
@@ -143,81 +165,93 @@ const matrixManager = {
             for(let d=1; d<=daysInMonth; d++) {
                 const dateStr = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
                 
-                // 取得預班資料 (assignments.UID.dateStr)
-                // 假設資料結構: assignments[uid][dateStr] = 'OFF'
                 const userAssign = (this.data.assignments && this.data.assignments[user.uid]) || {};
                 const shiftCode = userAssign[dateStr] || ''; 
                 
                 if(shiftCode === 'OFF' || shiftCode === 'REQ_OFF') offCount++;
 
-                // 樣式處理
                 let cellStyle = '';
                 let cellText = '';
                 
                 if(shiftCode === 'REQ_OFF') {
-                    cellStyle = 'background:#2ecc71; color:white;'; // 綠色 (預休)
+                    cellStyle = 'background:#2ecc71; color:white;'; 
                     cellText = '休';
                 } else if (shiftCode === 'OFF') {
-                    cellStyle = 'background:#95a5a6; color:white;'; // 灰色 (一般休)
+                    cellStyle = 'background:#95a5a6; color:white;'; 
                     cellText = 'OFF';
                 } else if (this.shiftsMap[shiftCode]) {
-                    // 動態班別顏色
                     const color = this.shiftsMap[shiftCode].color || '#3498db';
                     cellStyle = `background:${color}; color:white;`;
                     cellText = shiftCode;
                 }
 
-                // 點擊事件 (使用 data-attr 傳遞參數，避免閉包記憶體問題)
                 rowHtml += `<td class="cell-day" 
-                              style="cursor:pointer; ${cellStyle}"
+                              style="cursor:pointer; text-align:center; ${cellStyle}"
                               onclick="matrixManager.handleCellClick(event, '${user.uid}', '${dateStr}')"
                               oncontextmenu="matrixManager.handleRightClick(event, '${user.uid}', '${dateStr}')">
                               ${cellText}
                             </td>`;
             }
             
-            rowHtml += `<td style="font-weight:bold;">${offCount}</td>`;
+            rowHtml += `<td style="font-weight:bold; text-align:center;">${offCount}</td>`;
             tr.innerHTML = rowHtml;
             tbody.appendChild(tr);
         });
     },
 
-    // --- 互動與儲存 (簡化版) ---
+    // --- 互動層 ---
     
     handleCellClick: function(e, uid, dateStr) {
-        // 左鍵點擊邏輯 (例如切換 OFF / 空白)
-        // 這裡省略，依需求實作
+        // 左鍵點擊切換：空 -> REQ_OFF -> 空
+        if(!this.data.assignments) this.data.assignments = {};
+        if(!this.data.assignments[uid]) this.data.assignments[uid] = {};
+
+        const current = this.data.assignments[uid][dateStr];
+        
+        if (current === 'REQ_OFF') {
+            delete this.data.assignments[uid][dateStr];
+        } else {
+            this.data.assignments[uid][dateStr] = 'REQ_OFF';
+        }
+
+        this.renderMatrix();
+        this.saveData();
     },
 
     handleRightClick: function(e, uid, dateStr) {
         e.preventDefault();
         this.contextTarget = { uid, dateStr };
         
-        // 動態建立右鍵選單
         const menu = this.getOrCreateContextMenu();
         
-        // 根據 shifts 動態產生選項
         let optionsHtml = '';
         this.shifts.forEach(s => {
-            if(s.isBundleAvailable) { // 只顯示允許預排的班別
-                optionsHtml += `<div class="menu-item" onclick="matrixManager.setShift('${s.code}')">
-                    <span class="menu-icon" style="background:${s.color}; width:10px; height:10px; display:inline-block;"></span> 
+            if(s.isBundleAvailable) { 
+                optionsHtml += `<div class="menu-item" onclick="matrixManager.setShift('${s.code}')" style="padding:8px 15px; cursor:pointer; display:flex; align-items:center; gap:8px;">
+                    <span style="background:${s.color}; width:12px; height:12px; display:inline-block; border-radius:2px;"></span> 
                     ${s.name} (${s.code})
                 </div>`;
             }
         });
         
-        // 加入通用選項
         optionsHtml += `
-            <div class="menu-divider" style="height:1px; background:#eee; margin:5px 0;"></div>
-            <div class="menu-item" onclick="matrixManager.setShift('REQ_OFF')">🟢 預休 (REQ)</div>
-            <div class="menu-item" onclick="matrixManager.setShift(null)">❌ 清除</div>
+            <div style="height:1px; background:#eee; margin:5px 0;"></div>
+            <div class="menu-item" onclick="matrixManager.setShift('REQ_OFF')" style="padding:8px 15px; cursor:pointer;">🟢 預休 (REQ)</div>
+            <div class="menu-item" onclick="matrixManager.setShift('OFF')" style="padding:8px 15px; cursor:pointer;">⚪ 一般 OFF</div>
+            <div class="menu-item" onclick="matrixManager.setShift(null)" style="padding:8px 15px; cursor:pointer; color:red;">❌ 清除</div>
         `;
 
         menu.innerHTML = optionsHtml;
         menu.style.display = 'block';
         menu.style.left = `${e.pageX}px`;
         menu.style.top = `${e.pageY}px`;
+        
+        // 滑鼠移入效果
+        const items = menu.querySelectorAll('.menu-item');
+        items.forEach(item => {
+            item.onmouseover = () => item.style.background = '#f0f0f0';
+            item.onmouseout = () => item.style.background = 'white';
+        });
     },
 
     getOrCreateContextMenu: function() {
@@ -225,11 +259,8 @@ const matrixManager = {
         if(!menu) {
             menu = document.createElement('div');
             menu.id = 'customContextMenu';
-            menu.className = 'context-menu'; // 樣式在 css
+            menu.style.cssText = 'display:none; position:absolute; z-index:1000; background:white; border:1px solid #ccc; box-shadow:2px 2px 5px rgba(0,0,0,0.2); min-width:150px; border-radius:4px; padding:5px 0;';
             document.body.appendChild(menu);
-            
-            // 點擊其他地方關閉
-            document.addEventListener('click', () => menu.style.display = 'none');
         }
         return menu;
     },
@@ -247,15 +278,15 @@ const matrixManager = {
             delete this.data.assignments[uid][dateStr];
         }
 
-        // 局部更新 UI (不用重繪整個表格)
         this.renderMatrix(); 
-        
-        // 自動儲存 (Debounce)
         this.saveData();
+        
+        // 關閉選單
+        const menu = document.getElementById('customContextMenu');
+        if(menu) menu.style.display = 'none';
     },
 
     saveData: async function() {
-        // 實作自動儲存邏輯
         try {
             await db.collection('pre_schedules').doc(this.docId).update({
                 assignments: this.data.assignments,
@@ -267,5 +298,14 @@ const matrixManager = {
         }
     },
     
-    updateStats: function() { /* ... */ }
+    // --- [新增] 統計功能 (防止呼叫時報錯) ---
+    updateStats: function() {
+        // 這裡可以實作 "每日預休人數" 的統計
+        // 目前先留空，確保 init 不會報錯
+        const statusEl = document.getElementById('matrixStatus');
+        if(statusEl && this.data) {
+            // 範例：顯示最後更新時間
+            // statusEl.textContent = "已儲存";
+        }
+    }
 };
