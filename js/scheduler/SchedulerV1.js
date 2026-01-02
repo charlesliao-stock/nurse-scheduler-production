@@ -1,9 +1,9 @@
 /**
- * 策略 V1: 標準排班 - 嚴格合規版
+ * 策略 V1: 標準排班 - 嚴格合規 + 隨機多樣化
  * 特性：
  * 1. 嚴格白名單 (Whitelist is strictly filtered by rules)
- * 2. 解決連續上班過長與間隔不足問題
- * 3. 解決缺口填補時的合規性
+ * 2. 隨機性引入 (Shuffle Staff & Candidates) -> 每次排班結果不同
+ * 3. 解決連續上班過長與間隔不足問題
  */
 class SchedulerV1 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules, shifts) {
@@ -13,12 +13,13 @@ class SchedulerV1 extends BaseScheduler {
     }
 
     run() {
-        console.log("=== V1 排班開始 (嚴格合規版) ===");
+        console.log("=== V1 排班開始 (嚴格合規 + 隨機樣式) ===");
         this.resetAllToOff();
         
         for (let d = 1; d <= this.daysInMonth; d++) {
             this.scheduleDay(d);
             this.fixDailyGaps(d);
+            
             if (d % this.checkInterval === 0 || d === this.daysInMonth) {
                 this.performHealthCheck(d);
             }
@@ -31,12 +32,16 @@ class SchedulerV1 extends BaseScheduler {
         const dayOfWeek = new Date(dateStr).getDay(); 
         const adjustedDayIdx = (dayOfWeek + 6) % 7; 
         
-        this.staffList.forEach(staff => {
+        // [隨機化 1] 每天處理員工的順序隨機打亂
+        // 避免永遠是編號前幾號的人先搶到好班或先被排休
+        const shuffledStaff = [...this.staffList];
+        this.shuffleArray(shuffledStaff);
+
+        shuffledStaff.forEach(staff => {
             const currentStatus = this.getShiftByDate(dateStr, staff.id);
             if (currentStatus === 'REQ_OFF' || currentStatus === 'LEAVE') return;
 
-            // [關鍵] 取得「經過規則過濾」的白名單
-            // 如果連上 6 天，這裡回傳的 list 會是空，或不包含上班班別
+            // 1. 取得經過過濾的合法白名單
             const whitelist = this.createWhitelist(staff, dateStr);
             const prevShift = this.getYesterdayShift(staff.id, dateStr);
             
@@ -64,43 +69,35 @@ class SchedulerV1 extends BaseScheduler {
         let rawList = [];
 
         // 1. 收集意願
-        // 包班
         if (staff.packageType && ['N', 'E', 'D'].includes(staff.packageType)) {
             rawList.push(staff.packageType);
         }
-        // 偏好
         if (staff.prefs && staff.prefs[dateStr]) {
             if (staff.prefs[dateStr][1]) rawList.push(staff.prefs[dateStr][1]);
             if (staff.prefs[dateStr][2]) rawList.push(staff.prefs[dateStr][2]);
             if (staff.prefs[dateStr][3]) rawList.push(staff.prefs[dateStr][3]);
         }
 
-        // 無偏好 -> 開放 (解決巫宇涵問題)
+        // 無偏好 -> 開放
         if (rawList.length === 0) {
             rawList = ['D', 'E', 'N']; 
         }
 
         rawList = [...new Set(rawList)];
 
-        // 2. 嚴格過濾規則 (Filter)
-        // 只有通過檢查的班別才能留在清單中
+        // 2. 嚴格過濾
         return rawList.filter(shift => this.isValidAssignment(staff, dateStr, shift));
     }
 
     isValidAssignment(staff, dateStr, shift) {
         if (shift === 'OFF') return true;
 
-        // 1. 間隔 (使用新版 checkRestPeriod，動態時間)
         const prevShift = this.getYesterdayShift(staff.id, dateStr);
         if (!this.checkRestPeriod(prevShift, shift)) return false;
-
-        // 2. 週種類
         if (!this.checkWeeklyVariety(staff.id, dateStr, shift)) return false;
 
-        // 3. 連續上班天數 (嚴格限制)
         const maxCons = this.rules.policy?.maxConsDays || 6; 
         const currentCons = this.getConsecutiveWorkDays(staff.id, dateStr);
-        // 若「截至昨天」已達 6 天，今天再排班就是 7 -> 違規
         if (currentCons >= maxCons) return false;
 
         return true;
@@ -130,18 +127,15 @@ class SchedulerV1 extends BaseScheduler {
         });
     }
 
-    // [修正] 嚴格補缺：只從白名單抓人
     fillShortage(dateStr, targetShift) {
         let candidates = [];
         this.staffList.forEach(s => {
             const current = this.getShiftByDate(dateStr, s.id);
             if (current !== 'OFF') return; 
             
-            // 使用 createWhitelist (已內含 isValidAssignment)
             const whitelist = this.createWhitelist(s, dateStr);
             const prefIndex = whitelist.indexOf(targetShift); 
             
-            // 必須在白名單內 (遵守不可放寬原則)
             if (prefIndex === -1) return; 
 
             candidates.push({
@@ -153,6 +147,10 @@ class SchedulerV1 extends BaseScheduler {
         });
 
         if (candidates.length === 0) return false;
+
+        // [隨機化 2] 先隨機洗牌候選人，再排序
+        // 這樣當 totalOff 和 prefIndex 相同時，每次會選到不同的人
+        this.shuffleArray(candidates);
 
         candidates.sort((a, b) => {
             if (a.totalOff !== b.totalOff) return b.totalOff - a.totalOff; 
@@ -179,10 +177,13 @@ class SchedulerV1 extends BaseScheduler {
             });
         });
 
+        // [隨機化 3] 先洗牌，避免總是踢掉員編小的人
+        this.shuffleArray(candidates);
+
         candidates.sort((a, b) => {
             if (a.totalOff !== b.totalOff) return a.totalOff - b.totalOff; 
             if (a.forcedOff !== b.forcedOff) return a.forcedOff - b.forcedOff;
-            return a.uidVal - b.uidVal;
+            return 0; // 不再比較 uidVal，讓 shuffle 決定
         });
 
         const victim = candidates[0];
@@ -208,7 +209,12 @@ class SchedulerV1 extends BaseScheduler {
         for (let k = 0; k < 50; k++) {
             let minOff = 999, maxOff = -1;
             let poorStaff = null, richStaff = null;
-            this.staffList.forEach(s => {
+            
+            // 隨機打亂列表來找極端值，避免總是抓到同一位
+            const shuffledStaff = [...this.staffList];
+            this.shuffleArray(shuffledStaff);
+
+            shuffledStaff.forEach(s => {
                 const offs = this.counters[s.id].OFF;
                 if (offs < minOff) { minOff = offs; poorStaff = s; }
                 if (offs > maxOff) { maxOff = offs; richStaff = s; }
@@ -217,17 +223,20 @@ class SchedulerV1 extends BaseScheduler {
 
             const startCheckDay = Math.max(1, currentDay - this.checkInterval + 1);
             let swapped = false;
-            for (let d = currentDay; d >= startCheckDay; d--) {
+            
+            // 隨機遍歷日期，避免總是交換最近的一天
+            const checkDays = [];
+            for(let d = currentDay; d >= startCheckDay; d--) checkDays.push(d);
+            this.shuffleArray(checkDays);
+
+            for (let d of checkDays) {
                 const dateStr = this.getDateStr(d);
                 const poorShift = this.getShiftByDate(dateStr, poorStaff.id);
                 const richShift = this.getShiftByDate(dateStr, richStaff.id);
                 
                 if (['N', 'E', 'D'].includes(poorShift) && richShift === 'OFF') {
-                    // 交換檢查：使用新版 createWhitelist 確保合規
                     const richWL = this.createWhitelist(richStaff, dateStr);
-                    
                     if (richWL.includes(poorShift)) {
-                        // 額外檢查明天
                         if (this.isSafeSwap(dateStr, richStaff, poorShift) && this.isSafeSwap(dateStr, poorStaff, 'OFF')) {
                             this.updateShift(dateStr, poorStaff.id, poorShift, 'OFF');
                             this.updateShift(dateStr, richStaff.id, 'OFF', poorShift);
@@ -266,5 +275,13 @@ class SchedulerV1 extends BaseScheduler {
                 if (currentStatus !== 'REQ_OFF' && currentStatus !== 'LEAVE') this.updateShift(dateStr, staff.id, 'OFF', 'OFF'); 
             }
         });
+    }
+
+    // [新增] 陣列洗牌工具
+    shuffleArray(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
     }
 }
