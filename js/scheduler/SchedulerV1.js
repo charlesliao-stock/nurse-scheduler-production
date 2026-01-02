@@ -1,67 +1,54 @@
 /**
  * 策略 V1: 標準排班 (Standard Shift Scheduling)
- * 修復：補回遺失的 resetAllToOff 函式
- * 功能：含跨月連續檢查、OFF 平均化 (Robin Hood)
+ * Fix: 確保連續天數檢查正確應用 BaseScheduler 的修復邏輯
  */
 class SchedulerV1 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
         super(allStaff, year, month, lastMonthData, rules);
-        this.dailyNeeds = rules.dailyNeeds || { "N_0":2, "E_0":3, "D_0":4 }; 
+        this.dailyNeeds = rules.dailyNeeds || { "N_0":2, "E_0":3, "D_0":4 };
     }
 
     run() {
-        console.log("=== V1 排班開始 (含 OFF 平均化) ===");
-        
-        // [Step 0] 初始化
+        console.log("=== V1 排班開始 ===");
         this.resetAllToOff();
         
-        // [Step 1] 逐日排班
         for (let d = 1; d <= this.daysInMonth; d++) {
             this.scheduleDay(d);
         }
         return this.schedule;
     }
 
-    // ==========================================
-    // [修復] 補回此函式
-    // ==========================================
     resetAllToOff() {
         this.staffList.forEach(staff => {
             for (let d = 1; d <= this.daysInMonth; d++) {
                 const dateStr = this.getDateStr(d);
                 const currentStatus = this.getShiftByDate(dateStr, staff.id);
-                
-                // 只要不是「預休 (REQ_OFF)」或「請假 (LEAVE)」，全部清成 OFF
                 if (currentStatus !== 'REQ_OFF' && currentStatus !== 'LEAVE') {
                     this.updateShift(dateStr, staff.id, 'OFF', 'OFF'); 
                 }
             }
         });
-        console.log("[Step 0] 已重置所有非預休班別為 OFF");
+        console.log("[Phase 0] 已重置為初始狀態 (保留預休)");
     }
 
-    // ==========================================
-    // 每日排班邏輯
-    // ==========================================
     scheduleDay(day) {
         const dateStr = this.getDateStr(day);
         const dayOfWeek = new Date(dateStr).getDay(); 
         const adjustedDayIdx = (dayOfWeek + 6) % 7; 
         
-        // 1. 決定每人的「初始班別」
+        // 1. 決定初始班別
         this.staffList.forEach(staff => {
             const currentStatus = this.getShiftByDate(dateStr, staff.id);
             if (currentStatus === 'REQ_OFF' || currentStatus === 'LEAVE') return;
 
             const prevShift = this.getYesterdayShift(staff.id, dateStr);
             let whitelist = this.createWhitelist(staff, dateStr);
-
             let candidate = 'OFF';
             
             if (prevShift === 'OFF' || prevShift === 'LEAVE') {
                 if (whitelist.length > 0) candidate = whitelist[0];
             } else {
-                // 嘗試延續
+                // 順接嘗試
                 if (this.isValidAssignment(staff, dateStr, prevShift)) {
                     candidate = prevShift;
                 } else {
@@ -69,6 +56,14 @@ class SchedulerV1 extends BaseScheduler {
                 }
             }
 
+            // 二次確認 (如果順接失敗，嘗試白名單第一志願，若還不行則 OFF)
+            if (candidate === 'OFF' && prevShift !== 'OFF' && prevShift !== 'LEAVE') {
+                 if (whitelist.length > 0 && this.isValidAssignment(staff, dateStr, whitelist[0])) {
+                     candidate = whitelist[0];
+                 }
+            }
+
+            // 最終防守
             if (candidate !== 'OFF' && !this.isValidAssignment(staff, dateStr, candidate)) {
                 candidate = 'OFF';
             }
@@ -76,7 +71,7 @@ class SchedulerV1 extends BaseScheduler {
             this.updateShift(dateStr, staff.id, 'OFF', candidate);
         });
 
-        // 2. 人力平衡 (Balance)
+        // 2. 人力平衡
         this.balanceStaff(dateStr, adjustedDayIdx);
     }
 
@@ -96,12 +91,24 @@ class SchedulerV1 extends BaseScheduler {
     isValidAssignment(staff, dateStr, shift) {
         if (shift === 'OFF') return true;
 
+        // 1. 11小時間隔
         const prevShift = this.getYesterdayShift(staff.id, dateStr);
         if (!this.checkRestPeriod(prevShift, shift)) return false;
+
+        // 2. 週班別種類
         if (!this.checkWeeklyVariety(staff.id, dateStr, shift)) return false;
 
-        const maxCons = this.rules.policy?.maxConsDays || 6; 
+        // 3. [關鍵] 連續上班天數檢查
+        // 讀取設定，預設為 6 (代表做6休1)
+        const maxCons = (this.rules.policy && this.rules.policy.maxConsDays) ? this.rules.policy.maxConsDays : 6;
+        
+        // 取得「截至昨天為止」的連續上班天數 (已包含上月結轉)
         const currentCons = this.getConsecutiveWorkDays(staff.id, dateStr);
+        
+        // 如果 已經連上 6 天了，今天就不能再排班 (否則變連 7)
+        // Log for debugging specific staff if needed:
+        // if (staff.name === '陳皓芸') console.log(`${dateStr} 陳皓芸 History: ${currentCons}, Max: ${maxCons}`);
+        
         if (currentCons >= maxCons) return false;
 
         return true;
@@ -113,45 +120,36 @@ class SchedulerV1 extends BaseScheduler {
             E: this.getDailyDemand('E', dayIdx),
             D: this.getDailyDemand('D', dayIdx)
         };
-
         const count = {
             N: this.schedule[dateStr]['N'].length,
             E: this.schedule[dateStr]['E'].length,
             D: this.schedule[dateStr]['D'].length
         };
 
-        // A. 處理缺額 (Shortage)
         ['N', 'E', 'D'].forEach(shift => {
             while (count[shift] < demand[shift]) {
-                const success = this.fillShortage(dateStr, shift);
-                if (success) count[shift]++;
-                else break; 
+                if(this.fillShortage(dateStr, shift)) count[shift]++;
+                else break;
             }
         });
 
-        // B. 處理過剩 (Surplus)
         ['N', 'E', 'D'].forEach(shift => {
             while (count[shift] > demand[shift]) { 
-                const success = this.reduceSurplus(dateStr, shift);
-                if (success) count[shift]--;
+                if(this.reduceSurplus(dateStr, shift)) count[shift]--;
                 else break;
             }
         });
     }
 
-    // 補人：優先抓「休假太多」的人
     fillShortage(dateStr, targetShift) {
         let candidates = [];
         this.staffList.forEach(s => {
             const current = this.getShiftByDate(dateStr, s.id);
-            if (current !== 'OFF') return; 
-            
+            if (current === 'REQ_OFF' || current === 'LEAVE' || current === targetShift) return;
             if (!this.isValidAssignment(s, dateStr, targetShift)) return;
-
             const whitelist = this.createWhitelist(s, dateStr);
             const prefIndex = whitelist.indexOf(targetShift); 
-            
-            if (prefIndex === -1) return; 
+            if (prefIndex === -1) return;
 
             candidates.push({
                 id: s.id,
@@ -162,10 +160,9 @@ class SchedulerV1 extends BaseScheduler {
         });
 
         if (candidates.length === 0) return false;
-
         candidates.sort((a, b) => {
-            if (a.totalOff !== b.totalOff) return b.totalOff - a.totalOff; // OFF 多的優先抓
-            return a.prefIndex - b.prefIndex;
+            if (a.prefIndex !== b.prefIndex) return a.prefIndex - b.prefIndex;
+            return b.totalOff - a.totalOff;
         });
 
         const best = candidates[0];
@@ -173,7 +170,6 @@ class SchedulerV1 extends BaseScheduler {
         return true;
     }
 
-    // 刪人：優先踢「休假太少」的人
     reduceSurplus(dateStr, sourceShift) {
         const workers = this.schedule[dateStr][sourceShift];
         if (workers.length === 0) return false;
@@ -183,20 +179,21 @@ class SchedulerV1 extends BaseScheduler {
             const s = this.staffList.find(st => st.id === uid);
             candidates.push({
                 id: s.id,
-                forcedOff: this.counters[s.id].forcedOffCount,
+                forcedOff: this.counters[s.id].forcedOffCount || 0,
                 totalOff: this.counters[s.id].OFF,
                 uidVal: parseInt(s.id) || 0 
             });
         });
 
         candidates.sort((a, b) => {
-            if (a.totalOff !== b.totalOff) return a.totalOff - b.totalOff; // OFF 少的優先踢
             if (a.forcedOff !== b.forcedOff) return a.forcedOff - b.forcedOff;
+            if (a.totalOff !== b.totalOff) return a.totalOff - b.totalOff;
             return a.uidVal - b.uidVal;
         });
 
         const victim = candidates[0];
         this.updateShift(dateStr, victim.id, sourceShift, 'OFF');
+        if (!this.counters[victim.id].forcedOffCount) this.counters[victim.id].forcedOffCount = 0;
         this.counters[victim.id].forcedOffCount++; 
         return true;
     }
