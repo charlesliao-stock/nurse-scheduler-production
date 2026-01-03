@@ -27,6 +27,9 @@ const staffPreScheduleManager = {
         
         if (!app.currentUser) { alert("請先登入"); return; }
 
+        // [修正] 先清理舊的事件監聽器
+        this.cleanup();
+
         await this.loadShifts();
         await this.loadData();
         
@@ -38,6 +41,8 @@ const staffPreScheduleManager = {
         if (menu && menu.parentElement !== document.body) {
             document.body.appendChild(menu);
         }
+        
+        console.log("✅ Staff Pre-Schedule 初始化完成");
     },
 
     loadShifts: async function() {
@@ -526,13 +531,27 @@ const staffPreScheduleManager = {
     },
 
     cleanup: function() {
+        // 移除全局點擊監聽
         if (this.globalClickListener) {
             document.removeEventListener('click', this.globalClickListener);
+            this.globalClickListener = null;
         }
+        
+        // 清理選單元素
         const menu = document.getElementById('staffContextMenu');
         if (menu) {
             menu.style.display = 'none';
         }
+        
+        // [新增] 清理日曆格子的事件監聽器
+        const calendarCells = document.querySelectorAll('.calendar-day');
+        calendarCells.forEach(cell => {
+            // 使用 cloneNode 移除所有事件監聽器
+            const newCell = cell.cloneNode(true);
+            cell.parentNode?.replaceChild(newCell, cell);
+        });
+        
+        console.log("🧹 Staff Pre-Schedule 清理完成");
     },
 
     saveRequest: async function() {
@@ -556,10 +575,4 @@ const staffPreScheduleManager = {
             history.back();
         } catch (e) { console.error(e); alert("提交失敗: " + e.message); }
     }
-};
-
-const staffOriginalInit = staffPreScheduleManager.init;
-staffPreScheduleManager.init = function(id) {
-    if(this.cleanup) this.cleanup();
-    staffOriginalInit.call(this, id);
 };
