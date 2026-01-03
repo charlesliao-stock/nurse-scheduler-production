@@ -1,8 +1,8 @@
 // js/modules/schedule_rule_manager.js
+// 修正版：專注於 V2 演算法參數 (容許誤差、回溯深度)
 
 const scheduleRuleManager = {
     currentUnitId: null,
-    activeShifts: [], 
     
     init: async function() {
         console.log("Scheduling Rules Manager Loaded.");
@@ -16,6 +16,7 @@ const scheduleRuleManager = {
         select.innerHTML = '<option value="">載入中...</option>';
         try {
             let query = db.collection('units');
+            // 權限過濾：如果是單位主管，只能選自己的單位
             if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
                 if(app.userUnitId) {
                     query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
@@ -32,6 +33,7 @@ const scheduleRuleManager = {
                 select.appendChild(option);
             });
 
+            // 如果只有一個單位，自動選取
             if (snapshot.size === 1) {
                 select.selectedIndex = 1;
                 this.loadUnitData(select.value);
@@ -50,228 +52,61 @@ const scheduleRuleManager = {
 
     loadUnitData: async function(unitId) {
         this.currentUnitId = unitId;
-        const container = document.getElementById('rulesContainer');
-        container.style.display = 'block';
-        
-        try {
-            // 1. 載入班別
-            const shiftsSnap = await db.collection('shifts').where('unitId', '==', unitId).get();
-            this.activeShifts = shiftsSnap.docs.map(d => d.data());
+        document.getElementById('rulesContainer').style.display = 'block';
 
-            // 2. 載入規則
+        try {
             const doc = await db.collection('units').doc(unitId).get();
             if(!doc.exists) return;
-            
-            const unitData = doc.data();
-            const rules = unitData.schedulingRules || {};
-            
-            this.fillForm(rules);
-            console.log("規則載入完成");
+
+            const data = doc.data();
+            const rules = data.schedulingRules || {};
+            const params = rules.aiParams || {};
+
+            // --- 載入設定值到 UI ---
+            // 1. 回溯深度 (Backtrack Depth)
+            const inputBacktrack = document.getElementById('ai_backtrack_depth');
+            if(inputBacktrack) inputBacktrack.value = params.backtrack_depth || 3;
+
+            // 2. 容許誤差 (Tolerance) - V2 核心參數
+            const inputTolerance = document.getElementById('ai_tolerance');
+            if(inputTolerance) inputTolerance.value = (params.tolerance !== undefined) ? params.tolerance : 2;
+
+            // 3. 最大嘗試次數 (可選)
+            const inputAttempts = document.getElementById('ai_max_attempts');
+            if(inputAttempts) inputAttempts.value = params.max_attempts || 20;
+
+            // 4. (舊參數) 權重設定
+            // 如果 HTML 還有保留權重輸入框，為了避免報錯，我們也嘗試填入(或給預設值)，但 V2 不會用到它們
+            const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
+            setVal('ai_w_balance', params.w_balance || 0);
+            setVal('ai_w_continuity', params.w_continuity || 0);
 
         } catch(e) {
-            console.error("Load Data Error:", e);
-            alert("資料載入失敗");
+            console.error("Load Rules Error:", e);
         }
-    },
-
-    fillForm: function(r) {
-        // Hard
-        document.getElementById('rule_minGap11').checked = r.hard?.minGap11 !== false; 
-        document.getElementById('rule_maxDiversity3').checked = r.hard?.maxDiversity3 !== false;
-        document.getElementById('rule_protectPregnant').checked = r.hard?.protectPregnant !== false;
-        document.getElementById('rule_twoOffPerFortnight').checked = r.hard?.twoOffPerFortnight !== false;
-        document.getElementById('rule_offGapMax').value = r.hard?.offGapMax || 12;
-        document.getElementById('rule_weekStartDay').value = r.hard?.weekStartDay || "1";
-
-        // Policy
-        document.getElementById('rule_reqOffWeight').value = r.policy?.reqOffWeight || 'must';
-        document.getElementById('rule_reqBanWeight').value = r.policy?.reqBanWeight || 'must';
-        document.getElementById('rule_limitConsecutive').checked = r.policy?.limitConsecutive !== false;
-        document.getElementById('rule_maxConsDays').value = r.policy?.maxConsDays || 6;
-        document.getElementById('rule_longLeaveAdjust').checked = r.policy?.longLeaveAdjust !== false;
-        document.getElementById('rule_longLeaveThres').value = r.policy?.longLeaveThres || 5;
-        document.getElementById('rule_longLeaveMaxCons').value = r.policy?.longLeaveMaxCons || 7;
-        document.getElementById('rule_bundleNightOnly').checked = r.policy?.bundleNightOnly !== false;
-        document.getElementById('rule_noNightAfterOff').checked = r.policy?.noNightAfterOff !== false;
-        document.getElementById('rule_noNightAfterOff_N').checked = r.policy?.noNightAfterOff_N !== false;
-        document.getElementById('rule_noNightAfterOff_E').checked = r.policy?.noNightAfterOff_E !== false;
-        document.getElementById('rule_newbie_noNight3m').checked = r.policy?.newbie_noNight3m || false;
-        document.getElementById('rule_newbie_noBigNight1m').checked = r.policy?.newbie_noBigNight1m || false;
-        document.getElementById('rule_newbie_noSolo1m').checked = r.policy?.newbie_noSolo1m || false;
-
-        // Pattern
-        document.getElementById('rule_dayStartShift').value = r.pattern?.dayStartShift || 'D';
-        document.getElementById('rule_consecutivePref').checked = r.pattern?.consecutivePref !== false;
-        document.getElementById('rule_minConsecutive').value = r.pattern?.minConsecutive || 2;
-        document.getElementById('rule_avoidLonelyOff').checked = r.pattern?.avoidLonelyOff !== false;
-        document.getElementById('rule_monthBuffer').checked = r.pattern?.monthBuffer !== false;
-        document.getElementById('rule_monthBufferDays').value = r.pattern?.monthBufferDays || 7;
-
-        // Render Sortable
-        const savedOrder = r.pattern?.rotationOrder || 'OFF,N,D,E';
-        this.renderRotationEditor(savedOrder);
-
-        // Fairness
-        document.getElementById('rule_fairOff').checked = r.fairness?.fairOff !== false;
-        document.getElementById('rule_fairOffVar').value = r.fairness?.fairOffVar || 2;
-        document.getElementById('rule_fairOffExcludeLong').checked = r.fairness?.fairOffExcludeLong !== false;
-        document.getElementById('rule_fairOffExcludeDays').value = r.fairness?.fairOffExcludeDays || 6;
-        document.getElementById('rule_fairHoliday').checked = r.fairness?.fairHoliday !== false;
-        document.getElementById('rule_fairHolidayVar').value = r.fairness?.fairHolidayVar || 2;
-        document.getElementById('rule_fairHolidayIncNational').checked = r.fairness?.fairHolidayIncNational !== false;
-        document.getElementById('rule_fairNight').checked = r.fairness?.fairNight !== false;
-        document.getElementById('rule_fairNightVar').value = r.fairness?.fairNightVar || 2;
-
-        // [新增] AI Params (給予預設值)
-        const ai = r.aiParams || {};
-        document.getElementById('ai_w_balance').value = ai.w_balance || 200;
-        document.getElementById('ai_w_continuity').value = ai.w_continuity || 50;
-        document.getElementById('ai_w_surplus').value = ai.w_surplus || 150;
-        document.getElementById('ai_backtrack_depth').value = ai.backtrack_depth || 3;
-        document.getElementById('ai_max_attempts').value = ai.max_attempts || 20;
-        document.getElementById('ai_tolerance').value = ai.tolerance || 2;
-    },
-
-    renderRotationEditor: function(savedOrderStr) {
-        const container = document.getElementById('rotationContainer');
-        container.innerHTML = '';
-        let items = [{ code: 'OFF', name: '休' }];
-        this.activeShifts.forEach(s => {
-            items.push({ code: s.code, name: s.name, color: s.color });
-        });
-        const savedArr = savedOrderStr.split(',').map(s => s.trim());
-        items.sort((a, b) => {
-            let idxA = savedArr.indexOf(a.code);
-            let idxB = savedArr.indexOf(b.code);
-            if (idxA === -1) idxA = 999;
-            if (idxB === -1) idxB = 999;
-            return idxA - idxB;
-        });
-        items.forEach((item, index) => {
-            if (index > 0) {
-                const arrow = document.createElement('div');
-                arrow.className = 'sortable-arrow';
-                arrow.innerHTML = '<i class="fas fa-arrow-right"></i>';
-                container.appendChild(arrow);
-            }
-            const div = document.createElement('div');
-            div.className = 'sortable-item';
-            div.draggable = true;
-            div.dataset.code = item.code;
-            let colorDot = '';
-            if (item.code === 'OFF') colorDot = `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#2ecc71; margin-right:5px;"></span>`;
-            else if (item.color) colorDot = `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${item.color}; margin-right:5px;"></span>`;
-            div.innerHTML = `${colorDot} ${item.name} (${item.code})`;
-            container.appendChild(div);
-        });
-        this.setupDragAndDrop();
-    },
-
-    setupDragAndDrop: function() {
-        const container = document.getElementById('rotationContainer');
-        let draggedItem = null;
-        container.querySelectorAll('.sortable-item').forEach(item => {
-            item.addEventListener('dragstart', (e) => {
-                draggedItem = item;
-                e.dataTransfer.effectAllowed = 'move';
-                item.classList.add('dragging');
-            });
-            item.addEventListener('dragend', () => {
-                draggedItem = null;
-                item.classList.remove('dragging');
-                this.refreshArrows();
-            });
-            item.addEventListener('dragover', (e) => {
-                e.preventDefault(); 
-                e.dataTransfer.dropEffect = 'move';
-                const target = e.target.closest('.sortable-item');
-                if (target && target !== draggedItem) {
-                    const rect = target.getBoundingClientRect();
-                    const next = (e.clientX - rect.left) / (rect.right - rect.left) > 0.5;
-                    if(next) container.insertBefore(draggedItem, target.nextSibling);
-                    else container.insertBefore(draggedItem, target);
-                }
-            });
-        });
-    },
-
-    refreshArrows: function() {
-        const container = document.getElementById('rotationContainer');
-        container.querySelectorAll('.sortable-arrow').forEach(el => el.remove());
-        const items = container.querySelectorAll('.sortable-item');
-        items.forEach((item, index) => {
-            if (index > 0) {
-                const arrow = document.createElement('div');
-                arrow.className = 'sortable-arrow';
-                arrow.innerHTML = '<i class="fas fa-arrow-right"></i>';
-                container.insertBefore(arrow, item);
-            }
-        });
-    },
-
-    getRotationOrderString: function() {
-        const items = document.querySelectorAll('#rotationContainer .sortable-item');
-        const codes = Array.from(items).map(el => el.dataset.code);
-        return codes.join(',');
     },
 
     saveData: async function() {
         if(!this.currentUnitId) { alert("請先選擇單位"); return; }
 
+        // 讀取 UI 數值
+        const getVal = (id, def) => {
+            const el = document.getElementById(id);
+            return el ? (parseInt(el.value) || def) : def;
+        };
+
         const rules = {
-            hard: {
-                minGap11: document.getElementById('rule_minGap11').checked,
-                maxDiversity3: document.getElementById('rule_maxDiversity3').checked,
-                protectPregnant: document.getElementById('rule_protectPregnant').checked,
-                twoOffPerFortnight: document.getElementById('rule_twoOffPerFortnight').checked,
-                offGapMax: parseInt(document.getElementById('rule_offGapMax').value) || 12,
-                weekStartDay: document.getElementById('rule_weekStartDay').value
-            },
-            policy: {
-                reqOffWeight: document.getElementById('rule_reqOffWeight').value,
-                reqBanWeight: document.getElementById('rule_reqBanWeight').value,
-                limitConsecutive: document.getElementById('rule_limitConsecutive').checked,
-                maxConsDays: parseInt(document.getElementById('rule_maxConsDays').value) || 6,
-                longLeaveAdjust: document.getElementById('rule_longLeaveAdjust').checked,
-                longLeaveThres: parseInt(document.getElementById('rule_longLeaveThres').value) || 5,
-                longLeaveMaxCons: parseInt(document.getElementById('rule_longLeaveMaxCons').value) || 7,
-                bundleNightOnly: document.getElementById('rule_bundleNightOnly').checked,
-                noNightAfterOff: document.getElementById('rule_noNightAfterOff').checked,
-                noNightAfterOff_N: document.getElementById('rule_noNightAfterOff_N').checked,
-                noNightAfterOff_E: document.getElementById('rule_noNightAfterOff_E').checked,
-                newbie_noNight3m: document.getElementById('rule_newbie_noNight3m').checked,
-                newbie_noBigNight1m: document.getElementById('rule_newbie_noBigNight1m').checked,
-                newbie_noSolo1m: document.getElementById('rule_newbie_noSolo1m').checked
-            },
-            pattern: {
-                dayStartShift: document.getElementById('rule_dayStartShift').value,
-                rotationOrder: this.getRotationOrderString(), 
-                consecutivePref: document.getElementById('rule_consecutivePref').checked,
-                minConsecutive: parseInt(document.getElementById('rule_minConsecutive').value) || 2,
-                avoidLonelyOff: document.getElementById('rule_avoidLonelyOff').checked,
-                monthBuffer: document.getElementById('rule_monthBuffer').checked,
-                monthBufferDays: parseInt(document.getElementById('rule_monthBufferDays').value) || 7
-            },
-            fairness: {
-                fairOff: document.getElementById('rule_fairOff').checked,
-                fairOffVar: parseInt(document.getElementById('rule_fairOffVar').value) || 2,
-                fairOffExcludeLong: document.getElementById('rule_fairOffExcludeLong').checked,
-                fairOffExcludeDays: parseInt(document.getElementById('rule_fairOffExcludeDays').value) || 6,
-                fairHoliday: document.getElementById('rule_fairHoliday').checked,
-                fairHolidayVar: parseInt(document.getElementById('rule_fairHolidayVar').value) || 2,
-                fairHolidayIncNational: document.getElementById('rule_fairHolidayIncNational').checked,
-                fairNight: document.getElementById('rule_fairNight').checked,
-                fairNightVar: parseInt(document.getElementById('rule_fairNightVar').value) || 2
-            },
-            // [新增] 儲存 AI 參數
+            // V2 關鍵參數
             aiParams: {
-                w_balance: parseInt(document.getElementById('ai_w_balance').value) || 200,
-                w_continuity: parseInt(document.getElementById('ai_w_continuity').value) || 50,
-                w_surplus: parseInt(document.getElementById('ai_w_surplus').value) || 150,
-                backtrack_depth: parseInt(document.getElementById('ai_backtrack_depth').value) || 3,
-                max_attempts: parseInt(document.getElementById('ai_max_attempts').value) || 20,
-                tolerance: parseInt(document.getElementById('ai_tolerance').value) || 2
-            }
+                backtrack_depth: getVal('ai_backtrack_depth', 3), // 回溯深度
+                tolerance: getVal('ai_tolerance', 2),             // 容許誤差 (天數)
+                max_attempts: getVal('ai_max_attempts', 20),      // 嘗試次數
+                
+                // 保留舊欄位結構以防萬一，但設為 0 或讀取 UI
+                w_balance: getVal('ai_w_balance', 0),
+                w_continuity: getVal('ai_w_continuity', 0)
+            },
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
         try {
@@ -279,17 +114,21 @@ const scheduleRuleManager = {
                 schedulingRules: rules,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            alert("規則已儲存成功！");
+            alert("規則已儲存成功！\nAI V2 將套用新的「容許誤差」與「回溯深度」。");
         } catch(e) {
             console.error(e);
             alert("儲存失敗: " + e.message);
         }
     },
 
+    // 頁籤切換功能 (如果 HTML 有保留頁籤設計)
     switchTab: function(tabName) {
         const wrapper = document.querySelector('.tab-content-wrapper');
-        wrapper.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-        document.getElementById(`tab-${tabName}`).classList.add('active');
+        if(wrapper) {
+            wrapper.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            const target = document.getElementById(`tab-${tabName}`);
+            if(target) target.classList.add('active');
+        }
         
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.classList.remove('active');
