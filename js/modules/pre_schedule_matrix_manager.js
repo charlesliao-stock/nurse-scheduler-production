@@ -506,17 +506,27 @@ const matrixManager = {
     },
 
     cleanup: function() {
+        // 移除全局點擊監聽
         if (this.globalClickListener) {
             document.removeEventListener('click', this.globalClickListener);
             this.globalClickListener = null;
         }
         
+        // [新增] 清理儲存格事件監聽器
+        const cells = document.querySelectorAll('.cell-clickable');
+        cells.forEach(cell => {
+            // 使用 cloneNode 移除所有事件監聽器
+            const newCell = cell.cloneNode(true);
+            cell.parentNode?.replaceChild(newCell, cell);
+        });
+        
+        // 清理選單元素
         const menu = document.getElementById('customContextMenu');
         if (menu) {
             menu.style.display = 'none';
         }
         
-        console.log("🧹 清理完成");
+        console.log("🧹 Matrix 清理完成");
     },
 
     saveData: async function() {
@@ -559,8 +569,4 @@ const matrixManager = {
     }
 };
 
-const originalInit = matrixManager.init;
-matrixManager.init = function(id) {
-    this.cleanup();
-    originalInit.call(this, id);
-};
+// [移除] 不需要額外的初始化包裝,在 init 內部已經呼叫 cleanup
