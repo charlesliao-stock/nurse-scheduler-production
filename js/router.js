@@ -55,7 +55,7 @@ const router = {
 
         try {
             // [關鍵修正] 加上 'view/' 前綴，指向正確的資料夾
-            const response = await fetch(`view/${viewName}.html`);
+            const response = await fetch(`views/${viewName}.html`);
             
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status} (Path: view/${viewName}.html)`);
             const html = await response.text();
