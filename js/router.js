@@ -54,10 +54,10 @@ const router = {
         container.innerHTML = '<div style="padding:40px; text-align:center; color:#666;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
 
         try {
-            // [關鍵修正] 加上 'view/' 前綴，指向正確的資料夾
+            // [關鍵修正] 改為 'views/' (加上 s)
             const response = await fetch(`views/${viewName}.html`);
             
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status} (Path: view/${viewName}.html)`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status} (Path: views/${viewName}.html)`);
             const html = await response.text();
             container.innerHTML = html;
             
@@ -68,7 +68,7 @@ const router = {
             console.error("Load View Error:", error);
             container.innerHTML = `<div style="padding:40px; text-align:center; color:red;">
                 <h3>載入失敗</h3>
-                <p>找不到檔案: view/${viewName}.html</p>
+                <p>找不到檔案: views/${viewName}.html</p>
                 <small>${error.message}</small>
             </div>`;
         } finally {
