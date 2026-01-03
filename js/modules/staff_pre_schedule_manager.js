@@ -384,17 +384,21 @@ const staffPreScheduleManager = {
         
         if (!menu || !title || !options) return;
         
-        title.textContent = `${this.data.month}月 ${day}日`;
+        // [修正] 標題格式與管理員端一致
+        title.textContent = `設定 ${day} 日 (右鍵)`;
         
         let html = '';
         
-        // [修正] 與管理員端一致的選單結構
+        // [關鍵修正] 比照管理員端選單,但不顯示"強制休(Admin)"
+        
+        // 1. 預休 (User) - 對應管理員端的 REQ_OFF
         html += `<div class="menu-item" onclick="staffPreScheduleManager.setShift(${day}, 'REQ_OFF', ${isHoliday}, ${used}, ${quota})">
             <span class="menu-icon"><span class="color-dot" style="background:#2ecc71;"></span></span> 預休 (User)
         </div>`;
+        
         html += `<div class="menu-separator"></div>`;
 
-        // 班別選項
+        // 2. 指定班別 (與管理員端相同)
         const unitShifts = this.shifts.filter(sh => sh.unitId === this.data.unitId);
         unitShifts.forEach(s => {
             html += `<div class="menu-item" onclick="staffPreScheduleManager.setShift(${day}, '${s.code}', ${isHoliday}, ${used}, ${quota})">
@@ -402,7 +406,7 @@ const staffPreScheduleManager = {
             </div>`;
         });
 
-        // 勿排選項
+        // 3. 勿排班別 (與管理員端相同)
         html += `<div class="menu-separator"></div>`;
         unitShifts.forEach(s => {
             html += `<div class="menu-item" onclick="staffPreScheduleManager.setShift(${day}, '!${s.code}', ${isHoliday}, ${used}, ${quota})" style="color:#c0392b;">
@@ -410,7 +414,7 @@ const staffPreScheduleManager = {
             </div>`;
         });
 
-        // 清除選項
+        // 4. 清除 (與管理員端相同)
         html += `<div class="menu-separator"></div>`;
         html += `<div class="menu-item" style="color:red;" onclick="staffPreScheduleManager.setShift(${day}, null, ${isHoliday}, ${used}, ${quota})">
             <span class="menu-icon"><i class="fas fa-eraser"></i></span> 清除
