@@ -47,9 +47,19 @@ const staffPreScheduleManager = {
 
     loadShifts: async function() {
         try {
-            const s = await db.collection('shifts').get();
-            this.shifts = s.docs.map(d => d.data());
-        } catch(e) { console.error(e); }
+            const snapshot = await db.collection('shifts').get();
+            this.shifts = snapshot.docs.map(d => d.data());
+            console.log(`✅ 載入 ${this.shifts.length} 個班別`);
+            
+            // Debug: 列出該單位的班別
+            if (this.data && this.data.unitId) {
+                const unitShifts = this.shifts.filter(sh => sh.unitId === this.data.unitId);
+                console.log(`   └─ 單位 ${this.data.unitId} 有 ${unitShifts.length} 個班別:`, unitShifts.map(s => s.code).join(', '));
+            }
+        } catch(e) { 
+            console.error("載入班別失敗:", e);
+            this.shifts = [];
+        }
     },
 
     loadData: async function() {
