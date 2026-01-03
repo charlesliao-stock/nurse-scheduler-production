@@ -203,9 +203,69 @@ th { background-color: #f8f9fa; font-weight: bold; white-space: nowrap; }
 .shift-ban { color: #e74c3c; font-size: 0.8rem; display:flex; justify-content:center; align-items:center; }
 .text-danger { color: red !important; font-weight: 900 !important; background-color: #ffe6e6 !important; }
 
-/* 右鍵選單 */
-.context-menu { position: absolute; background: white; border: 1px solid #bbb; box-shadow: 3px 3px 10px rgba(0,0,0,0.2); border-radius: 4px; z-index: 9999; min-width: 160px; font-size: 0.9rem; padding-bottom: 5px; }
-.menu-header { background: #f1f1f1; padding: 8px 12px; font-weight: bold; color: #555; border-bottom: 1px solid #ddd; }
-.menu-item { padding: 8px 15px; cursor: pointer; display: flex; align-items: center; gap: 8px; color: #333; }
-.menu-item:hover { background: #3498db; color: white; }
-.menu-icon { width: 20px; text-align: center; font-weight: bold; }
+/* 右鍵選單樣式補充 - 加到 style.css 中 */
+
+/* 右鍵選單容器 */
+.context-menu { 
+    position: absolute; 
+    background: white; 
+    border: 1px solid #bbb; 
+    box-shadow: 3px 3px 10px rgba(0,0,0,0.2); 
+    border-radius: 4px; 
+    z-index: 9999; 
+    min-width: 160px; 
+    font-size: 0.9rem; 
+    padding: 5px 0;
+    display: none;
+}
+
+/* 選單標題 */
+.menu-header { 
+    background: #f1f1f1; 
+    padding: 8px 12px; 
+    font-weight: bold; 
+    color: #555; 
+    border-bottom: 1px solid #ddd; 
+    font-size: 0.9rem;
+}
+
+/* 選單項目 */
+.menu-item { 
+    padding: 8px 15px; 
+    cursor: pointer; 
+    display: flex; 
+    align-items: center; 
+    gap: 8px; 
+    color: #333;
+    transition: background 0.15s;
+}
+
+.menu-item:hover { 
+    background: #3498db; 
+    color: white; 
+}
+
+/* 選單圖示 */
+.menu-icon { 
+    width: 20px; 
+    text-align: center; 
+    font-weight: bold; 
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 分隔線 */
+.menu-separator {
+    height: 1px;
+    background: #ddd;
+    margin: 5px 0;
+}
+
+/* 顏色圓點 */
+.color-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+}
