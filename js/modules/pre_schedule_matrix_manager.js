@@ -62,8 +62,9 @@ const matrixManager = {
     restoreTableStructure: function() {
         const container = document.getElementById('matrixContainer');
         if(container) {
+            // [關鍵修正] 移除 inline oncontextmenu 屬性
             container.innerHTML = `
-                <table id="scheduleMatrix" oncontextmenu="return false;">
+                <table id="scheduleMatrix">
                     <thead id="matrixHead"></thead>
                     <tbody id="matrixBody"></tbody>
                     <tfoot id="matrixFoot" style="position:sticky; bottom:0; background:#f9f9f9; z-index:25; font-weight:bold; border-top:2px solid #ddd;"></tfoot>
@@ -173,27 +174,28 @@ const matrixManager = {
                 const d = lastMonthLastDay - i;
                 const key = `last_${d}`;
                 const val = assign[key] || '';
+                // [關鍵修正] 移除 inline 事件處理器
                 bodyHtml += `<td class="cell-clickable cell-last-month cell-narrow" 
                     data-type="last" data-day="${d}" 
-                    data-uid="${u.uid}"
-                    onmousedown="matrixManager.onCellClick(event, this)"
-                    oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
+                    data-uid="${u.uid}">${this.renderCellContent(val)}</td>`;
             }
             
             for(let d=1; d<=daysInMonth; d++) {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
+                // [關鍵修正] 移除 inline 事件處理器
                 bodyHtml += `<td class="cell-clickable cell-narrow" 
                     data-type="current" data-day="${d}" 
-                    data-uid="${u.uid}"
-                    onmousedown="matrixManager.onCellClick(event, this)"
-                    oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
+                    data-uid="${u.uid}">${this.renderCellContent(val)}</td>`;
             }
             
             bodyHtml += `<td id="stat_row_${u.uid}" style="position:sticky; right:0; background:#fff; border-left:2px solid #ccc; font-weight:bold; color:#333;">0</td>`;
             bodyHtml += `</tr>`;
         });
         tbody.innerHTML = bodyHtml;
+        
+        // [關鍵修正] 渲染完成後綁定事件
+        this.bindCellEvents();
 
         // 3. 底部
         let footHtml = `<tr><td colspan="4">每日OFF小計</td>`;
@@ -317,31 +319,50 @@ const matrixManager = {
         if(modal) modal.classList.remove('show');
     },
 
-    // [關鍵修正] 統一的儲存格點擊處理
-    onCellClick: function(e, cell) {
-        // 阻止所有預設行為和事件冒泡
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
+    // [關鍵修正] 新增獨立的事件綁定方法
+    bindCellEvents: function() {
+        const cells = document.querySelectorAll('.cell-clickable');
         
-        const uid = cell.dataset.uid;
-        const type = cell.dataset.type; 
-        const day = cell.dataset.day;
-        const key = type === 'last' ? `last_${day}` : `current_${day}`;
-        
-        // 左鍵 (button === 0)
-        if (e.button === 0) {
-            this.handleLeftClick(uid, key);
-            const val = (this.localAssignments[uid] && this.localAssignments[uid][key]) || '';
-            cell.innerHTML = this.renderCellContent(val);
-            this.updateStats();
-        } 
-        // 右鍵 (button === 2)
-        else if (e.button === 2) {
-            this.handleRightClick(e, uid, key, type, day);
-        }
-        
-        return false; // 額外保險
+        cells.forEach(cell => {
+            // 移除舊的監聽器 (如果存在)
+            cell.onmousedown = null;
+            cell.oncontextmenu = null;
+            
+            // 使用 addEventListener 綁定,更可靠
+            cell.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const uid = cell.dataset.uid;
+                const type = cell.dataset.type;
+                const day = cell.dataset.day;
+                const key = type === 'last' ? `last_${day}` : `current_${day}`;
+                
+                if (e.button === 0) {
+                    // 左鍵
+                    this.handleLeftClick(uid, key);
+                    const val = (this.localAssignments[uid] && this.localAssignments[uid][key]) || '';
+                    cell.innerHTML = this.renderCellContent(val);
+                    this.updateStats();
+                }
+            }, { passive: false });
+            
+            // [關鍵] 獨立綁定右鍵事件
+            cell.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                const uid = cell.dataset.uid;
+                const type = cell.dataset.type;
+                const day = cell.dataset.day;
+                const key = type === 'last' ? `last_${day}` : `current_${day}`;
+                
+                this.handleRightClick(e, uid, key, type, day);
+                
+                return false;
+            }, { passive: false, capture: true });
+        });
     },
 
     handleLeftClick: function(uid, key) {
@@ -505,26 +526,49 @@ const matrixManager = {
         };
         document.addEventListener('click', this.globalClickListener);
         
-        // 2. 全局右鍵監聽 (阻止瀏覽器預設選單)
+        // 2. [強化] 多層級右鍵阻止
+        // 2-1. 文檔級別 (最高優先級,捕獲階段)
         this.contextMenuHandler = (e) => {
-            // 檢查是否在矩陣容器內
             const container = document.getElementById('matrixContainer');
-            if (container && container.contains(e.target)) {
+            const table = document.getElementById('scheduleMatrix');
+            
+            // 檢查是否在表格內
+            if ((container && container.contains(e.target)) || 
+                (table && table.contains(e.target)) ||
+                e.target.classList.contains('cell-clickable')) {
                 e.preventDefault();
                 e.stopPropagation();
+                e.stopImmediatePropagation();
                 return false;
             }
         };
-        document.addEventListener('contextmenu', this.contextMenuHandler, true); // 使用捕獲階段
+        document.addEventListener('contextmenu', this.contextMenuHandler, { capture: true, passive: false });
         
-        // 3. 容器級別的右鍵阻止 (雙重保險)
+        // 2-2. 容器級別 (第二層保護)
         const container = document.getElementById('matrixContainer');
         if(container) {
             container.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 return false;
-            }, true);
+            }, { capture: true, passive: false });
+            
+            // 阻止 mousedown 的預設行為
+            container.addEventListener('mousedown', (e) => {
+                if (e.button === 2 && e.target.classList.contains('cell-clickable')) {
+                    e.preventDefault();
+                }
+            }, { capture: true, passive: false });
+        }
+        
+        // 2-3. 表格級別 (第三層保護)
+        const table = document.getElementById('scheduleMatrix');
+        if(table) {
+            table.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }, { capture: true, passive: false });
         }
     },
 
@@ -538,9 +582,15 @@ const matrixManager = {
         
         // [新增] 移除全局右鍵監聽
         if (this.contextMenuHandler) {
-            document.removeEventListener('contextmenu', this.contextMenuHandler, true);
+            document.removeEventListener('contextmenu', this.contextMenuHandler, { capture: true });
             this.contextMenuHandler = null;
         }
+        
+        // [新增] 移除所有儲存格的事件監聽
+        const cells = document.querySelectorAll('.cell-clickable');
+        cells.forEach(cell => {
+            cell.replaceWith(cell.cloneNode(true)); // 簡單粗暴的移除所有監聽器
+        });
         
         // 清理選單元素
         const menu = document.getElementById('customContextMenu');
