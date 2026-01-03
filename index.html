@@ -21,22 +21,18 @@
             <input type="password" id="loginPassword" placeholder="密碼">
             
             <button class="btn btn-primary" onclick="app.login()">登入</button>
-            <p id="loginError" style="color:red; margin-top:10px; font-size:0.9rem; min-height: 20px;"></p>
-
-            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee;">
-                <a href="signup.html" style="text-decoration: none; color: #3498db; font-size: 0.9rem; font-weight: bold;">
-                    <i class="fas fa-user-plus"></i> 第一次使用？(帳號開通)
-                </a>
+            <p id="loginError" style="color:red; margin-top:10px; font-size:0.9rem;"></p>
+            
+            <div style="margin-top:20px; text-align:center; font-size:0.9rem;">
+                <a href="signup.html" style="color:#3498db; text-decoration:none;">帳號開通認領</a>
             </div>
         </div>
     </div>
 
-    <div id="app-view">
+    <div id="app-view" style="display:none;">
         <nav id="sidebar">
             <div class="sidebar-header">
-                <i class="fas fa-heartbeat" style="margin-right:10px;"></i> 排班系統
-            </div>
-            <div class="user-info">
+                <h3><i class="fas fa-heartbeat"></i> 護理排班</h3>
                 <div id="displayUserName" style="font-weight:bold;">載入中...</div>
                 <div id="displayUserRole" class="role-badge">...</div>
             </div>
@@ -58,21 +54,49 @@
             <div id="content-area"></div>
         </main>
     </div>
+    
+    <div id="schContextMenu" class="context-menu" style="display:none; position:absolute; z-index:9999;">
+        <div class="menu-header">排班操作</div>
+        <ul style="list-style:none; padding:0; margin:0;">
+            </ul>
+    </div>
+    <div id="staffContextMenu" class="context-menu" style="display:none; position:absolute; z-index:9999;">
+        <ul style="list-style:none; padding:0; margin:0;"></ul>
+    </div>
+    <div id="customContextMenu" class="context-menu" style="display:none; position:absolute; z-index:9999;">
+        <ul style="list-style:none; padding:0; margin:0;"></ul>
+    </div>
 
     <script src="js/config.js"></script>
+
     <script src="js/modules/staff_manager.js"></script>
     <script src="js/modules/shift_manager.js"></script>
     <script src="js/modules/group_manager.js"></script>
     <script src="js/modules/unit_manager.js"></script>
     <script src="js/modules/menu_manager.js"></script>
+
     <script src="js/modules/pre_schedule_manager.js"></script>
     <script src="js/modules/pre_schedule_matrix_manager.js"></script>
     <script src="js/modules/staff_pre_schedule_manager.js"></script>
     <script src="js/modules/staff_pre_schedule_list_manager.js"></script>
-    <script src="js/modules/BaseScheduler.js"></script>
+
+    <script src="js/scheduler/BaseScheduler.js"></script>
     <script src="js/scheduler/SchedulerV2.js"></script>
     <script src="js/scheduler/SchedulerFactory.js"></script>
+    <script src="js/scheduler/ScheduleBatchRunner.js"></script>
+
+    <script src="js/modules/schedule_list_manager.js"></script>
+    <script src="js/modules/schedule_editor_manager.js"></script>
+    <script src="js/modules/schedule_rule_manager.js"></script>
+    
     <script src="js/router.js"></script>
     <script src="js/app.js"></script>
+    
+    <script>
+        // 啟動應用
+        document.addEventListener('DOMContentLoaded', () => {
+            app.init();
+        });
+    </script>
 </body>
 </html>
