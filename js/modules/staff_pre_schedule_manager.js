@@ -30,8 +30,9 @@ const staffPreScheduleManager = {
         // [修正] 先清理舊的事件監聽器
         this.cleanup();
 
-        await this.loadShifts();
+        // [關鍵修正] 先載入資料,再載入班別
         await this.loadData();
+        await this.loadShifts(); // 確保 this.data.unitId 已經存在
         
         this.renderCalendar();
         this.updateStats();
