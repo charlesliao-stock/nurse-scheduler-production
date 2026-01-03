@@ -34,11 +34,11 @@
 
             <div class="stat-card" style="background:#eaf2f8; padding:15px; border-radius:8px; margin-bottom:20px;">
                 <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                    <span>總預休天數：</span>
+                    <span>總預休天數:</span>
                     <span style="font-weight:bold;"><span id="statOffCount">0</span> / <span id="limitMaxOff">-</span></span>
                 </div>
                 <div style="display:flex; justify-content:space-between;">
-                    <span>假日預休：</span>
+                    <span>假日預休:</span>
                     <span style="font-weight:bold;"><span id="statHolidayOffCount">0</span> / <span id="limitMaxHoliday">-</span></span>
                 </div>
             </div>
@@ -63,22 +63,22 @@
             </div>
 
             <div style="margin-top:auto; padding-top:20px; border-top:1px solid #eee; color:#7f8c8d; font-size:0.9rem;">
-                <p><i class="fas fa-info-circle"></i> 說明：</p>
+                <p><i class="fas fa-info-circle"></i> 說明:</p>
                 <ul style="padding-left:20px; margin:0;">
-                    <li><b>左鍵點擊</b>：切換預休 (綠色)。</li>
-                    <li><b>右鍵點擊</b>：開啟選單 (指定班別/清除)。</li>
-                    <li><span style="color:#e67e22; font-weight:bold;">橘框</span>：名額充足。</li>
-                    <li><span style="color:#e74c3c; font-weight:bold;">紅框</span>：名額已滿。</li>
+                    <li><b>左鍵點擊</b>:切換預休 (綠色)。</li>
+                    <li><b>右鍵點擊</b>:開啟選單 (指定班別/清除)。</li>
+                    <li><span style="color:#e67e22; font-weight:bold;">橘框</span>:名額充足。</li>
+                    <li><span style="color:#e74c3c; font-weight:bold;">紅框</span>:名額已滿。</li>
                 </ul>
             </div>
         </div>
     </div>
 </div>
 
+<!-- [關鍵修正] 確保選單容器結構正確 -->
 <div id="staffContextMenu" class="context-menu" style="display:none;">
     <div class="menu-header" id="staffMenuTitle">設定班別</div>
-    <div id="staffMenuOptions" class="menu-options">
-        </div>
+    <div id="staffMenuOptions"></div>
 </div>
 
 <style>
@@ -109,5 +109,14 @@
 .shift-tag {
     font-weight: bold; font-size: 1.4rem; color: #3498db;
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+}
+
+/* 確保右鍵選單不被文字選取干擾 */
+.calendar-day,
+.calendar-day * {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 </style>
