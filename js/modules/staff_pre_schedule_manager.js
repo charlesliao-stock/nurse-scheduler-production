@@ -387,47 +387,73 @@ const staffPreScheduleManager = {
         const title = document.getElementById('staffMenuTitle');
         const options = document.getElementById('staffMenuOptions');
         
-        if (!menu || !title || !options) return;
+        if (!menu || !title || !options) {
+            console.error("找不到右鍵選單元素");
+            return;
+        }
         
-        // [修正] 標題格式與管理員端一致
+        // 標題格式與管理員端一致
         title.textContent = `設定 ${day} 日 (右鍵)`;
+        
+        // 確保班別已載入
+        if (!this.shifts || this.shifts.length === 0) {
+            console.error("班別資料未載入");
+            options.innerHTML = '<div class="menu-item" style="color:#999;">班別資料載入中...</div>';
+            this.showMenu(e, menu);
+            return;
+        }
+        
+        // 篩選該單位的班別
+        const unitShifts = this.shifts.filter(sh => sh.unitId === this.data.unitId);
+        
+        if (unitShifts.length === 0) {
+            console.warn("此單位沒有班別設定");
+        }
         
         let html = '';
         
-        // [關鍵修正] 比照管理員端選單,但不顯示"強制休(Admin)"
-        
-        // 1. 預休 (User) - 對應管理員端的 REQ_OFF
+        // 1. 預休 (User)
         html += `<div class="menu-item" onclick="staffPreScheduleManager.setShift(${day}, 'REQ_OFF', ${isHoliday}, ${used}, ${quota})">
             <span class="menu-icon"><span class="color-dot" style="background:#2ecc71;"></span></span> 預休 (User)
         </div>`;
         
         html += `<div class="menu-separator"></div>`;
 
-        // 2. 指定班別 (與管理員端相同)
-        const unitShifts = this.shifts.filter(sh => sh.unitId === this.data.unitId);
+        // 2. 指定班別
         unitShifts.forEach(s => {
             html += `<div class="menu-item" onclick="staffPreScheduleManager.setShift(${day}, '${s.code}', ${isHoliday}, ${used}, ${quota})">
-                <span class="menu-icon" style="color:${s.color}; font-weight:bold;">${s.code}</span> 指定 ${s.name}
+                <span class="menu-icon" style="color:${s.color || '#333'}; font-weight:bold;">${s.code}</span> 指定 ${s.name}
             </div>`;
         });
 
-        // 3. 勿排班別 (與管理員端相同)
-        html += `<div class="menu-separator"></div>`;
-        unitShifts.forEach(s => {
-            html += `<div class="menu-item" onclick="staffPreScheduleManager.setShift(${day}, '!${s.code}', ${isHoliday}, ${used}, ${quota})" style="color:#c0392b;">
-                <span class="menu-icon"><i class="fas fa-ban"></i></span> 勿排 ${s.name}
-            </div>`;
-        });
+        // 3. 勿排班別
+        if (unitShifts.length > 0) {
+            html += `<div class="menu-separator"></div>`;
+            unitShifts.forEach(s => {
+                html += `<div class="menu-item" onclick="staffPreScheduleManager.setShift(${day}, '!${s.code}', ${isHoliday}, ${used}, ${quota})" style="color:#c0392b;">
+                    <span class="menu-icon"><i class="fas fa-ban"></i></span> 勿排 ${s.name}
+                </div>`;
+            });
+        }
 
-        // 4. 清除 (與管理員端相同)
+        // 4. 清除
         html += `<div class="menu-separator"></div>`;
         html += `<div class="menu-item" style="color:red;" onclick="staffPreScheduleManager.setShift(${day}, null, ${isHoliday}, ${used}, ${quota})">
             <span class="menu-icon"><i class="fas fa-eraser"></i></span> 清除
         </div>`;
 
         options.innerHTML = html;
+        
+        console.log(`右鍵選單內容已生成: ${unitShifts.length} 個班別`);
+        
+        // 顯示選單
+        this.showMenu(e, menu);
+    },
+    
+    // [新增] 統一的選單顯示邏輯
+    showMenu: function(e, menu) {
         menu.style.display = 'block';
-        menu.style.visibility = 'hidden'; 
+        menu.style.visibility = 'hidden';
         
         requestAnimationFrame(() => {
             const menuWidth = menu.offsetWidth;
