@@ -1,0 +1,169 @@
+<div class="page-section active">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <h2 style="margin:0;"><i class="fas fa-calendar-alt"></i> 預班管理列表</h2>
+    </div>
+    
+    <div class="toolbar">
+        <label style="margin-right:10px; font-weight:bold;">選擇單位：</label>
+        <select id="filterPreUnit" style="padding:8px; border-radius:4px; border:1px solid #ccc; width: 200px;">
+            <option value="">載入中...</option>
+        </select>
+        
+        <div style="margin-left:auto;" id="adminToolbar">
+            <button id="btnAddPreSchedule" class="btn btn-add" onclick="preScheduleManager.openModal()">
+                <i class="fas fa-plus"></i> 新增預班表
+            </button>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table id="preScheduleTable">
+            <thead>
+                <tr>
+                    <th style="width: 15%;">單位名稱</th>
+                    <th style="width: 15%;">預班月份</th>
+                    <th style="width: 20%;">開放區間</th>
+                    <th style="width: 10%;">狀態</th>
+                    <th style="width: 15%;">預班進度</th>
+                    <th style="width: 25%;">操作</th>
+                </tr>
+            </thead>
+            <tbody id="preScheduleTableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<div id="preScheduleModal" class="modal">
+    <div class="modal-content modal-xl" style="height: 85vh; display: flex; flex-direction: column; padding: 0;">
+        
+        <div style="padding: 15px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid #eee;">
+            <h3 style="margin:0; border:none; padding:0;">預班表設定</h3>
+            <button class="btn btn-import" id="btnImportLast" onclick="preScheduleManager.importLastSettings()">
+                <i class="fas fa-history"></i> 帶入上月設定
+            </button>
+        </div>
+        
+        <input type="hidden" id="preScheduleDocId">
+        <input type="hidden" id="currentMode">
+
+        <div class="tab-header" style="padding: 0 20px; margin-top: 15px;">
+            <button class="tab-btn active" onclick="preScheduleManager.switchTab('basic')">1. 基本與規則</button>
+            <button class="tab-btn" onclick="preScheduleManager.switchTab('limits')">2. 人力需求設定</button>
+            <button class="tab-btn" onclick="preScheduleManager.switchTab('staff')">
+                3. 參與人員 <span id="staffTotalCount" class="badge" style="background:#7f8c8d; margin-left:5px;">0</span>
+            </button>
+        </div>
+
+        <div class="tab-content-wrapper">
+            
+            <div id="tab-basic" class="tab-content active">
+                <h4 style="color:#2c3e50; border-left:4px solid #3498db; padding-left:10px; margin-top:0;">基本資料</h4>
+                <div class="form-row compact">
+                    <div class="form-group form-col-sm">
+                        <label>預班月份</label>
+                        <input type="month" id="inputPreYearMonth" style="font-weight:bold;">
+                    </div>
+                    <div class="form-group form-col-md">
+                        <label>開放日期 (起) *</label>
+                        <input type="date" id="inputOpenDate">
+                    </div>
+                    <div class="form-group form-col-md">
+                        <label>截止日期 (迄) *</label>
+                        <input type="date" id="inputCloseDate">
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 20px;">
+                    <label style="cursor:pointer; display:inline-flex; align-items:center;">
+                        <input type="checkbox" id="checkShowAllNames" style="width:auto; margin-right:8px;">
+                        顯示所有預班者姓名 (公開透明)
+                    </label>
+                </div>
+
+                <hr style="border:0; border-top:1px dashed #ccc; margin:20px 0;">
+
+                <h4 style="color:#2c3e50; border-left:4px solid #e67e22; padding-left:10px;">預班限制</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>每人預班上限 (含假日)</label>
+                        <input type="number" id="inputMaxOff" placeholder="例如: 8">
+                    </div>
+                    <div class="form-group">
+                        <label>每人假日上限</label>
+                        <input type="number" id="inputMaxHoliday" placeholder="例如: 2">
+                    </div>
+                    <div class="form-group">
+                        <label>每日預班名額保留數 (Buffer)</label>
+                        <input type="number" id="inputDailyReserve" placeholder="例如: 1">
+                        <small style="color:#666;">公式：總人數 - 需上班 - 保留數</small>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>排班夜班模式</label>
+                        <select id="inputShiftMode" onchange="preScheduleManager.toggleThreeShiftOption()">
+                            <option value="2">2種 (白/夜 - 固定班)</option>
+                            <option value="3">3種 (白/小/大 - 花班)</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="divAllowThree" style="display:none;">
+                        <label>3種班意願選項</label>
+                        <div style="margin-top:10px;">
+                            <label style="cursor:pointer;">
+                                <input type="checkbox" id="checkAllowThree" style="width:auto;"> 
+                                同意同仁自願選擇 3 種班
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-limits" class="tab-content">
+                <div class="alert-box" style="background:#e8f6f3; color:#0e6251; padding:10px; border-radius:4px; margin-bottom:15px; font-size:0.9rem;">
+                    <i class="fas fa-info-circle"></i> 設定每日各班別「最少上班人數」，系統將依此計算每日可休餘額。
+                </div>
+                
+                <h5 style="margin:10px 0;">1. 各班每日人力需求 (週循環)</h5>
+                <div style="overflow-x:auto;">
+                    <table class="matrix-table" id="dailyNeedsTable">
+                        </table>
+                </div>
+
+                <hr style="margin:20px 0;">
+
+                <h5 style="margin:10px 0;">2. 組別限制 (進階演算法參考)</h5>
+                <table class="matrix-table" id="groupLimitTable">
+                    </table>
+            </div>
+
+            <div id="tab-staff" class="tab-content">
+                <div style="background:#f9f9f9; padding:15px; border-radius:4px; margin-bottom:15px;">
+                    <div style="display:flex; gap:10px;">
+                        <input type="text" id="inputSearchStaff" placeholder="搜尋員編或姓名..." onkeyup="preScheduleManager.handleSearchEnter(event)" style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
+                        <button class="btn btn-add" onclick="preScheduleManager.searchStaff()">搜尋</button>
+                    </div>
+                    <div id="searchResults"></div>
+                </div>
+                <table style="width:100%;">
+                    <thead class="sticky-th">
+                        <tr>
+                            <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('empId')">員編</th>
+                            <th style="width:20%; cursor:pointer;" onclick="preScheduleManager.sortStaff('name')">姓名</th>
+                            <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('level')">層級</th>
+                            <th style="width:20%; cursor:pointer;" onclick="preScheduleManager.sortStaff('group')">組別</th>
+                            <th style="width:15%; cursor:pointer;" onclick="preScheduleManager.sortStaff('isSupport')">身份</th>
+                            <th style="width:15%;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="preStaffBody"></tbody>
+                </table>
+            </div>
+        </div> 
+        
+        <div style="text-align:right; padding: 15px 20px; border-top:1px solid #eee;">
+            <button class="btn btn-close" onclick="preScheduleManager.closeModal()">取消</button>
+            <button class="btn btn-add" onclick="preScheduleManager.saveData()">儲存設定</button>
+        </div>
+    </div>
+</div>
