@@ -18,6 +18,9 @@ const matrixManager = {
             return;
         }
         
+        // [修正] 先清理舊的資源
+        this.cleanup();
+        
         this.docId = id;
         this.isLoading = true;
         
