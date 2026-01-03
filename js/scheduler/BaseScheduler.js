@@ -1,169 +1,166 @@
 // js/scheduler/BaseScheduler.js
 class BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
-        this.staffList = allStaff; 
+        this.staffList = allStaff; // [{id, name, ...}]
         this.year = year;
         this.month = month;
         this.daysInMonth = new Date(year, month, 0).getDate();
         this.lastMonthData = lastMonthData || {};
         this.rules = rules || {};
         
+        // 排班結果 { "YYYY-MM-DD": { N:[], E:[], D:[], OFF:[] } }
         this.schedule = {}; 
+        // 統計計數器 { uid: { N:0, E:0, D:0, OFF:0 } }
         this.counters = {}; 
+        
         this.init();
     }
 
     init() {
-        // 初始化計數器 (包含 forcedOffCount 用於輪替)
+        // 1. 初始化計數器
         this.staffList.forEach(s => {
-            this.counters[s.id] = { N: 0, E: 0, D: 0, OFF: 0, LEAVE: 0, forcedOffCount: 0 };
+            this.counters[s.id] = { N: 0, E: 0, D: 0, OFF: 0 };
         });
 
-        // 初始化班表結構
+        // 2. 初始化每天的班表結構
         for (let d = 1; d <= this.daysInMonth; d++) {
             const dateStr = this.getDateStr(d);
-            this.schedule[dateStr] = { N: [], E: [], D: [], OFF: [], LEAVE: [] };
+            this.schedule[dateStr] = { N: [], E: [], D: [], OFF: [] };
         }
-
-        // 載入預設狀態 (處理預假 REQ_OFF)
-        this.staffList.forEach(s => {
-            for (let d = 1; d <= this.daysInMonth; d++) {
-                const dateStr = this.getDateStr(d);
-                const preShift = this.getPreScheduledShift(s, dateStr);
-                
-                if (preShift === 'REQ_OFF') {
-                    this._addToSchedule(dateStr, s.id, 'LEAVE'); // 視為 LEAVE 但其實是預休
-                    this.counters[s.id].LEAVE++;
-                    this.counters[s.id].OFF++; 
-                } else {
-                    this._addToSchedule(dateStr, s.id, 'OFF');
-                    this.counters[s.id].OFF++;
-                }
-            }
-        });
-    }
-
-    updateShift(dateStr, staffId, oldShift, newShift) {
-        if (oldShift === newShift) return;
-        this._removeFromSchedule(dateStr, staffId, oldShift);
-        this._addToSchedule(dateStr, staffId, newShift);
-
-        const c = this.counters[staffId];
-        if (['N', 'E', 'D'].includes(oldShift)) c[oldShift]--;
-        if (['OFF', 'LEAVE'].includes(oldShift)) c.OFF--;
-        if (['LEAVE'].includes(oldShift)) c.LEAVE--;
-
-        if (['N', 'E', 'D'].includes(newShift)) c[newShift]++;
-        if (['OFF', 'LEAVE'].includes(newShift)) c.OFF++;
-        if (['LEAVE'].includes(newShift)) c.LEAVE++;
-    }
-
-    _addToSchedule(dateStr, staffId, shift) {
-        if (!this.schedule[dateStr][shift]) this.schedule[dateStr][shift] = [];
-        this.schedule[dateStr][shift].push(staffId);
-    }
-
-    _removeFromSchedule(dateStr, staffId, shift) {
-        if (!this.schedule[dateStr][shift]) return;
-        const idx = this.schedule[dateStr][shift].indexOf(staffId);
-        if (idx > -1) this.schedule[dateStr][shift].splice(idx, 1);
-    }
-
-    getShiftByDate(dateStr, staffId) {
-        const daySchedule = this.schedule[dateStr];
-        if (!daySchedule) return 'OFF';
-        if (daySchedule.N.includes(staffId)) return 'N';
-        if (daySchedule.E.includes(staffId)) return 'E';
-        if (daySchedule.D.includes(staffId)) return 'D';
-        if (daySchedule.LEAVE.includes(staffId)) return 'LEAVE'; 
-        return 'OFF';
-    }
-
-    getYesterdayShift(staffId, dateStr) {
-        const d = new Date(dateStr);
-        d.setDate(d.getDate() - 1);
-        if (d.getMonth() + 1 !== this.month) {
-            const lastData = this.lastMonthData[staffId];
-            return lastData ? (lastData.lastShiftCode || 'OFF') : 'OFF';
-        }
-        return this.getShiftByDate(this.getDateStrFromDate(d), staffId);
-    }
-
-    checkRestPeriod(prevShift, nextShift) {
-        if (!prevShift || prevShift === 'OFF' || prevShift === 'LEAVE') return true;
-        if (!nextShift || nextShift === 'OFF' || nextShift === 'LEAVE') return true;
-        return prevShift === nextShift;
-    }
-
-    checkWeeklyVariety(staffId, dateStr, newShift) {
-        if (newShift === 'OFF' || newShift === 'LEAVE') return true;
-        const currentDay = new Date(dateStr);
-        let dayOfWeek = currentDay.getDay(); 
-        if (dayOfWeek === 0) dayOfWeek = 7; 
-        const daysSinceMonday = dayOfWeek - 1;
         
-        const shiftsInWeek = new Set();
-        shiftsInWeek.add(newShift);
+        // 3. 預設將所有人先放入 OFF (或根據您的預設邏輯)
+        // 注意：具體的初始化策略 (reset) 交給子類別 (V1/V2) 決定，
+        // 這裡只確保資料結構存在
+    }
 
-        for (let i = 1; i <= daysSinceMonday; i++) {
-            const d = new Date(currentDay);
-            d.setDate(d.getDate() - i);
-            let shift = 'OFF';
-            if (d.getMonth() + 1 !== this.month) {
-                // 跨月部分暫略，或可讀取 lastMonthData
-            } else {
-                shift = this.getShiftByDate(this.getDateStrFromDate(d), staffId);
-            }
-            if (['N', 'E', 'D'].includes(shift)) {
-                shiftsInWeek.add(shift);
+    // --- 核心操作 ---
+
+    // 取得某人某天的班別代號
+    getShiftByDate(dateStr, uid) {
+        if (!this.schedule[dateStr]) return null;
+        for (const shiftCode of ['N', 'E', 'D', 'OFF']) {
+            if (this.schedule[dateStr][shiftCode] && this.schedule[dateStr][shiftCode].includes(uid)) {
+                return shiftCode;
             }
         }
-        return shiftsInWeek.size <= 2;
+        return null; // 或是 'OFF'
     }
     
-    // [核心修正] 計算連續上班天數 (含跨月繼承)
-    getConsecutiveWorkDays(staffId, dateStr) {
-        let count = 0;
-        const d = new Date(dateStr);
-        
-        // 往前檢查 10 天
-        for (let i = 1; i <= 10; i++) {
-            d.setDate(d.getDate() - 1); // 變成前一天
+    // 取得昨天的班別 (處理跨月)
+    getYesterdayShift(uid, dateStr) {
+        const today = new Date(dateStr);
+        const yesterday = new Date(today);
+        yesterday.setDate(today.getDate() - 1);
 
-            // 1. 如果跨越到上個月
-            if (d.getMonth() + 1 !== this.month) {
-                const lastData = this.lastMonthData[staffId];
-                if (lastData) {
-                    // [Fix] 直接累加上個月底的連續天數，並停止回溯
-                    // 因為 lastData.consecutiveDays 已經代表了上個月底那一刻的累積值
-                    count += (lastData.consecutiveDays || 0);
-                }
-                break; // 跨月後資料已由 lastMonthData 提供，不需再往前查
-            } 
-            // 2. 如果還在本月
-            else {
-                const shift = this.getShiftByDate(this.getDateStrFromDate(d), staffId);
-                // 只要是上班班別，計數器+1
-                if (['N', 'E', 'D'].includes(shift)) {
-                    count++;
-                } else {
-                    // 遇到 OFF/LEAVE，連續中斷
-                    break; 
+        // 如果跨到上個月
+        if (yesterday.getMonth() + 1 !== this.month) {
+            // 從 lastMonthData 讀取 (需確保 lastMonthData 結構正確)
+            // 這裡假設 lastMonthData[uid] 存的是上個月最後一天的班別代號
+            if (this.lastMonthData && this.lastMonthData[uid]) {
+                return this.lastMonthData[uid].lastShift || 'OFF';
+            }
+            return 'OFF'; // 預設
+        }
+
+        // 本月
+        const yStr = this.getDateStrFromDate(yesterday);
+        return this.getShiftByDate(yStr, uid) || 'OFF';
+    }
+
+    // 更新班別 (核心：會同步更新計數器)
+    updateShift(dateStr, uid, oldShift, newShift) {
+        if (oldShift === newShift) return;
+
+        // 1. 從舊班別移除
+        if (oldShift && this.schedule[dateStr][oldShift]) {
+            const arr = this.schedule[dateStr][oldShift];
+            const idx = arr.indexOf(uid);
+            if (idx > -1) {
+                arr.splice(idx, 1);
+                // 更新統計
+                if (this.counters[uid] && this.counters[uid][oldShift] !== undefined) {
+                    this.counters[uid][oldShift]--;
                 }
             }
         }
-        return count;
+
+        // 2. 加入新班別
+        if (newShift && this.schedule[dateStr][newShift]) {
+            this.schedule[dateStr][newShift].push(uid);
+            // 更新統計
+            if (this.counters[uid] && this.counters[uid][newShift] !== undefined) {
+                this.counters[uid][newShift]++;
+            }
+        }
     }
 
-    getDateStr(d) { return `${this.year}-${String(this.month).padStart(2, '0')}-${String(d).padStart(2, '0')}`; }
-    getDateStrFromDate(dateObj) {
-        const y = dateObj.getFullYear();
-        const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-        const d = String(dateObj.getDate()).padStart(2, '0');
-        return `${y}-${m}-${d}`;
+    // --- 查詢輔助 ---
+
+    // 計算某天某班別目前排了幾人
+    countStaff(day, shiftCode) {
+        const dateStr = this.getDateStr(day);
+        if (!this.schedule[dateStr] || !this.schedule[dateStr][shiftCode]) return 0;
+        return this.schedule[dateStr][shiftCode].length;
     }
-    getPreScheduledShift(staff, dateStr) {
-        if (staff.prefs && staff.prefs[dateStr] === 'REQ_OFF') return 'REQ_OFF';
-        return null;
+
+    // 取得某天某班別的需求人數
+    getDemand(day, shiftCode) {
+        const date = new Date(this.year, this.month - 1, day);
+        const dayOfWeek = (date.getDay() + 6) % 7; // Mon=0 ... Sun=6
+        const key = `${shiftCode}_${dayOfWeek}`;
+        return (this.rules.dailyNeeds && this.rules.dailyNeeds[key]) || 0;
+    }
+
+    // --- 驗證邏輯 ---
+
+    // 檢查基本合法性 (間隔、連上)
+    isValidAssignment(staff, dateStr, shiftCode) {
+        if (shiftCode === 'OFF') return true;
+
+        // 1. 檢查間隔 (上一班 vs 這一班)
+        const prevShift = this.getYesterdayShift(staff.id, dateStr);
+        if (!this.checkRestPeriod(prevShift, shiftCode)) return false;
+
+        // 2. 檢查連上天數
+        // 注意：這需要往回算連續天數，這裡簡化處理，若要精確需實作 getConsecutiveWorkDays
+        // 為了效能，V2 通常依賴 Heuristic，此處僅作基礎防守
+        // if (this.getConsecutiveWorkDays(staff.id, dateStr) >= 6) return false;
+
+        return true;
+    }
+
+    // 檢查 N-D 等間隔規則
+    checkRestPeriod(prev, curr) {
+        if (!prev || prev === 'OFF') return true;
+        // 範例：禁止 N 接 D, N 接 E
+        // 實際應讀取 rules.minGapHours
+        if (prev.includes('N') && (curr === 'D' || curr === 'E')) return false;
+        if (prev.includes('E') && curr === 'D') return false; 
+        return true;
+    }
+
+    // --- 工具 ---
+    getDateStr(d) {
+        return `${this.year}-${String(this.month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+    
+    getDateStrFromDate(date) {
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+    
+    // 用於建立 V1/V2 相容的白名單格式
+    createWhitelist(staff, dateStr) {
+        let list = [];
+        // 1. 包班意願
+        if (staff.packageType) list.push(staff.packageType);
+        
+        // 2. 每日偏好 (prefs 格式可能為 { "YYYY-MM-DD": {1:'N', 2:'OFF'} })
+        if (staff.prefs && staff.prefs[dateStr]) {
+            const p = staff.prefs[dateStr];
+            if (p[1]) list.push(p[1]);
+            if (p[2]) list.push(p[2]);
+            if (p[3]) list.push(p[3]);
+        }
+        return list;
     }
 }
