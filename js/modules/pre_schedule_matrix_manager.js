@@ -1,4 +1,4 @@
-// js/modules/pre_schedule_matrix_manager.js
+// js/modules/pre_schedule_matrix_manager.js (修正版)
 
 const matrixManager = {
     docId: null,
@@ -7,6 +7,7 @@ const matrixManager = {
     localAssignments: {},
     usersMap: {},
     globalClickListener: null,
+    contextMenuHandler: null, // [新增] 專門處理右鍵選單的監聽器
     isLoading: false,
 
     // --- 初始化 ---
@@ -14,7 +15,7 @@ const matrixManager = {
         console.log("🎯 Matrix Manager Init:", id);
         
         if(!id) {
-            alert("錯誤：缺少預班表 ID");
+            alert("錯誤:缺少預班表 ID");
             window.location.hash = '/admin/pre_schedules';
             return;
         }
@@ -100,7 +101,7 @@ const matrixManager = {
         }
     },
 
-    // --- 渲染矩陣 (修正：圖示過期檢查) ---
+    // --- 渲染矩陣 (修正:圖示過期檢查) ---
     renderMatrix: function() {
         const thead = document.getElementById('matrixHead');
         const tbody = document.getElementById('matrixBody');
@@ -174,6 +175,7 @@ const matrixManager = {
                 const val = assign[key] || '';
                 bodyHtml += `<td class="cell-clickable cell-last-month cell-narrow" 
                     data-type="last" data-day="${d}" 
+                    data-uid="${u.uid}"
                     onmousedown="matrixManager.onCellClick(event, this)"
                     oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
             }
@@ -183,6 +185,7 @@ const matrixManager = {
                 const val = assign[key] || '';
                 bodyHtml += `<td class="cell-clickable cell-narrow" 
                     data-type="current" data-day="${d}" 
+                    data-uid="${u.uid}"
                     onmousedown="matrixManager.onCellClick(event, this)"
                     oncontextmenu="return false;">${this.renderCellContent(val)}</td>`;
             }
@@ -210,14 +213,12 @@ const matrixManager = {
         return `<span class="shift-normal">${val}</span>`;
     },
 
-    // ... (其餘所有函式 openPreferenceModal, updateAdminPrefOptions, savePreferences, closePrefModal, onCellClick, handleLeftClick, handleRightClick, setShift, updateStats, setupEvents, cleanup, saveData, executeSchedule 均保持不變) ...
-    // 為確保檔案完整性，請直接保留前一版的其餘程式碼，這裡不重複列出以節省空間
     openPreferenceModal: function(uid, name) {
         const modal = document.getElementById('prefModal');
         if(!modal) return;
         
         document.getElementById('prefTargetUid').value = uid;
-        document.getElementById('prefTargetName').textContent = `人員：${name}`;
+        document.getElementById('prefTargetName').textContent = `人員:${name}`;
         modal.classList.add('show');
 
         const bundleSel = document.getElementById('editBundleShift');
@@ -316,23 +317,31 @@ const matrixManager = {
         if(modal) modal.classList.remove('show');
     },
 
+    // [關鍵修正] 統一的儲存格點擊處理
     onCellClick: function(e, cell) {
-        if (e.button === 2) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
-        const uid = cell.parentElement.dataset.uid;
+        // 阻止所有預設行為和事件冒泡
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        
+        const uid = cell.dataset.uid;
         const type = cell.dataset.type; 
         const day = cell.dataset.day;
         const key = type === 'last' ? `last_${day}` : `current_${day}`;
+        
+        // 左鍵 (button === 0)
         if (e.button === 0) {
             this.handleLeftClick(uid, key);
-        } else if (e.button === 2) {
+            const val = (this.localAssignments[uid] && this.localAssignments[uid][key]) || '';
+            cell.innerHTML = this.renderCellContent(val);
+            this.updateStats();
+        } 
+        // 右鍵 (button === 2)
+        else if (e.button === 2) {
             this.handleRightClick(e, uid, key, type, day);
         }
-        const val = (this.localAssignments[uid] && this.localAssignments[uid][key]) || '';
-        cell.innerHTML = this.renderCellContent(val);
-        this.updateStats();
+        
+        return false; // 額外保險
     },
 
     handleLeftClick: function(uid, key) {
@@ -342,12 +351,18 @@ const matrixManager = {
         else this.localAssignments[uid][key] = 'OFF';
     },
 
+    // [關鍵修正] 優化右鍵選單顯示邏輯
     handleRightClick: function(e, uid, key, type, day) {
         const menu = document.getElementById('customContextMenu');
         const options = document.getElementById('contextMenuOptions');
         const title = document.getElementById('contextMenuTitle');
+        
+        if (!menu || !options || !title) return;
+        
+        // 設置選單內容
         title.textContent = `設定 ${day} 日 (右鍵)`;
         let html = '';
+        
         if (type === 'current') {
             html += `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', 'OFF')">
                 <span class="menu-icon"><span class="color-dot" style="background:#9b59b6;"></span></span> 強制休 (Admin)
@@ -362,11 +377,13 @@ const matrixManager = {
             </div>`;
             html += `<div class="menu-separator"></div>`;
         }
+        
         this.shifts.forEach(s => {
             html += `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', '${s.code}')">
                 <span class="menu-icon" style="color:${s.color}; font-weight:bold;">${s.code}</span> 指定 ${s.name}
             </div>`;
         });
+        
         if (type === 'current') {
             html += `<div class="menu-separator"></div>`;
             this.shifts.forEach(s => {
@@ -375,39 +392,65 @@ const matrixManager = {
                 </div>`;
             });
         }
+        
         html += `<div class="menu-separator"></div>`;
         html += `<div class="menu-item" style="color:red;" onclick="matrixManager.setShift('${uid}', '${key}', null)">
             <span class="menu-icon"><i class="fas fa-eraser"></i></span> 清除
         </div>`;
+        
         options.innerHTML = html;
+        
+        // [關鍵] 優化定位邏輯
         menu.style.display = 'block';
-        menu.style.visibility = 'hidden'; 
-        setTimeout(() => {
+        menu.style.visibility = 'hidden'; // 先隱藏以計算尺寸
+        
+        // 使用 requestAnimationFrame 確保 DOM 更新完成
+        requestAnimationFrame(() => {
+            const menuWidth = menu.offsetWidth;
+            const menuHeight = menu.offsetHeight;
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            
+            // 計算最佳位置 (考慮滾動)
             let x = e.pageX;
             let y = e.pageY;
-            const winW = window.innerWidth;
-            const winH = window.innerHeight;
-            const scrollX = window.scrollX;
-            const scrollY = window.scrollY;
-            if (x - scrollX + menu.offsetWidth > winW) x -= menu.offsetWidth;
-            if (y - scrollY + menu.offsetHeight > winH) y -= menu.offsetHeight;
+            
+            // 右側空間不足時,往左顯示
+            if (e.clientX + menuWidth > viewportWidth) {
+                x = e.pageX - menuWidth;
+            }
+            
+            // 底部空間不足時,往上顯示
+            if (e.clientY + menuHeight > viewportHeight) {
+                y = e.pageY - menuHeight;
+            }
+            
+            // 確保不會超出視窗邊界
+            x = Math.max(10, Math.min(x, viewportWidth - menuWidth - 10));
+            y = Math.max(10, Math.min(y, viewportHeight - menuHeight - 10));
+            
             menu.style.left = x + 'px';
             menu.style.top = y + 'px';
-            menu.style.visibility = 'visible'; 
-        }, 0);
+            menu.style.visibility = 'visible';
+        });
     },
 
     setShift: function(uid, key, val) {
         if (!this.localAssignments[uid]) this.localAssignments[uid] = {};
         if (val === null) delete this.localAssignments[uid][key];
         else this.localAssignments[uid][key] = val;
+        
         const type = key.startsWith('last') ? 'last' : 'current';
         const day = key.split('_')[1];
         const row = document.querySelector(`tr[data-uid="${uid}"]`);
         const cell = row?.querySelector(`td[data-type="${type}"][data-day="${day}"]`);
         if(cell) cell.innerHTML = this.renderCellContent(val);
+        
         this.updateStats();
-        document.getElementById('customContextMenu').style.display = 'none';
+        
+        // 關閉選單
+        const menu = document.getElementById('customContextMenu');
+        if(menu) menu.style.display = 'none';
     },
 
     updateStats: function() {
@@ -417,6 +460,7 @@ const matrixManager = {
         const maxOff = this.data.settings?.maxOffDays || 8; 
         const colStats = {}; 
         for(let d=1; d<=daysInMonth; d++) colStats[d] = 0;
+        
         this.data.staffList.forEach(u => {
             const assign = this.localAssignments[u.uid] || {};
             let totalOff = 0; 
@@ -434,20 +478,23 @@ const matrixManager = {
                 cell.textContent = totalOff;
                 if (userReqOff > maxOff) {
                     cell.classList.add('text-danger');
-                    cell.title = `預假 ${userReqOff} 天，超過上限 ${maxOff} 天`;
+                    cell.title = `預休 ${userReqOff} 天,超過上限 ${maxOff} 天`;
                 } else {
                     cell.classList.remove('text-danger');
                     cell.title = '';
                 }
             }
         });
+        
         for(let d=1; d<=daysInMonth; d++) {
             const cell = document.getElementById(`stat_col_${d}`);
             if(cell) cell.textContent = colStats[d];
         }
     },
 
+    // [關鍵修正] 重構事件設置
     setupEvents: function() {
+        // 1. 全局點擊監聽 (關閉選單)
         this.globalClickListener = (e) => {
             const menu = document.getElementById('customContextMenu');
             if (menu && menu.style.display === 'block') {
@@ -457,25 +504,53 @@ const matrixManager = {
             }
         };
         document.addEventListener('click', this.globalClickListener);
-        const container = document.getElementById('matrixContainer');
-        if(container) {
-            container.oncontextmenu = (e) => {
+        
+        // 2. 全局右鍵監聽 (阻止瀏覽器預設選單)
+        this.contextMenuHandler = (e) => {
+            // 檢查是否在矩陣容器內
+            const container = document.getElementById('matrixContainer');
+            if (container && container.contains(e.target)) {
                 e.preventDefault();
                 e.stopPropagation();
                 return false;
-            };
+            }
+        };
+        document.addEventListener('contextmenu', this.contextMenuHandler, true); // 使用捕獲階段
+        
+        // 3. 容器級別的右鍵阻止 (雙重保險)
+        const container = document.getElementById('matrixContainer');
+        if(container) {
+            container.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }, true);
         }
     },
 
+    // [關鍵修正] 完善清理邏輯
     cleanup: function() {
+        // 移除全局點擊監聽
         if (this.globalClickListener) {
             document.removeEventListener('click', this.globalClickListener);
             this.globalClickListener = null;
         }
-        const menu = document.getElementById('customContextMenu');
-        if (menu && menu.parentElement === document.body) {
-            menu.remove();
+        
+        // [新增] 移除全局右鍵監聽
+        if (this.contextMenuHandler) {
+            document.removeEventListener('contextmenu', this.contextMenuHandler, true);
+            this.contextMenuHandler = null;
         }
+        
+        // 清理選單元素
+        const menu = document.getElementById('customContextMenu');
+        if (menu) {
+            menu.style.display = 'none';
+            if (menu.parentElement === document.body) {
+                menu.remove();
+            }
+        }
+        
         console.log("🧹 清理完成");
     },
 
@@ -488,15 +563,19 @@ const matrixManager = {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             alert("✅ 草稿已儲存");
-        } catch(e) { console.error(e); alert("儲存失敗: " + e.message); }
-        finally { this.isLoading = false; }
+        } catch(e) { 
+            console.error(e); 
+            alert("儲存失敗: " + e.message); 
+        } finally { 
+            this.isLoading = false; 
+        }
     },
 
     executeSchedule: async function() {
         if (document.querySelector('.text-danger')) {
-            if(!confirm("⚠️ 警告：有紅字！確定強制執行？")) return;
+            if(!confirm("⚠️ 警告:有紅字!確定強制執行?")) return;
         } else {
-            if(!confirm("確定執行排班？執行後將截止預班。")) return;
+            if(!confirm("確定執行排班?執行後將截止預班。")) return;
         }
         try {
             this.isLoading = true;
@@ -505,13 +584,17 @@ const matrixManager = {
                 status: 'closed', 
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            alert("✅ 執行成功！");
+            alert("✅ 執行成功!");
             history.back(); 
-        } catch(e) { alert("執行失敗: " + e.message); }
-        finally { this.isLoading = false; }
+        } catch(e) { 
+            alert("執行失敗: " + e.message); 
+        } finally { 
+            this.isLoading = false; 
+        }
     }
 };
 
+// [關鍵] 確保頁面切換時正確清理
 const originalInit = matrixManager.init;
 matrixManager.init = function(id) {
     this.cleanup();
