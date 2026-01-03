@@ -1,4 +1,4 @@
-// js/modules/staff_pre_schedule_manager.js
+// js/modules/staff_pre_schedule_manager.js (修正版)
 
 const staffPreScheduleManager = {
     docId: null,
@@ -17,12 +17,10 @@ const staffPreScheduleManager = {
     isReadOnly: false,
     globalClickListener: null,
     
-    // --- 進入點 ---
     open: function(id) {
         window.location.hash = `/staff/pre_schedule?id=${id}`;
     },
 
-    // --- 初始化 ---
     init: async function(id) {
         console.log("Staff Pre-Schedule Init:", id);
         this.docId = id;
@@ -132,7 +130,6 @@ const staffPreScheduleManager = {
         }
     },
 
-    // --- 右側面板 (邏輯修正) ---
     renderRightPanel: function() {
         const user = app.currentUser;
         
@@ -141,30 +138,23 @@ const staffPreScheduleManager = {
             const params = uData.schedulingParams || {};
             const today = new Date().toISOString().split('T')[0];
 
-            // 1. 檢查是否有效 (勾選 且 日期未過期)
-            // 若 pregnantExpiry 空值，視為無期限限制（或視為無效，依您的需求，這裡假設沒填日期就是永久有效直到取消勾選，或者更嚴謹應該要求必填）
-            // 這裡邏輯：如果有填日期，且日期 < 今天 -> 過期 (失效)
             const isPregnant = params.isPregnant && (!params.pregnantExpiry || params.pregnantExpiry >= today);
             const isBreastfeeding = params.isBreastfeeding && (!params.breastfeedingExpiry || params.breastfeedingExpiry >= today);
             
-            // UI 標籤顯示
             document.getElementById('badgePregnant').style.display = isPregnant ? 'inline-block' : 'none';
             document.getElementById('badgeBreastfeeding').style.display = isBreastfeeding ? 'inline-block' : 'none';
             document.getElementById('specialStatusArea').style.display = (isPregnant || isBreastfeeding) ? 'block' : 'none';
 
-            // 是否需要過濾夜班 (懷孕或哺乳)
             const isRestricted = isPregnant || isBreastfeeding;
 
-            // 2. 包班意願選單
             if(params.canBundleShifts) {
                 document.getElementById('bundleGroup').style.display = 'block';
                 const sel = document.getElementById('inputBundleShift');
                 sel.innerHTML = '<option value="">無 (不包班)</option>';
                 
-                // 篩選：同單位 + 開放包班 + (若受限則過濾時間)
                 const validShifts = this.shifts.filter(sh => {
                     if (sh.unitId !== this.data.unitId || !sh.isBundleAvailable) return false;
-                    if (isRestricted && this.isLateShift(sh)) return false; // 排除夜班
+                    if (isRestricted && this.isLateShift(sh)) return false;
                     return true;
                 });
 
@@ -176,13 +166,11 @@ const staffPreScheduleManager = {
                 sel.onchange = () => this.updatePreferenceOptions(isRestricted);
             }
             
-            // 3. 初始化排班偏好
             this.initPreferenceSelects(isRestricted);
             this.updatePreferenceOptions(isRestricted);
         });
     },
 
-    // [修正] 檢查是否為 22:00-06:00 區間的班別
     isLateShift: function(shift) {
         if (!shift.startTime || !shift.endTime) return false;
         
@@ -192,18 +180,9 @@ const staffPreScheduleManager = {
         const start = sh + sm / 60;
         const end = eh + em / 60;
         
-        // 1. 跨夜班 (Overnight): 結束 < 開始 (如 16:00 ~ 00:30)
-        // 只要跨日，必定經過 24:00 (即 00:00)，這屬於禁區 (22~06)
         if (end < start) return true;
-        
-        // 2. 當日班 (Same day):
-        // 條件 A: 開始時間在 00:00 ~ 06:00 之間 (如 00:00 大夜, 05:00 早班)
         if (start < 6) return true;
-        
-        // 條件 B: 開始時間 >= 22:00 (如 23:00)
         if (start >= 22) return true;
-        
-        // 條件 C: 結束時間 > 22:00 (如 14:00 ~ 23:00)
         if (end > 22) return true;
         
         return false;
@@ -238,7 +217,7 @@ const staffPreScheduleManager = {
                 div.appendChild(label); div.appendChild(select); prefContainer.appendChild(div);
             }
         } else {
-            prefContainer.innerHTML = '<div style="color:#999; font-size:0.9rem;">依單位規定排班，無需填寫志願。</div>';
+            prefContainer.innerHTML = '<div style="color:#999; font-size:0.9rem;">依單位規定排班,無需填寫志願。</div>';
         }
     },
 
@@ -247,10 +226,9 @@ const staffPreScheduleManager = {
         const mode = s.shiftTypeMode; 
         const bundleVal = document.getElementById('inputBundleShift')?.value || "";
         
-        // 篩選該單位所有班別 + 特殊身份過濾
         const unitShifts = this.shifts.filter(sh => {
             if (sh.unitId !== this.data.unitId) return false;
-            if (isRestricted && this.isLateShift(sh)) return false; // 排除夜班
+            if (isRestricted && this.isLateShift(sh)) return false;
             return true;
         });
         
@@ -263,7 +241,6 @@ const staffPreScheduleManager = {
             
             unitShifts.forEach(sh => {
                 let isHidden = false;
-                // 連動邏輯：2班制且已包班 -> 隱藏其他可包班項目
                 if (mode === "2" && bundleVal !== "") {
                     if (sh.isBundleAvailable && sh.code !== bundleVal) {
                         isHidden = true;
@@ -275,12 +252,10 @@ const staffPreScheduleManager = {
             });
 
             sel.value = currentVal;
-            // 如果原本選的值被過濾掉了 (例如變成懷孕，原本選大夜)，則清空
             if (sel.selectedIndex === -1) sel.value = "";
         });
     },
 
-    // ... (以下渲染月曆、事件處理等代碼保持不變，直接複製即可) ...
     calcRemaining: function(day) {
         const date = new Date(this.data.year, this.data.month - 1, day);
         const dayIdx = (date.getDay() + 6) % 7; 
@@ -319,6 +294,9 @@ const staffPreScheduleManager = {
             
             const cell = document.createElement('div');
             cell.className = 'calendar-day';
+            cell.dataset.day = d;
+            cell.dataset.isHoliday = isHoliday;
+            
             if (isHoliday) cell.classList.add('is-weekend');
             
             const key = `current_${d}`;
@@ -358,22 +336,32 @@ const staffPreScheduleManager = {
             `;
 
             if (!this.isReadOnly) {
-                cell.onclick = (e) => this.toggleDay(d, cell, isHoliday, used, quota);
-                cell.oncontextmenu = (e) => this.handleRightClick(e, d, isHoliday, used, quota);
+                // [關鍵修正] 使用 addEventListener 而非 onclick
+                cell.addEventListener('click', (e) => {
+                    const menu = document.getElementById('staffContextMenu');
+                    if (menu && menu.style.display === 'block') {
+                        menu.style.display = 'none';
+                        return;
+                    }
+                    this.toggleDay(d, cell, isHoliday, used, quota);
+                });
+                
+                // [關鍵修正] 右鍵選單事件
+                cell.addEventListener('contextmenu', (e) => {
+                    e.preventDefault(); // 只阻擋瀏覽器預設選單
+                    e.stopPropagation();
+                    this.handleRightClick(e, d, isHoliday, used, quota);
+                    return false;
+                });
             } else {
                 cell.classList.add('disabled');
             }
+            
             container.appendChild(cell);
         }
     },
 
     toggleDay: function(day, cell, isHoliday, used, quota) {
-        const menu = document.getElementById('staffContextMenu');
-        if (menu.style.display === 'block') {
-            menu.style.display = 'none';
-            return;
-        }
-
         const key = `current_${day}`;
         const currentVal = this.userRequest[key];
 
@@ -382,7 +370,7 @@ const staffPreScheduleManager = {
         } else {
             const predictedUsed = used + 1;
             if (predictedUsed > quota) {
-                if(!confirm(`該日預班人數 (${predictedUsed}) 已達上限 (${quota})，確定要候補嗎？`)) return;
+                if(!confirm(`該日預班人數 (${predictedUsed}) 已達上限 (${quota}),確定要候補嗎?`)) return;
             }
             if (!this.checkLimits('REQ_OFF', day, isHoliday)) return;
             this.setShift(day, 'REQ_OFF', isHoliday, used, quota);
@@ -390,12 +378,11 @@ const staffPreScheduleManager = {
     },
 
     handleRightClick: function(e, day, isHoliday, used, quota) {
-        e.preventDefault();
-        e.stopPropagation();
-
         const menu = document.getElementById('staffContextMenu');
         const title = document.getElementById('staffMenuTitle');
         const options = document.getElementById('staffMenuOptions');
+        
+        if (!menu || !title || !options) return;
         
         title.textContent = `${this.data.month}月 ${day}日`;
         
@@ -427,19 +414,37 @@ const staffPreScheduleManager = {
         options.innerHTML = html;
         menu.style.display = 'block';
         menu.style.visibility = 'hidden'; 
-        setTimeout(() => {
+        
+        requestAnimationFrame(() => {
+            const menuWidth = menu.offsetWidth;
+            const menuHeight = menu.offsetHeight;
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            
             let x = e.pageX;
             let y = e.pageY;
-            if (x + menu.offsetWidth > window.innerWidth) x -= menu.offsetWidth;
-            if (y + menu.offsetHeight > window.innerHeight) y -= menu.offsetHeight;
+            
+            if (e.clientX + menuWidth > viewportWidth) {
+                x = e.pageX - menuWidth;
+            }
+            
+            if (e.clientY + menuHeight > viewportHeight) {
+                y = e.pageY - menuHeight;
+            }
+            
+            x = Math.max(10, Math.min(x, viewportWidth - menuWidth - 10));
+            y = Math.max(10, Math.min(y, viewportHeight - menuHeight - 10));
+            
             menu.style.left = x + 'px';
             menu.style.top = y + 'px';
-            menu.style.visibility = 'visible'; 
-        }, 0);
+            menu.style.visibility = 'visible';
+        });
     },
 
     setShift: function(day, code, isHoliday, used, quota) {
-        document.getElementById('staffContextMenu').style.display = 'none';
+        const menu = document.getElementById('staffContextMenu');
+        if(menu) menu.style.display = 'none';
+        
         const key = `current_${day}`;
         if (code === null) {
             delete this.userRequest[key];
@@ -450,7 +455,7 @@ const staffPreScheduleManager = {
                     const otherCount = this.otherRequests[day] || 0;
                     const predicted = otherCount + 1;
                     if (predicted > quota) {
-                       if(!confirm(`該日預班人數 (${predicted}) 已達上限 (${quota})，確定要候補嗎？`)) return; 
+                       if(!confirm(`該日預班人數 (${predicted}) 已達上限 (${quota}),確定要候補嗎?`)) return; 
                     }
                     if (!this.checkLimits(code, day, isHoliday)) return;
                 }
@@ -516,13 +521,13 @@ const staffPreScheduleManager = {
             document.removeEventListener('click', this.globalClickListener);
         }
         const menu = document.getElementById('staffContextMenu');
-        if (menu && menu.parentElement === document.body) {
-            menu.remove();
+        if (menu) {
+            menu.style.display = 'none';
         }
     },
 
     saveRequest: async function() {
-        if (!confirm("確定提交預班資料？")) return;
+        if (!confirm("確定提交預班資料?")) return;
         try {
             const preferences = {};
             const bundleSelect = document.getElementById('inputBundleShift');
@@ -538,7 +543,7 @@ const staffPreScheduleManager = {
             await db.collection('pre_schedules').doc(this.docId).update({
                 [updateKey]: dataToSave
             });
-            alert("提交成功！");
+            alert("提交成功!");
             history.back();
         } catch (e) { console.error(e); alert("提交失敗: " + e.message); }
     }
