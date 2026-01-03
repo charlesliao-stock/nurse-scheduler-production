@@ -1,4 +1,4 @@
-// js/modules/pre_schedule_matrix_manager.js (修正版)
+// js/modules/pre_schedule_matrix_manager.js (完整修正版)
 
 const matrixManager = {
     docId: null,
@@ -7,10 +7,8 @@ const matrixManager = {
     localAssignments: {},
     usersMap: {},
     globalClickListener: null,
-    contextMenuHandler: null, // [新增] 專門處理右鍵選單的監聽器
     isLoading: false,
 
-    // --- 初始化 ---
     init: async function(id) {
         console.log("🎯 Matrix Manager Init:", id);
         
@@ -62,7 +60,6 @@ const matrixManager = {
     restoreTableStructure: function() {
         const container = document.getElementById('matrixContainer');
         if(container) {
-            // [關鍵修正] 移除 inline oncontextmenu 屬性
             container.innerHTML = `
                 <table id="scheduleMatrix">
                     <thead id="matrixHead"></thead>
@@ -102,7 +99,6 @@ const matrixManager = {
         }
     },
 
-    // --- 渲染矩陣 (修正:圖示過期檢查) ---
     renderMatrix: function() {
         const thead = document.getElementById('matrixHead');
         const tbody = document.getElementById('matrixBody');
@@ -143,7 +139,6 @@ const matrixManager = {
             const params = userInfo.schedulingParams || {};
             let noteIcon = '';
 
-            // [修正] 檢查日期是否有效
             const isPregnant = params.isPregnant && (!params.pregnantExpiry || params.pregnantExpiry >= today);
             const isBreastfeeding = params.isBreastfeeding && (!params.breastfeedingExpiry || params.breastfeedingExpiry >= today);
 
@@ -174,7 +169,6 @@ const matrixManager = {
                 const d = lastMonthLastDay - i;
                 const key = `last_${d}`;
                 const val = assign[key] || '';
-                // [關鍵修正] 移除 inline 事件處理器
                 bodyHtml += `<td class="cell-clickable cell-last-month cell-narrow" 
                     data-type="last" data-day="${d}" 
                     data-uid="${u.uid}">${this.renderCellContent(val)}</td>`;
@@ -183,7 +177,6 @@ const matrixManager = {
             for(let d=1; d<=daysInMonth; d++) {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
-                // [關鍵修正] 移除 inline 事件處理器
                 bodyHtml += `<td class="cell-clickable cell-narrow" 
                     data-type="current" data-day="${d}" 
                     data-uid="${u.uid}">${this.renderCellContent(val)}</td>`;
@@ -193,9 +186,6 @@ const matrixManager = {
             bodyHtml += `</tr>`;
         });
         tbody.innerHTML = bodyHtml;
-        
-        // [關鍵修正] 渲染完成後綁定事件
-        this.bindCellEvents();
 
         // 3. 底部
         let footHtml = `<tr><td colspan="4">每日OFF小計</td>`;
@@ -205,6 +195,9 @@ const matrixManager = {
         }
         footHtml += `<td>-</td></tr>`;
         tfoot.innerHTML = footHtml;
+        
+        // 渲染完成後綁定事件
+        this.bindCellEvents();
     },
 
     renderCellContent: function(val) {
@@ -213,6 +206,43 @@ const matrixManager = {
         if(val === 'REQ_OFF') return '<span class="shift-req-off">休</span>';
         if(val.startsWith('!')) return `<span class="shift-ban"><i class="fas fa-ban"></i> ${val.replace('!', '')}</span>`;
         return `<span class="shift-normal">${val}</span>`;
+    },
+
+    // [關鍵修正] 綁定儲存格事件
+    bindCellEvents: function() {
+        const cells = document.querySelectorAll('.cell-clickable');
+        
+        cells.forEach(cell => {
+            // 左鍵點擊
+            cell.addEventListener('mousedown', (e) => {
+                if (e.button === 0) { // 只處理左鍵
+                    const uid = cell.dataset.uid;
+                    const type = cell.dataset.type;
+                    const day = cell.dataset.day;
+                    const key = type === 'last' ? `last_${day}` : `current_${day}`;
+                    
+                    this.handleLeftClick(uid, key);
+                    const val = (this.localAssignments[uid] && this.localAssignments[uid][key]) || '';
+                    cell.innerHTML = this.renderCellContent(val);
+                    this.updateStats();
+                }
+            });
+            
+            // [關鍵] 右鍵選單
+            cell.addEventListener('contextmenu', (e) => {
+                e.preventDefault(); // 阻擋瀏覽器預設選單
+                e.stopPropagation();
+                
+                const uid = cell.dataset.uid;
+                const type = cell.dataset.type;
+                const day = cell.dataset.day;
+                const key = type === 'last' ? `last_${day}` : `current_${day}`;
+                
+                this.handleRightClick(e, uid, key, type, day);
+                
+                return false;
+            });
+        });
     },
 
     openPreferenceModal: function(uid, name) {
@@ -319,52 +349,6 @@ const matrixManager = {
         if(modal) modal.classList.remove('show');
     },
 
-    // [關鍵修正] 新增獨立的事件綁定方法
-    bindCellEvents: function() {
-        const cells = document.querySelectorAll('.cell-clickable');
-        
-        cells.forEach(cell => {
-            // 移除舊的監聽器 (如果存在)
-            cell.onmousedown = null;
-            cell.oncontextmenu = null;
-            
-            // 使用 addEventListener 綁定,更可靠
-            cell.addEventListener('mousedown', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                
-                const uid = cell.dataset.uid;
-                const type = cell.dataset.type;
-                const day = cell.dataset.day;
-                const key = type === 'last' ? `last_${day}` : `current_${day}`;
-                
-                if (e.button === 0) {
-                    // 左鍵
-                    this.handleLeftClick(uid, key);
-                    const val = (this.localAssignments[uid] && this.localAssignments[uid][key]) || '';
-                    cell.innerHTML = this.renderCellContent(val);
-                    this.updateStats();
-                }
-            }, { passive: false });
-            
-            // [關鍵] 獨立綁定右鍵事件
-            cell.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                const uid = cell.dataset.uid;
-                const type = cell.dataset.type;
-                const day = cell.dataset.day;
-                const key = type === 'last' ? `last_${day}` : `current_${day}`;
-                
-                this.handleRightClick(e, uid, key, type, day);
-                
-                return false;
-            }, { passive: false, capture: true });
-        });
-    },
-
     handleLeftClick: function(uid, key) {
         if (!this.localAssignments[uid]) this.localAssignments[uid] = {};
         const current = this.localAssignments[uid][key];
@@ -372,7 +356,6 @@ const matrixManager = {
         else this.localAssignments[uid][key] = 'OFF';
     },
 
-    // [關鍵修正] 優化右鍵選單顯示邏輯
     handleRightClick: function(e, uid, key, type, day) {
         const menu = document.getElementById('customContextMenu');
         const options = document.getElementById('contextMenuOptions');
@@ -380,7 +363,6 @@ const matrixManager = {
         
         if (!menu || !options || !title) return;
         
-        // 設置選單內容
         title.textContent = `設定 ${day} 日 (右鍵)`;
         let html = '';
         
@@ -421,32 +403,27 @@ const matrixManager = {
         
         options.innerHTML = html;
         
-        // [關鍵] 優化定位邏輯
+        // 顯示選單
         menu.style.display = 'block';
-        menu.style.visibility = 'hidden'; // 先隱藏以計算尺寸
+        menu.style.visibility = 'hidden';
         
-        // 使用 requestAnimationFrame 確保 DOM 更新完成
         requestAnimationFrame(() => {
             const menuWidth = menu.offsetWidth;
             const menuHeight = menu.offsetHeight;
             const viewportWidth = window.innerWidth;
             const viewportHeight = window.innerHeight;
             
-            // 計算最佳位置 (考慮滾動)
             let x = e.pageX;
             let y = e.pageY;
             
-            // 右側空間不足時,往左顯示
             if (e.clientX + menuWidth > viewportWidth) {
                 x = e.pageX - menuWidth;
             }
             
-            // 底部空間不足時,往上顯示
             if (e.clientY + menuHeight > viewportHeight) {
                 y = e.pageY - menuHeight;
             }
             
-            // 確保不會超出視窗邊界
             x = Math.max(10, Math.min(x, viewportWidth - menuWidth - 10));
             y = Math.max(10, Math.min(y, viewportHeight - menuHeight - 10));
             
@@ -469,7 +446,6 @@ const matrixManager = {
         
         this.updateStats();
         
-        // 關閉選單
         const menu = document.getElementById('customContextMenu');
         if(menu) menu.style.display = 'none';
     },
@@ -513,9 +489,8 @@ const matrixManager = {
         }
     },
 
-    // [關鍵修正] 重構事件設置
     setupEvents: function() {
-        // 1. 全局點擊監聽 (關閉選單)
+        // 全局點擊監聽 (關閉選單)
         this.globalClickListener = (e) => {
             const menu = document.getElementById('customContextMenu');
             if (menu && menu.style.display === 'block') {
@@ -525,80 +500,17 @@ const matrixManager = {
             }
         };
         document.addEventListener('click', this.globalClickListener);
-        
-        // 2. [強化] 多層級右鍵阻止
-        // 2-1. 文檔級別 (最高優先級,捕獲階段)
-        this.contextMenuHandler = (e) => {
-            const container = document.getElementById('matrixContainer');
-            const table = document.getElementById('scheduleMatrix');
-            
-            // 檢查是否在表格內
-            if ((container && container.contains(e.target)) || 
-                (table && table.contains(e.target)) ||
-                e.target.classList.contains('cell-clickable')) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                return false;
-            }
-        };
-        document.addEventListener('contextmenu', this.contextMenuHandler, { capture: true, passive: false });
-        
-        // 2-2. 容器級別 (第二層保護)
-        const container = document.getElementById('matrixContainer');
-        if(container) {
-            container.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            }, { capture: true, passive: false });
-            
-            // 阻止 mousedown 的預設行為
-            container.addEventListener('mousedown', (e) => {
-                if (e.button === 2 && e.target.classList.contains('cell-clickable')) {
-                    e.preventDefault();
-                }
-            }, { capture: true, passive: false });
-        }
-        
-        // 2-3. 表格級別 (第三層保護)
-        const table = document.getElementById('scheduleMatrix');
-        if(table) {
-            table.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            }, { capture: true, passive: false });
-        }
     },
 
-    // [關鍵修正] 完善清理邏輯
     cleanup: function() {
-        // 移除全局點擊監聽
         if (this.globalClickListener) {
             document.removeEventListener('click', this.globalClickListener);
             this.globalClickListener = null;
         }
         
-        // [新增] 移除全局右鍵監聽
-        if (this.contextMenuHandler) {
-            document.removeEventListener('contextmenu', this.contextMenuHandler, { capture: true });
-            this.contextMenuHandler = null;
-        }
-        
-        // [新增] 移除所有儲存格的事件監聽
-        const cells = document.querySelectorAll('.cell-clickable');
-        cells.forEach(cell => {
-            cell.replaceWith(cell.cloneNode(true)); // 簡單粗暴的移除所有監聽器
-        });
-        
-        // 清理選單元素
         const menu = document.getElementById('customContextMenu');
         if (menu) {
             menu.style.display = 'none';
-            if (menu.parentElement === document.body) {
-                menu.remove();
-            }
         }
         
         console.log("🧹 清理完成");
@@ -644,7 +556,6 @@ const matrixManager = {
     }
 };
 
-// [關鍵] 確保頁面切換時正確清理
 const originalInit = matrixManager.init;
 matrixManager.init = function(id) {
     this.cleanup();
