@@ -151,11 +151,11 @@ const scheduleEditorManager = {
         // 1. 建立表頭 (雙層)
         // 第一列
         let h1 = `<tr>
-            <th rowspan="2" style="width:50px; position:sticky; left:0; z-index:110; background:#f8f9fa; vertical-align:middle;">職編 ↑</th>
-            <th rowspan="2" style="width:50px; position:sticky; left:60px; z-index:110; background:#f8f9fa; vertical-align:middle;">姓名</th>
-            <th rowspan="2" style="width:20px; vertical-align:middle;">備</th>
-            <th rowspan="2" style="width:20px; vertical-align:middle;">包</th>
-            <th rowspan="2" style="width:80px; vertical-align:middle;">排班偏好</th>`; // [新增]
+            <th rowspan="2" style="width:40px; position:sticky; left:0; z-index:110; background:#f8f9fa; vertical-align:middle;">職編 ↑</th>
+            <th rowspan="2" style="width:40px; position:sticky; left:60px; z-index:110; background:#f8f9fa; vertical-align:middle;">姓名</th>
+            <th rowspan="2" style="width:15px; vertical-align:middle;">備</th>
+            <th rowspan="2" style="width:15px; vertical-align:middle;">包</th>
+            <th rowspan="2" style="width:40px; vertical-align:middle;">偏好</th>`; // [新增]
         
         // 上月日期表頭
         for(let i=prevShowDays-1; i>=0; i--) {
