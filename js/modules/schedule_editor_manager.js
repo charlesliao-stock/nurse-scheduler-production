@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 修正版：完全還原排班作業畫面 (含上月日期、雙層表頭、詳細統計)
+// 修正版：修復 updateStatusUI is not a function 錯誤
 
 const scheduleEditorManager = {
     scheduleId: null,
@@ -118,18 +118,19 @@ const scheduleEditorManager = {
         });
 
         // 標題更新
-        const titleEl = document.getElementById('schTitle'); // 假設 HTML 有這個 ID
+        const titleEl = document.getElementById('schTitle'); 
         if(titleEl) {
             let statusText = this.data.status === 'published' ? '(已發布)' : '(草稿)';
             titleEl.innerHTML = `<i class="fas fa-calendar-alt"></i> 排班作業 ${statusText}`;
         }
         
-        this.updateStatusUI();
+        // [修正點] 呼叫 renderToolbar 而非 updateStatusUI
+        this.renderToolbar();
     },
 
     renderToolbar: function() {
         // 更新狀態標籤
-        const statusBadge = document.getElementById('schStatus'); // 假設有
+        const statusBadge = document.getElementById('schStatus'); 
         if(statusBadge) {
             statusBadge.textContent = this.data.status === 'published' ? '已發布' : '草稿';
             statusBadge.className = `badge ${this.data.status === 'published' ? 'badge-primary' : 'badge-secondary'}`;
@@ -211,7 +212,7 @@ const scheduleEditorManager = {
             const uid = staff.uid;
             const userDetail = this.usersMap[uid] || {};
             const empId = userDetail.employeeId || '';
-            const note = userDetail.note || ''; // 或從 schedulingParams 讀取
+            const note = userDetail.note || ''; 
             
             bodyHtml += `<tr data-uid="${uid}">
                 <td style="position:sticky; left:0; background:#fff; z-index:100; border-right:1px solid #ddd;">${empId}</td>
@@ -219,9 +220,7 @@ const scheduleEditorManager = {
                 <td style="font-size:0.8rem; color:#666;">${note}</td>`;
             
             // 上月資料格子 (唯讀/參考)
-            // 需注意：formal schedule 可能沒有存上個月資料，若無則顯示空或嘗試讀取 pre_schedule 的 last_
             for(let d=prevShowStart; d<=lastMonthEnd; d++) {
-                // 嘗試從 assignments 讀取 last_X，若無則空
                 const key = `last_${d}`;
                 const val = (this.assignments[uid] && this.assignments[uid][key]) || '';
                 bodyHtml += `<td class="cell-narrow" style="background:#f9f9f9; color:#999;">${val}</td>`;
@@ -238,7 +237,7 @@ const scheduleEditorManager = {
                          </td>`;
             }
 
-            // 統計格子 (ID 用於後續更新)
+            // 統計格子
             bodyHtml += `
                 <td id="stat_off_${uid}" style="border-left:2px solid #ccc; font-weight:bold; color:#007bff;">0</td>
                 <td id="stat_E_${uid}">0</td>
@@ -284,14 +283,13 @@ const scheduleEditorManager = {
                 this.handleRightClick(e, cell.dataset.uid, cell.dataset.day);
                 return false;
             });
-            // 左鍵點擊 (可選: 反白選取或直接切換)
+            // 左鍵點擊 (暫時留空)
             cell.addEventListener('click', (e) => {
-                // 暫時不做動作，或可加入選取邏輯
             });
         });
     },
 
-    // --- 統計更新 (對照截圖右側) ---
+    // --- 統計更新 ---
     updateRealTimeStats: function() {
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
         const dayCounts = {}; // 每日上班人數
@@ -309,7 +307,7 @@ const scheduleEditorManager = {
                 // 統計個人
                 if (val === 'OFF' || val === 'REQ_OFF') {
                     off++;
-                    if (isWeekend) hol++; // 簡易假日定義，可根據班表定義調整
+                    if (isWeekend) hol++;
                 } else if (val === 'E') {
                     eCount++;
                 } else if (val === 'N') {
@@ -347,7 +345,6 @@ const scheduleEditorManager = {
         if(!list) list = menu;
         list.innerHTML = '';
 
-        // 標題
         const header = document.createElement('li');
         header.innerHTML = `<div style="padding:5px; background:#f8f9fa; font-weight:bold; border-bottom:1px solid #ddd;">${d}日 設定</div>`;
         list.appendChild(header);
@@ -364,7 +361,6 @@ const scheduleEditorManager = {
             list.appendChild(li);
         });
 
-        // OFF & Clear
         const addOpt = (text, code, color) => {
             const li = document.createElement('li');
             li.innerHTML = text;
@@ -384,7 +380,6 @@ const scheduleEditorManager = {
         // 定位
         menu.style.display = 'block';
         
-        // 防止溢出螢幕
         const menuWidth = 200;
         const menuHeight = menu.offsetHeight || 300;
         let left = e.pageX;
@@ -405,7 +400,6 @@ const scheduleEditorManager = {
             if (code === null) delete this.assignments[uid][key];
             else this.assignments[uid][key] = code;
             
-            // 局部更新
             const cell = document.querySelector(`td[data-uid="${uid}"][data-day="${d}"]`);
             if(cell) cell.innerHTML = this.renderCellContent(code);
             
@@ -427,20 +421,18 @@ const scheduleEditorManager = {
         if(menu) menu.style.display = 'none';
     },
 
-    // --- AI 與 存檔 (整合 V2) ---
+    // --- AI 與 存檔 ---
     runAI: async function() {
         if (!confirm("確定要執行 AI 排班嗎？\n這將重新計算並覆蓋現有草稿 (預休除外)。")) return;
         this.isLoading = true;
         this.showLoading();
         
         try {
-            // 準備資料
             const staffListForAI = this.data.staffList.map(s => ({
                 id: s.uid, uid: s.uid, name: s.name,
                 packageType: s.packageType || '', prefs: s.preferences || {}
             }));
 
-            // 讀取規則
             const rules = {
                 dailyNeeds: this.data.dailyNeeds || {},
                 tolerance: 2, 
@@ -448,19 +440,14 @@ const scheduleEditorManager = {
                 ...(this.data.settings || {})
             };
 
-            // 呼叫 Factory
             if (typeof SchedulerFactory === 'undefined') throw new Error("SchedulerFactory 未載入");
             
-            // 傳入上個月資料 (若有)
-            const lastMonthData = {}; // 暫時為空，若 assignments 有 last_ 可整理進去
-
-            const scheduler = SchedulerFactory.create('V2', staffListForAI, this.data.year, this.data.month, lastMonthData, rules);
+            const scheduler = SchedulerFactory.create('V2', staffListForAI, this.data.year, this.data.month, {}, rules);
             const aiResult = scheduler.run();
 
-            // 套用結果
             this.applyAIResult(aiResult);
             
-            // 重繪
+            // 重繪以顯示新資料
             this.restoreTableStructure();
             this.renderMatrix();
             this.updateRealTimeStats();
@@ -471,7 +458,7 @@ const scheduleEditorManager = {
         } catch (e) {
             console.error(e);
             alert("AI 執行失敗: " + e.message);
-            this.renderMatrix(); // 恢復
+            this.renderMatrix();
         } finally {
             this.isLoading = false;
         }
@@ -485,7 +472,6 @@ const scheduleEditorManager = {
                 if(daySch[code]) {
                     daySch[code].forEach(uid => {
                         if(!this.assignments[uid]) this.assignments[uid] = {};
-                        // 直接寫入
                         this.assignments[uid][`current_${day}`] = code;
                     });
                 }
