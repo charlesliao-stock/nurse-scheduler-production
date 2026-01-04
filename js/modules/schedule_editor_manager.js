@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 修正版：修復 updateStatusUI is not a function 錯誤
+// 修正版：UI 優化 (不斷行、新增偏好欄位、修正上月顯示) & AI 資料串接修正
 
 const scheduleEditorManager = {
     scheduleId: null,
@@ -7,7 +7,7 @@ const scheduleEditorManager = {
     shifts: [],
     staffMap: {},
     assignments: {},
-    usersMap: {}, // 讀取使用者詳細資料(如職編)
+    usersMap: {}, 
     isLoading: false,
     targetCell: null, 
 
@@ -26,7 +26,7 @@ const scheduleEditorManager = {
         try {
             await Promise.all([
                 this.loadShifts(),
-                this.loadUsers(), // 載入人員資料(為了職編)
+                this.loadUsers(),
                 this.loadContext()
             ]);
             
@@ -52,7 +52,7 @@ const scheduleEditorManager = {
         } catch (e) {
             console.error(e);
             alert("初始化失敗: " + e.message);
-            window.location.hash = '/admin/schedule_list';
+            // window.location.hash = '/admin/schedule_list'; // 暫時註解方便除錯
         } finally {
             this.isLoading = false;
         }
@@ -80,9 +80,8 @@ const scheduleEditorManager = {
         }
 
         if(container) {
-            // 建立符合截圖的表格
             container.innerHTML = `
-                <table id="scheduleGrid" class="table table-bordered table-sm text-center" style="min-width: 1500px; font-size: 0.9rem;">
+                <table id="scheduleGrid" class="table table-bordered table-sm text-center" style="min-width: 1800px; font-size: 0.9rem;">
                     <thead id="schHead" class="thead-light" style="position:sticky; top:0; z-index:100;"></thead>
                     <tbody id="schBody"></tbody>
                     <tfoot id="schFoot" style="position:sticky; bottom:0; background:#f9f9f9; z-index:90; border-top:2px solid #ddd;"></tfoot>
@@ -97,7 +96,6 @@ const scheduleEditorManager = {
     },
 
     loadUsers: async function() {
-        // 為了取得職編 (Employee ID)
         const snap = await db.collection('users').get();
         snap.forEach(doc => {
             this.usersMap[doc.id] = doc.data();
@@ -117,19 +115,16 @@ const scheduleEditorManager = {
             this.staffMap[s.uid] = s;
         });
 
-        // 標題更新
         const titleEl = document.getElementById('schTitle'); 
         if(titleEl) {
             let statusText = this.data.status === 'published' ? '(已發布)' : '(草稿)';
             titleEl.innerHTML = `<i class="fas fa-calendar-alt"></i> 排班作業 ${statusText}`;
         }
         
-        // [修正點] 呼叫 renderToolbar 而非 updateStatusUI
         this.renderToolbar();
     },
 
     renderToolbar: function() {
-        // 更新狀態標籤
         const statusBadge = document.getElementById('schStatus'); 
         if(statusBadge) {
             statusBadge.textContent = this.data.status === 'published' ? '已發布' : '草稿';
@@ -137,7 +132,7 @@ const scheduleEditorManager = {
         }
     },
 
-    // --- 核心渲染邏輯 (對照截圖) ---
+    // --- 核心渲染邏輯 ---
     renderMatrix: function() {
         const thead = document.getElementById('schHead');
         const tbody = document.getElementById('schBody');
@@ -148,32 +143,35 @@ const scheduleEditorManager = {
         const month = this.data.month;
         const daysInMonth = new Date(year, month, 0).getDate();
         
-        // 計算上個月最後幾天 (為了顯示 26~月底)
+        // [修正] 固定顯示上個月最後 6 天
         const lastMonthDate = new Date(year, month - 1, 0);
         const lastMonthEnd = lastMonthDate.getDate();
-        const prevShowStart = 26; // 從 26 號開始顯示
+        const prevShowDays = 6; 
         
         // 1. 建立表頭 (雙層)
-        // 第一列：職編, 姓名, 備註, 上月日期..., 本月日期..., 統計欄位
+        // 第一列
         let h1 = `<tr>
             <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa; vertical-align:middle;">職編 ↑</th>
             <th rowspan="2" style="width:80px; position:sticky; left:60px; z-index:110; background:#f8f9fa; vertical-align:middle;">姓名</th>
-            <th rowspan="2" style="width:60px; vertical-align:middle;">備註</th>`;
+            <th rowspan="2" style="width:60px; vertical-align:middle;">備註</th>
+            <th rowspan="2" style="width:60px; vertical-align:middle;">包班</th>
+            <th rowspan="2" style="width:120px; vertical-align:middle;">排班偏好</th>`; // [新增]
         
-        // 上月日期表頭 (26~End)
-        for(let d=prevShowStart; d<=lastMonthEnd; d++) {
+        // 上月日期表頭
+        for(let i=prevShowDays-1; i>=0; i--) {
+            const d = lastMonthEnd - i;
             h1 += `<th class="cell-narrow" style="background:#eee; color:#666;">${d}</th>`;
         }
         
-        // 本月日期表頭 (1~End)
+        // 本月日期表頭
         for(let d=1; d<=daysInMonth; d++) {
             const date = new Date(year, month-1, d);
-            const w = date.getDay(); // 0=Sun
+            const w = date.getDay(); 
             const color = (w===0||w===6) ? 'color:red;' : '';
             h1 += `<th class="cell-narrow" style="${color}">${d}</th>`;
         }
         
-        // 統計欄位表頭
+        // 統計欄位
         h1 += `
             <th rowspan="2" style="width:40px; border-left:2px solid #ccc; color:#007bff; vertical-align:middle;">OFF</th>
             <th rowspan="2" style="width:40px; vertical-align:middle;">小夜</th>
@@ -183,10 +181,9 @@ const scheduleEditorManager = {
 
         // 第二列：星期幾
         let h2 = `<tr>`;
-        // 上月星期 (空白或補上)
-        for(let d=prevShowStart; d<=lastMonthEnd; d++) {
-             h2 += `<th style="background:#eee;"></th>`; // 截圖上月沒有顯示星期，留白
-        }
+        // 上月星期 (空白)
+        for(let i=0; i<prevShowDays; i++) h2 += `<th style="background:#eee;"></th>`;
+        
         // 本月星期
         const weeks = ['日','一','二','三','四','五','六'];
         for(let d=1; d<=daysInMonth; d++) {
@@ -201,7 +198,6 @@ const scheduleEditorManager = {
 
         // 2. 建立內容 (Body)
         let bodyHtml = '';
-        // 排序：依職編
         const sortedStaff = [...this.data.staffList].sort((a,b) => {
             const idA = this.usersMap[a.uid]?.employeeId || '';
             const idB = this.usersMap[b.uid]?.employeeId || '';
@@ -214,22 +210,48 @@ const scheduleEditorManager = {
             const empId = userDetail.employeeId || '';
             const note = userDetail.note || ''; 
             
+            // 讀取偏好資料 (從 assignments 中讀取，這是由 pre_schedule 轉過來的)
+            const userAssign = this.assignments[uid] || {};
+            const userPrefs = userAssign.preferences || {};
+            
+            // 處理包班顯示
+            let bundleHtml = '-';
+            if (userPrefs.bundleShift) {
+                bundleHtml = `<span class="badge badge-info">${userPrefs.bundleShift}</span>`;
+            }
+
+            // 處理志願顯示
+            let prefHtml = '';
+            const priorities = [];
+            if(userPrefs.priority_1) priorities.push(userPrefs.priority_1);
+            if(userPrefs.priority_2) priorities.push(userPrefs.priority_2);
+            if(userPrefs.priority_3) priorities.push(userPrefs.priority_3);
+            if(priorities.length > 0) {
+                prefHtml = `<span style="font-size:0.8rem; color:#666;">${priorities.join('>')}</span>`;
+            } else {
+                prefHtml = '<span style="color:#ccc;">-</span>';
+            }
+
+            // [修正] 姓名加入 white-space: nowrap
             bodyHtml += `<tr data-uid="${uid}">
                 <td style="position:sticky; left:0; background:#fff; z-index:100; border-right:1px solid #ddd;">${empId}</td>
-                <td style="position:sticky; left:60px; background:#fff; z-index:100; font-weight:bold; border-right:1px solid #ddd;">${staff.name}</td>
-                <td style="font-size:0.8rem; color:#666;">${note}</td>`;
+                <td style="position:sticky; left:60px; background:#fff; z-index:100; font-weight:bold; border-right:1px solid #ddd; white-space: nowrap;">${staff.name}</td>
+                <td style="font-size:0.8rem; color:#666;">${note}</td>
+                <td>${bundleHtml}</td>
+                <td>${prefHtml}</td>`;
             
-            // 上月資料格子 (唯讀/參考)
-            for(let d=prevShowStart; d<=lastMonthEnd; d++) {
+            // 上月資料格子 (顯示最後 6 天)
+            for(let i=prevShowDays-1; i>=0; i--) {
+                const d = lastMonthEnd - i;
                 const key = `last_${d}`;
-                const val = (this.assignments[uid] && this.assignments[uid][key]) || '';
+                const val = userAssign[key] || '';
                 bodyHtml += `<td class="cell-narrow" style="background:#f9f9f9; color:#999;">${val}</td>`;
             }
 
-            // 本月資料格子 (可操作)
+            // 本月資料格子
             for(let d=1; d<=daysInMonth; d++) {
                 const key = `current_${d}`;
-                const val = (this.assignments[uid] && this.assignments[uid][key]) || '';
+                const val = userAssign[key] || '';
                 bodyHtml += `<td class="cell-clickable cell-narrow" 
                             data-uid="${uid}" data-day="${d}"
                             style="cursor:pointer;">
@@ -249,10 +271,8 @@ const scheduleEditorManager = {
 
         // 3. 底部 (每日統計)
         let fHtml = `<tr>
-            <td colspan="3" style="position:sticky; left:0; background:#f9f9f9; z-index:100; text-align:right; padding-right:10px;">每日上班人數</td>`;
-        // 上月留白
-        for(let d=prevShowStart; d<=lastMonthEnd; d++) fHtml += `<td></td>`;
-        // 本月統計
+            <td colspan="5" style="position:sticky; left:0; background:#f9f9f9; z-index:100; text-align:right; padding-right:10px;">每日上班人數</td>`;
+        for(let i=0; i<prevShowDays; i++) fHtml += `<td></td>`;
         for(let d=1; d<=daysInMonth; d++) {
             fHtml += `<td id="day_count_${d}" style="font-weight:bold;">0</td>`;
         }
@@ -267,7 +287,6 @@ const scheduleEditorManager = {
         if (val === 'OFF') return '<span style="color:#bdc3c7; font-weight:bold;">OFF</span>';
         if (val === 'REQ_OFF') return '<span class="badge badge-success">休</span>';
         
-        // 班別顏色
         const shift = this.shifts.find(s => s.code === val);
         const bg = shift ? shift.color : '#3498db';
         return `<span class="badge" style="background:${bg}; color:white;">${val}</span>`;
@@ -276,23 +295,18 @@ const scheduleEditorManager = {
     bindCellEvents: function() {
         const cells = document.querySelectorAll('.cell-clickable');
         cells.forEach(cell => {
-            // 右鍵選單
             cell.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 this.handleRightClick(e, cell.dataset.uid, cell.dataset.day);
                 return false;
             });
-            // 左鍵點擊 (暫時留空)
-            cell.addEventListener('click', (e) => {
-            });
         });
     },
 
-    // --- 統計更新 ---
     updateRealTimeStats: function() {
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
-        const dayCounts = {}; // 每日上班人數
+        const dayCounts = {}; 
         for(let d=1; d<=daysInMonth; d++) dayCounts[d] = 0;
 
         this.data.staffList.forEach(s => {
@@ -304,7 +318,6 @@ const scheduleEditorManager = {
                 const date = new Date(this.data.year, this.data.month - 1, d);
                 const isWeekend = (date.getDay()===0 || date.getDay()===6);
 
-                // 統計個人
                 if (val === 'OFF' || val === 'REQ_OFF') {
                     off++;
                     if (isWeekend) hol++;
@@ -314,13 +327,11 @@ const scheduleEditorManager = {
                     nCount++;
                 }
 
-                // 統計每日
                 if (val && val !== 'OFF' && val !== 'REQ_OFF') {
                     dayCounts[d]++;
                 }
             }
 
-            // 更新 DOM
             const setTxt = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
             setTxt(`stat_off_${uid}`, off);
             setTxt(`stat_E_${uid}`, eCount);
@@ -328,14 +339,12 @@ const scheduleEditorManager = {
             setTxt(`stat_hol_${uid}`, hol);
         });
 
-        // 更新底部
         for(let d=1; d<=daysInMonth; d++) {
             const el = document.getElementById(`day_count_${d}`);
             if(el) el.textContent = dayCounts[d];
         }
     },
 
-    // --- 右鍵選單 ---
     handleRightClick: function(e, uid, d) {
         this.targetCell = { uid, d };
         const menu = document.getElementById('schContextMenu');
@@ -349,7 +358,6 @@ const scheduleEditorManager = {
         header.innerHTML = `<div style="padding:5px; background:#f8f9fa; font-weight:bold; border-bottom:1px solid #ddd;">${d}日 設定</div>`;
         list.appendChild(header);
 
-        // 班別選項
         this.shifts.forEach(s => {
             const li = document.createElement('li');
             li.innerHTML = `<span style="color:${s.color}; font-weight:bold;">●</span> ${s.code} (${s.name})`;
@@ -377,7 +385,6 @@ const scheduleEditorManager = {
         addOpt('OFF (排休)', 'OFF');
         addOpt('<i class="fas fa-trash"></i> 清除', null, 'red');
 
-        // 定位
         menu.style.display = 'block';
         
         const menuWidth = 200;
@@ -421,17 +428,27 @@ const scheduleEditorManager = {
         if(menu) menu.style.display = 'none';
     },
 
-    // --- AI 與 存檔 ---
+    // --- AI 與 存檔 (修正連結 V2) ---
     runAI: async function() {
         if (!confirm("確定要執行 AI 排班嗎？\n這將重新計算並覆蓋現有草稿 (預休除外)。")) return;
         this.isLoading = true;
         this.showLoading();
         
         try {
-            const staffListForAI = this.data.staffList.map(s => ({
-                id: s.uid, uid: s.uid, name: s.name,
-                packageType: s.packageType || '', prefs: s.preferences || {}
-            }));
+            // [關鍵修正] 準備資料時，必須把 assignments 裡的 preferences 帶入
+            // 因為 staffList 只有基本資料，偏好是跟著 assignments 走的
+            const staffListForAI = this.data.staffList.map(s => {
+                const userAssign = this.assignments[s.uid] || {};
+                const userPrefs = userAssign.preferences || {};
+                
+                return {
+                    id: s.uid, 
+                    uid: s.uid, 
+                    name: s.name,
+                    packageType: s.packageType || '', 
+                    prefs: userPrefs // 這裡必須正確傳入，AI 才能讀到志願
+                };
+            });
 
             const rules = {
                 dailyNeeds: this.data.dailyNeeds || {},
@@ -442,12 +459,12 @@ const scheduleEditorManager = {
 
             if (typeof SchedulerFactory === 'undefined') throw new Error("SchedulerFactory 未載入");
             
+            // 呼叫 SchedulerV2
             const scheduler = SchedulerFactory.create('V2', staffListForAI, this.data.year, this.data.month, {}, rules);
             const aiResult = scheduler.run();
 
             this.applyAIResult(aiResult);
             
-            // 重繪以顯示新資料
             this.restoreTableStructure();
             this.renderMatrix();
             this.updateRealTimeStats();
@@ -458,7 +475,7 @@ const scheduleEditorManager = {
         } catch (e) {
             console.error(e);
             alert("AI 執行失敗: " + e.message);
-            this.renderMatrix();
+            this.renderMatrix(); 
         } finally {
             this.isLoading = false;
         }
