@@ -173,10 +173,10 @@ const scheduleEditorManager = {
         
         // 統計欄位
         h1 += `
-            <th rowspan="2" style="width:40px; border-left:2px solid #ccc; color:#007bff; vertical-align:middle;">OFF</th>
-            <th rowspan="2" style="width:40px; vertical-align:middle;">小夜</th>
-            <th rowspan="2" style="width:40px; vertical-align:middle;">大夜</th>
-            <th rowspan="2" style="width:40px; vertical-align:middle;">假日</th>
+            <th rowspan="2" style="width:15px; border-left:2px solid #ccc; color:#007bff; vertical-align:middle;">OFF</th>
+            <th rowspan="2" style="width:15px; vertical-align:middle;">小夜</th>
+            <th rowspan="2" style="width:15px; vertical-align:middle;">大夜</th>
+            <th rowspan="2" style="width:15px; vertical-align:middle;">假日</th>
         </tr>`;
 
         // 第二列：星期幾
