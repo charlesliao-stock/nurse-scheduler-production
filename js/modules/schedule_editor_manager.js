@@ -318,24 +318,43 @@ const scheduleEditorManager = {
             // 6. 🔧 重置 assignments 為保留的資料
             this.assignments = JSON.parse(JSON.stringify(preservedData));
 
-            // 7. 🔧 填入 AI 結果
+// 7. 🔧 填入 AI 結果 (修正版)
             let successCount = 0;
+            
+            // 加入 Debug Log 觀察 AI 回傳的結構
+            console.log("🔍 檢查 AI Result Keys:", Object.keys(aiResult));
+
             Object.keys(aiResult).forEach(dateStr => {
-                const day = parseInt(dateStr.split('-')[2]);
+                // 使用更安全的日期解析 (支援 YYYY-MM-DD 或 YYYY/MM/DD)
+                const dateObj = new Date(dateStr);
+                const day = dateObj.getDate();
+
+                if (isNaN(day)) {
+                    console.warn(`⚠️ 無法解析日期: ${dateStr}`);
+                    return;
+                }
+
                 const daySch = aiResult[dateStr];
                 
-                ['N','E','D','OFF'].forEach(code => {
-                    if(daySch[code] && Array.isArray(daySch[code])) {
+                // 🔧 修正：不使用寫死的 ['N','E','D','OFF']，而是動態讀取 AI 回傳的所有班別
+                Object.keys(daySch).forEach(code => {
+                    // 確保該班別確實包含人員陣列
+                    if (Array.isArray(daySch[code])) {
                         daySch[code].forEach(uid => {
+                            // 防呆：確保人員存在於 assignments 中
                             if(!this.assignments[uid]) {
                                 this.assignments[uid] = { preferences: {} };
                             }
                             
                             const key = `current_${day}`;
-                            // 只有不是預休時才寫入 AI 結果
-                            if (this.assignments[uid][key] !== 'REQ_OFF' && 
-                                !(typeof this.assignments[uid][key] === 'string' && this.assignments[uid][key].startsWith('!'))) {
-                                this.assignments[uid][key] = code;
+                            
+                            // 只有不是預休 (REQ_OFF) 或 勿排 (!) 時才寫入 AI 結果
+                            const currentVal = this.assignments[uid][key];
+                            const isPreOff = currentVal === 'REQ_OFF';
+                            const isForbidden = (typeof currentVal === 'string' && currentVal.startsWith('!'));
+
+                            if (!isPreOff && !isForbidden) {
+                                this.assignments[uid][key] = code; // 直接寫入 AI 回傳的代碼
                                 successCount++;
                             }
                         });
