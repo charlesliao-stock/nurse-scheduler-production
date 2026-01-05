@@ -1,11 +1,7 @@
 // js/modules/schedule_list_manager.js
-// 修正版：確保刪除草稿會解鎖預班表
 
 const scheduleListManager = {
-    // ... (其他部分保持不變) ...
     currentUnitId: null,
-    preSchedules: [],
-    schedules: [],
 
     init: async function() {
         console.log("Schedule List Manager Loaded.");
@@ -13,7 +9,6 @@ const scheduleListManager = {
     },
 
     loadUnitDropdown: async function() {
-        // ... (保持原樣) ...
         const select = document.getElementById('filterScheduleUnit');
         if(!select) return;
         select.innerHTML = '<option value="">載入中...</option>';
@@ -102,19 +97,11 @@ const scheduleListManager = {
             if(preData.assignments) {
                 Object.keys(preData.assignments).forEach(uid => {
                     initialAssignments[uid] = {};
-                    // [重要] 完整複製 assignments，包含 preferences 和 last_X
-                    // 這樣 Editor 才能讀到包班偏好和上月資料
+                    // [關鍵] 完整複製 assignments (含 preferences)，不刪減
                     initialAssignments[uid] = JSON.parse(JSON.stringify(preData.assignments[uid]));
                     
-                    // 針對當月日期做預休轉換
-                    Object.keys(preData.assignments[uid]).forEach(k => {
-                        if (k.startsWith('current_')) {
-                            const val = preData.assignments[uid][k];
-                            if (val === 'REQ_OFF') initialAssignments[uid][k] = 'OFF'; // 預休轉OFF (顯示用)
-                            // 這裡不用刪除 REQ_OFF，保留著 AI V2 會用到，只是顯示上可能轉為 OFF
-                            // 但為了 SchedulerV2 邏輯，保留原始值是安全的，Editor render 會處理
-                        }
-                    });
+                    // [修正] 不要把 REQ_OFF 轉成 OFF，保留原值，讓 Editor 識別為綠色
+                    // 也不要過濾，直接完整保留
                 });
             }
 
@@ -147,7 +134,6 @@ const scheduleListManager = {
             if(doc.exists) {
                 const sourceId = doc.data().sourceId;
                 if(sourceId) {
-                    // [關鍵修正] 刪除草稿後，強制將預班表改回 'open'
                     await db.collection('pre_schedules').doc(sourceId).update({ status: 'open' });
                 }
             }
