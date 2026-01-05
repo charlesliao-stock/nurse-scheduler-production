@@ -1,10 +1,10 @@
 // js/modules/schedule_list_manager.js
+// 修正版：建立排班時完整複製預班資料
 
 const scheduleListManager = {
     currentUnitId: null,
 
     init: async function() {
-        console.log("Schedule List Manager Loaded.");
         await this.loadUnitDropdown();
     },
 
@@ -15,9 +15,7 @@ const scheduleListManager = {
         try {
             let query = db.collection('units');
             if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
-                if(app.userUnitId) {
-                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
-                }
+                if(app.userUnitId) query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
             }
             const snapshot = await query.get();
             select.innerHTML = '<option value="">請選擇單位</option>';
@@ -27,17 +25,13 @@ const scheduleListManager = {
                 option.textContent = doc.data().name;
                 select.appendChild(option);
             });
-            if (snapshot.size === 1) {
-                select.selectedIndex = 1;
-                this.loadData();
-            }
+            if(snapshot.size === 1) { select.selectedIndex = 1; this.loadData(); }
             select.onchange = () => this.loadData();
-        } catch (e) { console.error(e); }
+        } catch(e) { console.error(e); }
     },
 
     loadData: async function() {
         const unitId = document.getElementById('filterScheduleUnit').value;
-        this.currentUnitId = unitId;
         const tbody = document.getElementById('scheduleListBody');
         if(!tbody) return;
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">載入中...</td></tr>';
@@ -56,8 +50,6 @@ const scheduleListManager = {
             });
 
             tbody.innerHTML = '';
-            const unitName = document.getElementById('filterScheduleUnit').selectedOptions[0]?.text || '';
-
             preSnap.forEach(doc => {
                 const pre = doc.data();
                 const sch = scheduleMap[doc.id];
@@ -74,17 +66,14 @@ const scheduleListManager = {
                 }
 
                 const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${unitName}</td>
-                    <td>${pre.year}/${pre.month}</td>
+                tr.innerHTML = `<td>${pre.year}/${pre.month}</td>
                     <td>${statusHtml}</td>
                     <td>${schStatusHtml}</td>
                     <td>${sch?.updatedAt ? new Date(sch.updatedAt.toDate()).toLocaleDateString() : '-'}</td>
-                    <td>${btns}</td>
-                `;
+                    <td>${btns}</td>`;
                 tbody.appendChild(tr);
             });
-        } catch (e) { console.error(e); }
+        } catch(e) { console.error(e); }
     },
 
     createSchedule: async function(preId) {
@@ -96,12 +85,8 @@ const scheduleListManager = {
             const initialAssignments = {};
             if(preData.assignments) {
                 Object.keys(preData.assignments).forEach(uid => {
-                    initialAssignments[uid] = {};
-                    // [關鍵] 完整複製 assignments (含 preferences)，不刪減
+                    // [關鍵] 完整複製 assignments，包含 preferences 和 REQ_OFF
                     initialAssignments[uid] = JSON.parse(JSON.stringify(preData.assignments[uid]));
-                    
-                    // [修正] 不要把 REQ_OFF 轉成 OFF，保留原值，讓 Editor 識別為綠色
-                    // 也不要過濾，直接完整保留
                 });
             }
 
@@ -128,19 +113,16 @@ const scheduleListManager = {
     },
 
     deleteSchedule: async function(id) {
-        if(!confirm("確定刪除此排班草稿？\n這將會刪除目前的排班結果，並將預班表重新開放 (若在開放時間內)。")) return;
+        if(!confirm("確定刪除此排班草稿？將重新開放預班。")) return;
         try {
             const doc = await db.collection('schedules').doc(id).get();
-            if(doc.exists) {
-                const sourceId = doc.data().sourceId;
-                if(sourceId) {
-                    await db.collection('pre_schedules').doc(sourceId).update({ status: 'open' });
-                }
+            if(doc.exists && doc.data().sourceId) {
+                await db.collection('pre_schedules').doc(doc.data().sourceId).update({ status: 'open' });
             }
             await db.collection('schedules').doc(id).delete();
-            alert("已刪除草稿，預班表已重新開放。");
+            alert("已刪除草稿");
             this.loadData();
-        } catch(e) { alert("刪除失敗: " + e.message); }
+        } catch(e) { alert("刪除失敗"); }
     },
 
     openEditor: function(schId) {
