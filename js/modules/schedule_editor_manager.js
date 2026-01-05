@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 修正版：重置功能改為「還原預班資料」、修復 AI 呼叫
+// 修正版：修復 TypeError: val.startsWith is not a function (支援非字串資料)
 
 const scheduleEditorManager = {
     scheduleId: null,
@@ -119,7 +119,6 @@ const scheduleEditorManager = {
         const lastMonthEnd = lastMonthDate.getDate();
         const prevShowDays = 6; 
         
-        // 表頭
         let h1 = `<tr>
             <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa; vertical-align:middle;">職編</th>
             <th rowspan="2" style="width:80px; position:sticky; left:60px; z-index:110; background:#f8f9fa; vertical-align:middle;">姓名</th>
@@ -153,7 +152,6 @@ const scheduleEditorManager = {
         h2 += `</tr>`;
         thead.innerHTML = h1 + h2;
 
-        // 內容
         let bodyHtml = '';
         const sortedStaff = [...this.data.staffList].sort((a,b) => {
             const idA = this.usersMap[a.uid]?.employeeId || '';
@@ -206,7 +204,6 @@ const scheduleEditorManager = {
         });
         tbody.innerHTML = bodyHtml;
 
-        // 底部
         let fHtml = `<tr><td colspan="5" style="text-align:right; padding-right:10px; font-weight:bold;">每日上班人數</td>`;
         for(let i=0; i<prevShowDays; i++) fHtml += `<td></td>`;
         for(let d=1; d<=daysInMonth; d++) fHtml += `<td id="day_count_${d}" style="font-weight:bold;">0</td>`;
@@ -220,6 +217,13 @@ const scheduleEditorManager = {
         if (!val) return '';
         if (val === 'OFF') return '<span style="color:#bdc3c7; font-weight:bold;">OFF</span>';
         if (val === 'REQ_OFF') return '<span class="badge badge-success">休</span>';
+        
+        // [新增] 支援顯示勿排/指定 (避免 startsWith 錯誤)
+        const isString = typeof val === 'string';
+        if (isString && val.startsWith('!')) {
+            return `<span style="color:red; font-size:0.8rem;"><i class="fas fa-ban"></i> ${val.replace('!', '')}</span>`;
+        }
+
         const shift = this.shifts.find(s => s.code === val);
         const bg = shift ? shift.color : '#3498db';
         return `<span class="badge" style="background:${bg}; color:white;">${val}</span>`;
@@ -236,7 +240,6 @@ const scheduleEditorManager = {
         });
     },
 
-    // --- AI 核心 ---
     runAI: async function() {
         if (typeof SchedulerFactory === 'undefined') {
             alert("❌ AI 模組未載入！\n請確認 index.html 是否包含 SchedulerV2.js, SchedulerFactory.js 等檔案。");
@@ -248,7 +251,6 @@ const scheduleEditorManager = {
         this.showLoading();
         
         try {
-            // 準備資料 (傳遞 preferences)
             const staffListForAI = this.data.staffList.map(s => {
                 const userAssign = this.assignments[s.uid] || {};
                 return {
@@ -267,7 +269,6 @@ const scheduleEditorManager = {
             const scheduler = SchedulerFactory.create('V2', staffListForAI, this.data.year, this.data.month, {}, rules);
             const aiResult = scheduler.run();
 
-            // 套用結果
             Object.keys(aiResult).forEach(dateStr => {
                 const day = parseInt(dateStr.split('-')[2]);
                 const daySch = aiResult[dateStr];
@@ -295,7 +296,7 @@ const scheduleEditorManager = {
         }
     },
 
-    // --- [關鍵修正] 還原至預班狀態 ---
+    // --- [關鍵修正] 重置排班 (修復 val.startsWith 錯誤) ---
     resetSchedule: async function() {
         if (!confirm("確定要重置排班嗎？\n這將還原至「預班」初始狀態（保留預休、包班、偏好，清除手動排班）。")) return;
         
@@ -303,28 +304,29 @@ const scheduleEditorManager = {
         this.showLoading();
         
         try {
-            // 1. 讀取原始預班表資料
             if (!this.data.sourceId) throw new Error("無原始預班來源");
             const preDoc = await db.collection('pre_schedules').doc(this.data.sourceId).get();
             if(!preDoc.exists) throw new Error("預班表原始檔遺失");
             const preData = preDoc.data();
             const preAssign = preData.assignments || {};
 
-            // 2. 重建 assignments
             const newAssign = {};
             this.data.staffList.forEach(s => {
                 const uid = s.uid;
                 newAssign[uid] = {};
                 
-                // 複製偏好與預班內容
                 if (preAssign[uid]) {
                     if (preAssign[uid].preferences) {
                         newAssign[uid].preferences = JSON.parse(JSON.stringify(preAssign[uid].preferences));
                     }
                     Object.keys(preAssign[uid]).forEach(key => {
                         const val = preAssign[uid][key];
+                        
+                        // [Fix] 增加型別檢查，避免數字導致 crash
+                        const isString = typeof val === 'string';
+                        
                         // 恢復 REQ_OFF, 指定班(!), 以及 last_ 月份資料
-                        if (val === 'REQ_OFF' || (val && val.startsWith('!')) || key.startsWith('last_')) {
+                        if (val === 'REQ_OFF' || (isString && val.startsWith('!')) || key.startsWith('last_')) {
                             newAssign[uid][key] = val;
                         }
                     });
