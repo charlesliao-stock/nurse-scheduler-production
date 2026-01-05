@@ -318,49 +318,65 @@ const scheduleEditorManager = {
             // 6. 🔧 重置 assignments 為保留的資料
             this.assignments = JSON.parse(JSON.stringify(preservedData));
 
-// 7. 🔧 填入 AI 結果 (修正版)
+// 7. 🔧 填入 AI 結果 (最終強健版：支援 Set/Array + 詳細除錯)
             let successCount = 0;
             
-            // 加入 Debug Log 觀察 AI 回傳的結構
-            console.log("🔍 檢查 AI Result Keys:", Object.keys(aiResult));
+            // 取得第一天日期做為 Debug 樣本
+            const firstDateKey = Object.keys(aiResult)[0];
+            if (firstDateKey) {
+                // 這裡會印出第一天內部的真實結構，讓我們知道是 Array 還是 Set
+                console.log(`🔍 [Debug] 檢查 ${firstDateKey} 的詳細資料:`, aiResult[firstDateKey]);
+            }
 
             Object.keys(aiResult).forEach(dateStr => {
-                // 使用更安全的日期解析 (支援 YYYY-MM-DD 或 YYYY/MM/DD)
-                const dateObj = new Date(dateStr);
-                const day = dateObj.getDate();
+                // 1. 安全解析日期 (避免時區問題，直接切字串)
+                const parts = dateStr.split(/[-/]/); 
+                const day = parseInt(parts[2], 10);
 
-                if (isNaN(day)) {
-                    console.warn(`⚠️ 無法解析日期: ${dateStr}`);
-                    return;
-                }
+                if (isNaN(day)) return;
 
                 const daySch = aiResult[dateStr];
-                
-                // 🔧 修正：不使用寫死的 ['N','E','D','OFF']，而是動態讀取 AI 回傳的所有班別
-                Object.keys(daySch).forEach(code => {
-                    // 確保該班別確實包含人員陣列
-                    if (Array.isArray(daySch[code])) {
-                        daySch[code].forEach(uid => {
-                            // 防呆：確保人員存在於 assignments 中
-                            if(!this.assignments[uid]) {
-                                this.assignments[uid] = { preferences: {} };
-                            }
-                            
-                            const key = `current_${day}`;
-                            
-                            // 只有不是預休 (REQ_OFF) 或 勿排 (!) 時才寫入 AI 結果
-                            const currentVal = this.assignments[uid][key];
-                            const isPreOff = currentVal === 'REQ_OFF';
-                            const isForbidden = (typeof currentVal === 'string' && currentVal.startsWith('!'));
+                if (!daySch) return;
 
-                            if (!isPreOff && !isForbidden) {
-                                this.assignments[uid][key] = code; // 直接寫入 AI 回傳的代碼
-                                successCount++;
-                            }
-                        });
+                // 2. 動態遍歷當天所有屬性 (例如 N, D, E, OFF...)
+                Object.keys(daySch).forEach(shiftCode => {
+                    let rawUsers = daySch[shiftCode];
+                    
+                    // 3. 🛡️ 關鍵修正：相容 Array 和 Set
+                    let assignedUsers = [];
+                    if (Array.isArray(rawUsers)) {
+                        assignedUsers = rawUsers;
+                    } else if (rawUsers instanceof Set) {
+                        // 如果是 Set，轉為 Array
+                        assignedUsers = Array.from(rawUsers);
+                    } else {
+                        // 若不是名單 (例如統計數據)，則略過
+                        return;
                     }
+
+                    // 4. 寫入資料
+                    assignedUsers.forEach(uid => {
+                        // 初始化
+                        if(!this.assignments[uid]) {
+                            this.assignments[uid] = { preferences: {} };
+                        }
+                        
+                        const key = `current_${day}`;
+                        const currentVal = this.assignments[uid][key];
+
+                        // 檢查是否鎖定 (預休 REQ_OFF 或 !鎖定)
+                        const isPreOff = currentVal === 'REQ_OFF';
+                        const isLocked = (typeof currentVal === 'string' && currentVal.startsWith('!'));
+
+                        if (!isPreOff && !isLocked) {
+                            this.assignments[uid][key] = shiftCode;
+                            successCount++;
+                        }
+                    });
                 });
             });
+            
+            console.log(`📝 最終寫入統計: ${successCount} 筆`);
 
             console.log(`📝 成功寫入 ${successCount} 筆班別資料`);
 
