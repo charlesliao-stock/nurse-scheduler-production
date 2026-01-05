@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 修正版：修復 TypeError: val.startsWith is not a function (支援非字串資料)
+// 🔧 修正版：AI 排班完成後確保畫面更新
 
 const scheduleEditorManager = {
     scheduleId: null,
@@ -218,7 +218,6 @@ const scheduleEditorManager = {
         if (val === 'OFF') return '<span style="color:#bdc3c7; font-weight:bold;">OFF</span>';
         if (val === 'REQ_OFF') return '<span class="badge badge-success">休</span>';
         
-        // [新增] 支援顯示勿排/指定 (避免 startsWith 錯誤)
         const isString = typeof val === 'string';
         if (isString && val.startsWith('!')) {
             return `<span style="color:red; font-size:0.8rem;"><i class="fas fa-ban"></i> ${val.replace('!', '')}</span>`;
@@ -240,21 +239,34 @@ const scheduleEditorManager = {
         });
     },
 
+    // 🔧 [關鍵修正] AI 排班函數
     runAI: async function() {
+        // 1. 檢查模組是否載入
         if (typeof SchedulerFactory === 'undefined') {
-            alert("❌ AI 模組未載入！\n請確認 index.html 是否包含 SchedulerV2.js, SchedulerFactory.js 等檔案。");
+            alert("❌ AI 模組未載入!\n請確認 index.html 是否包含 SchedulerV2.js, SchedulerFactory.js 等檔案。");
             return;
         }
 
-        if (!confirm("確定要執行 AI 排班嗎？\n這將重新計算並覆蓋現有草稿 (預休除外)。")) return;
+        if (!confirm("確定要執行 AI 排班嗎?\n這將重新計算並覆蓋現有草稿 (預休除外)。")) return;
+        
+        // 2. 顯示載入中
         this.isLoading = true;
-        this.showLoading();
+        const tbody = document.getElementById('schBody');
+        const originalHtml = tbody.innerHTML;
+        tbody.innerHTML = '<tr><td colspan="20" style="padding:40px; text-align:center;"><i class="fas fa-robot fa-spin" style="font-size:3rem; color:#8e44ad;"></i><br><br><h3 style="color:#8e44ad;">🤖 AI 排班運算中...</h3><p style="color:#666;">請稍候，系統正在智慧分配班表</p></td></tr>';
         
         try {
+            console.log("🤖 開始 AI 排班...");
+            console.log("📊 人員數量:", this.data.staffList.length);
+            console.log("📅 排班月份:", `${this.data.year}/${this.data.month}`);
+            
+            // 3. 準備 AI 輸入資料
             const staffListForAI = this.data.staffList.map(s => {
                 const userAssign = this.assignments[s.uid] || {};
                 return {
-                    id: s.uid, uid: s.uid, name: s.name,
+                    id: s.uid, 
+                    uid: s.uid, 
+                    name: s.name,
                     packageType: s.packageType || '', 
                     prefs: userAssign.preferences || {}
                 };
@@ -262,43 +274,103 @@ const scheduleEditorManager = {
 
             const rules = {
                 dailyNeeds: this.data.dailyNeeds || {},
-                tolerance: 2, backtrackDepth: 3,
+                tolerance: 2, 
+                backtrackDepth: 3,
                 ...(this.data.settings || {})
             };
 
+            console.log("⚙️ 規則設定:", rules);
+
+            // 4. 執行 AI 排班
             const scheduler = SchedulerFactory.create('V2', staffListForAI, this.data.year, this.data.month, {}, rules);
             const aiResult = scheduler.run();
 
+            console.log("✅ AI 排班完成，結果:", aiResult);
+
+            // 5. 🔧 [關鍵修正] 完整清空並重建 assignments
+            // 先保留預休 (REQ_OFF) 和勿排 (!)
+            const preservedData = {};
+            this.data.staffList.forEach(staff => {
+                const uid = staff.uid;
+                const userAssign = this.assignments[uid] || {};
+                preservedData[uid] = {
+                    preferences: userAssign.preferences || {}
+                };
+                
+                // 保留上個月資料
+                Object.keys(userAssign).forEach(key => {
+                    if (key.startsWith('last_')) {
+                        preservedData[uid][key] = userAssign[key];
+                    }
+                });
+
+                // 保留預休與勿排
+                Object.keys(userAssign).forEach(key => {
+                    if (key.startsWith('current_')) {
+                        const val = userAssign[key];
+                        if (val === 'REQ_OFF' || (typeof val === 'string' && val.startsWith('!'))) {
+                            preservedData[uid][key] = val;
+                        }
+                    }
+                });
+            });
+
+            // 6. 🔧 重置 assignments 為保留的資料
+            this.assignments = JSON.parse(JSON.stringify(preservedData));
+
+            // 7. 🔧 填入 AI 結果
+            let successCount = 0;
             Object.keys(aiResult).forEach(dateStr => {
                 const day = parseInt(dateStr.split('-')[2]);
                 const daySch = aiResult[dateStr];
+                
                 ['N','E','D','OFF'].forEach(code => {
-                    if(daySch[code]) {
+                    if(daySch[code] && Array.isArray(daySch[code])) {
                         daySch[code].forEach(uid => {
-                            if(!this.assignments[uid]) this.assignments[uid] = {};
-                            this.assignments[uid][`current_${day}`] = code;
+                            if(!this.assignments[uid]) {
+                                this.assignments[uid] = { preferences: {} };
+                            }
+                            
+                            const key = `current_${day}`;
+                            // 只有不是預休時才寫入 AI 結果
+                            if (this.assignments[uid][key] !== 'REQ_OFF' && 
+                                !(typeof this.assignments[uid][key] === 'string' && this.assignments[uid][key].startsWith('!'))) {
+                                this.assignments[uid][key] = code;
+                                successCount++;
+                            }
                         });
                     }
                 });
             });
 
+            console.log(`📝 成功寫入 ${successCount} 筆班別資料`);
+
+            // 8. 🔧 強制重新渲染 (確保畫面更新)
+            console.log("🔄 開始重新渲染畫面...");
             this.renderMatrix();
             this.updateRealTimeStats();
+            
+            // 9. 自動儲存
             await this.saveDraft(true);
-            alert("✅ AI 排班完成！");
+            
+            // 10. 成功提示
+            alert(`✅ AI 排班完成!\n\n✓ 已分配 ${successCount} 個班次\n✓ 已保留預休與偏好設定\n✓ 草稿已自動儲存`);
 
         } catch (e) {
-            console.error(e);
-            alert("AI 執行失敗: " + e.message);
-            this.renderMatrix(); 
+            console.error("❌ AI 執行失敗:", e);
+            
+            // 恢復原始畫面
+            tbody.innerHTML = originalHtml;
+            this.bindCellEvents();
+            
+            alert(`AI 執行失敗:\n\n${e.message}\n\n請檢查:\n1. 人員數量是否足夠\n2. 班別設定是否正確\n3. 每日需求是否合理`);
         } finally {
             this.isLoading = false;
         }
     },
 
-    // --- [關鍵修正] 重置排班 (修復 val.startsWith 錯誤) ---
     resetSchedule: async function() {
-        if (!confirm("確定要重置排班嗎？\n這將還原至「預班」初始狀態（保留預休、包班、偏好，清除手動排班）。")) return;
+        if (!confirm("確定要重置排班嗎?\n這將還原至「預班」初始狀態(保留預休、包班、偏好,清除手動排班)。")) return;
         
         this.isLoading = true;
         this.showLoading();
@@ -321,11 +393,7 @@ const scheduleEditorManager = {
                     }
                     Object.keys(preAssign[uid]).forEach(key => {
                         const val = preAssign[uid][key];
-                        
-                        // [Fix] 增加型別檢查，避免數字導致 crash
                         const isString = typeof val === 'string';
-                        
-                        // 恢復 REQ_OFF, 指定班(!), 以及 last_ 月份資料
                         if (val === 'REQ_OFF' || (isString && val.startsWith('!')) || key.startsWith('last_')) {
                             newAssign[uid][key] = val;
                         }
@@ -357,12 +425,15 @@ const scheduleEditorManager = {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             if (!silent) alert("✅ 草稿已儲存");
-        } catch (e) { alert("儲存失敗"); }
+        } catch (e) { 
+            console.error("儲存失敗:", e);
+            if (!silent) alert("儲存失敗: " + e.message); 
+        }
         finally { if (!silent) this.isLoading = false; }
     },
 
     publishSchedule: async function() {
-        if (!confirm("確定發布？")) return;
+        if (!confirm("確定發布?")) return;
         try {
             await db.collection('schedules').doc(this.scheduleId).update({
                 status: 'published',
@@ -370,12 +441,12 @@ const scheduleEditorManager = {
             });
             this.data.status = 'published';
             this.renderToolbar();
-            alert("🎉 已發布！");
+            alert("🎉 已發布!");
         } catch(e) { alert("失敗"); }
     },
 
     unpublishSchedule: async function() {
-        if (!confirm("確定取消發布？(變回草稿)")) return;
+        if (!confirm("確定取消發布?(變回草稿)")) return;
         try {
             await db.collection('schedules').doc(this.scheduleId).update({ status: 'draft' });
             this.data.status = 'draft';
@@ -391,8 +462,10 @@ const scheduleEditorManager = {
         this.data.staffList.forEach(s => {
             let off=0, E=0, N=0, hol=0;
             const uid = s.uid;
+            const userAssign = this.assignments[uid] || {};
+            
             for(let d=1; d<=days; d++) {
-                const val = this.assignments[uid][`current_${d}`];
+                const val = userAssign[`current_${d}`];
                 const date = new Date(this.data.year, this.data.month-1, d);
                 const isW = (date.getDay()===0||date.getDay()===6);
                 
@@ -446,6 +519,8 @@ const scheduleEditorManager = {
         if (!this.targetCell) return;
         const { uid, d } = this.targetCell;
         const key = `current_${d}`;
+        
+        if(!this.assignments[uid]) this.assignments[uid] = {};
         
         if (code === null) delete this.assignments[uid][key];
         else this.assignments[uid][key] = code;
