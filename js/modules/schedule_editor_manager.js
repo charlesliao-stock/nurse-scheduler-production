@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 🔧 修正版：AI 排班完成後確保畫面更新
+// 🔧 修正版：修復語法錯誤並優化動態班別統計
 
 const scheduleEditorManager = {
     scheduleId: null,
@@ -322,48 +322,23 @@ const scheduleEditorManager = {
             // 6. 🔧 重置 assignments 為保留的資料
             this.assignments = JSON.parse(JSON.stringify(preservedData));
 
-// 7. 🔧 填入 AI 結果 (最終強健版：支援 Set/Array + 詳細除錯)
+            // 7. 🔧 填入 AI 結果
             let successCount = 0;
             
-            // 取得第一天日期做為 Debug 樣本
-            const firstDateKey = Object.keys(aiResult)[0];
-            if (firstDateKey) {
-                // 這裡會印出第一天內部的真實結構，讓我們知道是 Array 還是 Set
-                console.log(`🔍 [Debug] 檢查 ${firstDateKey} 的詳細資料:`, aiResult[firstDateKey]);
-            }
-
             Object.keys(aiResult).forEach(dateStr => {
-                // 1. 安全解析日期 (避免時區問題，直接切字串)
                 const parts = dateStr.split(/[-/]/); 
                 const day = parseInt(parts[2], 10);
-
                 if (isNaN(day)) return;
 
                 const daySch = aiResult[dateStr];
                 if (!daySch) return;
 
-                // 2. 動態遍歷當天所有屬性 (例如 N, D, E, OFF...)
                 Object.keys(daySch).forEach(shiftCode => {
                     let rawUsers = daySch[shiftCode];
-                    
-                    // 3. 🛡️ 關鍵修正：相容 Array 和 Set
-                    let assignedUsers = [];
-                    if (Array.isArray(rawUsers)) {
-                        assignedUsers = rawUsers;
-                    } else if (rawUsers instanceof Set) {
-                        // 如果是 Set，轉為 Array
-                        assignedUsers = Array.from(rawUsers);
-                    } else {
-                        // 若不是名單 (例如統計數據)，則略過
-                        return;
-                    }
+                    let assignedUsers = Array.isArray(rawUsers) ? rawUsers : (rawUsers instanceof Set ? Array.from(rawUsers) : []);
 
-                    // 4. 寫入資料
                     assignedUsers.forEach(uid => {
-                        // 初始化
-                        if(!this.assignments[uid]) {
-                            this.assignments[uid] = { preferences: {} };
-                        }
+                        if(!this.assignments[uid]) this.assignments[uid] = { preferences: {} };
                         
                         const key = `current_${day}`;
                         const currentVal = this.assignments[uid][key];
@@ -382,10 +357,7 @@ const scheduleEditorManager = {
             
             console.log(`📝 最終寫入統計: ${successCount} 筆`);
 
-            console.log(`📝 成功寫入 ${successCount} 筆班別資料`);
-
-            // 8. 🔧 強制重新渲染 (確保畫面更新)
-            console.log("🔄 開始重新渲染畫面...");
+            // 8. 🔧 強制重新渲染
             this.renderMatrix();
             this.updateRealTimeStats();
             
@@ -397,12 +369,9 @@ const scheduleEditorManager = {
 
         } catch (e) {
             console.error("❌ AI 執行失敗:", e);
-            
-            // 恢復原始畫面
             tbody.innerHTML = originalHtml;
             this.bindCellEvents();
-            
-            alert(`AI 執行失敗:\n\n${e.message}\n\n請檢查:\n1. 人員數量是否足夠\n2. 班別設定是否正確\n3. 每日需求是否合理`);
+            alert(`AI 執行失敗:\n\n${e.message}`);
         } finally {
             this.isLoading = false;
         }
@@ -510,8 +479,8 @@ const scheduleEditorManager = {
                 
                 if(val==='OFF'||val==='REQ_OFF') {
                     off++; if(isW) hol++;
-                } else if(val==='E') E++;
-                else if(val==='N') N++;
+                } else if(val && val.includes('E')) E++;
+                else if(val && val.includes('N')) N++;
                 
                 if(val && val!=='OFF' && val!=='REQ_OFF') dayCounts[d]++;
             }
