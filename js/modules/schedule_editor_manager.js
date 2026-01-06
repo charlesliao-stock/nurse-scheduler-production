@@ -272,8 +272,12 @@ const scheduleEditorManager = {
                 };
             });
 
+            // 🔧 修正：動態抓取單位班別，避免硬編碼 N/E/D
+            const shiftCodes = this.shifts.map(s => s.code);
+            
             const rules = {
                 dailyNeeds: this.data.dailyNeeds || {},
+                shiftCodes: shiftCodes, // 傳遞班別清單
                 tolerance: 2, 
                 backtrackDepth: 3,
                 ...(this.data.settings || {})

@@ -24,12 +24,24 @@ class SchedulerV2 extends BaseScheduler {
         // 1. 初始化：保留預休 (REQ_OFF) 與 請假 (LEAVE)，其餘重置為 OFF
         this.resetSchedule();
 
+        // 🔧 修正：動態決定排班順序 (排除 OFF)
+        // 建議順序：夜班(N) -> 小夜(E) -> 其他，這裡簡單以字母倒序排列，通常 N/E 會排在前面
+        // 或者可以根據需求人數排序，需求越少的越先排
+        const shiftOrder = this.shiftCodes
+            .filter(code => code !== 'OFF')
+            .sort((a, b) => {
+                // 優先排 N 和 E
+                const priority = { 'N': 1, 'E': 2, 'D': 3 };
+                const pA = priority[a] || 99;
+                const pB = priority[b] || 99;
+                return pA - pB;
+            });
+
+        console.log("📅 排班順序:", shiftOrder);
+
         // 2. 逐日排班 (Day 1 -> Day 30)
         for (let day = 1; day <= this.daysInMonth; day++) {
-            
-            // 每一天，依序排 N -> E -> D (越難排的班越先卡位)
-            // 這樣白班 (D) 會留在最後，因為白班人選最多，最好調整
-            if (!this.solveDay(day, ['N', 'E', 'D'])) {
+            if (!this.solveDay(day, shiftOrder)) {
                 console.warn(`⚠️ Day ${day} 無法完全滿足需求 (已盡力填補)`);
             }
         }
@@ -167,17 +179,18 @@ class SchedulerV2 extends BaseScheduler {
 
         // 根據班別類型決定比較標的
         let aVal, bVal;
-        let isNight = ['N', 'E'].includes(shiftCode);
+        // 🔧 修正：動態判斷是否為夜班 (包含 N 或 E 的通常視為夜班)
+        let isNight = shiftCode.includes('N') || shiftCode.includes('E');
 
         if (isNight) {
-            // 排夜班：比較夜班數 (少的優先)
-            aVal = aStats[shiftCode]; 
-            bVal = bStats[shiftCode];
+            // 排夜班：比較該班別數 (少的優先)
+            aVal = aStats[shiftCode] || 0; 
+            bVal = bStats[shiftCode] || 0;
         } else {
             // 排白班：比較休假數 (OFF 越多 = 工時越少 = 越應該被抓來上班)
             // 注意這裡反向比較
-            aVal = bStats.OFF; 
-            bVal = aStats.OFF; 
+            aVal = bStats.OFF || 0; 
+            bVal = aStats.OFF || 0; 
         }
 
         const diff = Math.abs(aVal - bVal);

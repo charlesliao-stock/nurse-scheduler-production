@@ -8,33 +8,44 @@ class BaseScheduler {
         this.lastMonthData = lastMonthData || {};
         this.rules = rules || {};
         
-        // 排班結果 { "YYYY-MM-DD": { N:[], E:[], D:[], OFF:[] } }
+        // 🔧 修正：動態獲取班別清單，預設包含 OFF
+        this.shiftCodes = this.rules.shiftCodes || ['N', 'E', 'D'];
+        if (!this.shiftCodes.includes('OFF')) this.shiftCodes.push('OFF');
+
+        // 排班結果 { "YYYY-MM-DD": { [shiftCode]: [] } }
         this.schedule = {}; 
-        // 統計計數器 { uid: { N:0, E:0, D:0, OFF:0 } }
+        // 統計計數器 { uid: { [shiftCode]: 0 } }
         this.counters = {}; 
         
         this.init();
     }
 
     init() {
-        // 1. 初始化計數器
+        // 1. 初始化計數器 (動態班別)
         this.staffList.forEach(s => {
-            this.counters[s.id] = { N: 0, E: 0, D: 0, OFF: 0 };
+            this.counters[s.id] = {};
+            this.shiftCodes.forEach(code => {
+                this.counters[s.id][code] = 0;
+            });
         });
 
-        // 2. 初始化每天的班表結構
+        // 2. 初始化每天的班表結構 (動態班別)
         for (let d = 1; d <= this.daysInMonth; d++) {
             const dateStr = this.getDateStr(d);
-            this.schedule[dateStr] = { N: [], E: [], D: [], OFF: [] };
+            this.schedule[dateStr] = {};
+            this.shiftCodes.forEach(code => {
+                this.schedule[dateStr][code] = [];
+            });
         }
         
         // 3. 🔧 修正：預設將所有人先放入 OFF
-        // 這樣可以確保每個人員都有初始狀態，避免 getShiftByDate 返回 null
         this.staffList.forEach(staff => {
             for (let d = 1; d <= this.daysInMonth; d++) {
                 const dateStr = this.getDateStr(d);
-                this.schedule[dateStr].OFF.push(staff.id);
-                this.counters[staff.id].OFF++;
+                if (this.schedule[dateStr].OFF) {
+                    this.schedule[dateStr].OFF.push(staff.id);
+                    this.counters[staff.id].OFF++;
+                }
             }
         });
     }
