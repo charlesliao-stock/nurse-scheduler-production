@@ -71,15 +71,21 @@ class SchedulerV2 extends BaseScheduler {
                 }
 
                 // 步驟 2: 找不到人 -> 啟動回溯 (Backtracking)
-                // 往回修整前幾天的班表，看能否釋放人力
                 if (this.backtrack(day, shiftCode, 1)) {
                     currentCount++;
-                    continue; // 回溯成功，補到人了
+                    continue;
                 }
 
-                // 步驟 3: 回溯也失敗 -> 真的開天窗了
+                // 步驟 3: 🔧 [保底邏輯] 放寬規則限制 (例如允許較短的休息時間)
+                if (this.assignBestCandidate(day, shiftCode, true)) {
+                    console.warn(`⚠️ Day ${day} [${shiftCode}] 透過放寬規則補足人力`);
+                    currentCount++;
+                    continue;
+                }
+
+                // 步驟 4: 真的開天窗了
                 console.error(`❌ Day ${day} [${shiftCode}] 開天窗 (缺 ${needed - currentCount} 人)`);
-                break; // 跳出，換排下一個班別
+                break;
             }
         }
         return true;
@@ -88,17 +94,28 @@ class SchedulerV2 extends BaseScheduler {
     /**
      * 尋找並指派最佳人選
      */
-    assignBestCandidate(day, shiftCode) {
+    assignBestCandidate(day, shiftCode, relaxRules = false) {
+        const dateStr = this.getDateStr(day);
+        
         // 1. 找出所有「合法」的候選人
         const candidates = this.staffList.filter(staff => {
             const uid = staff.id;
+            const currentShift = this.getShiftByDate(dateStr, uid);
+            
             // A. 基本狀態檢查 (必須是 OFF 才能被排班)
-            if (this.getShiftByDate(this.getDateStr(day), uid) !== 'OFF') return false; 
+            if (currentShift !== 'OFF') return false; 
             if (this.isLocked(day, uid)) return false; 
             
             // B. 法規與規則檢查 (接班、連上...)
-            // 這裡呼叫 BaseScheduler 的驗證邏輯
-            if (!this.isValidAssignment(staff, this.getDateStr(day), shiftCode)) return false;
+            // 如果 relaxRules 為 true，則跳過部分嚴格檢查
+            if (!relaxRules) {
+                if (!this.isValidAssignment(staff, dateStr, shiftCode)) return false;
+            } else {
+                // 放寬模式：僅檢查最基本的鎖定狀態，不檢查間隔規則
+                // 但仍可保留最基本的 N 不接 D 規則
+                const prevShift = this.getYesterdayShift(staff.id, dateStr);
+                if (prevShift === 'N' && shiftCode === 'D') return false; 
+            }
 
             return true;
         });
@@ -112,7 +129,8 @@ class SchedulerV2 extends BaseScheduler {
         const best = candidates[0];
 
         // 4. 執行指派
-        this.updateShift(this.getDateStr(day), best.id, 'OFF', shiftCode);
+        const currentShift = this.getShiftByDate(dateStr, best.id);
+        this.updateShift(dateStr, best.id, currentShift, shiftCode);
         return true;
     }
 

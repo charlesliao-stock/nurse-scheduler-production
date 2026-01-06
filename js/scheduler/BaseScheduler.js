@@ -44,12 +44,14 @@ class BaseScheduler {
     // 取得某人某天的班別代號
     getShiftByDate(dateStr, uid) {
         if (!this.schedule[dateStr]) return null;
-        for (const shiftCode of ['N', 'E', 'D', 'OFF']) {
+        // 🔧 修正：動態獲取所有已定義的班別代號，而不僅限於 N, E, D, OFF
+        const shiftCodes = Object.keys(this.schedule[dateStr]);
+        for (const shiftCode of shiftCodes) {
             if (this.schedule[dateStr][shiftCode] && this.schedule[dateStr][shiftCode].includes(uid)) {
                 return shiftCode;
             }
         }
-        return null; // 或是 'OFF'
+        return null;
     }
     
     // 取得昨天的班別 (處理跨月)
