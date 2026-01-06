@@ -47,7 +47,8 @@ class SchedulerV2 extends BaseScheduler {
                 const current = this.getShiftByDate(dateStr, staff.id);
                 // 只有不是預休或請假，才重置為 OFF
                 if (current !== 'REQ_OFF' && current !== 'LEAVE' && !this.isLocked(d, staff.id)) {
-                    this.updateShift(dateStr, staff.id, 'OFF', 'OFF');
+                    // 🔧 BaseScheduler.init() 已經將所有人初始化為 OFF，所以 current 不會是 null
+                    this.updateShift(dateStr, staff.id, current, 'OFF');
                 }
             }
         });

@@ -28,9 +28,15 @@ class BaseScheduler {
             this.schedule[dateStr] = { N: [], E: [], D: [], OFF: [] };
         }
         
-        // 3. 預設將所有人先放入 OFF (或根據您的預設邏輯)
-        // 注意：具體的初始化策略 (reset) 交給子類別 (V1/V2) 決定，
-        // 這裡只確保資料結構存在
+        // 3. 🔧 修正：預設將所有人先放入 OFF
+        // 這樣可以確保每個人員都有初始狀態，避免 getShiftByDate 返回 null
+        this.staffList.forEach(staff => {
+            for (let d = 1; d <= this.daysInMonth; d++) {
+                const dateStr = this.getDateStr(d);
+                this.schedule[dateStr].OFF.push(staff.id);
+                this.counters[staff.id].OFF++;
+            }
+        });
     }
 
     // --- 核心操作 ---
