@@ -269,3 +269,34 @@ th { background-color: #f8f9fa; font-weight: bold; white-space: nowrap; }
     border-radius: 50%;
     display: inline-block;
 }
+
+
+/* --- Phase 2 新增樣式: 拖曳與統計 --- */
+
+/* 1. 底部統計監控列 */
+.stat-monitor-row td {
+    font-size: 0.85rem;
+    font-weight: bold;
+    background: #fdfefe;
+    border-top: 2px solid #bdc3c7;
+    color: #555;
+    vertical-align: middle !important;
+}
+.stat-cell-shortage { background-color: #fadbd8 !important; color: #c0392b !important; } /* 缺人: 紅 */
+.stat-cell-ok { background-color: #d5f5e3 !important; color: #27ae60 !important; }       /* 達標: 綠 */
+.stat-cell-over { background-color: #fcf3cf !important; color: #f39c12 !important; }     /* 超編: 黃 */
+
+/* 2. 拖曳調班視覺效果 */
+.cell-draggable { cursor: grab; transition: transform 0.1s, box-shadow 0.1s; }
+.cell-draggable:active { cursor: grabbing; }
+.cell-dragging { 
+    opacity: 0.5; 
+    transform: scale(0.9); 
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    background: #fff8e1 !important; 
+    z-index: 1000;
+}
+.cell-drag-over {
+    border: 2px dashed #3498db !important;
+    background: #ebf5fb !important;
+}
