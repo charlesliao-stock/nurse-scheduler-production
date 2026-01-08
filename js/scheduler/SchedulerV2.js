@@ -247,8 +247,7 @@ class SchedulerV2 extends BaseScheduler {
         }
 
         // 🔥 第四關：微調公平性 (差距 1 天以內時)
-        const aStats = this.counters[a.id];
-        const bStats = this.counters[b.id];
+        // aStats 與 bStats 已在上方宣告過，此處直接使用
 
         // 根據班別類型決定比較標的
         let aVal, bVal;
