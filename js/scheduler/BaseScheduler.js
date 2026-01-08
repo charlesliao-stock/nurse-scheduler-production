@@ -217,16 +217,17 @@ class BaseScheduler {
             return false;
         }
 
-        // 如果是放寬模式，以下非強制規則將被跳過，以確保人力優先
-        if (relaxRules) return true;
-
-        // 3️⃣ 檢查連上天數
+        // 3️⃣ 檢查連上天數 (提升為絕對規則，即使 relaxRules 為 true 也不可違反)
         if (this.rule_limitConsecutive) {
             const consecDays = this.getConsecutiveWorkDays(staff.id, dateStr);
             if (consecDays >= this.rule_maxConsDays) {
+                // console.log(`🚫 連班限制: ${staff.name} 已連上 ${consecDays} 天`);
                 return false;
             }
         }
+
+        // 如果是放寬模式，以下「非強制」規則將被跳過
+        if (relaxRules) return true;
 
         // 4️⃣ 檢查 OFF 後不排夜班
         if (this.rule_noNightAfterOff && prevShift === 'OFF') {
@@ -325,8 +326,9 @@ class BaseScheduler {
                 if (this.lastMonthData && this.lastMonthData[uid]) {
                     shift = this.lastMonthData[uid][`last_${d}`];
                 }
-                // 如果沒資料，預設為 OFF 停止計算
-                if (!shift) break;
+                
+                // 關鍵修正：如果讀取不到上月資料，應視為 OFF 中斷計數，避免無限連班
+                if (!shift || shift === 'OFF' || shift === 'REQ_OFF') break;
             } else {
                 // 本月資料
                 const checkStr = this.getDateStrFromDate(checkDate);

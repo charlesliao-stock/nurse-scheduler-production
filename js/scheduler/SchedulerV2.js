@@ -223,12 +223,14 @@ class SchedulerV2 extends BaseScheduler {
         } else {
             // 排白班：優先抓「休假太多」的人來上班
             // aVal 越小代表越優先被選中上班
-            // 如果 a 的 OFF 很多，b 的 OFF 很少，則 aVal 應該小於 bVal
-            aVal = bStats.OFF || 0; 
-            bVal = aStats.OFF || 0; 
+            // 如果 a 的 OFF 很多，b 的 OFF 很少，則 a 應該優先 (aVal 應小於 bVal)
+            // 修正：aVal 應直接反映「不該休假」的程度，OFF 越多的人 aVal 應越小
+            aVal = -(aStats.OFF || 0); 
+            bVal = -(bStats.OFF || 0); 
         }
 
         // 縮小容忍度，強制執行公平性
+        // 在人力緊繃時 (relaxRules=true)，容忍度降為 0，強制平衡
         const effectiveTolerance = relaxRules ? 0 : this.TOLERANCE;
         const diff = Math.abs(aVal - bVal);
 
