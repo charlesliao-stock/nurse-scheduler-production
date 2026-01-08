@@ -444,23 +444,46 @@ const scheduleEditorManager = {
         this.showLoading();
         
         try {
+            // 1. 準備上月資料 (最後 6 天)
+            const lastMonthData = {};
+            const year = this.data.year;
+            const month = this.data.month;
+            const lastMonthDate = new Date(year, month - 1, 0);
+            const lastMonthEnd = lastMonthDate.getDate();
+            
+            this.data.staffList.forEach(s => {
+                const userAssign = this.assignments[s.uid] || {};
+                lastMonthData[s.uid] = {
+                    lastShift: userAssign[`last_${lastMonthEnd}`] || 'OFF'
+                };
+                // 存入最後 6 天供連續天數計算
+                for (let i = 0; i < 6; i++) {
+                    const d = lastMonthEnd - i;
+                    lastMonthData[s.uid][`last_${d}`] = userAssign[`last_${d}`] || 'OFF';
+                }
+            });
+
+            // 2. 準備人員清單與偏好
             const staffListForAI = this.data.staffList.map(s => {
                 const userAssign = this.assignments[s.uid] || {};
                 return {
                     id: s.uid, uid: s.uid, name: s.name,
-                    prefs: userAssign.preferences || {}
+                    prefs: userAssign.preferences || {},
+                    packageType: userAssign.preferences?.bundleShift || null // 包班偏好
                 };
             });
 
-            // 橋接：將 unitRules 合併進 rules
+            // 3. 橋接規則
             const rules = {
                 dailyNeeds: this.data.dailyNeeds || {},
                 shiftCodes: this.shifts.map(s => s.code),
-                ...this.unitRules, // [關鍵] 傳入 enableFirefighting, minGapHours 等
+                ...this.unitRules, 
                 ...(this.data.settings || {})
             };
 
-            const scheduler = SchedulerFactory.create('V2', staffListForAI, this.data.year, this.data.month, {}, rules);
+            console.log("🚀 啟動 AI 排班，上月接續資料:", lastMonthData);
+
+            const scheduler = SchedulerFactory.create('V2', staffListForAI, this.data.year, this.data.month, lastMonthData, rules);
             const aiResult = scheduler.run();
 
             // 填寫結果 (略為簡化，與之前邏輯相同)

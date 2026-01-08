@@ -251,7 +251,8 @@ const scheduleRuleManager = {
                 maxConsDays: getInt('rule_maxConsDays', 6),
                 longLeaveAdjust: getCheck('rule_longLeaveAdjust'),
                 bundleNightOnly: getCheck('rule_bundleNightOnly'),
-                noNightAfterOff: getCheck('rule_noNightAfterOff')
+                noNightAfterOff: getCheck('rule_noNightAfterOff'),
+                enableRelaxation: getCheck('rule_enableRelaxation') // 新增：放寬機制開關
             },
             pattern: {
                 dayStartShift: getVal('rule_dayStartShift', 'D'),

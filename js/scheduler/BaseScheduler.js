@@ -45,6 +45,7 @@ class BaseScheduler {
         this.rule_maxConsDays = r.policy?.maxConsDays || 6;
         this.rule_bundleNightOnly = r.policy?.bundleNightOnly !== false;
         this.rule_noNightAfterOff = r.policy?.noNightAfterOff !== false;
+        this.rule_enableRelaxation = r.policy?.enableRelaxation === true; // 預設關閉
         
         // 輪替邏輯
         this.rule_dayStartShift = r.pattern?.dayStartShift || 'D';
@@ -302,20 +303,34 @@ class BaseScheduler {
         return true;
     }
 
-    // 🆕 計算連續上班天數
+    // 🆕 計算連續上班天數 (支援跨月)
     getConsecutiveWorkDays(uid, dateStr) {
         const targetDate = new Date(dateStr);
         let count = 0;
         
-        for (let i = 1; i < 30; i++) {
+        // 往前檢查最多 14 天 (通常連上班上限不會超過此數)
+        for (let i = 1; i <= 14; i++) {
             const checkDate = new Date(targetDate);
             checkDate.setDate(checkDate.getDate() - i);
             
-            if (checkDate.getMonth() + 1 !== this.month) break;
+            let shift = null;
             
-            const checkStr = this.getDateStrFromDate(checkDate);
-            const shift = this.getShiftByDate(checkStr, uid);
+            // 判斷是否跨到上個月
+            if (checkDate.getMonth() + 1 !== this.month) {
+                const d = checkDate.getDate();
+                // 從 lastMonthData 讀取，格式預期為 { uid: { last_25: 'D', last_26: 'OFF', ... } }
+                if (this.lastMonthData && this.lastMonthData[uid]) {
+                    shift = this.lastMonthData[uid][`last_${d}`];
+                }
+                // 如果沒資料，預設為 OFF 停止計算
+                if (!shift) break;
+            } else {
+                // 本月資料
+                const checkStr = this.getDateStrFromDate(checkDate);
+                shift = this.getShiftByDate(checkStr, uid);
+            }
             
+            // 如果是休假或沒排班，則中斷連續計數
             if (shift === 'OFF' || shift === 'REQ_OFF' || !shift) break;
             count++;
         }

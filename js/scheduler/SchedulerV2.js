@@ -124,8 +124,8 @@ class SchedulerV2 extends BaseScheduler {
                     continue;
                 }
 
-                // 步驟 3: 放寬規則限制
-                if (this.assignBestCandidate(day, shiftCode, true)) {
+                // 步驟 3: 放寬規則限制 (受控：必須由規則開啟)
+                if (this.rule_enableRelaxation && this.assignBestCandidate(day, shiftCode, true)) {
                     console.warn(`⚠️ Day ${day} [${shiftCode}] 透過放寬規則補足人力 (attempt ${attempts})`);
                     currentCount++;
                     continue;
@@ -151,13 +151,14 @@ class SchedulerV2 extends BaseScheduler {
             if (currentShift !== 'OFF') return false; 
             if (this.isLocked(day, uid)) return false; 
             
-            // B. 🆕 包班邏輯檢查
-            if (this.rule_bundleNightOnly && staff.prefs?.bundleShift) {
-                // 如果有包班意願，只能排該班別
-                if (staff.prefs.bundleShift !== shiftCode) {
-                    return false;
-                }
+            // B. 🆕 包班邏輯檢查 (嚴格遵守)
+            if (staff.packageType) {
+                // 如果有包班，則該員只能排該班別，不能排其他班
+                if (staff.packageType !== shiftCode) return false;
             }
+            
+            // C. 預休/請假檢查 (已在 isLocked 處理，此處為保險)
+            if (currentShift === 'REQ_OFF' || currentShift === 'LEAVE') return false;
             
             // C. 法規與規則檢查
             if (!relaxRules) {
