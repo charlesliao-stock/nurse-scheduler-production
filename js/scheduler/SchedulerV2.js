@@ -410,7 +410,7 @@ class SchedulerV2 extends BaseScheduler {
     // 🆕 公平性後處理
     postProcessFairness() {
         // 檢查並調整極端不平衡情況
-    }    const stats = this.calculateGlobalStats();
+        const stats = this.calculateGlobalStats();
         
         if (this.rule_fairOff) {
             console.log("  檢查 OFF 公平性...");
