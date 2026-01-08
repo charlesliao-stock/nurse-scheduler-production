@@ -171,7 +171,9 @@ class SchedulerV2 extends BaseScheduler {
             }
 
             // D. 🆕 硬性公平性過濾 (預算制 + 2天緩衝)
-            if (!relaxRules) {
+            // 修正：只有在「非夜班」且「非包班」的情況下才執行強制放假過濾
+            // 這樣可以確保包班人員（如 N 班）在人力不足時能優先排班，避免出現缺額
+            if (!relaxRules && !bundleShift) {
                 const stats = this.counters[staff.id];
                 // 個人目前總假量 = 已休(OFF) + 未來預算(預休/請假)
                 const currentTotalOff = (stats.OFF || 0) + (this.offBudgets[staff.id] || 0);
