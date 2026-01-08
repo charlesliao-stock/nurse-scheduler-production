@@ -209,15 +209,31 @@ class SchedulerV2 extends BaseScheduler {
     // 🆕 人員比較函數 (整合所有規則)
     compareCandidates(a, b, day, shiftCode, relaxRules = false) {
         const dateStr = this.getDateStr(day);
+        const aStats = this.counters[a.id];
+        const bStats = this.counters[b.id];
         
-        // 🔥 第一關：個人志願 (最高優先)
+        // 🔥 第一關：天數公平性 (提升至最高優先級，解決 8-17 天巨大差異)
+        const aTotal = (aStats.OFF || 0) + (this.offBudgets[a.id] || 0);
+        const bTotal = (bStats.OFF || 0) + (this.offBudgets[b.id] || 0);
+        
+        // 計算目前全隊的「平均總假量進度」
+        const allCurrentOffs = Object.values(this.counters).map(s => s.OFF || 0);
+        const avgCurrentOff = allCurrentOffs.reduce((a, b) => a + b, 0) / allCurrentOffs.length;
+        const avgTotalExpected = avgCurrentOff + this.avgPlannedOff;
+
+        // 如果差距超過 1 天，就強制執行公平性排序，無視慣性
+        if (Math.abs(aTotal - bTotal) > 1) {
+            return bTotal - aTotal; // 總假量多的人 (bTotal大) 排在前面 (回傳負值)
+        }
+
+        // 🔥 第二關：個人志願
         const aWants = this.checkWillingness(a, dateStr, shiftCode);
         const bWants = this.checkWillingness(b, dateStr, shiftCode);
         
         if (aWants && !bWants) return -1;
         if (!aWants && bWants) return 1;
         
-        // 🔥 第二關：慣性連班 (避免斷班)
+        // 🔥 第三關：慣性連班 (避免斷班)
         if (this.rule_consecutivePref) {
             const aPrev = this.getYesterdayShift(a.id, dateStr);
             const bPrev = this.getYesterdayShift(b.id, dateStr);
@@ -225,11 +241,12 @@ class SchedulerV2 extends BaseScheduler {
             const aIsSame = (aPrev === shiftCode);
             const bIsSame = (bPrev === shiftCode);
             
+            // 只有在總假量接近平均時，才考慮慣性
             if (aIsSame && !bIsSame) return -1;
             if (!aIsSame && bIsSame) return 1;
         }
 
-        // 🔥 第三關：天數公平性 (強化版)
+        // 🔥 第四關：微調公平性 (差距 1 天以內時)
         const aStats = this.counters[a.id];
         const bStats = this.counters[b.id];
 
@@ -243,12 +260,9 @@ class SchedulerV2 extends BaseScheduler {
             bVal = bStats[shiftCode] || 0;
         } else {
             // 排白班：優先抓「休假太多」的人來上班
-            // 強化：使用「總假量預算」進行比較，確保月底有大休的人月初多上班
-            const aTotal = (aStats.OFF || 0) + (this.offBudgets[a.id] || 0);
-            const bTotal = (bStats.OFF || 0) + (this.offBudgets[b.id] || 0);
-            
-            aVal = -aTotal * 10; 
-            bVal = -bTotal * 10; 
+            // 再次強化：直接使用總假量作為排序標的
+            aVal = -aTotal; 
+            bVal = -bTotal; 
         }
 
         // 縮小容忍度，強制執行公平性
