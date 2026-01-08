@@ -317,40 +317,56 @@ class BaseScheduler {
     }
 
     // 🆕 計算連續上班天數 (支援跨月)
-    getConsecutiveWorkDays(uid, dateStr) {
-        const targetDate = new Date(dateStr);
-        let count = 0;
+getConsecutiveWorkDays(uid, dateStr) {
+    const targetDate = new Date(dateStr);
+    let count = 0;
+    
+    // 往前檢查最多 14 天
+    for (let i = 1; i <= 14; i++) {
+        const checkDate = new Date(targetDate);
+        checkDate.setDate(checkDate.getDate() - i);
         
-        // 往前檢查最多 14 天 (通常連上班上限不會超過此數)
-        for (let i = 1; i <= 14; i++) {
-            const checkDate = new Date(targetDate);
-            checkDate.setDate(checkDate.getDate() - i);
+        let shift = null;
+        
+        // 判斷是否跨到上個月
+        if (checkDate.getMonth() + 1 !== this.month) {
+            const d = checkDate.getDate();
             
-            let shift = null;
-            
-            // 判斷是否跨到上個月
-            if (checkDate.getMonth() + 1 !== this.month) {
-                const d = checkDate.getDate();
-                // 從 lastMonthData 讀取，格式預期為 { uid: { last_25: 'D', last_26: 'OFF', ... } }
-                if (this.lastMonthData && this.lastMonthData[uid]) {
-                    shift = this.lastMonthData[uid][`last_${d}`];
-                }
-                
-                // 關鍵修正：如果讀取不到上月資料，應視為 OFF 中斷計數，避免無限連班
-                if (!shift || shift === 'OFF' || shift === 'REQ_OFF') break;
-            } else {
-                // 本月資料
-                const checkStr = this.getDateStrFromDate(checkDate);
-                shift = this.getShiftByDate(checkStr, uid);
+            // [關鍵修正] 從 lastMonthData 讀取，格式: { uid: { last_25: 'D', last_26: 'OFF', ... } }
+            if (this.lastMonthData && this.lastMonthData[uid]) {
+                shift = this.lastMonthData[uid][`last_${d}`];
             }
             
-            // 如果是休假或沒排班，則中斷連續計數
-            if (shift === 'OFF' || shift === 'REQ_OFF' || !shift) break;
-            count++;
+            // [新增] 如果上月資料不存在，給予 3 天緩衝
+            // 避免因資料缺失導致無限連班
+            if (!shift) {
+                if (i <= 3) {
+                    // 假設月初 3 天可能是連續的
+                    console.warn(`⚠️ 缺少上月 ${d} 日資料，給予緩衝`);
+                    continue;
+                } else {
+                    // 超過 3 天則視為中斷
+                    break;
+                }
+            }
+            
+            // 如果明確是休假，中斷計數
+            if (shift === 'OFF' || shift === 'REQ_OFF') break;
+            
+        } else {
+            // 本月資料
+            const checkStr = this.getDateStrFromDate(checkDate);
+            shift = this.getShiftByDate(checkStr, uid);
         }
         
-        return count;
+        // 如果是休假或沒排班，則中斷連續計數
+        if (shift === 'OFF' || shift === 'REQ_OFF' || !shift) break;
+        
+        count++;
     }
+    
+    return count;
+}
 
     // 🆕 檢查一週內班別多樣性
     checkWeeklyDiversity(uid, dateStr, newShift) {
