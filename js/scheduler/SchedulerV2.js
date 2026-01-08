@@ -152,10 +152,11 @@ class SchedulerV2 extends BaseScheduler {
             if (currentShift !== 'OFF') return false; 
             if (this.isLocked(day, uid)) return false; 
             
-            // B. 🆕 包班邏輯檢查 (嚴格遵守)
-            if (staff.packageType) {
-                // 如果有包班，則該員只能排該班別，不能排其他班
-                if (staff.packageType !== shiftCode) return false;
+            // B. 🆕 包班/偏好邏輯檢查 (絕對硬性限制)
+            const bundleShift = staff.packageType || (staff.prefs && staff.prefs.bundleShift);
+            if (bundleShift) {
+                // 如果有包班或固定偏好，則該員只能排該班別，絕對不能排其他班
+                if (bundleShift !== shiftCode) return false;
             }
             
             // C. 預休/請假檢查 (已在 isLocked 處理，此處為保險)
@@ -163,6 +164,15 @@ class SchedulerV2 extends BaseScheduler {
             
             // C. 法規與規則檢查 (傳遞 relaxRules 狀態)
             if (!this.isValidAssignment(staff, dateStr, shiftCode, relaxRules)) {
+                return false;
+            }
+
+            // D. 硬性公平性過濾：如果這人休假已經太少 (低於平均 2 天以上)，且不是人力極度緊繃，則強制放假
+            const stats = this.counters[staff.id];
+            const allOffs = Object.values(this.counters).map(s => s.OFF || 0);
+            const avgOff = allOffs.reduce((a, b) => a + b, 0) / allOffs.length;
+            
+            if (!relaxRules && (stats.OFF || 0) < avgOff - 2) {
                 return false;
             }
 
@@ -222,11 +232,9 @@ class SchedulerV2 extends BaseScheduler {
             bVal = bStats[shiftCode] || 0;
         } else {
             // 排白班：優先抓「休假太多」的人來上班
-            // aVal 越小代表越優先被選中上班
-            // 如果 a 的 OFF 很多，b 的 OFF 很少，則 a 應該優先 (aVal 應小於 bVal)
-            // 修正：aVal 應直接反映「不該休假」的程度，OFF 越多的人 aVal 應越小
-            aVal = -(aStats.OFF || 0); 
-            bVal = -(bStats.OFF || 0); 
+            // 強化：將休假天數的權重放大 (x10)，確保差距能被快速縮小
+            aVal = -(aStats.OFF || 0) * 10; 
+            bVal = -(bStats.OFF || 0) * 10; 
         }
 
         // 縮小容忍度，強制執行公平性

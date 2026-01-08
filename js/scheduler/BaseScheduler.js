@@ -221,12 +221,21 @@ class BaseScheduler {
         if (this.rule_limitConsecutive) {
             const consecDays = this.getConsecutiveWorkDays(staff.id, dateStr);
             if (consecDays >= this.rule_maxConsDays) {
-                // console.log(`🚫 連班限制: ${staff.name} 已連上 ${consecDays} 天`);
                 return false;
             }
         }
 
-        // 如果是放寬模式，以下「非強制」規則將被跳過
+        // 4️⃣ 檢查個人偏好/包班 (提升為絕對規則，不可跨班指派)
+        const params = staff.schedulingParams || {};
+        const prefs = staff.prefs || {};
+        const bundleShift = staff.packageType || prefs.bundleShift;
+        
+        if (bundleShift && bundleShift !== shiftCode) {
+            // 如果有包班設定，且目前要排的班別不符，則禁止
+            return false;
+        }
+
+        // 如果是放寬模式，以下「建議性」規則將被跳過
         if (relaxRules) return true;
 
         // 4️⃣ 檢查 OFF 後不排夜班
