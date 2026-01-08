@@ -215,17 +215,14 @@ class SchedulerV2 extends BaseScheduler {
         const bStats = this.counters[b.id];
         
         // 🔥 第一關：天數公平性 (提升至最高優先級，解決 8-17 天巨大差異)
+        // 個人目前總假量 = 已休(OFF) + 未來預算(預休/請假)
         const aTotal = (aStats.OFF || 0) + (this.offBudgets[a.id] || 0);
         const bTotal = (bStats.OFF || 0) + (this.offBudgets[b.id] || 0);
         
-        // 計算目前全隊的「平均總假量進度」
-        const allCurrentOffs = Object.values(this.counters).map(s => s.OFF || 0);
-        const avgCurrentOff = allCurrentOffs.reduce((a, b) => a + b, 0) / allCurrentOffs.length;
-        const avgTotalExpected = avgCurrentOff + this.avgPlannedOff;
-
-        // 如果差距超過 1 天，就強制執行公平性排序，無視慣性
-        if (Math.abs(aTotal - bTotal) > 1) {
-            return bTotal - aTotal; // 總假量多的人 (bTotal大) 排在前面 (回傳負值)
+        // 強化公平性：只要總假量有差距，就優先讓假多的人上班
+        // 這樣可以解決「前期連休、後期不補班」的問題
+        if (aTotal !== bTotal) {
+            return bTotal - aTotal; // 總假量多的人 (bTotal大) 排在前面 (回傳負值)，優先被指派上班
         }
 
         // 🔥 第二關：個人志願
