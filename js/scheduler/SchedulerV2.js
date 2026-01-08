@@ -171,8 +171,8 @@ class SchedulerV2 extends BaseScheduler {
 
         if (candidates.length === 0) return false;
 
-        // 2. 使用模糊比較邏輯排序
-        candidates.sort((a, b) => this.compareCandidates(a, b, day, shiftCode));
+        // 2. 使用模糊比較邏輯排序 (傳遞 relaxRules 狀態)
+        candidates.sort((a, b) => this.compareCandidates(a, b, day, shiftCode, relaxRules));
 
         // 3. 選出第一名 (Winner)
         const best = candidates[0];
@@ -186,7 +186,7 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     // 🆕 人員比較函數 (整合所有規則)
-    compareCandidates(a, b, day, shiftCode) {
+    compareCandidates(a, b, day, shiftCode, relaxRules = false) {
         const dateStr = this.getDateStr(day);
         
         // 🔥 第一關：個人志願 (最高優先)
@@ -344,7 +344,8 @@ class SchedulerV2 extends BaseScheduler {
         });
 
         if (candidates.length === 0) return null;
-        candidates.sort((a, b) => this.compareCandidates(a, b, day, shiftCode));
+        // 回溯尋找替補時，通常使用正常規則 (relaxRules = false)
+        candidates.sort((a, b) => this.compareCandidates(a, b, day, shiftCode, false));
         return candidates[0];
     }
 
