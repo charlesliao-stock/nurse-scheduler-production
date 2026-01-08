@@ -30,6 +30,9 @@ class SchedulerV2 extends BaseScheduler {
     run() {
         console.log("📅 開始執行 V2 排班演算法...");
         
+        // 0. 預計算全月總假量預算 (包含預休與請假)
+        this.precalculateOffBudgets();
+
         // 1. 初始化：保留預休 (REQ_OFF) 與 請假 (LEAVE)，其餘重置為 OFF
         this.resetSchedule();
 
@@ -167,13 +170,21 @@ class SchedulerV2 extends BaseScheduler {
                 return false;
             }
 
-            // D. 硬性公平性過濾：如果這人休假已經太少 (低於平均 2 天以上)，且不是人力極度緊繃，則強制放假
-            const stats = this.counters[staff.id];
-            const allOffs = Object.values(this.counters).map(s => s.OFF || 0);
-            const avgOff = allOffs.reduce((a, b) => a + b, 0) / allOffs.length;
-            
-            if (!relaxRules && (stats.OFF || 0) < avgOff - 2) {
-                return false;
+            // D. 🆕 硬性公平性過濾 (預算制 + 2天緩衝)
+            if (!relaxRules) {
+                const stats = this.counters[staff.id];
+                // 個人目前總假量 = 已休(OFF) + 未來預算(預休/請假)
+                const currentTotalOff = (stats.OFF || 0) + (this.offBudgets[staff.id] || 0);
+                
+                // 計算目前全隊的「平均總假量進度」
+                const allCurrentOffs = Object.values(this.counters).map(s => s.OFF || 0);
+                const avgCurrentOff = allCurrentOffs.reduce((a, b) => a + b, 0) / allCurrentOffs.length;
+                const avgTotalExpected = avgCurrentOff + this.avgPlannedOff;
+
+                // 只有當個人總假量低於平均進度 2 天以上時，才強制放假
+                if (currentTotalOff < avgTotalExpected - 2) {
+                    return false;
+                }
             }
 
             return true;
@@ -232,9 +243,12 @@ class SchedulerV2 extends BaseScheduler {
             bVal = bStats[shiftCode] || 0;
         } else {
             // 排白班：優先抓「休假太多」的人來上班
-            // 強化：將休假天數的權重放大 (x10)，確保差距能被快速縮小
-            aVal = -(aStats.OFF || 0) * 10; 
-            bVal = -(bStats.OFF || 0) * 10; 
+            // 強化：使用「總假量預算」進行比較，確保月底有大休的人月初多上班
+            const aTotal = (aStats.OFF || 0) + (this.offBudgets[a.id] || 0);
+            const bTotal = (bStats.OFF || 0) + (this.offBudgets[b.id] || 0);
+            
+            aVal = -aTotal * 10; 
+            bVal = -bTotal * 10; 
         }
 
         // 縮小容忍度，強制執行公平性
@@ -358,11 +372,32 @@ class SchedulerV2 extends BaseScheduler {
         candidates.sort((a, b) => this.compareCandidates(a, b, day, shiftCode, false));
         return candidates[0];
     }
+    // 🆕 預計算全月總假量預算
+    precalculateOffBudgets() {
+        this.offBudgets = {};
+        this.staffList.forEach(staff => {
+            let plannedOff = 0;
+            // 掃描全月
+            for (let d = 1; d <= this.daysInMonth; d++) {
+                const dateStr = this.getDateStr(d);
+                const shift = this.getShiftByDate(dateStr, staff.id);
+                if (shift === 'REQ_OFF' || shift === 'LEAVE') {
+                    plannedOff++;
+                }
+            }
+            this.offBudgets[staff.id] = plannedOff;
+        });
+        
+        // 計算全隊平均預休數，作為基準
+        const values = Object.values(this.offBudgets);
+        this.avgPlannedOff = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+        console.log(`📊 全月預休分析完成，平均預休: ${this.avgPlannedOff.toFixed(1)} 天`);
+    }
 
     // 🆕 公平性後處理
     postProcessFairness() {
         // 檢查並調整極端不平衡情況
-        const stats = this.calculateGlobalStats();
+    }    const stats = this.calculateGlobalStats();
         
         if (this.rule_fairOff) {
             console.log("  檢查 OFF 公平性...");
