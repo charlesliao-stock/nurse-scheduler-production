@@ -124,9 +124,10 @@ class SchedulerV2 extends BaseScheduler {
                     continue;
                 }
 
-                // 步驟 3: 放寬規則限制 (受控：必須由規則開啟)
-                if (this.rule_enableRelaxation && this.assignBestCandidate(day, shiftCode, true)) {
-                    console.warn(`⚠️ Day ${day} [${shiftCode}] 透過放寬規則補足人力 (attempt ${attempts})`);
+                // 步驟 3: 即使管理者沒開「放寬機制」，在「人力不足」時也應嘗試「微調規則」
+                // 這裡的邏輯是：優先保證人力，但仍守住 11 小時休息底線
+                if (this.assignBestCandidate(day, shiftCode, true)) {
+                    console.warn(`⚠️ Day ${day} [${shiftCode}] 為了補足人力，自動微調規則 (attempt ${attempts})`);
                     currentCount++;
                     continue;
                 }
@@ -160,17 +161,9 @@ class SchedulerV2 extends BaseScheduler {
             // C. 預休/請假檢查 (已在 isLocked 處理，此處為保險)
             if (currentShift === 'REQ_OFF' || currentShift === 'LEAVE') return false;
             
-            // C. 法規與規則檢查
-            if (!relaxRules) {
-                if (!this.isValidAssignment(staff, dateStr, shiftCode)) {
-                    return false;
-                }
-            } else {
-                // 放寬模式：只保留最基本的間隔檢查
-                const prevShift = this.getYesterdayShift(staff.id, dateStr);
-                if (this.rule_minGap11 && !this.checkRestPeriod(prevShift, shiftCode)) {
-                    return false;
-                }
+            // C. 法規與規則檢查 (傳遞 relaxRules 狀態)
+            if (!this.isValidAssignment(staff, dateStr, shiftCode, relaxRules)) {
+                return false;
             }
 
             return true;
@@ -215,7 +208,7 @@ class SchedulerV2 extends BaseScheduler {
             if (!aIsSame && bIsSame) return 1;
         }
 
-        // 🔥 第三關：天數公平性 (模糊比較)
+        // 🔥 第三關：天數公平性 (強化版)
         const aStats = this.counters[a.id];
         const bStats = this.counters[b.id];
 
@@ -228,18 +221,19 @@ class SchedulerV2 extends BaseScheduler {
             aVal = aStats[shiftCode] || 0; 
             bVal = bStats[shiftCode] || 0;
         } else {
-            // 排白班：比較休假數 (反向比較，OFF多的要被抓來上班)
+            // 排白班：優先抓「休假太多」的人來上班
+            // aVal 越小代表越優先被選中上班
+            // 如果 a 的 OFF 很多，b 的 OFF 很少，則 aVal 應該小於 bVal
             aVal = bStats.OFF || 0; 
             bVal = aStats.OFF || 0; 
         }
 
+        // 縮小容忍度，強制執行公平性
+        const effectiveTolerance = relaxRules ? 0 : this.TOLERANCE;
         const diff = Math.abs(aVal - bVal);
 
-        // --- [核心邏輯] ---
-        
-        // 情況 A: 差距過大 (超過容許值) -> 嚴格執行公平性
-        if (diff > this.TOLERANCE) {
-            return aVal - bVal; // 升序：數值小的優先
+        if (diff > effectiveTolerance) {
+            return aVal - bVal; // 數值小的優先上班
         }
 
         // 情況 B: 差距在容許範圍內 -> 忽略天數，改看「連班慣性」

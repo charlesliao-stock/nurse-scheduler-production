@@ -203,19 +203,22 @@ class BaseScheduler {
     // --- 🆕 驗證邏輯 (整合規則檢查) ---
 
     // 檢查基本合法性
-    isValidAssignment(staff, dateStr, shiftCode) {
+    isValidAssignment(staff, dateStr, shiftCode, relaxRules = false) {
         if (shiftCode === 'OFF') return true;
 
-        // 1️⃣ 檢查特殊身份保護
+        // 1️⃣ 檢查特殊身份保護 (強制規則，不可放寬)
         if (this.rule_protectPregnant && !this.checkSpecialStatus(staff, shiftCode)) {
             return false;
         }
 
-        // 2️⃣ 檢查間隔 (上一班 vs 這一班)
+        // 2️⃣ 檢查間隔 (上一班 vs 這一班) (強制規則，不可放寬)
         const prevShift = this.getYesterdayShift(staff.id, dateStr);
         if (this.rule_minGap11 && !this.checkRestPeriod(prevShift, shiftCode)) {
             return false;
         }
+
+        // 如果是放寬模式，以下非強制規則將被跳過，以確保人力優先
+        if (relaxRules) return true;
 
         // 3️⃣ 檢查連上天數
         if (this.rule_limitConsecutive) {
