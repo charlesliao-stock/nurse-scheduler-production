@@ -95,6 +95,7 @@ const scheduleRuleManager = {
         setVal('rule_longLeaveMaxCons', r.policy?.longLeaveMaxCons || 7);
         setCheck('rule_bundleNightOnly', r.policy?.bundleNightOnly !== false);
         setCheck('rule_noNightAfterOff', r.policy?.noNightAfterOff !== false);
+        setCheck('rule_emergencyMode', r.policy?.emergencyMode || false);
 
         // 3. 班別模式
         setVal('rule_dayStartShift', r.pattern?.dayStartShift || 'D');
@@ -242,6 +243,7 @@ const scheduleRuleManager = {
                 bundleNightOnly: getCheck('rule_bundleNightOnly'),
                 noNightAfterOff: getCheck('rule_noNightAfterOff'),
                 enableRelaxation: getCheck('rule_enableRelaxation')
+                emergencyMode: getCheck('rule_emergencyMode')
             },
             pattern: {
                 dayStartShift: getVal('rule_dayStartShift', 'D'),
