@@ -166,8 +166,7 @@ class SchedulerV2 extends BaseScheduler {
             if (this.isLocked(day, uid)) return false;
             if (staff[`ban_${dateStr}`] === shiftCode) return false;
             
-            const bundleShift = staff.packageType || (staff.prefs && staff.prefs.bundleShift);
-            if (bundleShift && bundleShift !== shiftCode) return false;
+            // 包班邏輯已整合至 isValidAssignment，此處移除重複判斷以支援救火模式
             
             if (!this.isValidAssignment(staff, dateStr, shiftCode, relaxRules)) {
                 return false;

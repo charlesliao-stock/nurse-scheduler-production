@@ -421,6 +421,20 @@ getConsecutiveWorkDays(uid, dateStr) {
     }
 
     // --- 工具 ---
+    
+    // 檢查某人某天是否被鎖定 (預休或禁止排班)
+    isLocked(day, uid) {
+        const dateStr = this.getDateStr(day);
+        const staff = this.staffList.find(s => s.id === uid);
+        if (!staff) return false;
+        
+        const prefs = staff.schedulingParams || staff.prefs || {};
+        const val = prefs[dateStr];
+        
+        // REQ_OFF 是鎖定的，以 ! 開頭的也是鎖定的 (例如 !D 代表禁止排 D)
+        return (val === 'REQ_OFF' || (typeof val === 'string' && val.startsWith('!')));
+    }
+
     getDateStr(d) {
         return `${this.year}-${String(this.month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     }
