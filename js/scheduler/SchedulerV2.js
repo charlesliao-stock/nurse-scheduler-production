@@ -166,13 +166,13 @@ class SchedulerV2 extends BaseScheduler {
     solveDay(day, shiftOrder) {
         let success = true;
         
+        // 第一輪: 填滿基本需求
         shiftOrder.forEach(shiftCode => {
             const needed = this.getDemand(day, shiftCode);
             let assigned = this.countStaff(day, shiftCode);
             
             while (assigned < needed) {
                 if (!this.assignBestCandidate(day, shiftCode, false)) {
-                    // 嘗試放寬規則
                     if (!this.assignBestCandidate(day, shiftCode, true)) {
                         console.warn(`⚠️ Day ${day} [${shiftCode}] 缺 ${needed - assigned} 人`);
                         success = false;
@@ -183,7 +183,44 @@ class SchedulerV2 extends BaseScheduler {
             }
         });
         
+        // 🆕 第二輪: 平衡 OFF 天數 (填滿剩餘人力)
+        // 找出當天還在 OFF 且 OFF 天數過多的人
+        const dateStr = this.getDateStr(day);
+        const avgOff = this.calculateAverageOff();
+        
+        const overOffStaff = this.staffList
+            .filter(s => {
+                const curr = this.getShiftByDate(dateStr, s.id);
+                if (curr !== 'OFF') return false;
+                if (this.isLocked(day, s.id)) return false;
+                
+                const myOff = this.counters[s.id].OFF || 0;
+                return myOff > avgOff + 1; // 超過平均 1 天以上
+            })
+            .sort((a, b) => {
+                const aOff = this.counters[a.id].OFF || 0;
+                const bOff = this.counters[b.id].OFF || 0;
+                return bOff - aOff; // OFF 最多的優先
+            });
+        
+        // 嘗試將這些人排進任一班別
+        overOffStaff.forEach(staff => {
+            for (const code of shiftOrder) {
+                if (this.isValidAssignment(staff, dateStr, code, false)) {
+                    const curr = this.getShiftByDate(dateStr, staff.id);
+                    this.updateShift(dateStr, staff.id, curr, code);
+                    console.log(`🔄 Day ${day}: 平衡 ${staff.name || staff.id} OFF(${this.counters[staff.id].OFF}) → ${code}`);
+                    break; // 只排一個班別就夠了
+                }
+            }
+        });
+        
         return success;
+    }
+    
+    calculateAverageOff() {
+        const offCounts = this.staffList.map(s => this.counters[s.id].OFF || 0);
+        return offCounts.reduce((a, b) => a + b, 0) / offCounts.length;
     }
 
     assignBestCandidate(day, shiftCode, relaxRules = false) {
@@ -220,40 +257,30 @@ class SchedulerV2 extends BaseScheduler {
     compareCandidates(a, b, day, shiftCode, relaxRules = false) {
         const dateStr = this.getDateStr(day);
         
-        // 第一關: 個人排班偏好
+        // 🔥 第一關: 總假量平衡 (全程生效,不分月初月末)
+        const aTotalOff = this.counters[a.id].OFF || 0;
+        const bTotalOff = this.counters[b.id].OFF || 0;
+        const offDiff = Math.abs(aTotalOff - bTotalOff);
+        
+        // 🆕 只要差距 >= 2 天就強制平衡
+        if (offDiff >= 2) {
+            return bTotalOff - aTotalOff; // OFF 多的人優先上班
+        }
+        
+        // 🔥 第二關: 個人排班偏好
         const aWants = this.checkWillingness(a, dateStr, shiftCode);
         const bWants = this.checkWillingness(b, dateStr, shiftCode);
         if (aWants && !bWants) return -1;
         if (!aWants && bWants) return 1;
 
-        // 第二關: 總假量平衡
-        const aTotalOff = this.counters[a.id].OFF || 0;
-        const bTotalOff = this.counters[b.id].OFF || 0;
-        
-        const offDiff = Math.abs(aTotalOff - bTotalOff);
-        const shouldBalance = (this.currentProgress > 0.7 && offDiff > this.TOLERANCE);
-        
-        if (shouldBalance) {
-            return bTotalOff - aTotalOff;
-        } else if (offDiff >= 2) {
-            return bTotalOff - aTotalOff;
-        }
-
-        // 第三關: 班別公平性
+        // 🔥 第三關: 班別公平性
         const aShiftCount = this.counters[a.id][shiftCode] || 0;
         const bShiftCount = this.counters[b.id][shiftCode] || 0;
         if (aShiftCount !== bShiftCount) {
             return aShiftCount - bShiftCount;
         }
 
-        // 第四關: 可用性分數
-        const aAvail = (this.availabilityMap[a.id] && this.availabilityMap[a.id][day]) || 50;
-        const bAvail = (this.availabilityMap[b.id] && this.availabilityMap[b.id][day]) || 50;
-        if (aAvail !== bAvail) {
-            return bAvail - aAvail;
-        }
-
-        // 第五關: 連班慣性
+        // 🔥 第四關: 連班慣性
         const aPrev = this.getYesterdayShift(a.id, dateStr);
         const bPrev = this.getYesterdayShift(b.id, dateStr);
         const aIsSame = (aPrev === shiftCode);
