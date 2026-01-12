@@ -250,11 +250,23 @@ class BaseScheduler {
         if (relaxRules) return true;
 
         // 4️⃣ 檢查 OFF 後不排夜班
-        if (this.rule_noNightAfterOff && prevShift === 'OFF') {
-            if (shiftCode.includes('N') || shiftCode.includes('E')) {
+    if (this.rule_noNightAfterOff && prevShift === 'OFF') {
+        const bannedShifts = this.rules.policy?.bannedAfterOff || [];
+        
+        // 如果有設定清單，使用清單；否則自動判斷
+        if (bannedShifts.length > 0) {
+            if (bannedShifts.includes(shiftCode)) {
+                console.log(`⚠️ ${staff.name} 昨日休假，今日不排 ${shiftCode}（規則限制）`);
+                return false;
+            }
+        } else {
+            // 沒有清單時，使用自動判斷
+            if (this.isNightShift(shiftCode)) {
+                console.log(`⚠️ ${staff.name} 昨日休假，今日不排夜班 ${shiftCode}（自動判斷）`);
                 return false;
             }
         }
+    }
 
         // 5️⃣ 檢查班別多樣性 (一週內不得有3種班別)
         if (this.rule_maxDiversity3 && !this.checkWeeklyDiversity(staff.id, dateStr, shiftCode)) {
