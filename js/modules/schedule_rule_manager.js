@@ -258,6 +258,10 @@ renderNightShiftOptions: function(savedBanned) {
         const getVal = (id, def) => { const el = document.getElementById(id); return el ? (el.value || def) : def; };
         const getInt = (id, def) => { const el = document.getElementById(id); return el ? (parseInt(el.value) || def) : def; };
 
+    // 🔥 收集勾選的夜班
+    const bannedShifts = Array.from(document.querySelectorAll('.banned-shift-checkbox:checked'))
+        .map(cb => cb.value);
+        
         const rules = {
             hard: {
                 minGap11: getCheck('rule_minGap11'),
@@ -276,6 +280,8 @@ renderNightShiftOptions: function(savedBanned) {
                 bundleNightOnly: getCheck('rule_bundleNightOnly'),
                 noNightAfterOff: getCheck('rule_noNightAfterOff'),
                 enableRelaxation: getCheck('rule_enableRelaxation')
+                noNightAfterOff: getCheck('rule_noNightAfterOff'),
+                bannedAfterOff: bannedShifts, // 🔥 新增：禁止的班別清單
                 emergencyMode: getCheck('rule_emergencyMode')
             },
             pattern: {
