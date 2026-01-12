@@ -230,21 +230,22 @@ class BaseScheduler {
         // 4️⃣ 檢查個人偏好/包班 (提升為絕對規則，不可跨班指派)
         const params = staff.schedulingParams || {};
         const prefs = staff.prefs || {};
-        const bundleShift = staff.packageType || prefs.bundleShift;
+        // 優先從 schedulingParams 讀取 bundleShift，這是 UI 設定的來源
+        const bundleShift = params.bundleShift || staff.packageType || prefs.bundleShift;
 
-            // 🔥 關鍵邏輯：救火模式的判斷
-    const isEmergencyMode = this.rule_emergencyMode;
-    const allow3Shifts = this.rules.settings?.shiftTypeMode === "3" || this.rule_maxDiversity3 === false;
+        // 🔥 關鍵邏輯：救火模式的判斷
+        const isEmergencyMode = this.rule_emergencyMode;
+        const allow3Shifts = this.rules.settings?.shiftTypeMode === "3" || this.rule_maxDiversity3 === false;
 
-    if (bundleShift && bundleShift !== shiftCode) {
-        // 包班設定：除非開啟救火模式 + 允許3種班，否則不可跨班
-        if (!(isEmergencyMode && allow3Shifts)) {
-            console.log(`⚠️ ${staff.name} 包班 ${bundleShift}，不可排 ${shiftCode}`);
-            return false;
-        } else {
-            console.log(`🔥 救火模式：${staff.name} 包班 ${bundleShift}，但允許排 ${shiftCode}`);
+        if (bundleShift && bundleShift !== 'OFF' && bundleShift !== shiftCode) {
+            // 包班設定：除非開啟救火模式 + 允許3種班，否則不可跨班
+            if (!(isEmergencyMode && allow3Shifts)) {
+                // console.log(`⚠️ ${staff.name} 包班 ${bundleShift}，不可排 ${shiftCode}`);
+                return false;
+            } else {
+                console.log(`🔥 救火模式：${staff.name} 包班 ${bundleShift}，但允許排 ${shiftCode}`);
+            }
         }
-    }
 
         // 如果是放寬模式，以下「建議性」規則將被跳過
         if (relaxRules) return true;
@@ -422,6 +423,15 @@ getConsecutiveWorkDays(uid, dateStr) {
 
     // --- 工具 ---
     
+    // 判斷是否為夜班 (大夜或小夜)
+    isNightShift(shiftCode) {
+        if (!shiftCode || shiftCode === 'OFF') return false;
+        const time = this.shiftTimes[shiftCode];
+        if (!time) return shiftCode.includes('N') || shiftCode.includes('E');
+        // 只要跨越午夜或在深夜時段都視為夜班
+        return (time.start >= 22 || time.start < 6 || time.end <= 8);
+    }
+
     // 檢查某人某天是否被鎖定 (預休或禁止排班)
     isLocked(day, uid) {
         const dateStr = this.getDateStr(day);

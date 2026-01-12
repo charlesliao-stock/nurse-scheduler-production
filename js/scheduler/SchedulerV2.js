@@ -24,6 +24,7 @@ class SchedulerV2 extends BaseScheduler {
         
         // 動態權重系統
         this.currentProgress = 0;
+        this.offBudgets = {}; // 初始化 offBudgets
         
         console.log(`🚀 Scheduler V2 Enhanced 啟動 (動態平衡模式)`);
         console.log(`📊 容忍度設定: ±${this.TOLERANCE} 天 (來自規則設定)`);
@@ -76,6 +77,7 @@ class SchedulerV2 extends BaseScheduler {
             }
             staff.idealOff = Math.min(preOffCount + 3, Math.floor(totalDays * 0.35));
             staff.preOffCount = preOffCount;
+            this.offBudgets[staff.id] = staff.idealOff; // 存入 offBudgets 供排序使用
         });
     }
 
