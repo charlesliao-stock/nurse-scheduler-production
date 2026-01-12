@@ -385,11 +385,3 @@ class SchedulerV2 extends BaseScheduler {
         return false;
     }
 }
-```
-
-## 核心改進說明
-
-### 1. **優先順序調整**
-```
-修正前: 公平性 > 需求滿足
-修正後: 需求滿足 > 公平性（在容忍範圍內）
