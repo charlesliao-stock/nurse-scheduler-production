@@ -11,16 +11,23 @@ class SchedulerV2 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
         super(allStaff, year, month, lastMonthData, rules);
         
-        // AI 參數 - [關鍵修正] 降低容忍度到 2
+        // [關鍵修正] 從規則讀取參數，不寫死
         this.BACKTRACK_DEPTH = rules.aiParams?.backtrack_depth || 5;
-        this.TOLERANCE = 2; // 強制設為 2，不允許超過
+        
+        // 從公平性規則讀取容忍度 (對應「總放假天數平均化」的差異值)
+        this.TOLERANCE = rules.fairness?.fairOffVar || 2;
+        
         this.MAX_ATTEMPTS = rules.aiParams?.max_attempts || 30;
+        
+        // [新增] 從公平性規則讀取後處理輪數
+        this.BALANCE_ROUNDS = rules.fairness?.balanceRounds || 100;
         
         // 動態權重系統
         this.currentProgress = 0;
         
-        console.log(`🚀 Scheduler V2 Enhanced 啟動 (嚴格平衡模式)`);
-        console.log(`📊 容忍度設定: ±${this.TOLERANCE} 天 (強制)`);
+        console.log(`🚀 Scheduler V2 Enhanced 啟動 (動態平衡模式)`);
+        console.log(`📊 容忍度設定: ±${this.TOLERANCE} 天 (來自規則設定)`);
+        console.log(`🔄 後處理輪數: ${this.BALANCE_ROUNDS} 輪 (來自規則設定)`);
     }
 
     run() {
