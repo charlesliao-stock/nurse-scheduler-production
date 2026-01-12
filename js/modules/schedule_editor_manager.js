@@ -246,10 +246,6 @@ const scheduleEditorManager = {
         const countMap = {};
         for(let d=1; d<=daysInMonth; d++) countMap[d] = {};
 
-// 🔥 修正：只計算本月 current_ 開頭的 OFF
-updateRealTimeStats: function() {
-    // ... 前面保持不變 ...
-    
     // 2. 計算人員統計 & 每日班別統計
     this.data.staffList.forEach(s => {
         let off=0, E=0, N=0, hol=0;

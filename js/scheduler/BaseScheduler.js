@@ -64,8 +64,8 @@ class BaseScheduler {
         console.log("📋 規則解析完成:", {
             間隔保護: this.rule_minGap11,
             連上限制: this.rule_limitConsecutive ? `${this.rule_maxConsDays}天` : '關閉',
-            輪替順序: this.rule_rotationOrder
-            排班救火: this.rule_emergencyMode ? '啟用' : '關閉' // 🔥 新增日誌
+輪替順序: this.rule_rotationOrder,
+	            排班救火: this.rule_emergencyMode ? '啟用' : '關閉' // 🔥 新增日誌
         });
     }
 

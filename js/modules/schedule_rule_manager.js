@@ -279,8 +279,7 @@ renderNightShiftOptions: function(savedBanned) {
                 longLeaveAdjust: getCheck('rule_longLeaveAdjust'),
                 bundleNightOnly: getCheck('rule_bundleNightOnly'),
                 noNightAfterOff: getCheck('rule_noNightAfterOff'),
-                enableRelaxation: getCheck('rule_enableRelaxation')
-                noNightAfterOff: getCheck('rule_noNightAfterOff'),
+                enableRelaxation: getCheck('rule_enableRelaxation'),
                 bannedAfterOff: bannedShifts, // 🔥 新增：禁止的班別清單
                 emergencyMode: getCheck('rule_emergencyMode')
             },
