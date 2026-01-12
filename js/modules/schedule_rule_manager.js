@@ -1,5 +1,5 @@
 // js/modules/schedule_rule_manager.js
-// 修正版：支援 AI V2 參數設定 (容許誤差、回溯深度)
+// 更新版：支援後處理輪數設定
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -33,7 +33,6 @@ const scheduleRuleManager = {
                 select.appendChild(option);
             });
 
-            // 自動選擇第一個單位
             if (snapshot.size === 1) {
                 select.selectedIndex = 1;
                 this.loadUnitData(select.value);
@@ -56,11 +55,9 @@ const scheduleRuleManager = {
         if(container) container.style.display = 'block';
         
         try {
-            // 1. 載入班別 (用於排班順序設定)
             const shiftsSnap = await db.collection('shifts').where('unitId', '==', unitId).get();
             this.activeShifts = shiftsSnap.docs.map(d => d.data());
 
-            // 2. 載入規則
             const doc = await db.collection('units').doc(unitId).get();
             if(!doc.exists) return;
             
@@ -77,10 +74,10 @@ const scheduleRuleManager = {
     },
 
     fillForm: function(r) {
-        // --- 1. 硬性規則 (Hard Rules) ---
         const setCheck = (id, val) => { const el = document.getElementById(id); if(el) el.checked = val; };
         const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
 
+        // 1. 硬性規則
         setCheck('rule_minGap11', r.hard?.minGap11 !== false); 
         setCheck('rule_maxDiversity3', r.hard?.maxDiversity3 !== false);
         setCheck('rule_protectPregnant', r.hard?.protectPregnant !== false);
@@ -88,53 +85,45 @@ const scheduleRuleManager = {
         setVal('rule_offGapMax', r.hard?.offGapMax || 12);
         setVal('rule_weekStartDay', r.hard?.weekStartDay || "1");
 
-        // --- 2. 政策規則 (Policy) ---
+        // 2. 政策規則
         setVal('rule_reqOffWeight', r.policy?.reqOffWeight || 'must');
         setVal('rule_reqBanWeight', r.policy?.reqBanWeight || 'must');
         setCheck('rule_limitConsecutive', r.policy?.limitConsecutive !== false);
         setVal('rule_maxConsDays', r.policy?.maxConsDays || 6);
         setCheck('rule_longLeaveAdjust', r.policy?.longLeaveAdjust !== false);
-        
-        // 舊參數若還在 HTML 上則填入，若無則忽略
         setVal('rule_longLeaveThres', r.policy?.longLeaveThres || 5);
         setVal('rule_longLeaveMaxCons', r.policy?.longLeaveMaxCons || 7);
         setCheck('rule_bundleNightOnly', r.policy?.bundleNightOnly !== false);
         setCheck('rule_noNightAfterOff', r.policy?.noNightAfterOff !== false);
 
-        // --- 3. 班別模式 (Pattern) ---
+        // 3. 班別模式
         setVal('rule_dayStartShift', r.pattern?.dayStartShift || 'D');
         setCheck('rule_consecutivePref', r.pattern?.consecutivePref !== false);
         setVal('rule_minConsecutive', r.pattern?.minConsecutive || 2);
         
-        // 渲染拖拉排序 (如果 HTML 有這個容器)
         const savedOrder = r.pattern?.rotationOrder || 'OFF,N,D,E';
         if(document.getElementById('rotationContainer')) {
             this.renderRotationEditor(savedOrder);
         }
 
-        // --- 4. 公平性 (Fairness) ---
+        // 4. 公平性
         setCheck('rule_fairOff', r.fairness?.fairOff !== false);
         setVal('rule_fairOffVar', r.fairness?.fairOffVar || 2);
         setCheck('rule_fairHoliday', r.fairness?.fairHoliday !== false);
         setCheck('rule_fairNight', r.fairness?.fairNight !== false);
-
-        // --- 5. [新增] AI V2 參數 ---
-        const ai = r.aiParams || {};
         
-        // 回溯深度 (預設 3)
-        setVal('ai_backtrack_depth', ai.backtrack_depth || 3);
-        // 容許誤差 (預設 2)
-        setVal('ai_tolerance', (ai.tolerance !== undefined) ? ai.tolerance : 2);
-        // 最大嘗試次數 (預設 20)
-        setVal('ai_max_attempts', ai.max_attempts || 20);
+        // [新增] 後處理輪數
+        setVal('rule_fairBalanceRounds', r.fairness?.balanceRounds || 100);
 
-        // 舊權重欄位 (若 HTML 還有保留，設為預設值避免報錯)
+        // 5. AI 參數
+        const ai = r.aiParams || {};
+        setVal('ai_backtrack_depth', ai.backtrack_depth || 3);
+        setVal('ai_max_attempts', ai.max_attempts || 20);
         setVal('ai_w_balance', ai.w_balance || 200);
         setVal('ai_w_continuity', ai.w_continuity || 50);
         setVal('ai_w_surplus', ai.w_surplus || 150);
     },
 
-    // 拖拉排序功能 (用於設定輪班順序)
     renderRotationEditor: function(savedOrderStr) {
         const container = document.getElementById('rotationContainer');
         if(!container) return;
@@ -252,7 +241,7 @@ const scheduleRuleManager = {
                 longLeaveAdjust: getCheck('rule_longLeaveAdjust'),
                 bundleNightOnly: getCheck('rule_bundleNightOnly'),
                 noNightAfterOff: getCheck('rule_noNightAfterOff'),
-                enableRelaxation: getCheck('rule_enableRelaxation') // 新增：放寬機制開關
+                enableRelaxation: getCheck('rule_enableRelaxation')
             },
             pattern: {
                 dayStartShift: getVal('rule_dayStartShift', 'D'),
@@ -269,14 +258,13 @@ const scheduleRuleManager = {
                 fairHoliday: getCheck('rule_fairHoliday'),
                 fairHolidayVar: getInt('rule_fairHolidayVar', 2),
                 fairNight: getCheck('rule_fairNight'),
-                fairNightVar: getInt('rule_fairNightVar', 2)
+                fairNightVar: getInt('rule_fairNightVar', 2),
+                // [關鍵新增] 儲存後處理輪數
+                balanceRounds: getInt('rule_fairBalanceRounds', 100)
             },
-            // [關鍵] AI V2 參數
             aiParams: {
                 backtrack_depth: getInt('ai_backtrack_depth', 3),
                 max_attempts: getInt('ai_max_attempts', 20),
-                tolerance: getInt('ai_tolerance', 2),
-                // 保留舊權重以免 UI 報錯
                 w_balance: getInt('ai_w_balance', 200),
                 w_continuity: getInt('ai_w_continuity', 50),
                 w_surplus: getInt('ai_w_surplus', 150)
