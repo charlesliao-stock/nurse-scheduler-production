@@ -189,45 +189,63 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     // [關鍵修正] 嚴格平衡的候選人排序
-    compareCandidatesStrict(a, b, day, shiftCode) {
-        const dateStr = this.getDateStr(day);
-        
-        // 🔥 第一關: 放假平衡 (提升為最高優先級)
-        const aTotalOff = this.counters[a.id].OFF || 0;
-        const bTotalOff = this.counters[b.id].OFF || 0;
-        const avgOff = this.calculateAverageOff();
-        
-        const aDiff = Math.abs(aTotalOff - avgOff);
-        const bDiff = Math.abs(bTotalOff - avgOff);
-        
-        // 優先選擇休太多的人上班
-        if (Math.abs(aTotalOff - bTotalOff) > 0) {
-            return bTotalOff - aTotalOff; // OFF 多的優先
-        }
-
-        // 🔥 第二關: 個人排班偏好
+// 您也可以這樣寫，邏輯更明確
+compareCandidatesStrict(a, b, day, shiftCode) {
+    const dateStr = this.getDateStr(day);
+    const isEmergencyMode = this.rule_emergencyMode;
+    
+    // ============================================
+    // 優先級 0：個人偏好（僅非救火模式）
+    // ============================================
+    if (!isEmergencyMode) {
+        // 一般模式：偏好是最高優先級
         const aWants = this.checkWillingness(a, dateStr, shiftCode);
         const bWants = this.checkWillingness(b, dateStr, shiftCode);
-        if (aWants && !bWants) return -1;
-        if (!aWants && bWants) return 1;
-
-        // 🔥 第三關: 班別公平性
-        const aShiftCount = this.counters[a.id][shiftCode] || 0;
-        const bShiftCount = this.counters[b.id][shiftCode] || 0;
-        if (aShiftCount !== bShiftCount) {
-            return aShiftCount - bShiftCount;
+        
+        if (aWants !== bWants) {
+            console.log(`👥 一般模式：偏好優先 (${a.name}=${aWants}, ${b.name}=${bWants})`);
+            return aWants ? -1 : 1;
         }
-
-        // 🔥 第四關: 連班慣性
-        const aPrev = this.getYesterdayShift(a.id, dateStr);
-        const bPrev = this.getYesterdayShift(b.id, dateStr);
-        const aIsSame = (aPrev === shiftCode);
-        const bIsSame = (bPrev === shiftCode);
-        if (aIsSame && !bIsSame) return -1;
-        if (!aIsSame && bIsSame) return 1;
-
-        return 0;
     }
+    // 救火模式：完全跳過偏好檢查
+    
+    // ============================================
+    // 優先級 1：放假平衡
+    // ============================================
+    const aTotalOff = this.counters[a.id].OFF || 0;
+    const bTotalOff = this.counters[b.id].OFF || 0;
+    
+    if (Math.abs(aTotalOff - bTotalOff) > 1) {
+        return bTotalOff - aTotalOff;
+    }
+
+    // ============================================
+    // 優先級 2：班別平衡
+    // ============================================
+    const aShiftCount = this.counters[a.id][shiftCode] || 0;
+    const bShiftCount = this.counters[b.id][shiftCode] || 0;
+    
+    if (aShiftCount !== bShiftCount) {
+        return aShiftCount - bShiftCount;
+    }
+
+    // ============================================
+    // 優先級 3：連班慣性
+    // ============================================
+    const aPrev = this.getYesterdayShift(a.id, dateStr);
+    const bPrev = this.getYesterdayShift(b.id, dateStr);
+    const aIsSame = (aPrev === shiftCode);
+    const bIsSame = (bPrev === shiftCode);
+    
+    if (aIsSame !== bIsSame) {
+        return aIsSame ? -1 : 1;
+    }
+
+    return 0;
+}
+
+    return 0;
+}
 
     // [增強] 後處理 - 積極平衡
     postProcessBalancing() {
