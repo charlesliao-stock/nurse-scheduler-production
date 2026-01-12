@@ -89,13 +89,17 @@
                     <label><input type="checkbox" id="rule_bundleNightOnly" checked> 4. 包班人員規範：鎖定單一夜班</label>
                 </div>
 
-                <div class="rule-card">
-                    <label><input type="checkbox" id="rule_noNightAfterOff" checked> 5. 非包班人員規範：OFF 後隔天班別限制</label>
-                    <div class="rule-detail" style="display:flex; gap:15px;">
-                        <label><input type="checkbox" id="rule_noNightAfterOff_N" checked> 不排大夜 (N)</label>
-                        <label><input type="checkbox" id="rule_noNightAfterOff_E" checked> 不排小夜 (E)</label>
-                    </div>
-                </div>
+<div class="rule-card">
+    <label><input type="checkbox" id="rule_noNightAfterOff" checked> 5. 非包班人員規範：OFF 後隔天班別限制</label>
+    <div class="rule-detail" style="display:flex; gap:15px; flex-direction:column;">
+        <div style="font-size:0.9rem; color:#666; margin-bottom:10px;">
+            勾選後，預休 (REQ_OFF) 或強制休 (OFF) 隔天不可排以下班別：
+        </div>
+        <div id="nightShiftCheckboxes" style="display:flex; flex-wrap:wrap; gap:10px;">
+            <!-- 這裡會動態載入班別選項 -->
+        </div>
+    </div>
+</div>
 
                 <div class="rule-card">
                     <label>6. 新進人員保護</label>
