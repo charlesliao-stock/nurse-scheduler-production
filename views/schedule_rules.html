@@ -172,6 +172,27 @@
                     <label><input type="checkbox" id="rule_fairNight" checked> 3. 夜班總數平均化</label>
                     <div class="rule-detail">差異不超過 <input type="number" id="rule_fairNightVar" value="2" style="width:50px;"> 天 (分包班/非包班計算)</div>
                 </div>
+
+                <!-- [新增] 後處理輪數設定 -->
+                <div class="rule-card" style="background:#f0f8ff; border-left:4px solid #2ecc71;">
+                    <label style="display:block; margin-bottom:10px; color:#2ecc71; font-weight:bold;">
+                        <i class="fas fa-sync-alt"></i> 4. 後處理平衡強度
+                    </label>
+                    <div class="rule-detail">
+                        <div style="margin-bottom:10px;">
+                            後處理輪數: <input type="number" id="rule_fairBalanceRounds" value="100" style="width:70px;" min="50" max="500" step="10"> 輪
+                            <span style="color:#666; font-size:0.85rem; margin-left:10px;">(預設100輪，增加可提升平衡度但耗時較長)</span>
+                        </div>
+                        <div style="font-size:0.85rem; color:#555; background:#fff; padding:10px; border-radius:4px; margin-top:10px;">
+                            <strong>說明：</strong>
+                            <ul style="margin:5px 0; padding-left:20px;">
+                                <li>系統會在排班完成後，執行多輪交換來平衡放假天數</li>
+                                <li>輪數越高，放假天數越平均，但排班時間會增加</li>
+                                <li>建議範圍：50~200 輪</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div id="tab-ai" class="tab-content">
@@ -184,7 +205,7 @@
                     <label>1. 決策權重 (分數越高越重要)</label>
                     <div class="rule-detail">
                         <div style="margin-bottom:10px; display:flex; align-items:center;">
-                            <span style="width:120px;">⚖️ 平衡積假:</span>
+                            <span style="width:120px;">⚖️ 平衡積分:</span>
                             <input type="number" id="ai_w_balance" value="200" style="width:70px; margin-right:10px;">
                             <span style="color:#666; font-size:0.85rem;">(劫富濟貧的力度，越高越平均)</span>
                         </div>
@@ -215,13 +236,14 @@
                     </div>
                 </div>
 
-                <div class="rule-card">
-                    <label>3. 容許誤差 (Tolerance)</label>
-                    <div class="rule-detail">
-                        平均休假容許差異: <input type="number" id="ai_tolerance" value="2" style="width:60px;"> 天
-                        <div style="color:#666; font-size:0.85rem; margin-top:5px;">
-                            差異在此範圍內時，AI 會優先考慮連續性；超過此範圍則強制平衡。
-                        </div>
+                <!-- [關鍵修正] 移除寫死的容忍度，改用公平性頁籤的設定 -->
+                <div class="rule-card" style="background:#fff3cd; border-left:4px solid #f39c12;">
+                    <label style="display:block; margin-bottom:10px;">
+                        <i class="fas fa-info-circle"></i> 容忍度設定
+                    </label>
+                    <div style="font-size:0.9rem; color:#856404;">
+                        <strong>放假天數容忍度</strong>已移至「4. 公平性」頁籤設定。<br>
+                        系統會自動使用「總放假天數平均化」中設定的差異值 (預設 2 天)。
                     </div>
                 </div>
             </div>
