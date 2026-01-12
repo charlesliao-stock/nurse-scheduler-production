@@ -428,80 +428,212 @@ const scheduleEditorManager = {
         if(cell) cell.innerHTML = this.renderCellContent(val);
     },
 
-    // 🌟 AI 排班核心呼叫點 (Bridge)
-    runAI: async function() {
-        if (typeof SchedulerFactory === 'undefined') {
-            alert("AI 模組未載入"); return;
-        }
+// 🌟 AI 排班核心呼叫點 (修正版)
+runAI: async function() {
+    if (typeof SchedulerFactory === 'undefined') {
+        alert("AI 模組未載入"); return;
+    }
 
-        console.log("🔍 AI 排班前診斷 (Phase 2):");
-        console.log("- 單位規則:", this.unitRules);
-        console.log("- 救火機制:", this.unitRules.enableFirefighting ? "🔥 開啟" : "關閉");
+    console.log("🔍 AI 排班前診斷 (Phase 2):");
+    console.log("- 單位規則:", this.unitRules);
+    console.log("- 當前人員數:", this.data.staffList.length);
 
-        if (!confirm("確定執行 AI 排班？(將覆蓋現有草稿)")) return;
+    if (!confirm("確定執行 AI 排班?(將覆蓋現有草稿)")) return;
+    
+    this.isLoading = true;
+    this.showLoading();
+    
+    try {
+        // 1. 準備上月資料 (最後 6 天)
+        const lastMonthData = {};
+        const year = this.data.year;
+        const month = this.data.month;
+        const lastMonthDate = new Date(year, month - 1, 0);
+        const lastMonthEnd = lastMonthDate.getDate();
         
-        this.isLoading = true;
-        this.showLoading();
-        
-        try {
-            // 1. 準備上月資料 (最後 6 天)
-            const lastMonthData = {};
-            const year = this.data.year;
-            const month = this.data.month;
-            const lastMonthDate = new Date(year, month - 1, 0);
-            const lastMonthEnd = lastMonthDate.getDate();
-            
-            this.data.staffList.forEach(s => {
-                const userAssign = this.assignments[s.uid] || {};
-                lastMonthData[s.uid] = {
-                    lastShift: userAssign[`last_${lastMonthEnd}`] || 'OFF'
-                };
-                // 存入最後 6 天供連續天數計算
-                for (let i = 0; i < 6; i++) {
-                    const d = lastMonthEnd - i;
-                    lastMonthData[s.uid][`last_${d}`] = userAssign[`last_${d}`] || 'OFF';
-                }
-            });
-
-            // 2. 準備人員清單與偏好
-            const staffListForAI = this.data.staffList.map(s => {
-                const userAssign = this.assignments[s.uid] || {};
-                return {
-                    id: s.uid, uid: s.uid, name: s.name,
-                    prefs: userAssign.preferences || {},
-                    packageType: userAssign.preferences?.bundleShift || null // 包班偏好
-                };
-            });
-
-            // 3. 橋接規則
-            const rules = {
-                dailyNeeds: this.data.dailyNeeds || {},
-                shiftCodes: this.shifts.map(s => s.code),
-                ...this.unitRules, 
-                ...(this.data.settings || {})
+        this.data.staffList.forEach(s => {
+            const userAssign = this.assignments[s.uid] || {};
+            lastMonthData[s.uid] = {
+                lastShift: userAssign[`last_${lastMonthEnd}`] || 'OFF'
             };
+            // 存入最後 6 天供連續天數計算
+            for (let i = 0; i < 6; i++) {
+                const d = lastMonthEnd - i;
+                lastMonthData[s.uid][`last_${d}`] = userAssign[`last_${d}`] || 'OFF';
+            }
+        });
 
-            console.log("🚀 啟動 AI 排班，上月接續資料:", lastMonthData);
+        // 2. 準備人員清單與偏好
+        const staffListForAI = this.data.staffList.map(s => {
+            const userAssign = this.assignments[s.uid] || {};
+            return {
+                id: s.uid, 
+                uid: s.uid, 
+                name: s.name,
+                prefs: userAssign.preferences || {},
+                packageType: userAssign.preferences?.bundleShift || null,
+                // [新增] 傳遞預休資料給 AI
+                schedulingParams: this.extractPreRequests(s.uid)
+            };
+        });
 
-            const scheduler = SchedulerFactory.create('V2', staffListForAI, this.data.year, this.data.month, lastMonthData, rules);
-            const aiResult = scheduler.run();
+        // 3. 橋接規則
+        const rules = {
+            dailyNeeds: this.data.dailyNeeds || {},
+            shiftCodes: this.shifts.map(s => s.code),
+            shifts: this.shifts, // [關鍵] 傳遞完整班別定義
+            ...this.unitRules, 
+            ...(this.data.settings || {})
+        };
 
-            // 填寫結果 (略為簡化，與之前邏輯相同)
-            this.applyAIResult(aiResult);
-            
-            this.renderMatrix();
-            this.updateRealTimeStats();
-            await this.saveDraft(true);
-            alert("✅ AI 排班完成！");
+        console.log("🚀 啟動 AI 排班,上月接續資料:", lastMonthData);
+        console.log("📋 規則摘要:", {
+            班別: rules.shiftCodes,
+            人數: staffListForAI.length,
+            每日需求: Object.keys(rules.dailyNeeds).length
+        });
 
-        } catch (e) {
-            console.error(e);
-            alert("AI 執行失敗: " + e.message);
-            this.renderMatrix();
-        } finally {
-            this.isLoading = false;
+        // 4. 執行 AI 排班
+        const scheduler = SchedulerFactory.create(
+            'V2', 
+            staffListForAI, 
+            this.data.year, 
+            this.data.month, 
+            lastMonthData, 
+            rules
+        );
+        
+        const aiResult = scheduler.run();
+        
+        console.log("✅ AI 排班完成,結果:", aiResult);
+
+        // 5. 套用結果
+        this.applyAIResult(aiResult);
+        
+        // 6. 完整重新渲染 [關鍵修正]
+        this.renderMatrix();
+        this.updateRealTimeStats();
+        
+        // 7. 自動儲存
+        await this.saveDraft(true);
+        
+        alert("✅ AI 排班完成!");
+
+    } catch (e) {
+        console.error("❌ AI 執行失敗:", e);
+        alert("AI 執行失敗: " + e.message);
+        // 發生錯誤時也要重新渲染,恢復畫面
+        this.renderMatrix();
+    } finally {
+        this.isLoading = false;
+    }
+},
+
+// [新增] 提取預休資料給 AI
+extractPreRequests: function(uid) {
+    const userAssign = this.assignments[uid] || {};
+    const preRequests = {};
+    
+    const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+    
+    for (let d = 1; d <= daysInMonth; d++) {
+        const key = `current_${d}`;
+        const val = userAssign[key];
+        
+        // 將 REQ_OFF 和 !X 格式傳遞給 AI
+        if (val === 'REQ_OFF' || (typeof val === 'string' && val.startsWith('!'))) {
+            const dateStr = this.getDateStr(d);
+            preRequests[dateStr] = val;
         }
-    },
+    }
+    
+    return preRequests;
+},
+
+// [修正] 套用 AI 結果 - 完整版
+applyAIResult: function(aiResult) {
+    console.log("🔄 開始套用 AI 結果...");
+    
+    const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+    
+    // 先清空所有非鎖定的班別
+    this.data.staffList.forEach(staff => {
+        const uid = staff.uid;
+        if (!this.assignments[uid]) this.assignments[uid] = {};
+        
+        for (let d = 1; d <= daysInMonth; d++) {
+            const key = `current_${d}`;
+            const curr = this.assignments[uid][key];
+            
+            // 不覆蓋預休 (REQ_OFF) 和勿排 (!X)
+            if (curr === 'REQ_OFF' || (curr && curr.startsWith('!'))) {
+                continue; // 保留鎖定狀態
+            }
+            
+            // 清空其他班別,準備填入 AI 結果
+            delete this.assignments[uid][key];
+        }
+    });
+    
+    // 填入 AI 排班結果
+    let fillCount = 0;
+    
+    Object.keys(aiResult).forEach(dateStr => {
+        // 解析日期字串 (格式: YYYY-MM-DD)
+        const parts = dateStr.split('-');
+        const day = parseInt(parts[2], 10);
+        
+        if (isNaN(day) || day < 1 || day > daysInMonth) {
+            console.warn(`⚠️ 無效日期: ${dateStr}`);
+            return;
+        }
+        
+        const daySchedule = aiResult[dateStr];
+        
+        // 遍歷每個班別
+        Object.keys(daySchedule).forEach(shiftCode => {
+            let staffIds = daySchedule[shiftCode];
+            
+            // 處理 Set 或 Array 格式
+            if (staffIds instanceof Set) {
+                staffIds = Array.from(staffIds);
+            }
+            
+            if (!Array.isArray(staffIds)) {
+                console.warn(`⚠️ 班別 ${shiftCode} 資料格式錯誤:`, staffIds);
+                return;
+            }
+            
+            // 為每位員工設定班別
+            staffIds.forEach(uid => {
+                if (!this.assignments[uid]) {
+                    this.assignments[uid] = {};
+                }
+                
+                const key = `current_${day}`;
+                const existing = this.assignments[uid][key];
+                
+                // 不覆蓋鎖定狀態
+                if (existing === 'REQ_OFF' || (existing && existing.startsWith('!'))) {
+                    return;
+                }
+                
+                // 填入 AI 排定的班別
+                this.assignments[uid][key] = shiftCode;
+                fillCount++;
+            });
+        });
+    });
+    
+    console.log(`✅ AI 結果套用完成,共填入 ${fillCount} 個班別`);
+},
+
+// [新增] 輔助函數 - 生成日期字串
+getDateStr: function(day) {
+    const year = this.data.year;
+    const month = this.data.month;
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+},
 
     applyAIResult: function(aiResult) {
         // ... (邏輯與之前相同：保留預休，填入 AI 班別) ...
