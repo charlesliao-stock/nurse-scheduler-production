@@ -49,30 +49,33 @@ const scheduleRuleManager = {
         }
     },
 
-    loadUnitData: async function(unitId) {
-        this.currentUnitId = unitId;
-        const container = document.getElementById('rulesContainer');
-        if(container) container.style.display = 'block';
+loadUnitData: async function(unitId) {
+    this.currentUnitId = unitId;
+    const container = document.getElementById('rulesContainer');
+    if(container) container.style.display = 'block';
+    
+    try {
+        // 載入班別
+        const shiftsSnap = await db.collection('shifts').where('unitId', '==', unitId).get();
+        this.activeShifts = shiftsSnap.docs.map(d => d.data());
+
+        const doc = await db.collection('units').doc(unitId).get();
+        if(!doc.exists) return;
         
-        try {
-            const shiftsSnap = await db.collection('shifts').where('unitId', '==', unitId).get();
-            this.activeShifts = shiftsSnap.docs.map(d => d.data());
+        const unitData = doc.data();
+        const rules = unitData.schedulingRules || {};
+        
+        // 🔥 動態產生夜班選項
+        this.renderNightShiftOptions(rules.policy?.bannedAfterOff || []);
+        
+        this.fillForm(rules);
+        console.log("規則載入完成");
 
-            const doc = await db.collection('units').doc(unitId).get();
-            if(!doc.exists) return;
-            
-            const unitData = doc.data();
-            const rules = unitData.schedulingRules || {};
-            
-            this.fillForm(rules);
-            console.log("規則載入完成");
-
-        } catch(e) {
-            console.error("Load Data Error:", e);
-            alert("資料載入失敗");
-        }
-    },
-
+    } catch(e) {
+        console.error("Load Data Error:", e);
+        alert("資料載入失敗");
+    }
+},
     fillForm: function(r) {
         const setCheck = (id, val) => { const el = document.getElementById(id); if(el) el.checked = val; };
         const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
@@ -166,7 +169,37 @@ const scheduleRuleManager = {
         
         this.setupDragAndDrop();
     },
-
+renderNightShiftOptions: function(savedBanned) {
+    const container = document.getElementById('nightShiftCheckboxes');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    // 根據時間自動判斷哪些是夜班
+    this.activeShifts.forEach(shift => {
+        const [startHour] = shift.startTime.split(':').map(Number);
+        const [endHour] = shift.endTime.split(':').map(Number);
+        
+        // 判斷是否為夜班（22:00 後或 06:00 前）
+        const isNightShift = (startHour >= 22 || endHour <= 6 || (startHour === 0 && endHour <= 12));
+        
+        if (isNightShift) {
+            const isChecked = savedBanned.includes(shift.code) ? 'checked' : '';
+            const label = document.createElement('label');
+            label.style.cssText = 'display:flex; align-items:center; cursor:pointer; padding:5px 10px; border:1px solid #ddd; border-radius:4px; background:#f9f9f9;';
+            label.innerHTML = `
+                <input type="checkbox" class="banned-shift-checkbox" value="${shift.code}" ${isChecked} style="margin-right:5px;">
+                <span style="color:${shift.color}; font-weight:bold;">${shift.code}</span>
+                <span style="margin-left:5px; color:#666;">(${shift.name})</span>
+            `;
+            container.appendChild(label);
+        }
+    });
+    
+    if (container.children.length === 0) {
+        container.innerHTML = '<div style="color:#999;">此單位無夜班班別</div>';
+    }
+},
     setupDragAndDrop: function() {
         const container = document.getElementById('rotationContainer');
         if(!container) return;
