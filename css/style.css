@@ -1,4 +1,4 @@
-/* css/style.css */
+/* css/style.css - 緊湊優化版 */
 :root {
     --primary-color: #2c3e50;
     --accent-color: #3498db;
@@ -21,6 +21,7 @@ body {
     overflow: hidden;
     height: 100vh;
     display: flex;
+    font-size: 14px; /* [修正] 縮小全域字體 */
 }
 
 /* === 登入畫面 === */
@@ -62,24 +63,22 @@ body {
     position: absolute; top: 15px; left: 15px; width: 40px; height: 40px;
     background: var(--accent-color); color: white; border: none; border-radius: 5px; cursor: pointer; z-index: 101;
 }
-#content-area { padding: 20px; padding-top: 70px; height: 100%; overflow-y: auto; box-sizing: border-box; }
+#content-area { padding: 15px; padding-top: 65px; height: 100%; overflow-y: auto; box-sizing: border-box; }
 
-/* === 按鈕優化 (修正 Goal 1) === */
+/* === 按鈕優化 === */
 .btn {
     border: none;
-    padding: 8px 16px; /* 增加左右內距 */
+    padding: 6px 12px; /* [修正] 縮小內距 */
     border-radius: 4px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 13px; /* [修正] 縮小字體 */
     color: white;
     transition: all 0.2s;
     font-weight: 500;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    
-    /* [關鍵修正] 讓按鈕適應文字寬度，不換行 */
+    gap: 5px; /* [修正] 縮小間距 */
     width: auto !important;
     min-width: max-content;
     white-space: nowrap; 
@@ -88,7 +87,6 @@ body {
 .btn:hover { transform: translateY(-1px); box-shadow: 0 2px 5px rgba(0,0,0,0.15); }
 .btn:active { transform: translateY(0); }
 
-/* 移除 btn-primary 的 100% 寬度 */
 .btn-primary { background: var(--accent-color); margin-top: 0; } 
 .btn-primary:hover { background: #2980b9; }
 
@@ -106,31 +104,30 @@ body {
 /* === Modal 與 表單 === */
 .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; justify-content: center; align-items: center; }
 .modal.show { display: flex; }
-.modal-content { background: white; width: 90%; max-width: 650px; padding: 25px; border-radius: 8px; max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column;}
+.modal-content { background: white; width: 90%; max-width: 650px; padding: 20px; border-radius: 8px; max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column;}
 .modal-xl { max-width: 1100px !important; width: 95vw !important; }
 
-.form-row { display: flex; gap: 15px; margin-bottom: 15px; }
+.form-row { display: flex; gap: 12px; margin-bottom: 12px; } /* [修正] 縮小間距 */
 .form-group { flex: 1; }
-.form-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9rem; }
-.form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+.form-group label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 0.85rem; } /* [修正] 縮小字體 */
+.form-group input, .form-group select { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 13px; } /* [修正] 縮小內距和字體 */
 
-/* 欄位排版 */
-.form-row.compact { gap: 15px; align-items: flex-end; }
+.form-row.compact { gap: 12px; align-items: flex-end; }
 .form-col-sm { flex: 0 0 150px; } 
 .form-col-md { flex: 1; }
 
-/* === [關鍵修正] 頁籤樣式 (Goal 2) === */
+/* === 頁籤樣式 === */
 .tab-header {
     display: flex;
     border-bottom: 2px solid #ddd;
     margin-bottom: 0; 
     padding-left: 10px;
     background-color: #fff;
-    flex-shrink: 0; /* 防止 Header 被壓縮 */
+    flex-shrink: 0;
 }
 
 .tab-btn {
-    padding: 10px 20px;
+    padding: 8px 16px; /* [修正] 縮小內距 */
     margin-right: 5px;
     border: 1px solid transparent;
     border-bottom: none;
@@ -139,11 +136,11 @@ body {
     color: #666;
     cursor: pointer;
     font-weight: bold;
-    font-size: 1rem;
+    font-size: 0.9rem; /* [修正] 縮小字體 */
     position: relative;
-    top: 2px; /* 往下蓋住線 */
+    top: 2px;
     transition: all 0.2s;
-    width: auto; /* 按鈕寬度自動 */
+    width: auto;
     white-space: nowrap;
 }
 
@@ -153,59 +150,193 @@ body {
     background-color: #fff;
     color: var(--primary-color);
     border: 2px solid #ddd;
-    border-bottom: 2px solid #fff; /* 遮住底線，形成連通感 */
+    border-bottom: 2px solid #fff;
     z-index: 5;
 }
 
-/* 內容容器：有邊框，像一個資料夾 */
 .tab-content-wrapper {
     flex: 1;
-    overflow-y: auto; /* 內容過長時，只在內部捲動 */
-    padding: 20px;
+    overflow-y: auto;
+    padding: 15px; /* [修正] 縮小內距 */
     border: 2px solid #ddd;
     border-top: none;
     background-color: #fff;
 }
 
-/* 頁籤內容：預設隱藏 */
 .tab-content { 
     display: none !important; 
     height: 100%;
 }
 
-/* 只有 active 時才顯示 */
 .tab-content.active { 
     display: block !important; 
     animation: fadeIn 0.3s; 
 }
 
-/* === 其他樣式 (Toolbar, Table...) === */
-.toolbar { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.table-container { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-table { width: 100%; border-collapse: collapse; }
-th, td { padding: 10px 15px; text-align: left; border-bottom: 1px solid #eee; }
-th { background-color: #f8f9fa; font-weight: bold; white-space: nowrap; }
+/* === [關鍵修正] 表格緊湊樣式 === */
+.toolbar { 
+    background: white; 
+    padding: 10px; /* [修正] 縮小內距 */
+    border-radius: 8px; 
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
+    margin-bottom: 15px; /* [修正] 縮小間距 */
+    display: flex; 
+    gap: 8px; /* [修正] 縮小間距 */
+    align-items: center; 
+    flex-wrap: wrap; 
+}
 
-/* 矩陣排班專用 */
-.matrix-container { background: #fff; scrollbar-width: thin; }
-#scheduleMatrix { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; }
-#scheduleMatrix th, #scheduleMatrix td { border-right: 1px solid #ddd; border-bottom: 1px solid #ddd; padding: 0; text-align: center; vertical-align: middle; height: 36px; }
-.cell-narrow { width: 35px !important; min-width: 35px !important; max-width: 35px; overflow: hidden; }
-#scheduleMatrix thead th { position: sticky; top: 0; z-index: 20; background: #f1f1f1; border-bottom: 2px solid #ccc; }
-/* 左側固定欄位 */
-#scheduleMatrix th:nth-child(1), #scheduleMatrix td:nth-child(1) { position: sticky; left: 0; z-index: 10; background: #fff; width: 65px; }
-#scheduleMatrix th:nth-child(2), #scheduleMatrix td:nth-child(2) { position: sticky; left: 65px; z-index: 10; background: #fff; width: 70px; }
-#scheduleMatrix th:nth-child(3), #scheduleMatrix td:nth-child(3) { position: sticky; left: 135px; z-index: 10; background: #fff; width: 35px; }
-#scheduleMatrix th:nth-child(4), #scheduleMatrix td:nth-child(4) { position: sticky; left: 170px; z-index: 10; background: #fff; width: 35px; border-right: 2px solid #999; }
+.table-container { 
+    background: white; 
+    border-radius: 8px; 
+    overflow: hidden; 
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
+}
 
-.shift-admin-off { color: #fff; background-color: #9b59b6; display:flex; justify-content:center; align-items:center; height:100%; }
-.shift-req-off { color: #fff; background-color: #2ecc71; display:flex; justify-content:center; align-items:center; height:100%; }
-.shift-ban { color: #e74c3c; font-size: 0.8rem; display:flex; justify-content:center; align-items:center; }
-.text-danger { color: red !important; font-weight: 900 !important; background-color: #ffe6e6 !important; }
+table { 
+    width: 100%; 
+    border-collapse: collapse; 
+    font-size: 13px; /* [修正] 縮小表格字體 */
+}
 
-/* 右鍵選單樣式補充 - 加到 style.css 中 */
+th, td { 
+    padding: 6px 8px; /* [修正] 大幅縮小內距 */
+    text-align: left; 
+    border-bottom: 1px solid #eee; 
+    white-space: nowrap; /* [修正] 防止換行 */
+}
 
-/* 右鍵選單容器 */
+th { 
+    background-color: #f8f9fa; 
+    font-weight: bold; 
+    font-size: 12px; /* [修正] 縮小表頭字體 */
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+/* === [關鍵修正] 排班矩陣專用緊湊樣式 === */
+.matrix-container { 
+    background: #fff; 
+    scrollbar-width: thin; 
+    overflow: auto;
+    max-height: calc(100vh - 120px); /* [修正] 自動適應視窗高度 */
+}
+
+#scheduleMatrix { 
+    border-collapse: separate; 
+    border-spacing: 0; 
+    width: max-content; 
+    min-width: 100%; 
+    font-size: 12px; /* [修正] 縮小字體 */
+}
+
+#scheduleMatrix th, #scheduleMatrix td { 
+    border-right: 1px solid #ddd; 
+    border-bottom: 1px solid #ddd; 
+    padding: 0; /* [修正] 移除內距，完全緊湊 */
+    text-align: center; 
+    vertical-align: middle; 
+    height: 28px; /* [修正] 縮小行高 */
+    line-height: 28px; /* [修正] 對齊文字 */
+}
+
+.cell-narrow { 
+    width: 28px !important; /* [修正] 縮小欄寬 */
+    min-width: 28px !important; 
+    max-width: 28px; 
+    overflow: hidden; 
+    font-size: 11px; /* [修正] 縮小字體 */
+}
+
+#scheduleMatrix thead th { 
+    position: sticky; 
+    top: 0; 
+    z-index: 20; 
+    background: #f1f1f1; 
+    border-bottom: 2px solid #ccc; 
+    font-size: 11px; /* [修正] 縮小字體 */
+    padding: 4px 2px; /* [修正] 微調內距 */
+}
+
+/* [修正] 左側固定欄位 - 縮小寬度 */
+#scheduleMatrix th:nth-child(1), #scheduleMatrix td:nth-child(1) { 
+    position: sticky; 
+    left: 0; 
+    z-index: 10; 
+    background: #fff; 
+    width: 50px; /* [修正] 從 65px 縮小 */
+    font-size: 11px;
+}
+#scheduleMatrix th:nth-child(2), #scheduleMatrix td:nth-child(2) { 
+    position: sticky; 
+    left: 50px; /* [修正] 對應調整 */
+    z-index: 10; 
+    background: #fff; 
+    width: 60px; /* [修正] 從 70px 縮小 */
+    font-size: 11px;
+}
+#scheduleMatrix th:nth-child(3), #scheduleMatrix td:nth-child(3) { 
+    position: sticky; 
+    left: 110px; /* [修正] 對應調整 */
+    z-index: 10; 
+    background: #fff; 
+    width: 30px; /* [修正] 從 35px 縮小 */
+    font-size: 10px;
+}
+#scheduleMatrix th:nth-child(4), #scheduleMatrix td:nth-child(4) { 
+    position: sticky; 
+    left: 140px; /* [修正] 對應調整 */
+    z-index: 10; 
+    background: #fff; 
+    width: 30px; /* [修正] 從 35px 縮小 */
+    border-right: 2px solid #999; 
+    font-size: 10px;
+}
+
+/* [修正] 排班矩陣專用 badge 樣式 */
+#scheduleMatrix .badge {
+    padding: 2px 4px; /* [修正] 縮小 badge */
+    font-size: 10px;
+    border-radius: 3px;
+    display: inline-block;
+}
+
+.shift-admin-off { 
+    color: #fff; 
+    background-color: #9b59b6; 
+    display:flex; 
+    justify-content:center; 
+    align-items:center; 
+    height:100%; 
+    font-size: 11px; /* [修正] 縮小字體 */
+}
+
+.shift-req-off { 
+    color: #fff; 
+    background-color: #2ecc71; 
+    display:flex; 
+    justify-content:center; 
+    align-items:center; 
+    height:100%; 
+    font-size: 11px; /* [修正] 縮小字體 */
+}
+
+.shift-ban { 
+    color: #e74c3c; 
+    font-size: 10px; /* [修正] 縮小字體 */
+    display:flex; 
+    justify-content:center; 
+    align-items:center; 
+}
+
+.text-danger { 
+    color: red !important; 
+    font-weight: 900 !important; 
+    background-color: #ffe6e6 !important; 
+}
+
+/* === 右鍵選單樣式 === */
 .context-menu { 
     position: absolute; 
     background: white; 
@@ -213,31 +344,30 @@ th { background-color: #f8f9fa; font-weight: bold; white-space: nowrap; }
     box-shadow: 3px 3px 10px rgba(0,0,0,0.2); 
     border-radius: 4px; 
     z-index: 9999; 
-    min-width: 160px; 
-    font-size: 0.9rem; 
-    padding: 5px 0;
+    min-width: 140px; /* [修正] 縮小最小寬度 */
+    font-size: 12px; /* [修正] 縮小字體 */
+    padding: 4px 0; /* [修正] 縮小內距 */
     display: none;
 }
 
-/* 選單標題 */
 .menu-header { 
     background: #f1f1f1; 
-    padding: 8px 12px; 
+    padding: 6px 10px; /* [修正] 縮小內距 */
     font-weight: bold; 
     color: #555; 
     border-bottom: 1px solid #ddd; 
-    font-size: 0.9rem;
+    font-size: 11px; /* [修正] 縮小字體 */
 }
 
-/* 選單項目 */
 .menu-item { 
-    padding: 8px 15px; 
+    padding: 6px 12px; /* [修正] 縮小內距 */
     cursor: pointer; 
     display: flex; 
     align-items: center; 
-    gap: 8px; 
+    gap: 6px; /* [修正] 縮小間距 */
     color: #333;
     transition: background 0.15s;
+    font-size: 12px; /* [修正] 縮小字體 */
 }
 
 .menu-item:hover { 
@@ -245,9 +375,8 @@ th { background-color: #f8f9fa; font-weight: bold; white-space: nowrap; }
     color: white; 
 }
 
-/* 選單圖示 */
 .menu-icon { 
-    width: 20px; 
+    width: 16px; /* [修正] 縮小圖示 */
     text-align: center; 
     font-weight: bold; 
     display: inline-flex;
@@ -255,40 +384,40 @@ th { background-color: #f8f9fa; font-weight: bold; white-space: nowrap; }
     justify-content: center;
 }
 
-/* 分隔線 */
 .menu-separator {
     height: 1px;
     background: #ddd;
-    margin: 5px 0;
+    margin: 4px 0; /* [修正] 縮小間距 */
 }
 
-/* 顏色圓點 */
 .color-dot {
-    width: 12px;
-    height: 12px;
+    width: 10px; /* [修正] 縮小圓點 */
+    height: 10px;
     border-radius: 50%;
     display: inline-block;
 }
 
-
-/* --- Phase 2 新增樣式: 拖曳與統計 --- */
-
-/* 1. 底部統計監控列 */
+/* === Phase 2 樣式: 拖曳與統計 === */
 .stat-monitor-row td {
-    font-size: 0.85rem;
+    font-size: 11px; /* [修正] 縮小字體 */
     font-weight: bold;
     background: #fdfefe;
     border-top: 2px solid #bdc3c7;
     color: #555;
     vertical-align: middle !important;
+    padding: 4px 2px; /* [修正] 縮小內距 */
 }
-.stat-cell-shortage { background-color: #fadbd8 !important; color: #c0392b !important; } /* 缺人: 紅 */
-.stat-cell-ok { background-color: #d5f5e3 !important; color: #27ae60 !important; }       /* 達標: 綠 */
-.stat-cell-over { background-color: #fcf3cf !important; color: #f39c12 !important; }     /* 超編: 黃 */
 
-/* 2. 拖曳調班視覺效果 */
-.cell-draggable { cursor: grab; transition: transform 0.1s, box-shadow 0.1s; }
+.stat-cell-shortage { background-color: #fadbd8 !important; color: #c0392b !important; }
+.stat-cell-ok { background-color: #d5f5e3 !important; color: #27ae60 !important; }
+.stat-cell-over { background-color: #fcf3cf !important; color: #f39c12 !important; }
+
+.cell-draggable { 
+    cursor: grab; 
+    transition: transform 0.1s, box-shadow 0.1s; 
+}
 .cell-draggable:active { cursor: grabbing; }
+
 .cell-dragging { 
     opacity: 0.5; 
     transform: scale(0.9); 
@@ -296,7 +425,37 @@ th { background-color: #f8f9fa; font-weight: bold; white-space: nowrap; }
     background: #fff8e1 !important; 
     z-index: 1000;
 }
+
 .cell-drag-over {
     border: 2px dashed #3498db !important;
     background: #ebf5fb !important;
+}
+
+/* === [新增] 響應式優化 === */
+@media (max-width: 1600px) {
+    #scheduleMatrix {
+        font-size: 11px;
+    }
+    
+    .cell-narrow {
+        width: 24px !important;
+        min-width: 24px !important;
+        max-width: 24px;
+    }
+    
+    #scheduleMatrix th, #scheduleMatrix td {
+        height: 24px;
+        line-height: 24px;
+    }
+}
+
+@media (max-width: 1200px) {
+    .sidebar-header {
+        font-size: 1rem;
+    }
+    
+    #content-area {
+        padding: 10px;
+        padding-top: 60px;
+    }
 }
