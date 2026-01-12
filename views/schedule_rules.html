@@ -89,17 +89,13 @@
                     <label><input type="checkbox" id="rule_bundleNightOnly" checked> 4. 包班人員規範：鎖定單一夜班</label>
                 </div>
 
-<div class="rule-card">
-    <label><input type="checkbox" id="rule_noNightAfterOff" checked> 5. 非包班人員規範：OFF 後隔天班別限制</label>
-    <div class="rule-detail" style="display:flex; gap:15px; flex-direction:column;">
-        <div style="font-size:0.9rem; color:#666; margin-bottom:10px;">
-            勾選後，預休 (REQ_OFF) 或強制休 (OFF) 隔天不可排以下班別：
-        </div>
-        <div id="nightShiftCheckboxes" style="display:flex; flex-wrap:wrap; gap:10px;">
-            <!-- 這裡會動態載入班別選項 -->
-        </div>
-    </div>
-</div>
+                <div class="rule-card">
+                    <label><input type="checkbox" id="rule_noNightAfterOff" checked> 5. 非包班人員規範：OFF 後隔天班別限制</label>
+                    <div class="rule-detail" style="display:flex; gap:15px;">
+                        <label><input type="checkbox" id="rule_noNightAfterOff_N" checked> 不排大夜 (N)</label>
+                        <label><input type="checkbox" id="rule_noNightAfterOff_E" checked> 不排小夜 (E)</label>
+                    </div>
+                </div>
 
                 <div class="rule-card">
                     <label>6. 新進人員保護</label>
@@ -110,31 +106,7 @@
                     </div>
                 </div>
             </div>
-<!-- 在 tab-policy 區塊內，找到「6. 新進人員保護」之後，新增以下內容 -->
 
-<div class="rule-card" style="background:#fff3cd; border-left:4px solid #e67e22;">
-    <label style="display:block; margin-bottom:10px; color:#e67e22; font-weight:bold;">
-        <i class="fas fa-fire-extinguisher"></i> 7. 排班救火模式
-    </label>
-    <div class="rule-detail">
-        <div style="margin-bottom:10px;">
-            <label>
-                <input type="checkbox" id="rule_emergencyMode" style="width:auto; margin-right:8px;">
-                啟用排班救火模式（人力吃緊時使用）
-            </label>
-        </div>
-        <div style="background:#fff; padding:10px; border-radius:4px; margin-top:10px; font-size:0.85rem; color:#856404;">
-            <strong>說明：</strong>
-            <ul style="margin:5px 0; padding-left:20px;">
-                <li><strong>關閉時（預設）</strong>：嚴格遵守個人排班偏好（包班、志願序）</li>
-                <li><strong>開啟時</strong>：在「允許 3 種班別」的前提下，AI 可以適度忽略個人偏好以滿足人力需求</li>
-                <li><strong>適用時機</strong>：人力嚴重不足、緊急調班、或預班資料不完整時</li>
-                <li>⚠️ 啟用後仍會保留「預休」(REQ_OFF) 和「勿排」(!X) 的設定</li>
-            </ul>
-        </div>
-    </div>
-</div>
-            
             <div id="tab-pattern" class="tab-content">
                 <h4 style="color:#f1c40f; margin-top:0;">班別銜接邏輯</h4>
                 

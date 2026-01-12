@@ -46,7 +46,6 @@ class BaseScheduler {
         this.rule_bundleNightOnly = r.policy?.bundleNightOnly !== false;
         this.rule_noNightAfterOff = r.policy?.noNightAfterOff !== false;
         this.rule_enableRelaxation = r.policy?.enableRelaxation === true; // 預設關閉
-        this.rule_emergencyMode = r.policy?.emergencyMode === true;
         
         // 輪替邏輯
         this.rule_dayStartShift = r.pattern?.dayStartShift || 'D';
@@ -64,8 +63,7 @@ class BaseScheduler {
         console.log("📋 規則解析完成:", {
             間隔保護: this.rule_minGap11,
             連上限制: this.rule_limitConsecutive ? `${this.rule_maxConsDays}天` : '關閉',
-輪替順序: this.rule_rotationOrder,
-	            排班救火: this.rule_emergencyMode ? '啟用' : '關閉' // 🔥 新增日誌
+            輪替順序: this.rule_rotationOrder
         });
     }
 
@@ -230,44 +228,22 @@ class BaseScheduler {
         // 4️⃣ 檢查個人偏好/包班 (提升為絕對規則，不可跨班指派)
         const params = staff.schedulingParams || {};
         const prefs = staff.prefs || {};
-        // 優先從 schedulingParams 讀取 bundleShift，這是 UI 設定的來源
-        const bundleShift = params.bundleShift || staff.packageType || prefs.bundleShift;
-
-        // 🔥 關鍵邏輯：救火模式的判斷
-        const isEmergencyMode = this.rule_emergencyMode;
-        const allow3Shifts = this.rules.settings?.shiftTypeMode === "3" || this.rule_maxDiversity3 === false;
-
-        if (bundleShift && bundleShift !== 'OFF' && bundleShift !== shiftCode) {
-            // 包班設定：除非開啟救火模式 + 允許3種班，否則不可跨班
-            if (!(isEmergencyMode && allow3Shifts)) {
-                // console.log(`⚠️ ${staff.name} 包班 ${bundleShift}，不可排 ${shiftCode}`);
-                return false;
-            } else {
-                console.log(`🔥 救火模式：${staff.name} 包班 ${bundleShift}，但允許排 ${shiftCode}`);
-            }
+        const bundleShift = staff.packageType || prefs.bundleShift;
+        
+        if (bundleShift && bundleShift !== shiftCode) {
+            // 如果有包班設定，且目前要排的班別不符，則禁止
+            return false;
         }
 
         // 如果是放寬模式，以下「建議性」規則將被跳過
         if (relaxRules) return true;
 
         // 4️⃣ 檢查 OFF 後不排夜班
-    if (this.rule_noNightAfterOff && prevShift === 'OFF') {
-        const bannedShifts = this.rules.policy?.bannedAfterOff || [];
-        
-        // 如果有設定清單，使用清單；否則自動判斷
-        if (bannedShifts.length > 0) {
-            if (bannedShifts.includes(shiftCode)) {
-                console.log(`⚠️ ${staff.name} 昨日休假，今日不排 ${shiftCode}（規則限制）`);
-                return false;
-            }
-        } else {
-            // 沒有清單時，使用自動判斷
-            if (this.isNightShift(shiftCode)) {
-                console.log(`⚠️ ${staff.name} 昨日休假，今日不排夜班 ${shiftCode}（自動判斷）`);
+        if (this.rule_noNightAfterOff && prevShift === 'OFF') {
+            if (shiftCode.includes('N') || shiftCode.includes('E')) {
                 return false;
             }
         }
-    }
 
         // 5️⃣ 檢查班別多樣性 (一週內不得有3種班別)
         if (this.rule_maxDiversity3 && !this.checkWeeklyDiversity(staff.id, dateStr, shiftCode)) {
@@ -422,29 +398,6 @@ getConsecutiveWorkDays(uid, dateStr) {
     }
 
     // --- 工具 ---
-    
-    // 判斷是否為夜班 (大夜或小夜)
-    isNightShift(shiftCode) {
-        if (!shiftCode || shiftCode === 'OFF') return false;
-        const time = this.shiftTimes[shiftCode];
-        if (!time) return shiftCode.includes('N') || shiftCode.includes('E');
-        // 只要跨越午夜或在深夜時段都視為夜班
-        return (time.start >= 22 || time.start < 6 || time.end <= 8);
-    }
-
-    // 檢查某人某天是否被鎖定 (預休或禁止排班)
-    isLocked(day, uid) {
-        const dateStr = this.getDateStr(day);
-        const staff = this.staffList.find(s => s.id === uid);
-        if (!staff) return false;
-        
-        const prefs = staff.schedulingParams || staff.prefs || {};
-        const val = prefs[dateStr];
-        
-        // REQ_OFF 是鎖定的，以 ! 開頭的也是鎖定的 (例如 !D 代表禁止排 D)
-        return (val === 'REQ_OFF' || (typeof val === 'string' && val.startsWith('!')));
-    }
-
     getDateStr(d) {
         return `${this.year}-${String(this.month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     }
