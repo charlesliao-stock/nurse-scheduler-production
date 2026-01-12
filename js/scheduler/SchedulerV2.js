@@ -233,8 +233,11 @@ class SchedulerV2 extends BaseScheduler {
     postProcessBalancing() {
         console.log("\n🔄 執行積極平衡後處理...");
         
-        const maxRounds = 100; // 增加輪數
+        // [關鍵修正] 從規則讀取輪數，不寫死
+        const maxRounds = this.BALANCE_ROUNDS;
         let swapCount = 0;
+        
+        console.log(`⚙️ 設定輪數: ${maxRounds} 輪`);
         
         for (let round = 0; round < maxRounds; round++) {
             let improved = false;
@@ -250,9 +253,9 @@ class SchedulerV2 extends BaseScheduler {
             const maxOff = offCounts[0];
             const minOff = offCounts[offCounts.length - 1];
             
-            // 如果差異 <= 2，停止
-            if (maxOff.off - minOff.off <= 2) {
-                console.log(`✅ 已達平衡 (差異: ${maxOff.off - minOff.off}), 提前結束`);
+            // [關鍵修正] 使用動態容忍度判斷
+            if (maxOff.off - minOff.off <= this.TOLERANCE) {
+                console.log(`✅ 已達平衡 (差異: ${maxOff.off - minOff.off} <= ${this.TOLERANCE}), 提前結束於第 ${round} 輪`);
                 break;
             }
             
@@ -263,7 +266,11 @@ class SchedulerV2 extends BaseScheduler {
                 improved = true;
             }
             
-            if (!improved && round > 50) break; // 後期無改善就停止
+            // 後期無改善提前結束
+            if (!improved && round > maxRounds / 2) {
+                console.log(`⏸️ 第 ${round} 輪無改善，提前結束`);
+                break;
+            }
         }
         
         console.log(`✅ 後處理完成，成功交換 ${swapCount} 次`);
@@ -326,8 +333,9 @@ class SchedulerV2 extends BaseScheduler {
         const minOff = offCounts[offCounts.length - 1].off;
         const diff = maxOff - minOff;
         
-        if (diff > 2) {
-            console.warn(`⚠️ 最終差異 ${diff} 超過 2 天，執行強制調整...`);
+        // [關鍵修正] 使用動態容忍度判斷
+        if (diff > this.TOLERANCE) {
+            console.warn(`⚠️ 最終差異 ${diff} 超過設定值 ${this.TOLERANCE} 天，執行強制調整...`);
             
             // 列出需要調整的人
             offCounts.forEach(item => {
@@ -342,7 +350,7 @@ class SchedulerV2 extends BaseScheduler {
             // 這裡可以加入更激進的調整邏輯
             // 但通常前面的後處理已經足夠
         } else {
-            console.log(`✅ 最終差異 ${diff} 天，符合要求`);
+            console.log(`✅ 最終差異 ${diff} 天，符合容忍度 ${this.TOLERANCE} 天的要求`);
         }
     }
 
