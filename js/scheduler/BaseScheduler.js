@@ -46,6 +46,7 @@ class BaseScheduler {
         this.rule_bundleNightOnly = r.policy?.bundleNightOnly !== false;
         this.rule_noNightAfterOff = r.policy?.noNightAfterOff !== false;
         this.rule_enableRelaxation = r.policy?.enableRelaxation === true; // 預設關閉
+        this.rule_emergencyMode = r.policy?.emergencyMode === true;
         
         // 輪替邏輯
         this.rule_dayStartShift = r.pattern?.dayStartShift || 'D';
@@ -64,6 +65,7 @@ class BaseScheduler {
             間隔保護: this.rule_minGap11,
             連上限制: this.rule_limitConsecutive ? `${this.rule_maxConsDays}天` : '關閉',
             輪替順序: this.rule_rotationOrder
+            排班救火: this.rule_emergencyMode ? '啟用' : '關閉' // 🔥 新增日誌
         });
     }
 
@@ -229,11 +231,20 @@ class BaseScheduler {
         const params = staff.schedulingParams || {};
         const prefs = staff.prefs || {};
         const bundleShift = staff.packageType || prefs.bundleShift;
-        
-        if (bundleShift && bundleShift !== shiftCode) {
-            // 如果有包班設定，且目前要排的班別不符，則禁止
+
+            // 🔥 關鍵邏輯：救火模式的判斷
+    const isEmergencyMode = this.rule_emergencyMode;
+    const allow3Shifts = this.rules.settings?.shiftTypeMode === "3" || this.rule_maxDiversity3 === false;
+
+    if (bundleShift && bundleShift !== shiftCode) {
+        // 包班設定：除非開啟救火模式 + 允許3種班，否則不可跨班
+        if (!(isEmergencyMode && allow3Shifts)) {
+            console.log(`⚠️ ${staff.name} 包班 ${bundleShift}，不可排 ${shiftCode}`);
             return false;
+        } else {
+            console.log(`🔥 救火模式：${staff.name} 包班 ${bundleShift}，但允許排 ${shiftCode}`);
         }
+    }
 
         // 如果是放寬模式，以下「建議性」規則將被跳過
         if (relaxRules) return true;
