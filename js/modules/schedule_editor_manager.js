@@ -720,12 +720,123 @@ getDateStr: function(day) {
         document.getElementById('schContextMenu').style.display = 'none';
         this.updateRealTimeStats();
     },
-    resetSchedule: async function() { /* 同前版 */ },
-    publishSchedule: async function() { /* 同前版 */ },
-    unpublishSchedule: async function() { /* 同前版 */ },
-    cleanup: function() { document.getElementById('schContextMenu').style.display='none'; },
-    setupEvents: function() { document.addEventListener('click', () => { 
-        const m = document.getElementById('schContextMenu'); if(m) m.style.display='none'; 
-    }); },
-    openNeedsModal: function() { /* 同前版，若需補上請告知 */ }
+    resetSchedule: async function() {
+        if(!confirm("確定要重置所有班別嗎？(預休將保留)")) return;
+        Object.keys(this.assignments).forEach(uid => {
+            for(let d=1; d<=31; d++) {
+                const key = `current_${d}`;
+                const val = this.assignments[uid][key];
+                if(val && val !== 'REQ_OFF' && !val.startsWith('!')) {
+                    delete this.assignments[uid][key];
+                }
+            }
+        });
+        this.renderMatrix();
+        this.updateRealTimeStats();
+    },
+    publishSchedule: async function() {
+        if(!confirm("確定要發布班表嗎？發布後人員將可查看。")) return;
+        try {
+            this.isLoading = true;
+            await db.collection('schedules').doc(this.scheduleId).update({
+                status: 'published',
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            this.data.status = 'published';
+            this.renderToolbar();
+            alert("✅ 班表已發布");
+        } catch(e) { alert("發布失敗"); }
+        finally { this.isLoading = false; }
+    },
+    unpublishSchedule: async function() {
+        if(!confirm("確定要取消發布嗎？")) return;
+        try {
+            this.isLoading = true;
+            await db.collection('schedules').doc(this.scheduleId).update({
+                status: 'draft',
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            this.data.status = 'draft';
+            this.renderToolbar();
+            alert("✅ 已轉回草稿");
+        } catch(e) { alert("操作失敗"); }
+        finally { this.isLoading = false; }
+    },
+    cleanup: function() { 
+        const menu = document.getElementById('schContextMenu');
+        if(menu) menu.style.display='none'; 
+    },
+    setupEvents: function() { 
+        document.addEventListener('click', () => { 
+            const m = document.getElementById('schContextMenu'); 
+            if(m) m.style.display='none'; 
+        }); 
+    },
+    openNeedsModal: function() {
+        alert("請至『規則與評分設定』中設定每日人力需求。");
+    },
+    refreshCell: function(uid, d) {
+        const cell = document.querySelector(`td[data-uid="${uid}"][data-day="${d}"]`);
+        if(cell) {
+            const val = this.assignments[uid][`current_${d}`] || '';
+            cell.innerHTML = this.renderCellContent(val);
+        }
+    },
+    renderCellContent: function(val) {
+        if(!val) return '';
+        if(val === 'OFF') return '<span class="badge badge-off">OFF</span>';
+        if(val === 'REQ_OFF') return '<span class="badge badge-req-off">休</span>';
+        if(val === 'LEAVE') return '<span class="badge badge-leave">假</span>';
+        
+        const s = this.shifts.find(x => x.code === val);
+        const color = s ? s.color : '#333';
+        return `<span class="shift-tag" style="border-left:3px solid ${color}">${val}</span>`;
+    },
+    bindEvents: function() {
+        const cells = document.querySelectorAll('.cell-clickable');
+        cells.forEach(cell => {
+            cell.oncontextmenu = (e) => {
+                e.preventDefault();
+                const uid = cell.dataset.uid;
+                const d = cell.dataset.day;
+                this.handleRightClick(e, uid, d);
+            };
+        });
+    },
+    runAI: async function() {
+        try {
+            this.isLoading = true;
+            console.log("🚀 啟動 AI 排班...");
+            
+            // 1. 準備資料
+            const allStaff = this.data.staffList.map(s => ({
+                id: s.uid,
+                name: s.name,
+                packageType: this.assignments[s.uid]?.preferences?.bundleShift || null,
+                prefs: this.assignments[s.uid]?.preferences || {}
+            }));
+            
+            const rules = this.unitRules;
+            const year = this.data.year;
+            const month = this.data.month;
+            
+            // 2. 建立排班器
+            const factory = SchedulerFactory.create('V2', allStaff, year, month, {}, rules);
+            
+            // 3. 執行
+            const result = factory.run();
+            
+            // 4. 套用結果
+            this.applyAIResult(result);
+            this.renderMatrix();
+            this.updateRealTimeStats();
+            
+            alert("✅ AI 排班完成！");
+        } catch (e) {
+            console.error(e);
+            alert("AI 排班失敗: " + e.message);
+        } finally {
+            this.isLoading = false;
+        }
+    }
 };
