@@ -246,35 +246,48 @@ const scheduleEditorManager = {
         const countMap = {};
         for(let d=1; d<=daysInMonth; d++) countMap[d] = {};
 
-        // 2. 計算人員統計 & 每日班別統計
-        this.data.staffList.forEach(s => {
-            let off=0, E=0, N=0, hol=0;
-            const uid = s.uid;
-            const userAssign = this.assignments[uid] || {};
+// 🔥 修正：只計算本月 current_ 開頭的 OFF
+updateRealTimeStats: function() {
+    // ... 前面保持不變 ...
+    
+    // 2. 計算人員統計 & 每日班別統計
+    this.data.staffList.forEach(s => {
+        let off=0, E=0, N=0, hol=0;
+        const uid = s.uid;
+        const userAssign = this.assignments[uid] || {};
+        
+        // 🔥 關鍵修正：只計算 current_ 開頭的（本月）
+        for(let d=1; d<=daysInMonth; d++) {
+            const key = `current_${d}`; // 只看本月
+            const val = userAssign[key];
+            const date = new Date(year, month-1, d);
+            const isW = (date.getDay()===0||date.getDay()===6);
             
-            for(let d=1; d<=daysInMonth; d++) {
-                const val = userAssign[`current_${d}`];
-                const date = new Date(year, month-1, d);
-                const isW = (date.getDay()===0||date.getDay()===6);
-                
-                // 個人統計
-                if(val==='OFF'||val==='REQ_OFF') {
-                    off++; if(isW) hol++;
-                } else if(val && val.includes('E')) E++;
-                else if(val && val.includes('N')) N++;
-
-                // 每日班別統計
-                if(val && val !== 'OFF' && val !== 'REQ_OFF') {
-                    if(!countMap[d][val]) countMap[d][val] = 0;
-                    countMap[d][val]++;
-                }
+            // 個人統計
+            if(val==='OFF'||val==='REQ_OFF') {
+                off++; 
+                if(isW) hol++;
+            } else if(val && val.includes('E')) {
+                E++;
+            } else if(val && val.includes('N')) {
+                N++;
             }
-            // 更新個人統計 DOM
-            const set = (id,v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
-            set(`stat_off_${uid}`, off); set(`stat_E_${uid}`, E);
-            set(`stat_N_${uid}`, N); set(`stat_hol_${uid}`, hol);
-        });
 
+            // 每日班別統計
+            if(val && val !== 'OFF' && val !== 'REQ_OFF') {
+                if(!countMap[d][val]) countMap[d][val] = 0;
+                countMap[d][val]++;
+            }
+        }
+        
+        // 更新個人統計 DOM
+        const set = (id,v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
+        set(`stat_off_${uid}`, off); 
+        set(`stat_E_${uid}`, E);
+        set(`stat_N_${uid}`, N); 
+        set(`stat_hol_${uid}`, hol);
+    });
+    
         // 3. 渲染 tfoot (缺額監控)
         let fHtml = '';
         
