@@ -1,0 +1,98 @@
+<div class="page-section active">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <h2 style="margin:0;"><i class="fas fa-hospital-alt"></i> 單位管理</h2>
+    </div>
+    
+    <div class="toolbar">
+        <input type="text" id="searchUnitInput" placeholder="搜尋單位代碼或名稱..." style="padding:8px; border:1px solid #ccc; border-radius:4px; width:250px;">
+        
+        <div style="margin-left:auto;">
+            <button id="btnAddUnit" class="btn btn-add" onclick="unitManager.openModal()"><i class="fas fa-plus"></i> 新增單位</button>
+            <button id="btnImportUnit" class="btn btn-import" onclick="unitManager.openImportModal()"><i class="fas fa-file-import"></i> 批次匯入</button>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table id="unitTable">
+            <thead>
+                <tr>
+                    <th style="width: 15%; cursor:pointer;" onclick="unitManager.sortData('id')">
+                        單位代碼 <i id="sort_icon_unit_id" class="fas fa-sort"></i>
+                    </th>
+                    <th style="width: 20%; cursor:pointer;" onclick="unitManager.sortData('name')">
+                        單位名稱 <i id="sort_icon_unit_name" class="fas fa-sort"></i>
+                    </th>
+                    <th style="width: 25%; cursor:pointer;" onclick="unitManager.sortData('managers')">
+                        單位管理者 <i id="sort_icon_unit_managers" class="fas fa-sort"></i>
+                    </th>
+                    <th style="width: 25%; cursor:pointer;" onclick="unitManager.sortData('schedulers')">
+                        排班者 <i id="sort_icon_unit_schedulers" class="fas fa-sort"></i>
+                    </th>
+                    <th style="width: 15%;">操作</th>
+                </tr>
+            </thead>
+            <tbody id="unitTableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<div id="unitModal" class="modal">
+    <div class="modal-content" style="max-width: 700px;">
+        <h3>編輯單位資料</h3>
+        <input type="hidden" id="currentMode">
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>單位代碼 (ID) *</label>
+                <input type="text" id="inputUnitId" placeholder="例如: ICU01">
+                <small style="color:#666;">新增後無法修改</small>
+            </div>
+            <div class="form-group">
+                <label>單位名稱 *</label>
+                <input type="text" id="inputUnitName" placeholder="例如: 內科加護病房">
+            </div>
+        </div>
+
+        <hr style="border:0; border-top:1px solid #eee; margin:15px 0;">
+
+        <p style="font-size:0.9rem; color:#666; margin-bottom:10px;">
+            <i class="fas fa-info-circle"></i> 僅列出目前歸屬於此單位的人員。如需增加人員,請至「人員管理」進行指派。
+        </p>
+
+        <div class="role-assign-container" style="display:flex; gap:15px;">
+            <div class="role-column" style="flex:1;">
+                <label style="color:#e67e22; font-weight:bold; margin-bottom:5px; display:block;">單位管理者 (可複選)</label>
+                <div id="managerList" class="staff-checkbox-list" style="height:250px; overflow-y:auto; border:1px solid #ddd; border-radius:4px; padding:10px; background:#fafafa;"></div>
+            </div>
+
+            <div class="role-column" style="flex:1;">
+                <label style="color:#27ae60; font-weight:bold; margin-bottom:5px; display:block;">單位排班者 (可複選)</label>
+                <div id="schedulerList" class="staff-checkbox-list" style="height:250px; overflow-y:auto; border:1px solid #ddd; border-radius:4px; padding:10px; background:#fafafa;"></div>
+            </div>
+        </div>
+
+        <div style="text-align:right; margin-top:25px;">
+            <button class="btn btn-close" onclick="unitManager.closeModal()">取消</button>
+            <button class="btn btn-add" onclick="unitManager.saveData()">儲存</button>
+        </div>
+    </div>
+</div>
+
+<div id="unitImportModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+        <h3><i class="fas fa-file-import"></i> 批次匯入單位</h3>
+        <div style="margin-bottom: 20px;">
+            <button class="btn btn-close" style="background-color: #17a2b8; width: 100%;" onclick="unitManager.downloadTemplate()">
+                <i class="fas fa-download"></i> 下載 CSV 範例檔
+            </button>
+        </div>
+        <div style="margin-bottom: 20px;">
+            <input type="file" id="csvUnitFile" accept=".csv" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">
+        </div>
+        <div id="unitImportResult" style="margin-bottom:15px; font-size: 0.9rem;"></div>
+        <div style="text-align:right;">
+            <button class="btn btn-close" onclick="unitManager.closeImportModal()">取消</button>
+            <button class="btn btn-add" onclick="unitManager.processImport()">開始匯入</button>
+        </div>
+    </div>
+</div>

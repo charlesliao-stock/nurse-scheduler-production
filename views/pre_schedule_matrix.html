@@ -1,0 +1,99 @@
+<div class="page-section active" style="padding:0; height:100vh; display:flex; flex-direction:column;">
+    
+    <div style="padding:10px 20px; background:white; border-bottom:1px solid #ddd; display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
+        <div style="display:flex; align-items:center; gap:15px;">
+            <button class="btn" onclick="history.back()" style="background:#95a5a6; padding: 5px 10px; font-size: 0.9rem;">
+                <i class="fas fa-arrow-left"></i> 返回
+            </button>
+            <h3 style="margin:0;" id="matrixTitle">載入中...</h3>
+            <span id="matrixStatus" class="badge"></span>
+        </div>
+        
+        <div style="display:flex; align-items:center; gap:10px;">
+            <div class="legend-box" style="font-size:0.85rem; color:#555; display:flex; gap:12px; margin-right:15px; background:#f9f9f9; padding:5px 10px; border-radius:4px;">
+                <span style="display:flex; align-items:center; gap:4px;">
+                    <span class="color-dot" style="background:#9b59b6;"></span> 強制休 (Admin)
+                </span>
+                <span style="display:flex; align-items:center; gap:4px;">
+                    <span class="color-dot" style="background:#2ecc71;"></span> 預休 (User)
+                </span>
+                <span style="display:flex; align-items:center; gap:4px;">
+                    <span class="color-dot" style="background:#fff; border:1px solid #ccc; color:red; font-size:10px; display:flex; justify-content:center; align-items:center;"><i class="fas fa-ban"></i></span> 勿排
+                </span>
+                <span style="display:flex; align-items:center; gap:4px;">
+                    <span style="color:red; font-weight:bold;">10</span> 超限警告
+                </span>
+            </div>
+
+            <button class="btn btn-add" onclick="matrixManager.saveData()">
+                <i class="fas fa-save"></i> 儲存草稿
+            </button>
+            <button class="btn btn-primary" onclick="matrixManager.executeSchedule()">
+                <i class="fas fa-check-circle"></i> 執行排班
+            </button>
+        </div>
+    </div>
+
+    <!-- [關鍵修正] 移除 inline oncontextmenu 屬性 -->
+    <div id="matrixContainer" class="matrix-container" style="flex:1; overflow:auto; position:relative;">
+        <table id="scheduleMatrix">
+            <thead id="matrixHead"></thead>
+            <tbody id="matrixBody"></tbody>
+            <tfoot id="matrixFoot" style="position:sticky; bottom:0; background:#f9f9f9; z-index:25; font-weight:bold; border-top:2px solid #ddd;"></tfoot>
+        </table>
+    </div>
+</div>
+
+<div id="customContextMenu" class="context-menu" style="display:none;">
+    <div class="menu-header" id="contextMenuTitle">設定班別</div>
+    <div id="contextMenuOptions"></div>
+</div>
+
+<div id="prefModal" class="modal">
+    <div class="modal-content" style="max-width: 450px;">
+        <h3><i class="fas fa-sliders-h"></i> 編輯人員偏好</h3>
+        <input type="hidden" id="prefTargetUid">
+        
+        <div style="margin-bottom:15px; color:#555;" id="prefTargetName"></div>
+
+        <div class="form-group" style="margin-bottom:15px;">
+            <label style="font-weight:bold;">包班意願</label>
+            <select id="editBundleShift" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px; margin-top:5px;">
+                <option value="">無 (不包班)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label style="font-weight:bold;">班別志願序</label>
+            <div id="editPrefContainer" style="margin-top:5px; display:flex; flex-direction:column; gap:8px;">
+            </div>
+        </div>
+
+        <div style="text-align:right; margin-top:25px;">
+            <button class="btn btn-close" onclick="matrixManager.closePrefModal()">取消</button>
+            <button class="btn btn-add" onclick="matrixManager.savePreferences()">儲存設定</button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* [新增] 額外的 CSS 確保右鍵選單不會被瀏覽器預設選單覆蓋 */
+#matrixContainer, 
+#matrixContainer *, 
+#scheduleMatrix,
+#scheduleMatrix *,
+.cell-clickable {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+.cell-clickable {
+    cursor: pointer;
+}
+
+.cell-clickable:active {
+    background-color: #f0f8ff;
+}
+</style>
