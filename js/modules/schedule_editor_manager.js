@@ -635,32 +635,6 @@ getDateStr: function(day) {
     return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 },
 
-    applyAIResult: function(aiResult) {
-        // ... (邏輯與之前相同：保留預休，填入 AI 班別) ...
-        // 為了節省篇幅，這裡直接實作關鍵邏輯
-        Object.keys(aiResult).forEach(dateStr => {
-            const day = parseInt(dateStr.split(/[-/]/)[2], 10);
-            if (isNaN(day)) return;
-            const daySch = aiResult[dateStr];
-            
-            Object.keys(daySch).forEach(shiftCode => {
-                let uids = daySch[shiftCode];
-                if(uids instanceof Set) uids = Array.from(uids);
-                if(!Array.isArray(uids)) uids = [];
-
-                uids.forEach(uid => {
-                    if(!this.assignments[uid]) this.assignments[uid] = {};
-                    const key = `current_${day}`;
-                    const curr = this.assignments[uid][key];
-                    // 不覆蓋預休
-                    if(curr !== 'REQ_OFF' && (!curr || !curr.startsWith('!'))) {
-                        this.assignments[uid][key] = (shiftCode === 'OFF') ? 'OFF' : shiftCode;
-                    }
-                });
-            });
-        });
-    },
-
     // ... (其餘 saveDraft, publishSchedule 等函式維持原樣，或可直接沿用之前提供的版本) ...
     // 為了確保完整性，這裡補上 saveDraft
     saveDraft: async function(silent = false) {
