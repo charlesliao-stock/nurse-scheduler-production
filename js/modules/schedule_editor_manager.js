@@ -681,7 +681,42 @@ getDateStr: function(day) {
         document.getElementById('schContextMenu').style.display = 'none';
         this.updateRealTimeStats();
     },
-    resetSchedule: async function() { /* 同前版 */ },
+    resetSchedule: async function() {
+        if (!confirm("確定要重置班表？這將清除所有已排定的班別，但會保留預休(REQ_OFF)與鎖定狀態。")) return;
+        
+        this.isLoading = true;
+        try {
+            const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+            
+            this.data.staffList.forEach(staff => {
+                const uid = staff.uid;
+                if (!this.assignments[uid]) return;
+                
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const key = `current_${d}`;
+                    const curr = this.assignments[uid][key];
+                    
+                    // 保留預休 (REQ_OFF) 和勿排 (!X)
+                    if (curr === 'REQ_OFF' || (typeof curr === 'string' && curr.startsWith('!'))) {
+                        continue;
+                    }
+                    
+                    // 清除其他班別
+                    delete this.assignments[uid][key];
+                }
+            });
+            
+            this.renderMatrix();
+            this.updateRealTimeStats();
+            await this.saveDraft(true);
+            alert("✅ 班表已重置");
+        } catch (e) {
+            console.error("❌ 重置失敗:", e);
+            alert("重置失敗: " + e.message);
+        } finally {
+            this.isLoading = false;
+        }
+    },
     publishSchedule: async function() { /* 同前版 */ },
     unpublishSchedule: async function() { /* 同前版 */ },
     cleanup: function() { document.getElementById('schContextMenu').style.display='none'; },

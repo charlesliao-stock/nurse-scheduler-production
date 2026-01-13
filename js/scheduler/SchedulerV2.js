@@ -80,21 +80,28 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     resetSchedule() {
-        // 保留預休 (REQ_OFF) 和勿排 (!X)
+        // [關鍵修正] 排班前重置：保留預休 (REQ_OFF) 和勿排 (!X)，其餘清空為 OFF
         this.staffList.forEach(staff => {
             const prefs = staff.schedulingParams || staff.prefs || {};
             for (let d = 1; d <= this.daysInMonth; d++) {
                 const dateStr = this.getDateStr(d);
                 const prefVal = prefs[dateStr];
+                const current = this.getShiftByDate(dateStr, staff.id);
                 
-                if (prefVal === 'REQ_OFF' || prefVal === 'OFF') {
-                    const current = this.getShiftByDate(dateStr, staff.id);
+                if (prefVal === 'REQ_OFF') {
+                    // 如果是預休，強制設為 REQ_OFF
                     this.updateShift(dateStr, staff.id, current, 'REQ_OFF');
                 } else if (typeof prefVal === 'string' && prefVal.startsWith('!')) {
+                    // 如果是勿排，記錄禁止班別，並重置為 OFF
                     staff[`ban_${dateStr}`] = prefVal.substring(1);
+                    this.updateShift(dateStr, staff.id, current, 'OFF');
+                } else {
+                    // 其餘情況一律重置為 OFF，確保 AI 從乾淨狀態開始
+                    this.updateShift(dateStr, staff.id, current, 'OFF');
                 }
             }
         });
+        console.log("✅ AI 排班前重置完成 (保留預休與鎖定狀態)");
     }
 
     determineShiftOrder() {
