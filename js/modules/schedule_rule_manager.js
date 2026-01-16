@@ -1,5 +1,5 @@
 // js/modules/schedule_rule_manager.js
-// 🔧 修正版：解決畫面空白問題 (新增顯示容器的邏輯)
+// 🔧 修正版：恢復預班/勿排權重設定 + 夜班動態過濾邏輯
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -8,19 +8,19 @@ const scheduleRuleManager = {
     init: async function() {
         console.log("Scheduling Rules Manager Loaded.");
         
-        // 確保預設隱藏規則區塊，直到選擇單位
         const container = document.getElementById('rulesContainer');
         if(container) container.style.display = 'none';
 
         await this.loadUnitDropdown();
         
-        // 監聽時間區間變化
+        // 監聽時間區間變化 -> 觸發動態重繪
         const startInput = document.getElementById('rule_nightStart');
         const endInput = document.getElementById('rule_nightEnd');
         if (startInput && endInput) {
             const updateList = () => {
-                const rules = { policy: { noNightAfterOff_List: this.getCheckedNightLimits() } };
-                this.renderNightShiftOptions(rules.policy.noNightAfterOff_List);
+                // 取得當前勾選的項目 (避免重繪時被清空)
+                const currentChecked = this.getCheckedNightLimits();
+                this.renderNightShiftOptions(currentChecked);
             };
             startInput.onchange = updateList;
             endInput.onchange = updateList;
@@ -54,13 +54,11 @@ const scheduleRuleManager = {
                 if(this.currentUnitId) {
                     this.loadDataToForm();
                 } else {
-                    // 若選回「請選擇單位」，隱藏區塊
                     const container = document.getElementById('rulesContainer');
                     if(container) container.style.display = 'none';
                 }
             };
 
-            // 若只有一個單位，自動選取並載入
             if (snapshot.size === 1) {
                 select.selectedIndex = 1;
                 select.dispatchEvent(new Event('change'));
@@ -72,12 +70,15 @@ const scheduleRuleManager = {
     loadDataToForm: async function() {
         if(!this.currentUnitId) return;
         try {
+            // 先載入該單位的班別 (為了夜班過濾功能)
+            const shiftSnap = await db.collection('shifts').where('unitId','==',this.currentUnitId).get();
+            this.activeShifts = shiftSnap.docs.map(d => d.data());
+
             const doc = await db.collection('units').doc(this.currentUnitId).get();
             if(!doc.exists) return;
             const data = doc.data();
             const r = data.schedulingRules || {};
 
-            // Helper
             const setCheck = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val; };
             const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val || ''; };
 
@@ -95,19 +96,21 @@ const scheduleRuleManager = {
             setCheck('rule_bundleNightOnly', r.policy?.bundleNightOnly !== false);
             setCheck('rule_noNightAfterOff', r.policy?.noNightAfterOff !== false);
             
-            // 權重設定
+            // 權重設定 (新增 PreReq 與 Avoid)
             setVal('rule_prioritize_bundle', r.policy?.prioritizeBundle || 'must');
             setVal('rule_prioritize_pref', r.policy?.prioritizePref || 'must');
+            setVal('rule_prioritize_prereq', r.policy?.prioritizePreReq || 'must'); // 🆕
+            setVal('rule_prioritize_avoid', r.policy?.prioritizeAvoid || 'must');   // 🆕
 
-            // 救火模式
             setCheck('rule_enableRelaxation', r.policy?.enableRelaxation === true);
 
-            // Night shift limits
-            if(r.policy?.noNightAfterOff_List) {
-                this.renderNightShiftOptions(r.policy.noNightAfterOff_List);
-            } else {
-                this.renderNightShiftOptions([]);
-            }
+            // 夜班區間設定
+            if (r.policy?.nightStart) document.getElementById('rule_nightStart').value = r.policy.nightStart;
+            if (r.policy?.nightEnd) document.getElementById('rule_nightEnd').value = r.policy.nightEnd;
+
+            // 渲染夜班選項 (動態過濾)
+            const savedList = r.policy?.noNightAfterOff_List || [];
+            this.renderNightShiftOptions(savedList);
 
             // Pattern
             setVal('rule_dayStartShift', r.pattern?.dayStartShift || 'D');
@@ -116,18 +119,15 @@ const scheduleRuleManager = {
             setVal('rule_minConsecutive', r.pattern?.minConsecutive || 2);
             setCheck('rule_avoidLonelyOff', r.pattern?.avoidLonelyOff !== false);
 
-            // Fairness
+            // Fairness & AI
             setCheck('rule_fairOff', r.fairness?.fairOff !== false);
             setVal('rule_fairOffVar', r.fairness?.fairOffVar || 2);
             setCheck('rule_fairNight', r.fairness?.fairNight !== false);
             setVal('rule_fairNightVar', r.fairness?.fairNightVar || 2);
             setVal('rule_fairBalanceRounds', r.fairness?.balanceRounds || 100);
-
-            // AI Params
             setVal('ai_backtrack_depth', r.aiParams?.backtrack_depth || 3);
             setVal('ai_max_attempts', r.aiParams?.max_attempts || 20);
 
-            // 🔥 關鍵修正：資料載入完成後，將隱藏的區塊顯示出來
             const container = document.getElementById('rulesContainer');
             if(container) container.style.display = 'block';
 
@@ -158,8 +158,15 @@ const scheduleRuleManager = {
                 bundleNightOnly: getCheck('rule_bundleNightOnly'),
                 noNightAfterOff: getCheck('rule_noNightAfterOff'),
                 noNightAfterOff_List: nightLimits,
+                nightStart: getVal('rule_nightStart'),
+                nightEnd: getVal('rule_nightEnd'),
+                
+                // 4個權重
                 prioritizeBundle: getVal('rule_prioritize_bundle'), 
                 prioritizePref: getVal('rule_prioritize_pref'),
+                prioritizePreReq: getVal('rule_prioritize_prereq'), // 🆕
+                prioritizeAvoid: getVal('rule_prioritize_avoid'),   // 🆕
+                
                 enableRelaxation: getCheck('rule_enableRelaxation') 
             },
             pattern: {
@@ -188,34 +195,62 @@ const scheduleRuleManager = {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             alert("規則已儲存成功！");
-        } catch(e) {
-            console.error(e);
-            alert("儲存失敗: " + e.message);
-        }
+        } catch(e) { console.error(e); alert("儲存失敗: " + e.message); }
     },
 
-    renderNightShiftOptions: async function(checkedCodes) {
+    // 🆕 修正：依據時間動態顯示班別 checkbox
+    renderNightShiftOptions: function(checkedCodes) {
         const container = document.getElementById('nightShiftOptions');
         if(!container) return;
-        container.innerHTML = '載入中...';
         
-        if (!this.activeShifts.length && this.currentUnitId) {
-             const snap = await db.collection('shifts').where('unitId','==',this.currentUnitId).get();
-             this.activeShifts = snap.docs.map(d => d.data());
-        }
-
         container.innerHTML = '';
+        
+        // 1. 取得設定的時間區間
+        const nStartStr = document.getElementById('rule_nightStart').value || '20:00';
+        const nEndStr = document.getElementById('rule_nightEnd').value || '06:00';
+        
+        const parse = (t) => {
+            const [h, m] = t.split(':').map(Number);
+            return h + m/60;
+        };
+        const nStart = parse(nStartStr);
+        const nEnd = parse(nEndStr);
+
+        // 2. 判斷班別是否算夜班 (重疊邏輯)
+        const isNight = (shift) => {
+            if (!shift.startTime || !shift.endTime) return false;
+            const sStart = parse(shift.startTime);
+            
+            // 簡單判斷：若班別開始時間 >= 夜班開始，或 <= 夜班結束(跨日)
+            if (nStart > nEnd) { // 典型的跨日 (20:00 - 06:00)
+                return (sStart >= nStart) || (sStart <= nEnd);
+            } else { // 同日 (少見)
+                return (sStart >= nStart) && (sStart <= nEnd);
+            }
+        };
+
+        // 3. 過濾與渲染
+        let hasOptions = false;
         this.activeShifts.forEach(s => {
-            const isChecked = checkedCodes.includes(s.code);
-            const div = document.createElement('div');
-            div.innerHTML = `
-                <label style="display:inline-flex; align-items:center;">
-                    <input type="checkbox" value="${s.code}" class="night-limit-chk" ${isChecked?'checked':''}>
-                    <span style="margin-left:4px; font-size:0.9rem;">${s.code}</span>
-                </label>
-            `;
-            container.appendChild(div);
+            // 只有被判定為夜班的才顯示
+            if (isNight(s)) {
+                hasOptions = true;
+                const isChecked = checkedCodes.includes(s.code);
+                const div = document.createElement('div');
+                div.innerHTML = `
+                    <label style="display:inline-flex; align-items:center; margin-right:15px; cursor:pointer;">
+                        <input type="checkbox" value="${s.code}" class="night-limit-chk" ${isChecked?'checked':''}>
+                        <span style="margin-left:4px; font-weight:bold; color:#2c3e50;">${s.code}</span>
+                        <span style="font-size:0.8rem; color:#888; margin-left:2px;">(${s.startTime})</span>
+                    </label>
+                `;
+                container.appendChild(div);
+            }
         });
+
+        if (!hasOptions) {
+            container.innerHTML = '<span style="color:#999; font-size:0.9rem;">(無符合此時間區間的班別)</span>';
+        }
     },
 
     getCheckedNightLimits: function() {
