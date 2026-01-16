@@ -76,15 +76,16 @@ class BaseScheduler {
                 map[s.code] = {
                     start: this.parseTime(s.startTime),
                     end: this.parseTime(s.endTime),
-                    hours: s.hours || 8
+                    hours: s.hours || 8,
+                    isNight: s.startTime >= "20:00" || s.startTime <= "04:00" // 簡單判定是否為夜班
                 };
             });
         } else {
             // 預設時間表
-            map['D'] = { start: 8, end: 16, hours: 8 };   // 白班 08:00-16:00
-            map['E'] = { start: 16, end: 24, hours: 8 };  // 小夜 16:00-00:00
-            map['N'] = { start: 0, end: 8, hours: 8 };    // 大夜 00:00-08:00
-            map['OFF'] = { start: 0, end: 0, hours: 0 };
+            map['D'] = { start: 8, end: 16, hours: 8, isNight: false };   // 白班 08:00-16:00
+            map['E'] = { start: 16, end: 24, hours: 8, isNight: true };  // 小夜 16:00-00:00
+            map['N'] = { start: 0, end: 8, hours: 8, isNight: true };    // 大夜 00:00-08:00
+            map['OFF'] = { start: 0, end: 0, hours: 0, isNight: false };
         }
         return map;
     }
@@ -239,10 +240,16 @@ class BaseScheduler {
         const shouldSkipSoftRules = this.rule_enableRelaxation && relaxRules;
         if (shouldSkipSoftRules) return true;
 
-        // 4️⃣ 檢查 OFF 後不排夜班
-        if (this.rule_noNightAfterOff && prevShift === 'OFF') {
-            if (shiftCode.includes('N') || shiftCode.includes('E')) {
-                return false;
+        // 4️⃣ 檢查 OFF 後不排夜班 (修正：僅針對非包班人員且預班 OFF)
+        if (this.rule_noNightAfterOff && !bundleShift) {
+            // 檢查前一天是否為預班 OFF (REQ_OFF)
+            const isPrevReqOff = this.isPreRequestOff(staff.id, dateStr, -1);
+            if (isPrevReqOff) {
+                // 檢查目前班別是否為夜班 (動態讀取規則設定)
+                const isNightShift = this.isNightShift(shiftCode);
+                if (isNightShift) {
+                    return false;
+                }
             }
         }
 
@@ -252,6 +259,30 @@ class BaseScheduler {
         }
 
         return true;
+    }
+
+    // 輔助：判斷是否為夜班
+    isNightShift(shiftCode) {
+        // 優先從規則中讀取設定
+        if (this.rules.policy?.noNightAfterOff_N && shiftCode === 'N') return true;
+        if (this.rules.policy?.noNightAfterOff_E && shiftCode === 'E') return true;
+        
+        // 備援：從班別時間表判定
+        const shiftTime = this.shiftTimes[shiftCode];
+        return shiftTime && shiftTime.isNight;
+    }
+
+    // 輔助：判斷某天是否為預班 OFF
+    isPreRequestOff(uid, dateStr, offset = 0) {
+        const targetDate = new Date(dateStr);
+        targetDate.setDate(targetDate.getDate() + offset);
+        const targetStr = this.getDateStrFromDate(targetDate);
+        
+        const staff = this.staffList.find(s => s.id === uid);
+        if (!staff) return false;
+        
+        const params = staff.schedulingParams || {};
+        return params[targetStr] === 'REQ_OFF';
     }
 
     // 🆕 檢查特殊身份 (孕婦/哺乳)
@@ -318,56 +349,45 @@ class BaseScheduler {
     }
 
     // 🆕 計算連續上班天數 (支援跨月)
-getConsecutiveWorkDays(uid, dateStr) {
-    const targetDate = new Date(dateStr);
-    let count = 0;
-    
-    // 往前檢查最多 14 天
-    for (let i = 1; i <= 14; i++) {
-        const checkDate = new Date(targetDate);
-        checkDate.setDate(checkDate.getDate() - i);
+    getConsecutiveWorkDays(uid, dateStr) {
+        const targetDate = new Date(dateStr);
+        let count = 0;
         
-        let shift = null;
+        // 往前檢查天數：根據規則設定的上限天數再多加一些緩衝，確保能偵測到違規
+        const checkLimit = (this.rule_maxConsDays || 6) + 7;
         
-        // 判斷是否跨到上個月
-        if (checkDate.getMonth() + 1 !== this.month) {
-            const d = checkDate.getDate();
+        for (let i = 1; i <= checkLimit; i++) {
+            const checkDate = new Date(targetDate);
+            checkDate.setDate(checkDate.getDate() - i);
             
-            // [關鍵修正] 從 lastMonthData 讀取，格式: { uid: { last_25: 'D', last_26: 'OFF', ... } }
-            if (this.lastMonthData && this.lastMonthData[uid]) {
-                shift = this.lastMonthData[uid][`last_${d}`];
-            }
+            let shift = null;
             
-            // [新增] 如果上月資料不存在，給予 3 天緩衝
-            // 避免因資料缺失導致無限連班
-            if (!shift) {
-                if (i <= 3) {
-                    // 假設月初 3 天可能是連續的
-                    console.warn(`⚠️ 缺少上月 ${d} 日資料，給予緩衝`);
-                    continue;
-                } else {
-                    // 超過 3 天則視為中斷
-                    break;
+            // 判斷是否跨到上個月
+            if (checkDate.getMonth() + 1 !== this.month) {
+                const d = checkDate.getDate();
+                
+                // 從 lastMonthData 讀取
+                if (this.lastMonthData && this.lastMonthData[uid]) {
+                    shift = this.lastMonthData[uid][`last_${d}`];
                 }
+                
+                // [修正] 移除寫死的 3 天緩衝，若無資料則視為中斷，避免無限連班
+                if (!shift) break;
+                
+            } else {
+                // 本月資料
+                const checkStr = this.getDateStrFromDate(checkDate);
+                shift = this.getShiftByDate(checkStr, uid);
             }
             
-            // 如果明確是休假，中斷計數
-            if (shift === 'OFF' || shift === 'REQ_OFF') break;
+            // 如果是休假或沒排班，則中斷連續計數
+            if (shift === 'OFF' || shift === 'REQ_OFF' || !shift) break;
             
-        } else {
-            // 本月資料
-            const checkStr = this.getDateStrFromDate(checkDate);
-            shift = this.getShiftByDate(checkStr, uid);
+            count++;
         }
         
-        // 如果是休假或沒排班，則中斷連續計數
-        if (shift === 'OFF' || shift === 'REQ_OFF' || !shift) break;
-        
-        count++;
+        return count;
     }
-    
-    return count;
-}
 
     // 🆕 檢查一週內班別多樣性
     checkWeeklyDiversity(uid, dateStr, newShift) {
