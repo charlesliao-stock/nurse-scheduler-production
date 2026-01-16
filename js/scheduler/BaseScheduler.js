@@ -1,95 +1,71 @@
 // js/scheduler/BaseScheduler.js
-// 🔧 11小時修正版：修正間隔計算、移除預設班別
+// 🔧 最終修正版：嚴格規則解析 (無分數)、絕對光間隔、手動救火
 
 class BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
-        this.staffList = allStaff; // [{id, name, ...}]
+        this.staffList = allStaff;
         this.year = year;
         this.month = month;
         this.daysInMonth = new Date(year, month, 0).getDate();
         this.lastMonthData = lastMonthData || {};
         this.rules = rules || {};
         
-        // 動態獲取班別清單，預設包含 OFF
         this.shiftCodes = this.rules.shiftCodes || [];
         if (!this.shiftCodes.includes('OFF')) this.shiftCodes.push('OFF');
 
-        // 排班結果 { "YYYY-MM-DD": { [shiftCode]: [] } }
         this.schedule = {}; 
-        // 統計計數器 { uid: { [shiftCode]: 0 } }
         this.counters = {}; 
-        
-        // 🆕 建立班別時間對照表 (用於計算間隔)
         this.shiftTimes = this.buildShiftTimeMap();
-        
-        // 🆕 解析規則參數
         this.parseRules();
-        
         this.init();
     }
 
-    // 🆕 解析規則參數
     parseRules() {
         const r = this.rules;
         
-        // 硬性規則
-        this.rule_minGap11 = r.hard?.minGap11 !== false; // 預設開啟
+        // 1. 硬性規則 (絕對不可動)
+        this.rule_minGap11 = r.hard?.minGap11 !== false;
         this.rule_maxDiversity3 = r.hard?.maxDiversity3 !== false;
         this.rule_protectPregnant = r.hard?.protectPregnant !== false;
         this.rule_twoOffPerFortnight = r.hard?.twoOffPerFortnight !== false;
-        this.rule_offGapMax = r.hard?.offGapMax || 12;
-        this.rule_weekStartDay = parseInt(r.hard?.weekStartDay) || 1;
         
-        // 政策規則
+        // 2. 救火模式 (決定是否能放寬)
+        // 嚴格讀取設定，預設為 false
+        this.rule_enableRelaxation = r.policy?.enableRelaxation === true;
+
+        // 3. 預班承諾 (Must / Try)
+        let prioritizeBundle = r.policy?.prioritizeBundle || 'must';
+        let prioritizePref = r.policy?.prioritizePref || 'must';
+
+        // 若救火模式啟動，強制降級為 'try'
+        if (this.rule_enableRelaxation) {
+            console.warn("🔥 救火模式已啟動：所有「必定滿足」條件降級為「盡量滿足」");
+            prioritizeBundle = 'try';
+            prioritizePref = 'try';
+        }
+
+        this.rule_strictBundle = (prioritizeBundle === 'must');
+        this.rule_strictPref = (prioritizePref === 'must');
+
+        // 其他政策
         this.rule_limitConsecutive = r.policy?.limitConsecutive !== false;
         this.rule_maxConsDays = r.policy?.maxConsDays || 6;
-        this.rule_bundleNightOnly = r.policy?.bundleNightOnly !== false;
         this.rule_noNightAfterOff = r.policy?.noNightAfterOff !== false;
-        this.rule_enableRelaxation = r.policy?.enableRelaxation === true; // 預設關閉
-        
-        // 輪替邏輯
-        this.rule_dayStartShift = r.pattern?.dayStartShift || 'D';
-        this.rule_rotationOrder = (r.pattern?.rotationOrder || 'OFF,N,E,D').split(',').map(s => s.trim());
-        this.rule_consecutivePref = r.pattern?.consecutivePref !== false;
-        this.rule_minConsecutive = r.pattern?.minConsecutive || 2;
-        this.rule_avoidLonelyOff = r.pattern?.avoidLonelyOff !== false;
-        
-        // 公平性
-        this.rule_fairOff = r.fairness?.fairOff !== false;
-        this.rule_fairOffVar = r.fairness?.fairOffVar || 2;
-        this.rule_fairNight = r.fairness?.fairNight !== false;
-        this.rule_fairNightVar = r.fairness?.fairNightVar || 2;
-        
-        console.log("📋 規則解析完成:", {
-            間隔保護: this.rule_minGap11,
-            連上限制: this.rule_limitConsecutive ? `${this.rule_maxConsDays}天` : '關閉',
-            輪替順序: this.rule_rotationOrder
-        });
     }
 
-    // 🆕 建立班別時間對照表 (修正重點3: 移除預設班別)
     buildShiftTimeMap() {
         const map = {};
-        
-        // 必須從規則中讀取班別定義
-        if (this.rules.shifts && Array.isArray(this.rules.shifts) && this.rules.shifts.length > 0) {
+        if (this.rules.shifts && Array.isArray(this.rules.shifts)) {
             this.rules.shifts.forEach(s => {
                 map[s.code] = {
                     start: this.parseTime(s.startTime),
                     end: this.parseTime(s.endTime),
-                    hours: s.hours || 8,
-                    // 簡單判定：如果開始時間在 20:00 後或 04:00 前，視為夜班
-                    isNight: this.parseTime(s.startTime) >= 20 || this.parseTime(s.startTime) <= 4
+                    hours: s.hours || 8
                 };
             });
-        } else {
-            console.warn("⚠️ 警告：未設定任何班別資料，排班可能會失敗。請至「班別管理」設定。");
         }
-
-        // 始終加入 OFF 定義
-        map['OFF'] = { start: 0, end: 0, hours: 0, isNight: false };
-        map['REQ_OFF'] = { start: 0, end: 0, hours: 0, isNight: false }; // 兼容處理
-        
+        map['OFF'] = { start: 0, end: 0, hours: 0 };
+        map['REQ_OFF'] = { start: 0, end: 0, hours: 0 };
         return map;
     }
 
@@ -100,24 +76,15 @@ class BaseScheduler {
     }
 
     init() {
-        // 1. 初始化計數器 (動態班別)
         this.staffList.forEach(s => {
             this.counters[s.id] = {};
-            this.shiftCodes.forEach(code => {
-                this.counters[s.id][code] = 0;
-            });
+            this.shiftCodes.forEach(code => this.counters[s.id][code] = 0);
         });
-
-        // 2. 初始化每天的班表結構 (動態班別)
         for (let d = 1; d <= this.daysInMonth; d++) {
             const dateStr = this.getDateStr(d);
             this.schedule[dateStr] = {};
-            this.shiftCodes.forEach(code => {
-                this.schedule[dateStr][code] = [];
-            });
+            this.shiftCodes.forEach(code => this.schedule[dateStr][code] = []);
         }
-        
-        // 3. 預設將所有人先放入 OFF
         this.staffList.forEach(staff => {
             for (let d = 1; d <= this.daysInMonth; d++) {
                 const dateStr = this.getDateStr(d);
@@ -129,190 +96,73 @@ class BaseScheduler {
         });
     }
 
-    // --- 核心操作 ---
-
-    getShiftByDate(dateStr, uid) {
-        if (!this.schedule[dateStr]) return null;
-        const shiftCodes = Object.keys(this.schedule[dateStr]);
-        for (const shiftCode of shiftCodes) {
-            if (this.schedule[dateStr][shiftCode] && this.schedule[dateStr][shiftCode].includes(uid)) {
-                return shiftCode;
-            }
-        }
-        return null;
-    }
-    
-    getYesterdayShift(uid, dateStr) {
-        const today = new Date(dateStr);
-        const yesterday = new Date(today);
-        yesterday.setDate(today.getDate() - 1);
-
-        if (yesterday.getMonth() + 1 !== this.month) {
-            if (this.lastMonthData && this.lastMonthData[uid]) {
-                return this.lastMonthData[uid].lastShift || 'OFF';
-            }
-            return 'OFF';
-        }
-
-        const yStr = this.getDateStrFromDate(yesterday);
-        return this.getShiftByDate(yStr, uid) || 'OFF';
-    }
-
-    updateShift(dateStr, uid, oldShift, newShift) {
-        if (oldShift === newShift) return;
-
-        if (oldShift && this.schedule[dateStr][oldShift]) {
-            const arr = this.schedule[dateStr][oldShift];
-            const idx = arr.indexOf(uid);
-            if (idx > -1) {
-                arr.splice(idx, 1);
-                if (this.counters[uid] && this.counters[uid][oldShift] !== undefined) {
-                    this.counters[uid][oldShift]--;
-                }
-            }
-        }
-
-        if (newShift && this.schedule[dateStr][newShift]) {
-            this.schedule[dateStr][newShift].push(uid);
-            if (this.counters[uid] && this.counters[uid][newShift] !== undefined) {
-                this.counters[uid][newShift]++;
-            }
-        }
-    }
-
-    countStaff(day, shiftCode) {
-        const dateStr = this.getDateStr(day);
-        if (!this.schedule[dateStr] || !this.schedule[dateStr][shiftCode]) return 0;
-        return this.schedule[dateStr][shiftCode].length;
-    }
-
-    getDemand(day, shiftCode) {
-        const date = new Date(this.year, this.month - 1, day);
-        const dayOfWeek = (date.getDay() + 6) % 7; 
-        const key = `${shiftCode}_${dayOfWeek}`;
-        return (this.rules.dailyNeeds && this.rules.dailyNeeds[key]) || 0;
-    }
-
-    // --- 🆕 驗證邏輯 (整合規則檢查) ---
-
-    isValidAssignment(staff, dateStr, shiftCode, relaxRules = false) {
+    /**
+     * 核心驗證邏輯
+     * @param {Object} staff 人員物件
+     * @param {string} dateStr 日期字串
+     * @param {string} shiftCode 班別代號
+     * @param {boolean} isRelaxMode 是否為救火模式 (由 SchedulerV2 傳入)
+     */
+    isValidAssignment(staff, dateStr, shiftCode, isRelaxMode = false) {
         if (shiftCode === 'OFF') return true;
 
-        // 1️⃣ 檢查特殊身份保護
-        if (this.rule_protectPregnant && !this.checkSpecialStatus(staff, shiftCode)) {
-            return false;
-        }
+        // --- 1. 絕對禁止 (無論是否救火都不能違反) ---
 
-        // 2️⃣ 檢查間隔 (上一班 vs 這一班)
+        // 孕婦/哺乳保護
+        if (this.rule_protectPregnant && !this.checkSpecialStatus(staff, shiftCode)) return false;
+
+        // 11小時光間隔 (絕對硬性)
         const prevShift = this.getYesterdayShift(staff.id, dateStr);
-        if (this.rule_minGap11 && !this.checkRestPeriod(prevShift, shiftCode)) {
-            return false;
-        }
+        if (this.rule_minGap11 && !this.checkRestPeriod(prevShift, shiftCode)) return false;
 
-        // 3️⃣ 檢查連上天數
-        if (this.rule_limitConsecutive) {
-            const consecDays = this.getConsecutiveWorkDays(staff.id, dateStr);
-            if (consecDays >= this.rule_maxConsDays) {
-                return false;
+        // --- 2. 條件式禁止 (根據 strict 設定) ---
+
+        // 包班限制
+        const bundleShift = staff.packageType || (staff.prefs && staff.prefs.bundleShift);
+        if (bundleShift) {
+            if (bundleShift !== shiftCode) {
+                // 如果是嚴格模式 (Must)，則禁止排其他班
+                if (this.rule_strictBundle) return false;
+                // 如果是盡量模式 (Try)，這裡回傳 true，讓排序邏輯去降低優先順序
             }
         }
 
-        // 4️⃣ 檢查個人偏好/包班
-        const params = staff.schedulingParams || {};
-        const prefs = staff.prefs || {};
-        const bundleShift = staff.packageType || prefs.bundleShift;
-        
-        if (bundleShift && bundleShift !== shiftCode) {
-            return false;
+        // 個人偏好
+        const prefs = staff.prefs?.[dateStr] || {};
+        const hasPref = Object.values(prefs).length > 0;
+        if (hasPref) {
+            const isWanted = Object.values(prefs).includes(shiftCode);
+            if (!isWanted) {
+                // 有填志願但不是這個班 -> 嚴格模式下禁止
+                if (this.rule_strictPref) return false; 
+            }
         }
 
-        const shouldSkipSoftRules = this.rule_enableRelaxation && relaxRules;
-        if (shouldSkipSoftRules) return true;
+        // --- 3. 軟性規則 (救火模式下可放寬) ---
 
-        // 5️⃣ 檢查 OFF 後不排夜班
+        // 如果現在是第二輪嘗試 (isRelaxMode=true) 且 管理者開啟了救火開關，則略過以下檢查
+        if (isRelaxMode && this.rule_enableRelaxation) return true;
+
+        // 連上天數
+        if (this.rule_limitConsecutive) {
+            if (this.getConsecutiveWorkDays(staff.id, dateStr) >= this.rule_maxConsDays) return false;
+        }
+
+        // OFF 後不接夜
         if (this.rule_noNightAfterOff && !bundleShift) {
             const isPrevReqOff = this.isPreRequestOff(staff.id, dateStr, -1);
-            if (isPrevReqOff) {
-                const isNightShift = this.isNightShift(shiftCode);
-                if (isNightShift) {
-                    return false;
-                }
-            }
-        }
-
-        // 6️⃣ 檢查班別多樣性
-        if (this.rule_maxDiversity3 && !this.checkWeeklyDiversity(staff.id, dateStr, shiftCode)) {
-            return false;
-        }
-
-        return true;
-    }
-
-    isNightShift(shiftCode) {
-        const limitList = this.rules.policy?.noNightAfterOff_List || [];
-        if (limitList.length > 0) {
-            return limitList.includes(shiftCode);
+            if (isPrevReqOff && this.isNightShift(shiftCode)) return false;
         }
         
-        const nightStart = this.rules.policy?.nightStart || '22:00';
-        const nightEnd = this.rules.policy?.nightEnd || '06:00';
-        
-        const shiftTime = this.shiftTimes[shiftCode];
-        if (!shiftTime) return false;
-        
-        const startVal = this.parseTime(nightStart);
-        const endVal = this.parseTime(nightEnd);
-        const shiftStart = shiftTime.start;
-        
-        if (startVal <= endVal) {
-            return shiftStart >= startVal && shiftStart <= endVal;
-        } else {
-            return shiftStart >= startVal || shiftStart <= endVal;
-        }
-    }
-
-    isPreRequestOff(uid, dateStr, offset = 0) {
-        const targetDate = new Date(dateStr);
-        targetDate.setDate(targetDate.getDate() + offset);
-        const targetStr = this.getDateStrFromDate(targetDate);
-        
-        const staff = this.staffList.find(s => s.id === uid);
-        if (!staff) return false;
-        
-        const params = staff.schedulingParams || {};
-        return params[targetStr] === 'REQ_OFF';
-    }
-
-    checkSpecialStatus(staff, shiftCode) {
-        const params = staff.schedulingParams || {};
-        const today = new Date(this.year, this.month - 1, 1);
-        
-        // 判斷邏輯：如果該班別有跨越 22:00-06:00 區間，則禁止
-        const isNightForbidden = (code) => {
-            const time = this.shiftTimes[code];
-            if (!time) return false;
-            // 簡單判斷：開始時間在 22點後，或結束時間在 6點前(跨夜)
-            return (time.start >= 22 || time.end <= 6 || (time.start < 6));
-        };
-
-        if (params.isPregnant && params.pregnantExpiry) {
-            if (today <= new Date(params.pregnantExpiry)) {
-                if (isNightForbidden(shiftCode)) return false;
-            }
-        }
-
-        if (params.isBreastfeeding && params.breastfeedingExpiry) {
-            if (today <= new Date(params.breastfeedingExpiry)) {
-                if (isNightForbidden(shiftCode)) return false;
-            }
-        }
+        // 班別多樣性
+        if (this.rule_maxDiversity3 && !this.checkWeeklyDiversity(staff.id, dateStr, shiftCode)) return false;
 
         return true;
     }
 
     /**
-     * 🔧 修正重點 1 & 2：嚴格的 11 小時間隔檢查
-     * 定義：前一班「下班時間」到下一班「上班時間」需 > 11 小時
+     * 間隔檢查：前一班「下班時間」到下一班「上班時間」需 > 11 小時
+     * 修正 D(16:00下班) -> N(00:00上班) 的判斷
      */
     checkRestPeriod(prevShift, currShift) {
         if (!prevShift || prevShift === 'OFF' || prevShift === 'REQ_OFF') return true;
@@ -320,80 +170,39 @@ class BaseScheduler {
         
         const prev = this.shiftTimes[prevShift];
         const curr = this.shiftTimes[currShift];
-        
-        if (!prev || !curr) return true; // 若無定義則放行
+        if (!prev || !curr) return true; 
 
-        // 計算基準：以前一天 00:00 為 0
-        // 前一天班別：
-        // 如果 start < end (如 08:00-16:00)，下班時間是 16
-        // 如果 start > end (如 16:00-00:00 或 23:00-07:00)，視為跨夜，下班時間是 end + 24
-        let prevEndTime = prev.end;
-        if (prev.end <= prev.start) {
-            prevEndTime += 24; 
-        }
+        // 前一天結束時間 (相對前一天00:00)
+        let prevEndTimeAbs = prev.end;
+        if (prev.end <= prev.start) prevEndTimeAbs += 24; // 跨夜班別
 
-        // 今天班別：
-        // 因為是隔天，所以上班時間要 +24
-        let currStartTime = curr.start + 24;
+        // 今天開始時間 (相對前一天00:00，所以+24)
+        let currStartTimeAbs = curr.start + 24;
 
-        // 計算間隔
-        const gap = currStartTime - prevEndTime;
-
-        // 除錯用 (可在 Console 查看)
-        // console.log(`${prevShift}(${prevEndTime}) -> ${currShift}(${currStartTime}) Gap: ${gap}`);
-
-        if (gap < 11) {
-            return false;
-        }
-
-        return true;
+        const gap = currStartTimeAbs - prevEndTimeAbs;
+        return gap >= 11;
     }
 
-    getConsecutiveWorkDays(uid, dateStr) {
-        const targetDate = new Date(dateStr);
-        let count = 0;
-        const checkLimit = (this.rule_maxConsDays || 6) + 7;
-        
-        for (let i = 1; i <= checkLimit; i++) {
-            const checkDate = new Date(targetDate);
-            checkDate.setDate(checkDate.getDate() - i);
-            
-            let shift = null;
-            if (checkDate.getMonth() + 1 !== this.month) {
-                const d = checkDate.getDate();
-                if (this.lastMonthData && this.lastMonthData[uid]) {
-                    shift = this.lastMonthData[uid][`last_${d}`];
-                }
-                if (!shift) break;
-            } else {
-                const checkStr = this.getDateStrFromDate(checkDate);
-                shift = this.getShiftByDate(checkStr, uid);
+    // --- 輔助函數 ---
+    getYesterdayShift(uid, dateStr) {
+        const today = new Date(dateStr);
+        const yesterday = new Date(today);
+        yesterday.setDate(today.getDate() - 1);
+        if (yesterday.getMonth() + 1 !== this.month) {
+            if (this.lastMonthData && this.lastMonthData[uid]) {
+                return this.lastMonthData[uid].lastShift || 'OFF';
             }
-            
-            if (shift === 'OFF' || shift === 'REQ_OFF' || !shift) break;
-            count++;
+            return 'OFF';
         }
-        return count;
+        return this.getShiftByDate(this.getDateStrFromDate(yesterday), uid) || 'OFF';
     }
 
-    checkWeeklyDiversity(uid, dateStr, newShift) {
-        const targetDate = new Date(dateStr);
-        const shifts = new Set();
-        shifts.add(newShift);
-        
-        for (let i = 1; i <= 7; i++) {
-            const checkDate = new Date(targetDate);
-            checkDate.setDate(checkDate.getDate() - i);
-            if (checkDate.getMonth() + 1 !== this.month) break;
-            
-            const checkStr = this.getDateStrFromDate(checkDate);
-            const shift = this.getShiftByDate(checkStr, uid);
-            if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
-                shifts.add(shift);
-            }
+    getShiftByDate(dateStr, uid) {
+        if (!this.schedule[dateStr]) return null;
+        for (const code of Object.keys(this.schedule[dateStr])) {
+            if (this.schedule[dateStr][code].includes(uid)) return code;
         }
-        if (shifts.size > 3) return false;
-        return true;
+        return null;
     }
 
     getDateStr(d) {
@@ -403,16 +212,67 @@ class BaseScheduler {
     getDateStrFromDate(date) {
         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     }
-    
-    createWhitelist(staff, dateStr) {
-        let list = [];
-        if (staff.packageType) list.push(staff.packageType);
-        if (staff.prefs && staff.prefs[dateStr]) {
-            const p = staff.prefs[dateStr];
-            if (p[1]) list.push(p[1]);
-            if (p[2]) list.push(p[2]);
-            if (p[3]) list.push(p[3]);
+
+    getConsecutiveWorkDays(uid, dateStr) {
+        const targetDate = new Date(dateStr);
+        let count = 0;
+        for (let i = 1; i <= 14; i++) {
+            const checkDate = new Date(targetDate);
+            checkDate.setDate(checkDate.getDate() - i);
+            let shift = null;
+            if (checkDate.getMonth() + 1 !== this.month) {
+                const d = checkDate.getDate();
+                if (this.lastMonthData[uid]) shift = this.lastMonthData[uid][`last_${d}`];
+            } else {
+                shift = this.getShiftByDate(this.getDateStrFromDate(checkDate), uid);
+            }
+            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') break;
+            count++;
         }
-        return list;
+        return count;
+    }
+
+    checkWeeklyDiversity(uid, dateStr, newShift) {
+        const targetDate = new Date(dateStr);
+        const shifts = new Set([newShift]);
+        for (let i = 1; i <= 6; i++) { 
+            const checkDate = new Date(targetDate);
+            checkDate.setDate(checkDate.getDate() - i);
+            let shift = null;
+            if (checkDate.getMonth() + 1 !== this.month) {
+                 const d = checkDate.getDate();
+                 if (this.lastMonthData[uid]) shift = this.lastMonthData[uid][`last_${d}`];
+            } else {
+                 shift = this.getShiftByDate(this.getDateStrFromDate(checkDate), uid);
+            }
+            if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') shifts.add(shift);
+        }
+        return shifts.size <= 3;
+    }
+
+    isPreRequestOff(uid, dateStr, offset = 0) {
+        const targetDate = new Date(dateStr);
+        targetDate.setDate(targetDate.getDate() + offset);
+        const targetStr = this.getDateStrFromDate(targetDate);
+        const staff = this.staffList.find(s => s.id === uid);
+        return staff?.schedulingParams?.[targetStr] === 'REQ_OFF';
+    }
+
+    isNightShift(shiftCode) {
+        const limitList = this.rules.policy?.noNightAfterOff_List || [];
+        if (limitList.length > 0) return limitList.includes(shiftCode);
+        const time = this.shiftTimes[shiftCode];
+        if (!time) return false;
+        return time.start >= 22 || time.start <= 5 || (time.end <= 8 && time.end > 0);
+    }
+
+    checkSpecialStatus(staff, shiftCode) {
+        const isNight = this.isNightShift(shiftCode);
+        if (!isNight) return true;
+        const params = staff.schedulingParams || {};
+        const today = new Date(this.year, this.month - 1, 1);
+        if (params.isPregnant && params.pregnantExpiry && today <= new Date(params.pregnantExpiry)) return false;
+        if (params.isBreastfeeding && params.breastfeedingExpiry && today <= new Date(params.breastfeedingExpiry)) return false;
+        return true;
     }
 }
