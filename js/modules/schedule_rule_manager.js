@@ -1,5 +1,5 @@
 // js/modules/schedule_rule_manager.js
-// 更新版：支援動態班別限制顯示與後處理輪數設定
+// 更新版：支援自定義夜班時間區間與動態班別限制顯示
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -8,6 +8,18 @@ const scheduleRuleManager = {
     init: async function() {
         console.log("Scheduling Rules Manager Loaded.");
         await this.loadUnitDropdown();
+        
+        // 🆕 監聽時間區間變化，即時更新班別清單
+        const startInput = document.getElementById('rule_nightStart');
+        const endInput = document.getElementById('rule_nightEnd');
+        if (startInput && endInput) {
+            const updateList = () => {
+                const rules = { policy: { noNightAfterOff_List: this.getCheckedNightLimits() } };
+                this.renderNightShiftOptions(rules.policy.noNightAfterOff_List);
+            };
+            startInput.onchange = updateList;
+            endInput.onchange = updateList;
+        }
     },
 
     loadUnitDropdown: async function() {
@@ -64,7 +76,11 @@ const scheduleRuleManager = {
             const unitData = doc.data();
             const rules = unitData.schedulingRules || {};
             
-            // 🆕 動態渲染夜班限制選項
+            // 🆕 先填入時間區間，再渲染選項
+            const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
+            setVal('rule_nightStart', rules.policy?.nightStart || '22:00');
+            setVal('rule_nightEnd', rules.policy?.nightEnd || '06:00');
+
             this.renderNightShiftOptions(rules.policy?.noNightAfterOff_List || []);
             
             this.fillForm(rules);
@@ -76,23 +92,32 @@ const scheduleRuleManager = {
         }
     },
 
-    // 🆕 動態渲染夜班限制選項 (22:00-06:00)
+    // 🆕 動態渲染夜班限制選項 (基於自定義區間)
     renderNightShiftOptions: function(savedList) {
         const container = document.getElementById('noNightAfterOff_container');
         if(!container) return;
         
+        const startTime = document.getElementById('rule_nightStart').value;
+        const endTime = document.getElementById('rule_nightEnd').value;
+        
         container.innerHTML = '';
         
-        // 篩選出上班時間在 22:00-06:00 之間的班別
+        // 篩選出上班時間在自定義區間內的班別
         const nightShifts = this.activeShifts.filter(s => {
             const start = s.startTime;
             if (!start) return false;
-            // 判定邏輯：20:00 之後或 04:00 之前起始的班別視為夜班組別
-            return start >= "20:00" || start <= "04:00";
+            
+            if (startTime <= endTime) {
+                // 同一天區間 (例如 08:00 - 17:00)
+                return start >= startTime && start <= endTime;
+            } else {
+                // 跨夜區間 (例如 22:00 - 06:00)
+                return start >= startTime || start <= endTime;
+            }
         });
         
         if (nightShifts.length === 0) {
-            container.innerHTML = '<span style="color:#e67e22; font-size:0.85rem;"><i class="fas fa-info-circle"></i> 該單位尚未設定 22:00-06:00 的夜班班別。</span>';
+            container.innerHTML = '<span style="color:#e67e22; font-size:0.85rem;"><i class="fas fa-info-circle"></i> 此時間區間內無對應班別。</span>';
             return;
         }
         
@@ -107,6 +132,14 @@ const scheduleRuleManager = {
             label.innerHTML = `<input type="checkbox" class="rule-night-limit" data-code="${s.code}" ${isChecked} style="margin-right:5px;"> 不排${s.name} (${s.code})`;
             container.appendChild(label);
         });
+    },
+
+    getCheckedNightLimits: function() {
+        const list = [];
+        document.querySelectorAll('.rule-night-limit:checked').forEach(el => {
+            list.push(el.dataset.code);
+        });
+        return list;
     },
 
     fillForm: function(r) {
@@ -148,8 +181,6 @@ const scheduleRuleManager = {
         setVal('rule_fairOffVar', r.fairness?.fairOffVar || 2);
         setCheck('rule_fairHoliday', r.fairness?.fairHoliday !== false);
         setCheck('rule_fairNight', r.fairness?.fairNight !== false);
-        
-        // [新增] 後處理輪數
         setVal('rule_fairBalanceRounds', r.fairness?.balanceRounds || 100);
 
         // 5. AI 參數
@@ -261,12 +292,6 @@ const scheduleRuleManager = {
         const getVal = (id, def) => { const el = document.getElementById(id); return el ? (el.value || def) : def; };
         const getInt = (id, def) => { const el = document.getElementById(id); return el ? (parseInt(el.value) || def) : def; };
 
-        // 🆕 獲取動態夜班限制清單
-        const nightLimitList = [];
-        document.querySelectorAll('.rule-night-limit:checked').forEach(el => {
-            nightLimitList.push(el.dataset.code);
-        });
-
         const rules = {
             hard: {
                 minGap11: getCheck('rule_minGap11'),
@@ -284,7 +309,9 @@ const scheduleRuleManager = {
                 longLeaveAdjust: getCheck('rule_longLeaveAdjust'),
                 bundleNightOnly: getCheck('rule_bundleNightOnly'),
                 noNightAfterOff: getCheck('rule_noNightAfterOff'),
-                noNightAfterOff_List: nightLimitList, // 🆕 儲存動態清單
+                nightStart: getVal('rule_nightStart', '22:00'), // 🆕 儲存自定義區間
+                nightEnd: getVal('rule_nightEnd', '06:00'),
+                noNightAfterOff_List: this.getCheckedNightLimits(), 
                 enableRelaxation: getCheck('rule_enableRelaxation')
             },
             pattern: {

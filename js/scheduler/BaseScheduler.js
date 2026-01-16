@@ -263,15 +263,31 @@ class BaseScheduler {
 
     // 輔助：判斷是否為夜班
     isNightShift(shiftCode) {
-        // 🆕 優先從動態規則清單中讀取設定
+        // 🆕 1. 優先從動態規則清單中讀取設定
         const limitList = this.rules.policy?.noNightAfterOff_List || [];
         if (limitList.length > 0) {
             return limitList.includes(shiftCode);
         }
         
-        // 備援：從班別時間表判定 (20:00-04:00 起始者)
+        // 🆕 2. 根據自定義時間區間判定
+        const nightStart = this.rules.policy?.nightStart || '22:00';
+        const nightEnd = this.rules.policy?.nightEnd || '06:00';
+        
         const shiftTime = this.shiftTimes[shiftCode];
-        return shiftTime && shiftTime.isNight;
+        if (!shiftTime) return false;
+        
+        // 將時間字串轉換為數值進行比較
+        const startVal = this.parseTime(nightStart);
+        const endVal = this.parseTime(nightEnd);
+        const shiftStart = shiftTime.start;
+        
+        if (startVal <= endVal) {
+            // 同一天區間
+            return shiftStart >= startVal && shiftStart <= endVal;
+        } else {
+            // 跨夜區間
+            return shiftStart >= startVal || shiftStart <= endVal;
+        }
     }
 
     // 輔助：判斷某天是否為預班 OFF

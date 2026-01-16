@@ -91,8 +91,17 @@
 
                 <div class="rule-card">
                     <label><input type="checkbox" id="rule_noNightAfterOff" checked> 5. 非包班人員規範：OFF 後隔天班別限制</label>
-                    <div id="noNightAfterOff_container" class="rule-detail" style="display:flex; gap:15px; flex-wrap: wrap;">
-                        <span style="color:#999;">載入班別中...</span>
+                    <div class="rule-detail">
+                        <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                            <span>定義夜班區間：</span>
+                            <input type="time" id="rule_nightStart" value="22:00" style="padding:4px;">
+                            <span>至</span>
+                            <input type="time" id="rule_nightEnd" value="06:00" style="padding:4px;">
+                            <span style="color:#666; font-size:0.85rem; margin-left:10px;">(在此區間內起始的班別將受限)</span>
+                        </div>
+                        <div id="noNightAfterOff_container" style="display:flex; gap:15px; flex-wrap: wrap; background:#f9f9f9; padding:10px; border-radius:4px;">
+                            <span style="color:#999;">載入班別中...</span>
+                        </div>
                     </div>
                 </div>
 
