@@ -14,85 +14,48 @@
     </div>
 
     <div id="rulesContainer" class="rules-container" style="display:none;">
-        
         <div class="tab-nav">
-            <button class="tab-btn active" onclick="scheduleRuleManager.switchTab('hard')">
-                <i class="fas fa-exclamation-circle"></i> 1. 硬性規則
-            </button>
-            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('policy')">
-                <i class="fas fa-building"></i> 2. 單位規範
-            </button>
-            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('pattern')">
-                <i class="fas fa-sync-alt"></i> 3. 輪替模式
-            </button>
-            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('fairness')">
-                <i class="fas fa-balance-scale"></i> 4. 公平性
-            </button>
-            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('ai')">
-                <i class="fas fa-brain"></i> 5. AI 參數
-            </button>
+            <button class="tab-btn active" onclick="scheduleRuleManager.switchTab('hard')"><i class="fas fa-exclamation-circle"></i> 1. 硬性規則</button>
+            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('policy')"><i class="fas fa-building"></i> 2. 單位規範</button>
+            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('pattern')"><i class="fas fa-sync-alt"></i> 3. 輪替模式</button>
+            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('fairness')"><i class="fas fa-balance-scale"></i> 4. 公平性</button>
+            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('ai')"><i class="fas fa-brain"></i> 5. AI 參數</button>
         </div>
 
         <div class="tab-content-wrapper">
-            
             <div id="tab-hard" class="tab-content active">
                 <div class="section-title" style="border-left-color: #e74c3c;">硬性規則 (Hard Constraints)</div>
-                <p class="section-desc">這些規則為系統底線，違反將導致排班失敗。</p>
                 <div class="rule-card">
                     <div class="rule-header">
-                        <label class="switch-label">
-                            <input type="checkbox" id="rule_minGap11" checked> 
-                            <span class="label-text">1. 班與班間隔至少 11 小時</span>
-                        </label>
-                    </div>
-                    <div class="rule-body">法規強制要求 (勞基法)。例如：大夜班(N) 下班後不可接當日白班(D)。</div>
-                </div>
-                <div class="rule-card">
-                    <div class="rule-header">
-                        <label class="switch-label">
-                            <input type="checkbox" id="rule_maxDiversity3" checked> 
-                            <span class="label-text">2. 單週班別種類不超過 3 種</span>
-                        </label>
+                        <label class="switch-label"><input type="checkbox" id="rule_minGap11" checked> <span class="label-text">1. 班與班間隔至少 11 小時</span></label>
                     </div>
                 </div>
                 <div class="rule-card">
                     <div class="rule-header">
-                        <label class="switch-label">
-                            <input type="checkbox" id="rule_protectPregnant" checked> 
-                            <span class="label-text">3. 特殊身分保護 (孕婦/哺乳)</span>
-                        </label>
+                        <label class="switch-label"><input type="checkbox" id="rule_maxDiversity3" checked> <span class="label-text">2. 單週班別種類不超過 3 種</span></label>
                     </div>
                 </div>
                 <div class="rule-card">
                     <div class="rule-header">
-                        <label class="switch-label">
-                            <input type="checkbox" id="rule_twoOffPerFortnight" checked> 
-                            <span class="label-text">4. 兩週內至少休 2 天 (一例一休)</span>
-                        </label>
+                        <label class="switch-label"><input type="checkbox" id="rule_protectPregnant" checked> <span class="label-text">3. 特殊身分保護 (孕婦/哺乳)</span></label>
                     </div>
                 </div>
                 <div class="rule-card">
-                    <div class="rule-header">進階參數設定</div>
+                    <div class="rule-header">
+                        <label class="switch-label"><input type="checkbox" id="rule_twoOffPerFortnight" checked> <span class="label-text">4. 兩週內至少休 2 天</span></label>
+                    </div>
+                </div>
+                <div class="rule-card">
+                    <div class="rule-header">進階參數</div>
                     <div class="rule-body form-inline-group">
-                        <div class="form-item">
-                            <label>連續休假最大間隔:</label>
-                            <input type="number" id="rule_offGapMax" value="12" class="form-control small-input"> 天
-                        </div>
-                        <div class="form-item">
-                            <label>每週起始日:</label>
-                            <select id="rule_weekStartDay" class="form-control small-input">
-                                <option value="1">週一 (Monday)</option>
-                                <option value="0">週日 (Sunday)</option>
-                            </select>
-                        </div>
+                        <div class="form-item"><label>連續休假最大間隔:</label><input type="number" id="rule_offGapMax" value="12" class="form-control small-input"> 天</div>
+                        <div class="form-item"><label>每週起始日:</label><select id="rule_weekStartDay" class="form-control small-input"><option value="1">週一</option><option value="0">週日</option></select></div>
                     </div>
                 </div>
             </div>
 
             <div id="tab-policy" class="tab-content">
                 <div class="section-title" style="border-left-color: #e67e22;">單位規範 (Policy)</div>
-                <p class="section-desc">根據單位屬性調整的規則，可設定權重。</p>
-
                 <div class="rule-card highlight-card">
                     <div class="rule-header">1. 預班承諾等級 (權重設定)</div>
                     <div class="rule-body">
@@ -105,7 +68,7 @@
                                 </select>
                             </div>
                             <div class="form-col">
-                                <label>排班偏好 (志願 1/2/3)</label>
+                                <label>排班偏好 (志願)</label>
                                 <select id="rule_prioritize_pref" class="form-control">
                                     <option value="must">必定滿足 (Strict)</option>
                                     <option value="try">盡量滿足 (Try Best)</option>
@@ -128,169 +91,79 @@
                                 </select>
                             </div>
                         </div>
-                        <div class="warning-text">
-                            <i class="fas fa-exclamation-triangle"></i> 若啟動下方的「救火模式」，上述設定將強制轉為「盡量滿足」。
-                        </div>
+                        <div class="warning-text"><i class="fas fa-exclamation-triangle"></i> 若啟動下方「救火模式」，上述設定將強制轉為「盡量滿足」。</div>
                     </div>
                 </div>
-
                 <div class="rule-card">
-                    <div class="rule-header">
-                        <label class="switch-label">
-                            <input type="checkbox" id="rule_limitConsecutive" checked> 
-                            <span class="label-text">2. 限制連續上班天數</span>
-                        </label>
-                    </div>
+                    <div class="rule-header"><label class="switch-label"><input type="checkbox" id="rule_limitConsecutive" checked> <span class="label-text">2. 限制連續上班天數</span></label></div>
                     <div class="rule-body form-inline-group">
-                        <div class="form-item">
-                            <label>最大連續上班:</label>
-                            <input type="number" id="rule_maxConsDays" value="6" class="form-control small-input"> 天
-                        </div>
+                        <div class="form-item"><label>最大連續上班:</label><input type="number" id="rule_maxConsDays" value="6" class="form-control small-input"> 天</div>
                     </div>
                 </div>
-
+                <div class="rule-card"><div class="rule-header"><label class="switch-label"><input type="checkbox" id="rule_bundleNightOnly" checked> <span class="label-text">3. 包班僅限夜班</span></label></div></div>
                 <div class="rule-card">
-                    <div class="rule-header">
-                        <label class="switch-label">
-                            <input type="checkbox" id="rule_bundleNightOnly" checked> 
-                            <span class="label-text">3. 包班僅限夜班 (N/E)</span>
-                        </label>
-                    </div>
-                </div>
-
-                <div class="rule-card">
-                    <div class="rule-header">
-                        <label class="switch-label">
-                            <input type="checkbox" id="rule_noNightAfterOff" checked> 
-                            <span class="label-text">4. OFF 後禁止接夜班 (非包班人員)</span>
-                        </label>
-                    </div>
+                    <div class="rule-header"><label class="switch-label"><input type="checkbox" id="rule_noNightAfterOff" checked> <span class="label-text">4. OFF 後禁止接夜班 (非包班人員)</span></label></div>
                     <div class="rule-body">
                         <div class="form-inline-group" style="border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:10px;">
-                            <label>定義夜班區間:</label>
-                            <input type="time" id="rule_nightStart" value="20:00" class="form-control"> ~ 
-                            <input type="time" id="rule_nightEnd" value="06:00" class="form-control">
+                            <label>夜班區間:</label><input type="time" id="rule_nightStart" value="20:00" class="form-control"> ~ <input type="time" id="rule_nightEnd" value="06:00" class="form-control">
                         </div>
-                        <div style="margin-bottom:8px; font-weight:bold; color:#555;">禁止接的班別 (根據上方時間自動列出)：</div>
+                        <div style="margin-bottom:8px; font-weight:bold; color:#555;">禁止接的班別 (根據時間自動列出)：</div>
                         <div id="nightShiftOptions" class="checkbox-group"></div>
                     </div>
                 </div>
-
                 <div class="rule-card danger-card">
-                    <div class="rule-header" style="color:#c0392b;">
-                        <label class="switch-label">
-                            <input type="checkbox" id="rule_enableRelaxation"> 
-                            <span class="label-text">6. 規則放寬機制 (救火模式)</span>
-                        </label>
-                    </div>
-                    <div class="rule-body" style="color:#c0392b;">
-                        <i class="fas fa-fire"></i> <strong>緊急開關：</strong> 只有在無法產出班表時才建議開啟。<br>
-                        開啟後，系統將忽略「必定滿足」的限制，並允許違反部分軟性規則以填滿缺額。
-                    </div>
+                    <div class="rule-header" style="color:#c0392b;"><label class="switch-label"><input type="checkbox" id="rule_enableRelaxation"> <span class="label-text">6. 規則放寬機制 (救火模式)</span></label></div>
+                    <div class="rule-body" style="color:#c0392b;">開啟後，將忽略「必定滿足」限制，並允許違反軟性規則。</div>
                 </div>
             </div>
 
             <div id="tab-pattern" class="tab-content">
                 <div class="section-title" style="border-left-color: #2980b9;">輪替模式 (Pattern)</div>
                 <div class="rule-card">
+                    <div class="rule-header">每日起始班別</div>
                     <div class="rule-body form-inline-group">
                         <div class="form-item">
-                            <label>每日起始班別:</label>
-                            <input type="text" id="rule_dayStartShift" value="D" class="form-control small-input">
+                            <label>選擇班別:</label>
+                            <select id="rule_dayStartShift" class="form-control medium-input"><option value="">載入中...</option></select>
                         </div>
                     </div>
                 </div>
                 <div class="rule-card">
-                    <div class="rule-header">花花班避免 (正向輪替)</div>
-                    <div class="rule-body form-inline-group">
-                        <div class="form-item">
-                            <label>建議順序:</label>
-                            <input type="text" id="rule_rotationOrder" value="OFF,N,E,D" class="form-control medium-input">
-                        </div>
+                    <div class="rule-header">花花班避免 (正向輪替順序)</div>
+                    <div class="rule-body">
+                        <div style="margin-bottom:10px; font-size:0.9rem; color:#666;">請拖曳調整順序 (AI 將盡量避免逆向排班)。</div>
+                        <div id="rotationSortableList" class="sortable-list"></div>
                     </div>
                 </div>
                 <div class="rule-card">
-                    <div class="rule-header">
-                        <label class="switch-label">
-                            <input type="checkbox" id="rule_consecutivePref" checked> 
-                            <span class="label-text">相同班別連續</span>
-                        </label>
-                    </div>
-                    <div class="rule-body form-inline-group">
-                        <div class="form-item">
-                            <label>至少連續:</label>
-                            <input type="number" id="rule_minConsecutive" value="2" class="form-control small-input"> 天
-                        </div>
-                    </div>
+                    <div class="rule-header"><label class="switch-label"><input type="checkbox" id="rule_consecutivePref" checked> <span class="label-text">相同班別連續</span></label></div>
+                    <div class="rule-body form-inline-group"><div class="form-item"><label>至少連續:</label><input type="number" id="rule_minConsecutive" value="2" class="form-control small-input"> 天</div></div>
                 </div>
-                <div class="rule-card">
-                    <div class="rule-header">
-                        <label class="switch-label">
-                            <input type="checkbox" id="rule_avoidLonelyOff" checked> 
-                            <span class="label-text">避免單休</span>
-                        </label>
-                    </div>
-                </div>
+                <div class="rule-card"><div class="rule-header"><label class="switch-label"><input type="checkbox" id="rule_avoidLonelyOff" checked> <span class="label-text">避免單休</span></label></div></div>
             </div>
 
             <div id="tab-fairness" class="tab-content">
                 <div class="section-title" style="border-left-color: #27ae60;">公平性 (Fairness)</div>
                 <div class="rule-card">
-                    <div class="rule-header">
-                        <label class="switch-label">
-                            <input type="checkbox" id="rule_fairOff" checked> 
-                            <span class="label-text">休假天數平均化</span>
-                        </label>
-                    </div>
-                    <div class="rule-body form-inline-group">
-                        <div class="form-item">
-                            <label>容許差異: ±</label>
-                            <input type="number" id="rule_fairOffVar" value="2" class="form-control small-input"> 天
-                        </div>
-                    </div>
+                    <div class="rule-header"><label class="switch-label"><input type="checkbox" id="rule_fairOff" checked> <span class="label-text">休假天數平均化</span></label></div>
+                    <div class="rule-body form-inline-group"><div class="form-item"><label>容許差異: ±</label><input type="number" id="rule_fairOffVar" value="2" class="form-control small-input"> 天</div></div>
                 </div>
                 <div class="rule-card">
-                    <div class="rule-header">
-                        <label class="switch-label">
-                            <input type="checkbox" id="rule_fairNight" checked> 
-                            <span class="label-text">夜班數平均化</span>
-                        </label>
-                    </div>
-                    <div class="rule-body form-inline-group">
-                        <div class="form-item">
-                            <label>容許差異: ±</label>
-                            <input type="number" id="rule_fairNightVar" value="2" class="form-control small-input"> 班
-                        </div>
-                    </div>
+                    <div class="rule-header"><label class="switch-label"><input type="checkbox" id="rule_fairNight" checked> <span class="label-text">夜班數平均化</span></label></div>
+                    <div class="rule-body form-inline-group"><div class="form-item"><label>容許差異: ±</label><input type="number" id="rule_fairNightVar" value="2" class="form-control small-input"> 班</div></div>
                 </div>
                 <div class="rule-card">
                     <div class="rule-header">AI 後處理平衡</div>
-                    <div class="rule-body form-inline-group">
-                        <div class="form-item">
-                            <label>執行輪數:</label>
-                            <input type="number" id="rule_fairBalanceRounds" value="100" class="form-control small-input">
-                        </div>
-                    </div>
+                    <div class="rule-body form-inline-group"><div class="form-item"><label>執行輪數:</label><input type="number" id="rule_fairBalanceRounds" value="100" class="form-control small-input"></div></div>
                 </div>
             </div>
 
             <div id="tab-ai" class="tab-content">
                 <div class="section-title" style="border-left-color: #8e44ad;">AI 運算參數</div>
                 <div class="rule-card">
-                    <div class="rule-header">回溯演算法設定</div>
                     <div class="rule-body">
-                        <div class="form-inline-group" style="margin-bottom:10px;">
-                            <div class="form-item">
-                                <label>回溯深度:</label>
-                                <input type="number" id="ai_backtrack_depth" value="3" class="form-control small-input"> 天
-                            </div>
-                        </div>
-                        <div class="form-inline-group">
-                            <div class="form-item">
-                                <label>單格嘗試次數:</label>
-                                <input type="number" id="ai_max_attempts" value="20" class="form-control small-input"> 次
-                            </div>
-                        </div>
+                        <div class="form-inline-group" style="margin-bottom:10px;"><div class="form-item"><label>回溯深度:</label><input type="number" id="ai_backtrack_depth" value="3" class="form-control small-input"> 天</div></div>
+                        <div class="form-inline-group"><div class="form-item"><label>單格嘗試次數:</label><input type="number" id="ai_max_attempts" value="20" class="form-control small-input"> 次</div></div>
                     </div>
                 </div>
             </div>
@@ -299,7 +172,7 @@
 </div>
 
 <style>
-    /* CSS 保持一致 */
+    /* 沿用樣式，新增拖曳相關 */
     .toolbar-card { background: #fff; padding: 15px 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
     .rules-container { background: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); min-height: 600px; overflow: hidden; }
     .tab-nav { display: flex; background: #f8f9fa; border-bottom: 1px solid #eee; }
@@ -307,10 +180,9 @@
     .tab-btn:hover { background: #ecf0f1; color: #2c3e50; }
     .tab-btn.active { color: #3498db; border-bottom-color: #3498db; background: #fff; }
     .tab-content-wrapper { padding: 30px; }
-    .tab-content { display: none; }
-    .tab-content.active { display: block; animation: fadeIn 0.3s; }
+    .tab-content { display: none; animation: fadeIn 0.3s; }
+    .tab-content.active { display: block; }
     .section-title { font-size: 1.2rem; font-weight: bold; color: #2c3e50; border-left: 5px solid #3498db; padding-left: 15px; margin-bottom: 10px; }
-    .section-desc { color: #7f8c8d; margin-bottom: 20px; font-size: 0.9rem; }
     .rule-card { background: #fff; border: 1px solid #eee; border-radius: 8px; padding: 20px; margin-bottom: 15px; transition: transform 0.2s, box-shadow 0.2s; }
     .rule-card:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.05); border-color: #e0e0e0; }
     .rule-header { font-weight: bold; color: #34495e; margin-bottom: 10px; }
@@ -330,5 +202,14 @@
     .form-col label { font-size: 0.9rem; font-weight: bold; color: #555; }
     .warning-text { font-size: 0.85rem; color: #d35400; background: #fff3e0; padding: 8px; border-radius: 4px; margin-top: 10px; }
     .checkbox-group { display: flex; gap: 15px; flex-wrap: wrap; }
+    
+    /* 拖曳專用 */
+    .sortable-list { display: flex; gap: 10px; padding: 15px; background: #f8f9fa; border: 1px dashed #ccc; border-radius: 8px; flex-wrap: wrap; min-height: 60px; align-items: center; }
+    .sortable-item { background: #fff; border: 1px solid #3498db; color: #2c3e50; padding: 8px 16px; border-radius: 20px; cursor: grab; font-weight: bold; user-select: none; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; align-items: center; gap: 5px; }
+    .sortable-item:hover { background: #ebf5fb; transform: translateY(-2px); }
+    .sortable-item:active { cursor: grabbing; }
+    .sortable-item.dragging { opacity: 0.5; background: #e0e0e0; border-style: dashed; }
+    .sortable-item i { color: #bdc3c7; font-size: 0.8rem; margin-left: 5px; }
+
     @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 </style>
