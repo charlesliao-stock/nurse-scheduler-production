@@ -235,8 +235,9 @@ class BaseScheduler {
             return false;
         }
 
-        // 如果是放寬模式，以下「建議性」規則將被跳過
-        if (relaxRules) return true;
+        // [關鍵修正] 只有在管理者開啟 enableRelaxation 且目前處於 relax 模式時，才跳過建議性規則
+        const shouldSkipSoftRules = this.rule_enableRelaxation && relaxRules;
+        if (shouldSkipSoftRules) return true;
 
         // 4️⃣ 檢查 OFF 後不排夜班
         if (this.rule_noNightAfterOff && prevShift === 'OFF') {

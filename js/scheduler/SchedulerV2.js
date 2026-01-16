@@ -148,9 +148,17 @@ class SchedulerV2 extends BaseScheduler {
             let assigned = this.countStaff(day, shiftCode);
             
             while (assigned < needed) {
+                // 嘗試嚴格模式指派
                 if (!this.assignBestCandidate(day, shiftCode, false)) {
-                    if (!this.assignBestCandidate(day, shiftCode, true)) {
-                        console.warn(`⚠️ Day ${day} [${shiftCode}] 缺 ${needed - assigned} 人`);
+                    // 只有在規則設定允許放寬時，才嘗試放寬模式
+                    if (this.rule_enableRelaxation) {
+                        if (!this.assignBestCandidate(day, shiftCode, true)) {
+                            console.warn(`⚠️ Day ${day} [${shiftCode}] 規則衝突且無法放寬，缺 ${needed - assigned} 人`);
+                            allFilled = false;
+                            break;
+                        }
+                    } else {
+                        console.warn(`⚠️ Day ${day} [${shiftCode}] 規則衝突，缺 ${needed - assigned} 人`);
                         allFilled = false;
                         break;
                     }
