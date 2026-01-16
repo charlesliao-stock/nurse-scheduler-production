@@ -1,5 +1,5 @@
 // js/scheduler/SchedulerV2.js
-// 🚀 最終完整版：層級排序 + 嚴格手動救火 + 4種權重支援
+// 🚀 最終完整版：層級排序 + 嚴格手動救火 + 隨機亂數洗牌 (避免每次結果相同)
 
 class SchedulerV2 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -9,7 +9,7 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     run() {
-        console.log("🚀 SchedulerV2: 開始排班 (層級排序版)");
+        console.log("🚀 SchedulerV2: 開始排班 (隨機亂數版)");
         this.lockPreRequests();
 
         for (let d = 1; d <= this.daysInMonth; d++) {
@@ -42,6 +42,7 @@ class SchedulerV2 extends BaseScheduler {
         const needs = this.getDailyNeeds(day);
         const staffPool = this.getAvailableStaff(day);
 
+        // 針對每個班別需求
         for (const [shiftCode, count] of Object.entries(needs)) {
             let needed = count - this.countStaff(day, shiftCode);
             if (needed <= 0) continue;
@@ -52,8 +53,10 @@ class SchedulerV2 extends BaseScheduler {
             for (const staff of candidates) {
                 if (needed <= 0) break;
                 
+                // 跳過已排班者
                 if (this.getShiftByDate(dateStr, staff.id) !== 'OFF') continue;
 
+                // 驗證規則
                 if (this.isValidAssignment(staff, dateStr, shiftCode, isRelaxMode)) {
                     this.updateShift(dateStr, staff.id, 'OFF', shiftCode);
                     needed--;
@@ -61,22 +64,40 @@ class SchedulerV2 extends BaseScheduler {
             }
         }
         
+        // 檢查是否滿足
         for (const [code, count] of Object.entries(needs)) {
             if (this.countStaff(day, code) < count) return false;
         }
         return true;
     }
 
-    // 核心：層級排序邏輯
+    // 🆕 輔助：Fisher-Yates 洗牌演算法
+    shuffleArray(array) {
+        // 建立淺拷貝，避免汙染原始陣列
+        const arr = [...array];
+        for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        return arr;
+    }
+
+    // 核心：層級排序邏輯 (加入隨機性)
     sortCandidates(staffList, dateStr, shiftCode) {
-        return staffList.sort((a, b) => {
-            // 1. 包班優先
+        // 🆕 步驟 1: 先將名單「洗牌」。
+        // 這確保了當兩人條件完全相同時 (例如: 都沒包班、都沒志願、班數一樣)，
+        // 誰排在前面是隨機的，而不是永遠依照員編順序。
+        const randomizedList = this.shuffleArray(staffList);
+
+        // 步驟 2: 進行嚴格的規則排序
+        return randomizedList.sort((a, b) => {
+            // 層級 1: 包班者優先
             const isBundleA = (a.packageType === shiftCode || a.prefs?.bundleShift === shiftCode);
             const isBundleB = (b.packageType === shiftCode || b.prefs?.bundleShift === shiftCode);
             if (isBundleA && !isBundleB) return -1; 
             if (!isBundleA && isBundleB) return 1;  
 
-            // 2. 指定預班 (Specific Request)
+            // 層級 2: 指定預班優先
             const paramsA = a.schedulingParams?.[dateStr];
             const paramsB = b.schedulingParams?.[dateStr];
             const isReqA = (paramsA === shiftCode);
@@ -84,21 +105,24 @@ class SchedulerV2 extends BaseScheduler {
             if (isReqA && !isReqB) return -1;
             if (!isReqA && isReqB) return 1;
 
-            // 3. 偏好 (Wish)
+            // 層級 3: 偏好優先 (Wish)
             const isPrefA = a.prefs?.[dateStr] && Object.values(a.prefs[dateStr]).includes(shiftCode);
             const isPrefB = b.prefs?.[dateStr] && Object.values(b.prefs[dateStr]).includes(shiftCode);
             if (isPrefA && !isPrefB) return -1;
             if (!isPrefA && isPrefB) return 1;
             
-            // 4. 避開「勿排」 (!X) - 只有 Try 模式下有效
+            // 層級 4: 避開「勿排」 (!X)
             const isAvoidA = (paramsA === '!' + shiftCode);
             const isAvoidB = (paramsB === '!' + shiftCode);
             if (isAvoidA && !isAvoidB) return 1; 
             if (!isAvoidA && isAvoidB) return -1;
 
-            // 5. 勞逸平衡
+            // 層級 5: 勞逸平衡 (班數少的優先)
             const countA = this.getTotalShifts(a.id);
             const countB = this.getTotalShifts(b.id);
+            
+            // 這裡依然要排序，確保班數少的人優先被排到，維持公平性
+            // 但因為前面已經 shuffle 過，若班數相同，順序就是隨機的
             return countA - countB; 
         });
     }
@@ -155,7 +179,9 @@ class SchedulerV2 extends BaseScheduler {
         });
     }
 
-    postProcessBalancing() { /* 平衡邏輯 */ }
+    postProcessBalancing() {
+        // 此處可擴充交換邏輯
+    }
 
     formatResult() {
         const result = {};
