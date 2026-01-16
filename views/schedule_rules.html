@@ -1,68 +1,219 @@
-<div id="tab-policy" class="tab-content">
-    <div class="rule-group">
-        <h4 style="border-bottom: 2px solid #e67e22; padding-bottom: 5px;">2. 單位規範 (Policy)</h4>
+<div class="page-section active">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <h2 style="margin:0;"><i class="fas fa-cogs"></i> 排班規則設定</h2>
+    </div>
+    
+    <div class="toolbar" style="background:#fff; padding:15px; border-radius:5px; box-shadow:0 2px 5px rgba(0,0,0,0.05); margin-bottom:20px;">
+        <label style="margin-right:10px; font-weight:bold;">設定單位：</label>
+        <select id="ruleUnitSelect" style="padding:8px; border-radius:4px; border:1px solid #ccc; width: 250px;">
+            <option value="">載入中...</option>
+        </select>
+        <button class="btn btn-add" onclick="scheduleRuleManager.saveData()" style="margin-left:auto;">
+            <i class="fas fa-save"></i> 儲存規則
+        </button>
+    </div>
+
+    <div id="rulesContainer" style="display:none; background:#fff; border-radius:5px; box-shadow:0 2px 5px rgba(0,0,0,0.05); min-height:600px;">
         
-        <div class="rule-card">
-            <label style="font-weight:bold; color:#2c3e50;">1. 預班承諾 (權重設定)</label>
-            <div class="rule-detail">
-                <div class="form-row" style="margin-bottom:10px; align-items:center; display:flex;">
-                    <label style="width:140px;">包班 (單一夜班):</label>
-                    <select id="rule_prioritize_bundle" style="padding:4px; border-radius:4px;">
-                        <option value="must">必定滿足 (不符合則不排)</option>
-                        <option value="try">盡量滿足 (排序優先)</option>
-                    </select>
-                </div>
-                <div class="form-row" style="align-items:center; display:flex;">
-                    <label style="width:140px;">排班偏好 (志願):</label>
-                    <select id="rule_prioritize_pref" style="padding:4px; border-radius:4px;">
-                        <option value="must">必定滿足 (不符合則不排)</option>
-                        <option value="try">盡量滿足 (排序優先)</option>
-                    </select>
-                </div>
-                <small style="color:#d35400; display:block; margin-top:8px; background:#fff3e0; padding:5px; border-radius:4px;">
-                    <i class="fas fa-exclamation-triangle"></i> 若啟動下方「救火模式」，上述設定將強制轉為「盡量滿足」。
-                </small>
-            </div>
+        <div class="tab-header" style="padding: 15px 20px 0 20px; border-bottom:1px solid #ddd;">
+            <button class="tab-btn active" onclick="scheduleRuleManager.switchTab('hard')">1. 硬性規則</button>
+            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('policy')">2. 單位規範</button>
+            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('pattern')">3. 輪替模式</button>
+            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('fairness')">4. 公平性</button>
+            <button class="tab-btn" onclick="scheduleRuleManager.switchTab('ai')">5. AI 參數</button>
         </div>
 
-        <div class="rule-card">
-            <label>
-                <input type="checkbox" id="rule_limitConsecutive" checked> 2. 限制連續上班天數
-            </label>
-            <div class="rule-detail">
-                最大連續上班: <input type="number" id="rule_maxConsDays" value="6" style="width:50px;"> 天
-            </div>
-        </div>
-
-        <div class="rule-card">
-            <label>
-                <input type="checkbox" id="rule_bundleNightOnly" checked> 3. 包班僅限夜班 (N/E)
-            </label>
-        </div>
-
-        <div class="rule-card">
-            <label>
-                <input type="checkbox" id="rule_noNightAfterOff" checked> 4. OFF 後禁止接夜班
-            </label>
-            <div class="rule-detail">
-                <div style="margin-bottom:5px; font-size:0.9rem;">禁止接的班別 (根據時間判定)：</div>
-                <div id="nightShiftOptions" style="display:flex; gap:10px; flex-wrap:wrap;"></div>
-                <div style="margin-top:5px; font-size:0.85rem; color:#666;">
-                    定義夜班區間: <input type="time" id="rule_nightStart" value="20:00"> ~ <input type="time" id="rule_nightEnd" value="06:00">
+        <div class="tab-content-wrapper" style="padding: 20px;">
+            
+            <div id="tab-hard" class="tab-content active">
+                <div class="rule-group">
+                    <h4 style="border-bottom: 2px solid #e74c3c; padding-bottom: 5px;">1. 硬性規則 (Hard Constraints)</h4>
+                    <div class="rule-card">
+                        <label>
+                            <input type="checkbox" id="rule_minGap11" checked> 1. 班與班間隔至少 11 小時
+                        </label>
+                        <div class="rule-detail">法規強制要求，違反將導致排班失敗。</div>
+                    </div>
+                    <div class="rule-card">
+                        <label>
+                            <input type="checkbox" id="rule_maxDiversity3" checked> 2. 單週班別種類不超過 3 種
+                        </label>
+                        <div class="rule-detail">避免生理時鐘混亂 (例如一週內同時有 D, E, N)。</div>
+                    </div>
+                    <div class="rule-card">
+                        <label>
+                            <input type="checkbox" id="rule_protectPregnant" checked> 3. 特殊身分保護 (孕婦/哺乳)
+                        </label>
+                        <div class="rule-detail">懷孕或哺乳期間不排夜班 (22:00~06:00)。</div>
+                    </div>
+                    <div class="rule-card">
+                        <label>
+                            <input type="checkbox" id="rule_twoOffPerFortnight" checked> 4. 兩週內至少休 2 天
+                        </label>
+                        <div class="rule-detail">勞基法一例一休的基本檢查。</div>
+                    </div>
+                    
+                    <div class="rule-card">
+                        <label>進階參數</label>
+                        <div class="rule-detail">
+                            <div>連續休假最大間隔: <input type="number" id="rule_offGapMax" value="12" style="width:50px;"> 天</div>
+                            <div>每週起始日: <select id="rule_weekStartDay"><option value="1">週一</option><option value="0">週日</option></select></div>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <div class="rule-card" style="background-color: #ffebee; border-left: 4px solid #f44336;">
-            <label style="color: #c62828; font-weight:bold;">
-                <input type="checkbox" id="rule_enableRelaxation"> 6. 規則放寬機制 (救火模式)
-            </label>
-            <div class="rule-detail" style="color: #c62828;">
-                <small>
-                    <i class="fas fa-fire"></i> 只有在無法產出班表時才由管理者手動開啟。<br>
-                    開啟後，將忽略「必定滿足」的限制，並允許違反軟性規則以填滿缺額。
-                </small>
+            <div id="tab-policy" class="tab-content">
+                <div class="rule-group">
+                    <h4 style="border-bottom: 2px solid #e67e22; padding-bottom: 5px;">2. 單位規範 (Policy)</h4>
+                    
+                    <div class="rule-card">
+                        <label style="font-weight:bold; color:#2c3e50;">1. 預班承諾 (權重設定)</label>
+                        <div class="rule-detail">
+                            <div class="form-row" style="margin-bottom:10px; align-items:center; display:flex;">
+                                <label style="width:140px;">包班 (單一夜班):</label>
+                                <select id="rule_prioritize_bundle" style="padding:4px; border-radius:4px;">
+                                    <option value="must">必定滿足 (不符合則不排)</option>
+                                    <option value="try">盡量滿足 (排序優先)</option>
+                                </select>
+                            </div>
+                            <div class="form-row" style="align-items:center; display:flex;">
+                                <label style="width:140px;">排班偏好 (志願):</label>
+                                <select id="rule_prioritize_pref" style="padding:4px; border-radius:4px;">
+                                    <option value="must">必定滿足 (不符合則不排)</option>
+                                    <option value="try">盡量滿足 (排序優先)</option>
+                                </select>
+                            </div>
+                            <small style="color:#d35400; display:block; margin-top:8px; background:#fff3e0; padding:5px; border-radius:4px;">
+                                <i class="fas fa-exclamation-triangle"></i> 若啟動下方「救火模式」，上述設定將強制轉為「盡量滿足」。
+                            </small>
+                        </div>
+                    </div>
+
+                    <div class="rule-card">
+                        <label>
+                            <input type="checkbox" id="rule_limitConsecutive" checked> 2. 限制連續上班天數
+                        </label>
+                        <div class="rule-detail">
+                            最大連續上班: <input type="number" id="rule_maxConsDays" value="6" style="width:50px;"> 天
+                        </div>
+                    </div>
+
+                    <div class="rule-card">
+                        <label>
+                            <input type="checkbox" id="rule_bundleNightOnly" checked> 3. 包班僅限夜班 (N/E)
+                        </label>
+                    </div>
+
+                    <div class="rule-card">
+                        <label>
+                            <input type="checkbox" id="rule_noNightAfterOff" checked> 4. OFF 後禁止接夜班
+                        </label>
+                        <div class="rule-detail">
+                            <div style="margin-bottom:5px; font-size:0.9rem;">禁止接的班別 (根據時間判定)：</div>
+                            <div id="nightShiftOptions" style="display:flex; gap:10px; flex-wrap:wrap;"></div>
+                            <div style="margin-top:5px; font-size:0.85rem; color:#666;">
+                                定義夜班區間: <input type="time" id="rule_nightStart" value="20:00"> ~ <input type="time" id="rule_nightEnd" value="06:00">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="rule-card" style="background-color: #ffebee; border-left: 4px solid #f44336;">
+                        <label style="color: #c62828; font-weight:bold;">
+                            <input type="checkbox" id="rule_enableRelaxation"> 6. 規則放寬機制 (救火模式)
+                        </label>
+                        <div class="rule-detail" style="color: #c62828;">
+                            <small>
+                                <i class="fas fa-fire"></i> 只有在無法產出班表時才由管理者手動開啟。<br>
+                                開啟後，將忽略「必定滿足」的限制，並允許違反軟性規則以填滿缺額。
+                            </small>
+                        </div>
+                    </div>
+                </div>
             </div>
+
+            <div id="tab-pattern" class="tab-content">
+                <div class="rule-group">
+                    <h4 style="border-bottom: 2px solid #2980b9; padding-bottom: 5px;">3. 輪替模式 (Pattern)</h4>
+                    <div class="rule-card">
+                        <label>每日起始班別</label>
+                        <input type="text" id="rule_dayStartShift" value="D" style="width:50px;">
+                        <span style="color:#666; font-size:0.85rem;">(通常為白班)</span>
+                    </div>
+                    <div class="rule-card">
+                        <label>花花班避免 (正向輪替)</label>
+                        <div class="rule-detail">
+                            建議順序: <input type="text" id="rule_rotationOrder" value="OFF,N,E,D" style="width:150px;">
+                            <br><small>AI 會盡量避免逆向排班 (如 N 接 D)。</small>
+                        </div>
+                    </div>
+                    <div class="rule-card">
+                        <label>
+                            <input type="checkbox" id="rule_consecutivePref" checked> 相同班別連續
+                        </label>
+                        <div class="rule-detail">
+                            至少連續: <input type="number" id="rule_minConsecutive" value="2" style="width:50px;"> 天
+                            <br><small>避免「D, OFF, D」這種跳班。</small>
+                        </div>
+                    </div>
+                    <div class="rule-card">
+                        <label>
+                            <input type="checkbox" id="rule_avoidLonelyOff" checked> 避免單休
+                        </label>
+                        <div class="rule-detail">盡量安排連休 2 天以上。</div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-fairness" class="tab-content">
+                <div class="rule-group">
+                    <h4 style="border-bottom: 2px solid #27ae60; padding-bottom: 5px;">4. 公平性 (Fairness)</h4>
+                    <div class="rule-card">
+                        <label>
+                            <input type="checkbox" id="rule_fairOff" checked> 休假天數平均化
+                        </label>
+                        <div class="rule-detail">
+                            容許差異: ± <input type="number" id="rule_fairOffVar" value="2" style="width:50px;"> 天
+                        </div>
+                    </div>
+                    <div class="rule-card">
+                        <label>
+                            <input type="checkbox" id="rule_fairNight" checked> 夜班數平均化
+                        </label>
+                        <div class="rule-detail">
+                            容許差異: ± <input type="number" id="rule_fairNightVar" value="2" style="width:50px;"> 班
+                        </div>
+                    </div>
+                    <div class="rule-card">
+                        <label>AI 後處理平衡</label>
+                        <div class="rule-detail">
+                            執行輪數: <input type="number" id="rule_fairBalanceRounds" value="100" style="width:60px;">
+                            <small>(數值越大平衡度越好，但計算較久)</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-ai" class="tab-content">
+                <div class="rule-group">
+                    <h4 style="border-bottom: 2px solid #8e44ad; padding-bottom: 5px;">5. AI 運算參數</h4>
+                    
+                    <div class="rule-card">
+                        <label>1. 回溯演算法設定</label>
+                        <div class="rule-detail">
+                            <div style="margin-bottom:10px;">
+                                回溯深度: <input type="number" id="ai_backtrack_depth" value="3" style="width:60px;"> 天
+                                <span style="color:#666; font-size:0.85rem; margin-left:10px;">(遇到死局時往回修改的天數)</span>
+                            </div>
+                            <div>
+                                單格嘗試次數: <input type="number" id="ai_max_attempts" value="20" style="width:60px;"> 次
+                                <span style="color:#666; font-size:0.85rem; margin-left:10px;">(防止系統空轉)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
 </div>
