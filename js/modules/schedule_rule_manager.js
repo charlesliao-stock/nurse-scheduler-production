@@ -96,7 +96,7 @@ const scheduleRuleManager = {
             setCheck('rule_bundleNightOnly', r.policy?.bundleNightOnly !== false);
             setCheck('rule_noNightAfterOff', r.policy?.noNightAfterOff !== false);
             
-            // 權重設定 (新增 PreReq 與 Avoid)
+            // 權重設定 (恢復 4 個選項)
             setVal('rule_prioritize_bundle', r.policy?.prioritizeBundle || 'must');
             setVal('rule_prioritize_pref', r.policy?.prioritizePref || 'must');
             setVal('rule_prioritize_prereq', r.policy?.prioritizePreReq || 'must'); // 🆕
@@ -161,7 +161,7 @@ const scheduleRuleManager = {
                 nightStart: getVal('rule_nightStart'),
                 nightEnd: getVal('rule_nightEnd'),
                 
-                // 4個權重
+                // 儲存 4 個權重
                 prioritizeBundle: getVal('rule_prioritize_bundle'), 
                 prioritizePref: getVal('rule_prioritize_pref'),
                 prioritizePreReq: getVal('rule_prioritize_prereq'), // 🆕
@@ -210,6 +210,7 @@ const scheduleRuleManager = {
         const nEndStr = document.getElementById('rule_nightEnd').value || '06:00';
         
         const parse = (t) => {
+            if(!t) return 0;
             const [h, m] = t.split(':').map(Number);
             return h + m/60;
         };
@@ -218,11 +219,11 @@ const scheduleRuleManager = {
 
         // 2. 判斷班別是否算夜班 (重疊邏輯)
         const isNight = (shift) => {
-            if (!shift.startTime || !shift.endTime) return false;
+            if (!shift.startTime) return false;
             const sStart = parse(shift.startTime);
             
             // 簡單判斷：若班別開始時間 >= 夜班開始，或 <= 夜班結束(跨日)
-            if (nStart > nEnd) { // 典型的跨日 (20:00 - 06:00)
+            if (nStart > nEnd) { // 典型的跨日 (如 20:00 - 06:00)
                 return (sStart >= nStart) || (sStart <= nEnd);
             } else { // 同日 (少見)
                 return (sStart >= nStart) && (sStart <= nEnd);
@@ -249,7 +250,7 @@ const scheduleRuleManager = {
         });
 
         if (!hasOptions) {
-            container.innerHTML = '<span style="color:#999; font-size:0.9rem;">(無符合此時間區間的班別)</span>';
+            container.innerHTML = '<span style="color:#999; font-size:0.9rem;">(依據目前時間設定，無符合的夜班班別)</span>';
         }
     },
 
