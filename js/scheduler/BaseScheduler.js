@@ -1,5 +1,5 @@
 // js/scheduler/BaseScheduler.js
-// 🔧 最終修正版：嚴格規則解析 (無分數)、絕對光間隔、手動救火
+// 🔧 修正版：加入預班(PreReq)與勿排(Avoid)的權重解析與驗證
 
 class BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -23,36 +23,42 @@ class BaseScheduler {
     parseRules() {
         const r = this.rules;
         
-        // 1. 硬性規則 (絕對不可動)
+        // 1. 硬性規則
         this.rule_minGap11 = r.hard?.minGap11 !== false;
         this.rule_maxDiversity3 = r.hard?.maxDiversity3 !== false;
         this.rule_protectPregnant = r.hard?.protectPregnant !== false;
         this.rule_twoOffPerFortnight = r.hard?.twoOffPerFortnight !== false;
         
-        // 2. 救火模式 (決定是否能放寬)
-        // 嚴格讀取設定，預設為 false
+        // 2. 救火模式
         this.rule_enableRelaxation = r.policy?.enableRelaxation === true;
 
-        // 3. 預班承諾 (Must / Try)
+        // 3. 預班承諾權重 (4個)
         let prioritizeBundle = r.policy?.prioritizeBundle || 'must';
         let prioritizePref = r.policy?.prioritizePref || 'must';
+        let prioritizePreReq = r.policy?.prioritizePreReq || 'must'; // 指定預班
+        let prioritizeAvoid = r.policy?.prioritizeAvoid || 'must';   // 勿排班別
 
-        // 若救火模式啟動，強制降級為 'try'
+        // 若救火模式啟動，全部降級為 'try'
         if (this.rule_enableRelaxation) {
             console.warn("🔥 救火模式已啟動：所有「必定滿足」條件降級為「盡量滿足」");
             prioritizeBundle = 'try';
             prioritizePref = 'try';
+            prioritizePreReq = 'try';
+            prioritizeAvoid = 'try';
         }
 
         this.rule_strictBundle = (prioritizeBundle === 'must');
         this.rule_strictPref = (prioritizePref === 'must');
+        this.rule_strictPreReq = (prioritizePreReq === 'must');
+        this.rule_strictAvoid = (prioritizeAvoid === 'must');
 
         // 其他政策
         this.rule_limitConsecutive = r.policy?.limitConsecutive !== false;
         this.rule_maxConsDays = r.policy?.maxConsDays || 6;
         this.rule_noNightAfterOff = r.policy?.noNightAfterOff !== false;
     }
-
+    
+    // ... (buildShiftTimeMap, parseTime, init 保持不變) ...
     buildShiftTimeMap() {
         const map = {};
         if (this.rules.shifts && Array.isArray(this.rules.shifts)) {
@@ -68,13 +74,11 @@ class BaseScheduler {
         map['REQ_OFF'] = { start: 0, end: 0, hours: 0 };
         return map;
     }
-
     parseTime(timeStr) {
         if (!timeStr) return 0;
         const [h, m] = timeStr.split(':').map(Number);
         return h + (m || 0) / 60;
     }
-
     init() {
         this.staffList.forEach(s => {
             this.counters[s.id] = {};
@@ -96,74 +100,70 @@ class BaseScheduler {
         });
     }
 
-    /**
-     * 核心驗證邏輯
-     * @param {Object} staff 人員物件
-     * @param {string} dateStr 日期字串
-     * @param {string} shiftCode 班別代號
-     * @param {boolean} isRelaxMode 是否為救火模式 (由 SchedulerV2 傳入)
-     */
     isValidAssignment(staff, dateStr, shiftCode, isRelaxMode = false) {
         if (shiftCode === 'OFF') return true;
 
-        // --- 1. 絕對禁止 (無論是否救火都不能違反) ---
-
-        // 孕婦/哺乳保護
+        // 1. 絕對禁止 (Hard)
         if (this.rule_protectPregnant && !this.checkSpecialStatus(staff, shiftCode)) return false;
-
-        // 11小時光間隔 (絕對硬性)
+        
         const prevShift = this.getYesterdayShift(staff.id, dateStr);
         if (this.rule_minGap11 && !this.checkRestPeriod(prevShift, shiftCode)) return false;
 
-        // --- 2. 條件式禁止 (根據 strict 設定) ---
-
-        // 包班限制
+        // 2. 條件式禁止 (依據 Strict 設定)
+        
+        // (A) 包班限制
         const bundleShift = staff.packageType || (staff.prefs && staff.prefs.bundleShift);
         if (bundleShift) {
             if (bundleShift !== shiftCode) {
-                // 如果是嚴格模式 (Must)，則禁止排其他班
                 if (this.rule_strictBundle) return false;
-                // 如果是盡量模式 (Try)，這裡回傳 true，讓排序邏輯去降低優先順序
             }
         }
 
-        // 個人偏好
+        // (B) 勿排班別 (!X)
+        const params = staff.schedulingParams || {};
+        // 假設員工填寫的勿排格式為 !N
+        if (params[dateStr] === '!' + shiftCode) {
+            if (this.rule_strictAvoid) return false; 
+        }
+
+        // (C) 指定預班 (Specific)
+        // 假設如果員工指定了某班(例如 D)，而現在排的是 N，則視為違規
+        // 注意：這裡假設 params[dateStr] 若不是 REQ_OFF 也不是 ! 開頭，就是指定班別
+        const reqShift = params[dateStr];
+        if (reqShift && reqShift !== 'REQ_OFF' && !reqShift.startsWith('!')) {
+            if (reqShift !== shiftCode) {
+                if (this.rule_strictPreReq) return false;
+            }
+        }
+
+        // (D) 個人偏好 (Priority 1/2/3)
         const prefs = staff.prefs?.[dateStr] || {};
         const hasPref = Object.values(prefs).length > 0;
         if (hasPref) {
             const isWanted = Object.values(prefs).includes(shiftCode);
             if (!isWanted) {
-                // 有填志願但不是這個班 -> 嚴格模式下禁止
                 if (this.rule_strictPref) return false; 
             }
         }
 
-        // --- 3. 軟性規則 (救火模式下可放寬) ---
-
-        // 如果現在是第二輪嘗試 (isRelaxMode=true) 且 管理者開啟了救火開關，則略過以下檢查
+        // 3. 軟性規則 (救火可放寬)
         if (isRelaxMode && this.rule_enableRelaxation) return true;
 
-        // 連上天數
         if (this.rule_limitConsecutive) {
             if (this.getConsecutiveWorkDays(staff.id, dateStr) >= this.rule_maxConsDays) return false;
         }
 
-        // OFF 後不接夜
         if (this.rule_noNightAfterOff && !bundleShift) {
             const isPrevReqOff = this.isPreRequestOff(staff.id, dateStr, -1);
             if (isPrevReqOff && this.isNightShift(shiftCode)) return false;
         }
         
-        // 班別多樣性
         if (this.rule_maxDiversity3 && !this.checkWeeklyDiversity(staff.id, dateStr, shiftCode)) return false;
 
         return true;
     }
-
-    /**
-     * 間隔檢查：前一班「下班時間」到下一班「上班時間」需 > 11 小時
-     * 修正 D(16:00下班) -> N(00:00上班) 的判斷
-     */
+    
+    // ... (保留後續輔助函數 checkRestPeriod, getYesterdayShift 等) ...
     checkRestPeriod(prevShift, currShift) {
         if (!prevShift || prevShift === 'OFF' || prevShift === 'REQ_OFF') return true;
         if (!currShift || currShift === 'OFF' || currShift === 'REQ_OFF') return true;
@@ -172,18 +172,14 @@ class BaseScheduler {
         const curr = this.shiftTimes[currShift];
         if (!prev || !curr) return true; 
 
-        // 前一天結束時間 (相對前一天00:00)
         let prevEndTimeAbs = prev.end;
-        if (prev.end <= prev.start) prevEndTimeAbs += 24; // 跨夜班別
+        if (prev.end <= prev.start) prevEndTimeAbs += 24; 
 
-        // 今天開始時間 (相對前一天00:00，所以+24)
         let currStartTimeAbs = curr.start + 24;
-
         const gap = currStartTimeAbs - prevEndTimeAbs;
         return gap >= 11;
     }
 
-    // --- 輔助函數 ---
     getYesterdayShift(uid, dateStr) {
         const today = new Date(dateStr);
         const yesterday = new Date(today);
