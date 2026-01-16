@@ -1,5 +1,5 @@
 // js/modules/schedule_rule_manager.js
-// 🔧 修正版：讀取權重設定 (Must/Try) 與手動救火開關
+// 🔧 修正版：解決畫面空白問題 (新增顯示容器的邏輯)
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -7,6 +7,11 @@ const scheduleRuleManager = {
     
     init: async function() {
         console.log("Scheduling Rules Manager Loaded.");
+        
+        // 確保預設隱藏規則區塊，直到選擇單位
+        const container = document.getElementById('rulesContainer');
+        if(container) container.style.display = 'none';
+
         await this.loadUnitDropdown();
         
         // 監聽時間區間變化
@@ -46,9 +51,16 @@ const scheduleRuleManager = {
             
             select.onchange = () => {
                 this.currentUnitId = select.value;
-                if(this.currentUnitId) this.loadDataToForm();
+                if(this.currentUnitId) {
+                    this.loadDataToForm();
+                } else {
+                    // 若選回「請選擇單位」，隱藏區塊
+                    const container = document.getElementById('rulesContainer');
+                    if(container) container.style.display = 'none';
+                }
             };
 
+            // 若只有一個單位，自動選取並載入
             if (snapshot.size === 1) {
                 select.selectedIndex = 1;
                 select.dispatchEvent(new Event('change'));
@@ -83,11 +95,11 @@ const scheduleRuleManager = {
             setCheck('rule_bundleNightOnly', r.policy?.bundleNightOnly !== false);
             setCheck('rule_noNightAfterOff', r.policy?.noNightAfterOff !== false);
             
-            // 🆕 權重設定 (Must/Try)
+            // 權重設定
             setVal('rule_prioritize_bundle', r.policy?.prioritizeBundle || 'must');
             setVal('rule_prioritize_pref', r.policy?.prioritizePref || 'must');
 
-            // 救火模式 (預設關閉)
+            // 救火模式
             setCheck('rule_enableRelaxation', r.policy?.enableRelaxation === true);
 
             // Night shift limits
@@ -114,6 +126,10 @@ const scheduleRuleManager = {
             // AI Params
             setVal('ai_backtrack_depth', r.aiParams?.backtrack_depth || 3);
             setVal('ai_max_attempts', r.aiParams?.max_attempts || 20);
+
+            // 🔥 關鍵修正：資料載入完成後，將隱藏的區塊顯示出來
+            const container = document.getElementById('rulesContainer');
+            if(container) container.style.display = 'block';
 
         } catch (e) { console.error(e); }
     },
@@ -142,12 +158,8 @@ const scheduleRuleManager = {
                 bundleNightOnly: getCheck('rule_bundleNightOnly'),
                 noNightAfterOff: getCheck('rule_noNightAfterOff'),
                 noNightAfterOff_List: nightLimits,
-                
-                // 🆕 儲存權重設定
                 prioritizeBundle: getVal('rule_prioritize_bundle'), 
                 prioritizePref: getVal('rule_prioritize_pref'),
-                
-                // 救火模式 (必須手動開啟)
                 enableRelaxation: getCheck('rule_enableRelaxation') 
             },
             pattern: {
