@@ -73,27 +73,41 @@ class SchedulerV2 extends BaseScheduler {
         return true;
     }
 
-    // 核心：層級排序邏輯 (取代 calculateScore)
+    // 核心：層級排序邏輯
     sortCandidates(staffList, dateStr, shiftCode) {
         return staffList.sort((a, b) => {
-            // 層級 1: 包班者優先 (Bundle)
-            // 檢查該員是否包了這個班
+            // 層級 1: 包班者優先
             const isBundleA = (a.packageType === shiftCode || a.prefs?.bundleShift === shiftCode);
             const isBundleB = (b.packageType === shiftCode || b.prefs?.bundleShift === shiftCode);
-            if (isBundleA && !isBundleB) return -1; // A 排前
-            if (!isBundleA && isBundleB) return 1;  // B 排前
+            if (isBundleA && !isBundleB) return -1; 
+            if (!isBundleA && isBundleB) return 1;  
 
-            // 層級 2: 偏好者優先 (Preference)
-            // 檢查該員是否有填這個班的志願
+            // 層級 2: 指定預班優先 (Specific Request)
+            // (若設為 'try' 模式，這裡會生效；若 'must' 模式，不符者早在 isValid 就被擋掉了)
+            const paramsA = a.schedulingParams?.[dateStr];
+            const paramsB = b.schedulingParams?.[dateStr];
+            const isReqA = (paramsA === shiftCode);
+            const isReqB = (paramsB === shiftCode);
+            if (isReqA && !isReqB) return -1;
+            if (!isReqA && isReqB) return 1;
+
+            // 層級 3: 偏好者優先 (Preference)
             const isPrefA = a.prefs?.[dateStr] && Object.values(a.prefs[dateStr]).includes(shiftCode);
             const isPrefB = b.prefs?.[dateStr] && Object.values(b.prefs[dateStr]).includes(shiftCode);
             if (isPrefA && !isPrefB) return -1;
             if (!isPrefA && isPrefB) return 1;
+            
+            // 層級 4: 避開「勿排」者 (!X)
+            // (只有在 Try 模式下會走到這裡，盡量把說不要的人排後面)
+            const isAvoidA = (paramsA === '!' + shiftCode);
+            const isAvoidB = (paramsB === '!' + shiftCode);
+            if (isAvoidA && !isAvoidB) return 1; // A 說不要，所以 A 排後面
+            if (!isAvoidA && isAvoidB) return -1;
 
-            // 層級 3: 勞逸平衡 (目前班數少的優先)
+            // 層級 5: 勞逸平衡 (目前班數少的優先)
             const countA = this.getTotalShifts(a.id);
             const countB = this.getTotalShifts(b.id);
-            return countA - countB; // 少者排前
+            return countA - countB; 
         });
     }
 
@@ -151,7 +165,6 @@ class SchedulerV2 extends BaseScheduler {
 
     postProcessBalancing() {
         // 簡單平衡，若需要複雜交換可在此實作
-        // 但基於使用者要求不使用分數機制，這裡保持被動，僅依賴 sortCandidates 的層級3
     }
 
     formatResult() {
