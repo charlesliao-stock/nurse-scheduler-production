@@ -1,5 +1,5 @@
 // js/modules/schedule_rule_manager.js
-// 更新版：支援自定義夜班時間區間與動態班別限制顯示
+// 🔧 修正版：讀取權重設定 (Must/Try) 與手動救火開關
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -9,7 +9,7 @@ const scheduleRuleManager = {
         console.log("Scheduling Rules Manager Loaded.");
         await this.loadUnitDropdown();
         
-        // 🆕 監聽時間區間變化，即時更新班別清單
+        // 監聽時間區間變化
         const startInput = document.getElementById('rule_nightStart');
         const endInput = document.getElementById('rule_nightEnd');
         if (startInput && endInput) {
@@ -37,260 +37,95 @@ const scheduleRuleManager = {
 
             const snapshot = await query.get();
             select.innerHTML = '<option value="">請選擇單位</option>';
-            
             snapshot.forEach(doc => {
                 const option = document.createElement('option');
                 option.value = doc.id;
                 option.textContent = doc.data().name;
                 select.appendChild(option);
             });
+            
+            select.onchange = () => {
+                this.currentUnitId = select.value;
+                if(this.currentUnitId) this.loadDataToForm();
+            };
 
             if (snapshot.size === 1) {
                 select.selectedIndex = 1;
-                this.loadUnitData(select.value);
+                select.dispatchEvent(new Event('change'));
             }
 
-            select.onchange = () => {
-                if(select.value) this.loadUnitData(select.value);
-                else document.getElementById('rulesContainer').style.display = 'none';
-            };
-
-        } catch (e) {
-            console.error("Load Units Error:", e);
-            select.innerHTML = '<option value="">載入失敗</option>';
-        }
+        } catch (e) { console.error(e); }
     },
 
-    loadUnitData: async function(unitId) {
-        this.currentUnitId = unitId;
-        const container = document.getElementById('rulesContainer');
-        if(container) container.style.display = 'block';
-        
+    loadDataToForm: async function() {
+        if(!this.currentUnitId) return;
         try {
-            const shiftsSnap = await db.collection('shifts').where('unitId', '==', unitId).get();
-            this.activeShifts = shiftsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-            const doc = await db.collection('units').doc(unitId).get();
+            const doc = await db.collection('units').doc(this.currentUnitId).get();
             if(!doc.exists) return;
-            
-            const unitData = doc.data();
-            const rules = unitData.schedulingRules || {};
-            
-            // 🆕 先填入時間區間，再渲染選項
-            const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
-            setVal('rule_nightStart', rules.policy?.nightStart || '22:00');
-            setVal('rule_nightEnd', rules.policy?.nightEnd || '06:00');
+            const data = doc.data();
+            const r = data.schedulingRules || {};
 
-            this.renderNightShiftOptions(rules.policy?.noNightAfterOff_List || []);
-            
-            this.fillForm(rules);
-            console.log("規則載入完成");
+            // Helper
+            const setCheck = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val; };
+            const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val || ''; };
 
-        } catch(e) {
-            console.error("Load Data Error:", e);
-            alert("資料載入失敗");
-        }
-    },
+            // Hard
+            setCheck('rule_minGap11', r.hard?.minGap11 !== false);
+            setCheck('rule_maxDiversity3', r.hard?.maxDiversity3 !== false);
+            setCheck('rule_protectPregnant', r.hard?.protectPregnant !== false);
+            setCheck('rule_twoOffPerFortnight', r.hard?.twoOffPerFortnight !== false);
+            setVal('rule_offGapMax', r.hard?.offGapMax || 12);
+            setVal('rule_weekStartDay', r.hard?.weekStartDay || 1);
 
-    // 🆕 動態渲染夜班限制選項 (基於自定義區間)
-    renderNightShiftOptions: function(savedList) {
-        const container = document.getElementById('noNightAfterOff_container');
-        if(!container) return;
-        
-        const startTime = document.getElementById('rule_nightStart').value;
-        const endTime = document.getElementById('rule_nightEnd').value;
-        
-        container.innerHTML = '';
-        
-        // 篩選出上班時間在自定義區間內的班別
-        const nightShifts = this.activeShifts.filter(s => {
-            const start = s.startTime;
-            if (!start) return false;
+            // Policy
+            setCheck('rule_limitConsecutive', r.policy?.limitConsecutive !== false);
+            setVal('rule_maxConsDays', r.policy?.maxConsDays || 6);
+            setCheck('rule_bundleNightOnly', r.policy?.bundleNightOnly !== false);
+            setCheck('rule_noNightAfterOff', r.policy?.noNightAfterOff !== false);
             
-            if (startTime <= endTime) {
-                // 同一天區間 (例如 08:00 - 17:00)
-                return start >= startTime && start <= endTime;
+            // 🆕 權重設定 (Must/Try)
+            setVal('rule_prioritize_bundle', r.policy?.prioritizeBundle || 'must');
+            setVal('rule_prioritize_pref', r.policy?.prioritizePref || 'must');
+
+            // 救火模式 (預設關閉)
+            setCheck('rule_enableRelaxation', r.policy?.enableRelaxation === true);
+
+            // Night shift limits
+            if(r.policy?.noNightAfterOff_List) {
+                this.renderNightShiftOptions(r.policy.noNightAfterOff_List);
             } else {
-                // 跨夜區間 (例如 22:00 - 06:00)
-                return start >= startTime || start <= endTime;
+                this.renderNightShiftOptions([]);
             }
-        });
-        
-        if (nightShifts.length === 0) {
-            container.innerHTML = '<span style="color:#e67e22; font-size:0.85rem;"><i class="fas fa-info-circle"></i> 此時間區間內無對應班別。</span>';
-            return;
-        }
-        
-        nightShifts.forEach(s => {
-            const label = document.createElement('label');
-            label.style.marginRight = '15px';
-            label.style.display = 'flex';
-            label.style.alignItems = 'center';
-            label.style.cursor = 'pointer';
-            
-            const isChecked = savedList.includes(s.code) ? 'checked' : '';
-            label.innerHTML = `<input type="checkbox" class="rule-night-limit" data-code="${s.code}" ${isChecked} style="margin-right:5px;"> 不排${s.name} (${s.code})`;
-            container.appendChild(label);
-        });
-    },
 
-    getCheckedNightLimits: function() {
-        const list = [];
-        document.querySelectorAll('.rule-night-limit:checked').forEach(el => {
-            list.push(el.dataset.code);
-        });
-        return list;
-    },
+            // Pattern
+            setVal('rule_dayStartShift', r.pattern?.dayStartShift || 'D');
+            setVal('rule_rotationOrder', r.pattern?.rotationOrder || 'OFF,N,E,D');
+            setCheck('rule_consecutivePref', r.pattern?.consecutivePref !== false);
+            setVal('rule_minConsecutive', r.pattern?.minConsecutive || 2);
+            setCheck('rule_avoidLonelyOff', r.pattern?.avoidLonelyOff !== false);
 
-    fillForm: function(r) {
-        const setCheck = (id, val) => { const el = document.getElementById(id); if(el) el.checked = val; };
-        const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
+            // Fairness
+            setCheck('rule_fairOff', r.fairness?.fairOff !== false);
+            setVal('rule_fairOffVar', r.fairness?.fairOffVar || 2);
+            setCheck('rule_fairNight', r.fairness?.fairNight !== false);
+            setVal('rule_fairNightVar', r.fairness?.fairNightVar || 2);
+            setVal('rule_fairBalanceRounds', r.fairness?.balanceRounds || 100);
 
-        // 1. 硬性規則
-        setCheck('rule_minGap11', r.hard?.minGap11 !== false); 
-        setCheck('rule_maxDiversity3', r.hard?.maxDiversity3 !== false);
-        setCheck('rule_protectPregnant', r.hard?.protectPregnant !== false);
-        setCheck('rule_twoOffPerFortnight', r.hard?.twoOffPerFortnight !== false);
-        setVal('rule_offGapMax', r.hard?.offGapMax || 12);
-        setVal('rule_weekStartDay', r.hard?.weekStartDay || "1");
+            // AI Params
+            setVal('ai_backtrack_depth', r.aiParams?.backtrack_depth || 3);
+            setVal('ai_max_attempts', r.aiParams?.max_attempts || 20);
 
-        // 2. 政策規則
-        setVal('rule_reqOffWeight', r.policy?.reqOffWeight || 'must');
-        setVal('rule_reqBanWeight', r.policy?.reqBanWeight || 'must');
-        setCheck('rule_limitConsecutive', r.policy?.limitConsecutive !== false);
-        setVal('rule_maxConsDays', r.policy?.maxConsDays || 6);
-        setCheck('rule_longLeaveAdjust', r.policy?.longLeaveAdjust !== false);
-        setVal('rule_longLeaveThres', r.policy?.longLeaveThres || 5);
-        setVal('rule_longLeaveMaxCons', r.policy?.longLeaveMaxCons || 7);
-        setCheck('rule_bundleNightOnly', r.policy?.bundleNightOnly !== false);
-        setCheck('rule_noNightAfterOff', r.policy?.noNightAfterOff !== false);
-        setCheck('rule_enableRelaxation', r.policy?.enableRelaxation === true);
-
-        // 3. 班別模式
-        setVal('rule_dayStartShift', r.pattern?.dayStartShift || 'D');
-        setCheck('rule_consecutivePref', r.pattern?.consecutivePref !== false);
-        setVal('rule_minConsecutive', r.pattern?.minConsecutive || 2);
-        
-        const savedOrder = r.pattern?.rotationOrder || 'OFF,N,D,E';
-        if(document.getElementById('rotationContainer')) {
-            this.renderRotationEditor(savedOrder);
-        }
-
-        // 4. 公平性
-        setCheck('rule_fairOff', r.fairness?.fairOff !== false);
-        setVal('rule_fairOffVar', r.fairness?.fairOffVar || 2);
-        setCheck('rule_fairHoliday', r.fairness?.fairHoliday !== false);
-        setCheck('rule_fairNight', r.fairness?.fairNight !== false);
-        setVal('rule_fairBalanceRounds', r.fairness?.balanceRounds || 100);
-
-        // 5. AI 參數
-        const ai = r.aiParams || {};
-        setVal('ai_backtrack_depth', ai.backtrack_depth || 3);
-        setVal('ai_max_attempts', ai.max_attempts || 20);
-        setVal('ai_w_balance', ai.w_balance || 200);
-        setVal('ai_w_continuity', ai.w_continuity || 50);
-        setVal('ai_w_surplus', ai.w_surplus || 150);
-    },
-
-    renderRotationEditor: function(savedOrderStr) {
-        const container = document.getElementById('rotationContainer');
-        if(!container) return;
-        
-        container.innerHTML = '';
-        let items = [{ code: 'OFF', name: '休' }];
-        this.activeShifts.forEach(s => {
-            items.push({ code: s.code, name: s.name, color: s.color });
-        });
-        
-        const savedArr = savedOrderStr.split(',').map(s => s.trim());
-        items.sort((a, b) => {
-            let idxA = savedArr.indexOf(a.code);
-            let idxB = savedArr.indexOf(b.code);
-            if (idxA === -1) idxA = 999;
-            if (idxB === -1) idxB = 999;
-            return idxA - idxB;
-        });
-        
-        items.forEach((item, index) => {
-            if (index > 0) {
-                const arrow = document.createElement('div');
-                arrow.className = 'sortable-arrow';
-                arrow.innerHTML = '<i class="fas fa-arrow-right"></i>';
-                container.appendChild(arrow);
-            }
-            const div = document.createElement('div');
-            div.className = 'sortable-item';
-            div.draggable = true;
-            div.dataset.code = item.code;
-            
-            let colorDot = '';
-            if (item.code === 'OFF') colorDot = `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#2ecc71; margin-right:5px;"></span>`;
-            else if (item.color) colorDot = `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${item.color}; margin-right:5px;"></span>`;
-            
-            div.innerHTML = `${colorDot} ${item.name} (${item.code})`;
-            container.appendChild(div);
-        });
-        
-        this.setupDragAndDrop();
-    },
-
-    setupDragAndDrop: function() {
-        const container = document.getElementById('rotationContainer');
-        if(!container) return;
-        
-        let draggedItem = null;
-        container.querySelectorAll('.sortable-item').forEach(item => {
-            item.addEventListener('dragstart', (e) => {
-                draggedItem = item;
-                e.dataTransfer.effectAllowed = 'move';
-                item.classList.add('dragging');
-            });
-            item.addEventListener('dragend', () => {
-                draggedItem = null;
-                item.classList.remove('dragging');
-                this.refreshArrows();
-            });
-            item.addEventListener('dragover', (e) => {
-                e.preventDefault(); 
-                e.dataTransfer.dropEffect = 'move';
-                const target = e.target.closest('.sortable-item');
-                if (target && target !== draggedItem) {
-                    const rect = target.getBoundingClientRect();
-                    const next = (e.clientX - rect.left) / (rect.right - rect.left) > 0.5;
-                    if(next) container.insertBefore(draggedItem, target.nextSibling);
-                    else container.insertBefore(draggedItem, target);
-                }
-            });
-        });
-    },
-
-    refreshArrows: function() {
-        const container = document.getElementById('rotationContainer');
-        if(!container) return;
-        container.querySelectorAll('.sortable-arrow').forEach(el => el.remove());
-        const items = container.querySelectorAll('.sortable-item');
-        items.forEach((item, index) => {
-            if (index > 0) {
-                const arrow = document.createElement('div');
-                arrow.className = 'sortable-arrow';
-                arrow.innerHTML = '<i class="fas fa-arrow-right"></i>';
-                container.insertBefore(arrow, item);
-            }
-        });
-    },
-
-    getRotationOrderString: function() {
-        const items = document.querySelectorAll('#rotationContainer .sortable-item');
-        const codes = Array.from(items).map(el => el.dataset.code);
-        return codes.join(',');
+        } catch (e) { console.error(e); }
     },
 
     saveData: async function() {
         if(!this.currentUnitId) { alert("請先選擇單位"); return; }
-
+        
         const getCheck = (id) => { const el = document.getElementById(id); return el ? el.checked : false; };
-        const getVal = (id, def) => { const el = document.getElementById(id); return el ? (el.value || def) : def; };
-        const getInt = (id, def) => { const el = document.getElementById(id); return el ? (parseInt(el.value) || def) : def; };
+        const getVal = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+        const getInt = (id, def) => { const v = parseInt(getVal(id)); return isNaN(v) ? def : v; };
+
+        const nightLimits = this.getCheckedNightLimits();
 
         const rules = {
             hard: {
@@ -299,45 +134,39 @@ const scheduleRuleManager = {
                 protectPregnant: getCheck('rule_protectPregnant'),
                 twoOffPerFortnight: getCheck('rule_twoOffPerFortnight'),
                 offGapMax: getInt('rule_offGapMax', 12),
-                weekStartDay: getVal('rule_weekStartDay', "1")
+                weekStartDay: getInt('rule_weekStartDay', 1)
             },
             policy: {
-                reqOffWeight: getVal('rule_reqOffWeight', 'must'),
-                reqBanWeight: getVal('rule_reqBanWeight', 'must'),
                 limitConsecutive: getCheck('rule_limitConsecutive'),
                 maxConsDays: getInt('rule_maxConsDays', 6),
-                longLeaveAdjust: getCheck('rule_longLeaveAdjust'),
                 bundleNightOnly: getCheck('rule_bundleNightOnly'),
                 noNightAfterOff: getCheck('rule_noNightAfterOff'),
-                nightStart: getVal('rule_nightStart', '22:00'), // 🆕 儲存自定義區間
-                nightEnd: getVal('rule_nightEnd', '06:00'),
-                noNightAfterOff_List: this.getCheckedNightLimits(), 
-                enableRelaxation: getCheck('rule_enableRelaxation')
+                noNightAfterOff_List: nightLimits,
+                
+                // 🆕 儲存權重設定
+                prioritizeBundle: getVal('rule_prioritize_bundle'), 
+                prioritizePref: getVal('rule_prioritize_pref'),
+                
+                // 救火模式 (必須手動開啟)
+                enableRelaxation: getCheck('rule_enableRelaxation') 
             },
             pattern: {
-                dayStartShift: getVal('rule_dayStartShift', 'D'),
-                rotationOrder: this.getRotationOrderString(), 
+                dayStartShift: getVal('rule_dayStartShift'),
+                rotationOrder: getVal('rule_rotationOrder'),
                 consecutivePref: getCheck('rule_consecutivePref'),
                 minConsecutive: getInt('rule_minConsecutive', 2),
-                avoidLonelyOff: getCheck('rule_avoidLonelyOff'),
-                monthBuffer: getCheck('rule_monthBuffer'),
-                monthBufferDays: getInt('rule_monthBufferDays', 7)
+                avoidLonelyOff: getCheck('rule_avoidLonelyOff')
             },
             fairness: {
                 fairOff: getCheck('rule_fairOff'),
                 fairOffVar: getInt('rule_fairOffVar', 2),
-                fairHoliday: getCheck('rule_fairHoliday'),
-                fairHolidayVar: getInt('rule_fairHolidayVar', 2),
                 fairNight: getCheck('rule_fairNight'),
                 fairNightVar: getInt('rule_fairNightVar', 2),
                 balanceRounds: getInt('rule_fairBalanceRounds', 100)
             },
             aiParams: {
                 backtrack_depth: getInt('ai_backtrack_depth', 3),
-                max_attempts: getInt('ai_max_attempts', 20),
-                w_balance: getInt('ai_w_balance', 200),
-                w_continuity: getInt('ai_w_continuity', 50),
-                w_surplus: getInt('ai_w_surplus', 150)
+                max_attempts: getInt('ai_max_attempts', 20)
             }
         };
 
@@ -353,6 +182,35 @@ const scheduleRuleManager = {
         }
     },
 
+    renderNightShiftOptions: async function(checkedCodes) {
+        const container = document.getElementById('nightShiftOptions');
+        if(!container) return;
+        container.innerHTML = '載入中...';
+        
+        if (!this.activeShifts.length && this.currentUnitId) {
+             const snap = await db.collection('shifts').where('unitId','==',this.currentUnitId).get();
+             this.activeShifts = snap.docs.map(d => d.data());
+        }
+
+        container.innerHTML = '';
+        this.activeShifts.forEach(s => {
+            const isChecked = checkedCodes.includes(s.code);
+            const div = document.createElement('div');
+            div.innerHTML = `
+                <label style="display:inline-flex; align-items:center;">
+                    <input type="checkbox" value="${s.code}" class="night-limit-chk" ${isChecked?'checked':''}>
+                    <span style="margin-left:4px; font-size:0.9rem;">${s.code}</span>
+                </label>
+            `;
+            container.appendChild(div);
+        });
+    },
+
+    getCheckedNightLimits: function() {
+        const chks = document.querySelectorAll('.night-limit-chk:checked');
+        return Array.from(chks).map(c => c.value);
+    },
+
     switchTab: function(tabName) {
         const wrapper = document.querySelector('.tab-content-wrapper');
         if(wrapper) {
@@ -360,7 +218,6 @@ const scheduleRuleManager = {
             const target = document.getElementById(`tab-${tabName}`);
             if(target) target.classList.add('active');
         }
-        
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.classList.remove('active');
             if(btn.getAttribute('onclick').includes(tabName)) btn.classList.add('active');
