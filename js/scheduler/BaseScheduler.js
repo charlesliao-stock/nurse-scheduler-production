@@ -1,5 +1,5 @@
 // js/scheduler/BaseScheduler.js
-// 🔧 最終完整版：整合 4 種權重驗證、絕對間隔檢查、救火降級
+// 🔧 最終修復版：補回遺失的 updateShift 與 countStaff 方法
 
 class BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -73,21 +73,26 @@ class BaseScheduler {
         map['REQ_OFF'] = { start: 0, end: 0, hours: 0 };
         return map;
     }
+
     parseTime(timeStr) {
         if (!timeStr) return 0;
         const [h, m] = timeStr.split(':').map(Number);
         return h + (m || 0) / 60;
     }
+
     init() {
+        // 初始化計數器
         this.staffList.forEach(s => {
             this.counters[s.id] = {};
             this.shiftCodes.forEach(code => this.counters[s.id][code] = 0);
         });
+        // 初始化每日班表
         for (let d = 1; d <= this.daysInMonth; d++) {
             const dateStr = this.getDateStr(d);
             this.schedule[dateStr] = {};
             this.shiftCodes.forEach(code => this.schedule[dateStr][code] = []);
         }
+        // 預設將所有人放入 OFF
         this.staffList.forEach(staff => {
             for (let d = 1; d <= this.daysInMonth; d++) {
                 const dateStr = this.getDateStr(d);
@@ -98,6 +103,40 @@ class BaseScheduler {
             }
         });
     }
+
+    // 🚨 [已修復] 補回 updateShift 方法
+    updateShift(dateStr, uid, oldShift, newShift) {
+        if (oldShift === newShift) return;
+
+        // 移除舊班別
+        if (oldShift && this.schedule[dateStr][oldShift]) {
+            const arr = this.schedule[dateStr][oldShift];
+            const idx = arr.indexOf(uid);
+            if (idx > -1) {
+                arr.splice(idx, 1);
+                if (this.counters[uid] && this.counters[uid][oldShift] !== undefined) {
+                    this.counters[uid][oldShift]--;
+                }
+            }
+        }
+
+        // 加入新班別
+        if (newShift && this.schedule[dateStr][newShift]) {
+            this.schedule[dateStr][newShift].push(uid);
+            if (this.counters[uid] && this.counters[uid][newShift] !== undefined) {
+                this.counters[uid][newShift]++;
+            }
+        }
+    }
+
+    // 🚨 [已修復] 補回 countStaff 方法
+    countStaff(day, shiftCode) {
+        const dateStr = this.getDateStr(day);
+        if (!this.schedule[dateStr] || !this.schedule[dateStr][shiftCode]) return 0;
+        return this.schedule[dateStr][shiftCode].length;
+    }
+
+    // --- 驗證邏輯 ---
 
     isValidAssignment(staff, dateStr, shiftCode, isRelaxMode = false) {
         if (shiftCode === 'OFF') return true;
