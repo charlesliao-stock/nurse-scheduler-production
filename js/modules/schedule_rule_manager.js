@@ -1,5 +1,5 @@
 // js/modules/schedule_rule_manager.js
-// 更新版：支援後處理輪數設定
+// 更新版：支援動態班別限制顯示與後處理輪數設定
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -56,13 +56,16 @@ const scheduleRuleManager = {
         
         try {
             const shiftsSnap = await db.collection('shifts').where('unitId', '==', unitId).get();
-            this.activeShifts = shiftsSnap.docs.map(d => d.data());
+            this.activeShifts = shiftsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
             const doc = await db.collection('units').doc(unitId).get();
             if(!doc.exists) return;
             
             const unitData = doc.data();
             const rules = unitData.schedulingRules || {};
+            
+            // 🆕 動態渲染夜班限制選項
+            this.renderNightShiftOptions(rules.policy?.noNightAfterOff_List || []);
             
             this.fillForm(rules);
             console.log("規則載入完成");
@@ -71,6 +74,39 @@ const scheduleRuleManager = {
             console.error("Load Data Error:", e);
             alert("資料載入失敗");
         }
+    },
+
+    // 🆕 動態渲染夜班限制選項 (22:00-06:00)
+    renderNightShiftOptions: function(savedList) {
+        const container = document.getElementById('noNightAfterOff_container');
+        if(!container) return;
+        
+        container.innerHTML = '';
+        
+        // 篩選出上班時間在 22:00-06:00 之間的班別
+        const nightShifts = this.activeShifts.filter(s => {
+            const start = s.startTime;
+            if (!start) return false;
+            // 判定邏輯：20:00 之後或 04:00 之前起始的班別視為夜班組別
+            return start >= "20:00" || start <= "04:00";
+        });
+        
+        if (nightShifts.length === 0) {
+            container.innerHTML = '<span style="color:#e67e22; font-size:0.85rem;"><i class="fas fa-info-circle"></i> 該單位尚未設定 22:00-06:00 的夜班班別。</span>';
+            return;
+        }
+        
+        nightShifts.forEach(s => {
+            const label = document.createElement('label');
+            label.style.marginRight = '15px';
+            label.style.display = 'flex';
+            label.style.alignItems = 'center';
+            label.style.cursor = 'pointer';
+            
+            const isChecked = savedList.includes(s.code) ? 'checked' : '';
+            label.innerHTML = `<input type="checkbox" class="rule-night-limit" data-code="${s.code}" ${isChecked} style="margin-right:5px;"> 不排${s.name} (${s.code})`;
+            container.appendChild(label);
+        });
     },
 
     fillForm: function(r) {
@@ -225,6 +261,12 @@ const scheduleRuleManager = {
         const getVal = (id, def) => { const el = document.getElementById(id); return el ? (el.value || def) : def; };
         const getInt = (id, def) => { const el = document.getElementById(id); return el ? (parseInt(el.value) || def) : def; };
 
+        // 🆕 獲取動態夜班限制清單
+        const nightLimitList = [];
+        document.querySelectorAll('.rule-night-limit:checked').forEach(el => {
+            nightLimitList.push(el.dataset.code);
+        });
+
         const rules = {
             hard: {
                 minGap11: getCheck('rule_minGap11'),
@@ -242,6 +284,7 @@ const scheduleRuleManager = {
                 longLeaveAdjust: getCheck('rule_longLeaveAdjust'),
                 bundleNightOnly: getCheck('rule_bundleNightOnly'),
                 noNightAfterOff: getCheck('rule_noNightAfterOff'),
+                noNightAfterOff_List: nightLimitList, // 🆕 儲存動態清單
                 enableRelaxation: getCheck('rule_enableRelaxation')
             },
             pattern: {
@@ -260,7 +303,6 @@ const scheduleRuleManager = {
                 fairHolidayVar: getInt('rule_fairHolidayVar', 2),
                 fairNight: getCheck('rule_fairNight'),
                 fairNightVar: getInt('rule_fairNightVar', 2),
-                // [關鍵新增] 儲存後處理輪數
                 balanceRounds: getInt('rule_fairBalanceRounds', 100)
             },
             aiParams: {

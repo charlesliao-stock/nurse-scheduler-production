@@ -263,11 +263,13 @@ class BaseScheduler {
 
     // 輔助：判斷是否為夜班
     isNightShift(shiftCode) {
-        // 優先從規則中讀取設定
-        if (this.rules.policy?.noNightAfterOff_N && shiftCode === 'N') return true;
-        if (this.rules.policy?.noNightAfterOff_E && shiftCode === 'E') return true;
+        // 🆕 優先從動態規則清單中讀取設定
+        const limitList = this.rules.policy?.noNightAfterOff_List || [];
+        if (limitList.length > 0) {
+            return limitList.includes(shiftCode);
+        }
         
-        // 備援：從班別時間表判定
+        // 備援：從班別時間表判定 (20:00-04:00 起始者)
         const shiftTime = this.shiftTimes[shiftCode];
         return shiftTime && shiftTime.isNight;
     }
