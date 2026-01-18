@@ -1,5 +1,5 @@
 // js/scheduler/SchedulerV2.js
-// 🚀 AI 升級版：加入強力回溯交換 (Gap Filling with Deep Swaps)
+// 🚀 最終完整版：層級排序 + 隨機亂數 + 強力交換填補
 
 class SchedulerV2 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -9,10 +9,10 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     run() {
-        console.log("🚀 SchedulerV2: 開始排班 (含回溯交換優化)");
+        console.log("🚀 SchedulerV2: 開始排班 (隨機亂數 + 回溯交換)");
         this.lockPreRequests();
 
-        // 1. 初步排班 (Greedy + Simple Backtrack)
+        // 1. 初步排班 (Greedy)
         for (let d = 1; d <= this.daysInMonth; d++) {
             if (!this.solveDay(d, false)) {
                 if (this.rules.policy?.enableRelaxation) {
@@ -22,8 +22,7 @@ class SchedulerV2 extends BaseScheduler {
             }
         }
 
-        // 2. 🔥 關鍵修正：針對缺額進行「強力交換填補」
-        // 這會解決 1/1 明明有人力卻缺額的問題
+        // 2. 針對缺額進行「強力交換填補」 (解決 1/1 缺額問題)
         this.fillGapsWithSwaps();
 
         // 3. 後處理平衡
@@ -34,9 +33,6 @@ class SchedulerV2 extends BaseScheduler {
         return this.formatResult();
     }
 
-    // ... (solveDay, sortCandidates, lockPreRequests, etc. 保持與上一版相同，省略以節省篇幅) ...
-    // 請保留上一版完整的 solveDay, sortCandidates, getTotalShifts, lockPreRequests, getDailyNeeds, getAvailableStaff, clearDayAssignments
-    
     solveDay(day, isRelaxMode) {
         const dateStr = this.getDateStr(day);
         const needs = this.getDailyNeeds(day);
@@ -58,44 +54,10 @@ class SchedulerV2 extends BaseScheduler {
                 }
             }
         }
-        
-        for (const [code, count] of Object.entries(needs)) {
-            if (this.countStaff(day, code) < count) return false;
-        }
         return true;
     }
 
-    sortCandidates(staffList, dateStr, shiftCode) {
-        const randomizedList = this.shuffleArray(staffList);
-        return randomizedList.sort((a, b) => {
-            const isBundleA = (a.packageType === shiftCode || a.prefs?.bundleShift === shiftCode);
-            const isBundleB = (b.packageType === shiftCode || b.prefs?.bundleShift === shiftCode);
-            if (isBundleA && !isBundleB) return -1; 
-            if (!isBundleA && isBundleB) return 1;  
-
-            const paramsA = a.schedulingParams?.[dateStr];
-            const paramsB = b.schedulingParams?.[dateStr];
-            const isReqA = (paramsA === shiftCode);
-            const isReqB = (paramsB === shiftCode);
-            if (isReqA && !isReqB) return -1;
-            if (!isReqA && isReqB) return 1;
-
-            const isPrefA = a.prefs?.[dateStr] && Object.values(a.prefs[dateStr]).includes(shiftCode);
-            const isPrefB = b.prefs?.[dateStr] && Object.values(b.prefs[dateStr]).includes(shiftCode);
-            if (isPrefA && !isPrefB) return -1;
-            if (!isPrefA && isPrefB) return 1;
-            
-            const isAvoidA = (paramsA === '!' + shiftCode);
-            const isAvoidB = (paramsB === '!' + shiftCode);
-            if (isAvoidA && !isAvoidB) return 1; 
-            if (!isAvoidA && isAvoidB) return -1;
-
-            const countA = this.getTotalShifts(a.id);
-            const countB = this.getTotalShifts(b.id);
-            return countA - countB; 
-        });
-    }
-
+    // 隨機亂數洗牌
     shuffleArray(array) {
         const arr = [...array];
         for (let i = arr.length - 1; i > 0; i--) {
@@ -105,12 +67,181 @@ class SchedulerV2 extends BaseScheduler {
         return arr;
     }
 
+    // 層級排序邏輯
+    sortCandidates(staffList, dateStr, shiftCode) {
+        // 先洗牌，確保隨機性
+        const randomizedList = this.shuffleArray(staffList);
+        
+        const prevShiftMap = {};
+        randomizedList.forEach(s => {
+            prevShiftMap[s.id] = this.getYesterdayShift(s.id, dateStr);
+        });
+
+        return randomizedList.sort((a, b) => {
+            // 1. 包班優先
+            const isBundleA = (a.packageType === shiftCode || a.prefs?.bundleShift === shiftCode);
+            const isBundleB = (b.packageType === shiftCode || b.prefs?.bundleShift === shiftCode);
+            if (isBundleA !== isBundleB) return isBundleA ? -1 : 1;
+
+            // 2. 指定預班優先
+            const paramsA = a.schedulingParams?.[dateStr];
+            const paramsB = b.schedulingParams?.[dateStr];
+            const isReqA = (paramsA === shiftCode);
+            const isReqB = (paramsB === shiftCode);
+            if (isReqA !== isReqB) return isReqA ? -1 : 1;
+
+            // 3. 連續班別優先 (相同班別連續)
+            if (this.rules.pattern?.consecutivePref) {
+                const prevA = prevShiftMap[a.id];
+                const prevB = prevShiftMap[b.id];
+                const isConsA = (prevA === shiftCode);
+                const isConsB = (prevB === shiftCode);
+                if (isConsA !== isConsB) return isConsA ? -1 : 1; 
+            }
+
+            // 4. 偏好優先
+            const isPrefA = a.prefs?.[dateStr] && Object.values(a.prefs[dateStr]).includes(shiftCode);
+            const isPrefB = b.prefs?.[dateStr] && Object.values(b.prefs[dateStr]).includes(shiftCode);
+            if (isPrefA !== isPrefB) return isPrefA ? -1 : 1;
+
+            // 5. 避開勿排
+            const isAvoidA = (paramsA === '!' + shiftCode);
+            const isAvoidB = (paramsB === '!' + shiftCode);
+            if (isAvoidA !== isAvoidB) return isAvoidA ? 1 : -1;
+
+            // 6. 分群公平性 (若都是非包班，比較夜班數)
+            // 這裡簡單比較總班數，夜班平均化可再此擴充
+            const countA = this.getTotalShifts(a.id);
+            const countB = this.getTotalShifts(b.id);
+            return countA - countB; 
+        });
+    }
+
+    // 強力填補缺額邏輯
+    fillGapsWithSwaps() {
+        console.log("⚡ 啟動強力交換填補...");
+        
+        for (let d = 1; d <= this.daysInMonth; d++) {
+            const dateStr = this.getDateStr(d);
+            const needs = this.getDailyNeeds(d);
+
+            for (const [targetShift, count] of Object.entries(needs)) {
+                let currentCount = this.countStaff(d, targetShift);
+                let gap = count - currentCount;
+
+                if (gap > 0) {
+                    // 找出當天 OFF 的人
+                    const offStaffs = this.staffList.filter(s => 
+                        this.getShiftByDate(dateStr, s.id) === 'OFF'
+                    );
+                    const candidates = this.shuffleArray(offStaffs);
+
+                    for (const staff of candidates) {
+                        if (gap <= 0) break;
+
+                        // 1. 直接排
+                        if (this.isValidAssignment(staff, dateStr, targetShift, true)) { 
+                            this.updateShift(dateStr, staff.id, 'OFF', targetShift);
+                            gap--;
+                            continue;
+                        }
+
+                        // 2. 交換昨天 (解決 11 小時問題)
+                        if (this.rule_minGap11) {
+                            const prevShift = this.getYesterdayShift(staff.id, dateStr);
+                            if (!this.checkRestPeriod(prevShift, targetShift)) {
+                                if (this.trySwapYesterday(staff, d, prevShift)) {
+                                    if (this.isValidAssignment(staff, dateStr, targetShift, true)) {
+                                        this.updateShift(dateStr, staff.id, 'OFF', targetShift);
+                                        gap--;
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+
+                        // 3. 製造斷點 (解決連上問題)
+                        if (this.rule_limitConsecutive) {
+                            const consDays = this.getConsecutiveWorkDays(staff.id, dateStr);
+                            if (consDays >= (this.rule_maxConsDays || 6)) {
+                                if (this.tryCreateBreak(staff, d)) {
+                                    if (this.isValidAssignment(staff, dateStr, targetShift, true)) {
+                                        this.updateShift(dateStr, staff.id, 'OFF', targetShift);
+                                        gap--;
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    trySwapYesterday(targetStaff, currentDay, badShift) {
+        if (currentDay <= 1) return false; 
+        const prevDay = currentDay - 1;
+        const prevDateStr = this.getDateStr(prevDay);
+
+        const swapCandidates = this.staffList.filter(s => 
+            s.id !== targetStaff.id && 
+            this.getShiftByDate(prevDateStr, s.id) === 'OFF'
+        );
+
+        for (const candidate of swapCandidates) {
+            if (this.isValidAssignment(candidate, prevDateStr, badShift, true)) {
+                this.updateShift(prevDateStr, candidate.id, 'OFF', badShift);
+                this.updateShift(prevDateStr, targetStaff.id, badShift, 'OFF');
+                return true; 
+            }
+        }
+        return false;
+    }
+
+    tryCreateBreak(targetStaff, currentDay) {
+        for (let i = 2; i <= 4; i++) {
+            const checkDay = currentDay - i;
+            if (checkDay < 1) continue;
+            const dateStr = this.getDateStr(checkDay);
+            const currentShift = this.getShiftByDate(dateStr, targetStaff.id);
+            
+            if (currentShift === 'OFF' || currentShift === 'REQ_OFF') continue;
+
+            const candidates = this.staffList.filter(s => 
+                s.id !== targetStaff.id && 
+                this.getShiftByDate(dateStr, s.id) === 'OFF'
+            );
+
+            for (const candidate of candidates) {
+                if (this.isValidAssignment(candidate, dateStr, currentShift, true)) {
+                    this.updateShift(dateStr, candidate.id, 'OFF', currentShift);
+                    this.updateShift(dateStr, targetStaff.id, currentShift, 'OFF');
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     getTotalShifts(uid) {
         const counts = this.counters[uid];
         if (!counts) return 0;
         return Object.keys(counts).reduce((sum, key) => {
             return key !== 'OFF' ? sum + counts[key] : sum;
         }, 0);
+    }
+    
+    lockPreRequests() {
+        this.staffList.forEach(staff => {
+            const params = staff.schedulingParams || {};
+            for (let d = 1; d <= this.daysInMonth; d++) {
+                const dateStr = this.getDateStr(d);
+                if (params[dateStr] === 'REQ_OFF') {
+                    this.updateShift(dateStr, staff.id, 'OFF', 'REQ_OFF');
+                }
+            }
+        });
     }
 
     getDailyNeeds(day) {
@@ -145,158 +276,7 @@ class SchedulerV2 extends BaseScheduler {
         });
     }
 
-    lockPreRequests() {
-        this.staffList.forEach(staff => {
-            const params = staff.schedulingParams || {};
-            for (let d = 1; d <= this.daysInMonth; d++) {
-                const dateStr = this.getDateStr(d);
-                if (params[dateStr] === 'REQ_OFF') {
-                    this.updateShift(dateStr, staff.id, 'OFF', 'REQ_OFF');
-                }
-            }
-        });
-    }
-
-    // ==========================================
-    // 🔥 新增：強力填補缺額邏輯 (Deep Gap Filling)
-    // ==========================================
-    fillGapsWithSwaps() {
-        console.log("⚡ 啟動強力交換填補...");
-        
-        // 掃描每一天
-        for (let d = 1; d <= this.daysInMonth; d++) {
-            const dateStr = this.getDateStr(d);
-            const needs = this.getDailyNeeds(d);
-
-            // 檢查該日每個班別是否有缺額
-            for (const [targetShift, count] of Object.entries(needs)) {
-                let currentCount = this.countStaff(d, targetShift);
-                let gap = count - currentCount;
-
-                if (gap > 0) {
-                    console.log(`📅 ${dateStr} 缺 ${gap} 個 ${targetShift}，嘗試交換調度...`);
-                    
-                    // 嘗試填補這個缺口
-                    // 策略：找出當天休假 (OFF) 的人，看能不能讓他上這個班
-                    // 如果不能上，看是因為「昨天」還是「明天」卡住，然後嘗試去改昨天或明天的班
-                    
-                    const offStaffs = this.staffList.filter(s => 
-                        this.getShiftByDate(dateStr, s.id) === 'OFF'
-                    );
-
-                    // 隨機打亂，增加多樣性
-                    const candidates = this.shuffleArray(offStaffs);
-
-                    for (const staff of candidates) {
-                        if (gap <= 0) break;
-
-                        // 1. 直接嘗試：如果可以直接排進去，就排
-                        if (this.isValidAssignment(staff, dateStr, targetShift, true)) { // 開啟救火模式檢查
-                            this.updateShift(dateStr, staff.id, 'OFF', targetShift);
-                            gap--;
-                            continue;
-                        }
-
-                        // 2. 進階嘗試：解決「間隔不足」問題 (11小時)
-                        // 假設因為「昨天」上晚班導致今天不能上早班 -> 嘗試把昨天的班換掉
-                        if (this.rule_minGap11) {
-                            const prevShift = this.getYesterdayShift(staff.id, dateStr);
-                            if (!this.checkRestPeriod(prevShift, targetShift)) {
-                                // 發現是昨天的班卡住，嘗試修改昨天的班
-                                if (this.trySwapYesterday(staff, d, prevShift)) {
-                                    // 昨天換成功了，再次檢查今天能不能排
-                                    if (this.isValidAssignment(staff, dateStr, targetShift, true)) {
-                                        this.updateShift(dateStr, staff.id, 'OFF', targetShift);
-                                        gap--;
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
-
-                        // 3. 進階嘗試：解決「連上天數」問題
-                        // 如果因為連上太多天，嘗試把前幾天其中一天換成 OFF
-                        if (this.rule_limitConsecutive) {
-                            const consDays = this.getConsecutiveWorkDays(staff.id, dateStr);
-                            if (consDays >= (this.rule_maxConsDays || 6)) {
-                                // 嘗試把前 2-3 天的某一天排休
-                                if (this.tryCreateBreak(staff, d)) {
-                                    if (this.isValidAssignment(staff, dateStr, targetShift, true)) {
-                                        this.updateShift(dateStr, staff.id, 'OFF', targetShift);
-                                        gap--;
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // 嘗試交換該員「昨天」的班別 (例如把 N 換成 OFF 或 D，讓他今天能上早班)
-    trySwapYesterday(targetStaff, currentDay, badShift) {
-        if (currentDay <= 1) return false; // 第一天無法動上個月
-        const prevDay = currentDay - 1;
-        const prevDateStr = this.getDateStr(prevDay);
-
-        // 找出昨天是 OFF 的其他人
-        const swapCandidates = this.staffList.filter(s => 
-            s.id !== targetStaff.id && 
-            this.getShiftByDate(prevDateStr, s.id) === 'OFF'
-        );
-
-        for (const candidate of swapCandidates) {
-            // 檢查：如果把 badShift 給這個候選人，是否合法？
-            if (this.isValidAssignment(candidate, prevDateStr, badShift, true)) {
-                // 檢查：如果把 targetStaff 昨天改成 OFF，是否合法？ (通常 OFF 都合法，除非缺額)
-                // 這裡簡化：假設昨天該班別不缺人，或者我們允許短期缺額以滿足今天
-                
-                // 執行交換
-                // 1. 候選人 OFF -> badShift
-                this.updateShift(prevDateStr, candidate.id, 'OFF', badShift);
-                // 2. 目標員工 badShift -> OFF
-                this.updateShift(prevDateStr, targetStaff.id, badShift, 'OFF');
-                
-                console.log(`🔄 [回溯交換] ${prevDateStr}: ${targetStaff.name}(${badShift}->OFF), ${candidate.name}(OFF->${badShift})`);
-                return true; 
-            }
-        }
-        return false;
-    }
-
-    // 嘗試在該員的前幾天製造一個 OFF (打斷連上)
-    tryCreateBreak(targetStaff, currentDay) {
-        // 往前找 2~4 天，試著把其中一班換給別人
-        for (let i = 2; i <= 4; i++) {
-            const checkDay = currentDay - i;
-            if (checkDay < 1) continue;
-            const dateStr = this.getDateStr(checkDay);
-            const currentShift = this.getShiftByDate(dateStr, targetStaff.id);
-            
-            if (currentShift === 'OFF' || currentShift === 'REQ_OFF') continue;
-
-            // 找替死鬼
-            const candidates = this.staffList.filter(s => 
-                s.id !== targetStaff.id && 
-                this.getShiftByDate(dateStr, s.id) === 'OFF'
-            );
-
-            for (const candidate of candidates) {
-                if (this.isValidAssignment(candidate, dateStr, currentShift, true)) {
-                    this.updateShift(dateStr, candidate.id, 'OFF', currentShift);
-                    this.updateShift(dateStr, targetStaff.id, currentShift, 'OFF');
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    postProcessBalancing() {
-        // 簡單平衡，若需要複雜交換可在此實作
-    }
+    postProcessBalancing() { }
 
     formatResult() {
         const result = {};
