@@ -1,5 +1,5 @@
 // js/modules/schedule_rule_manager.js
-// 🚀 最終完整版：整合拖曳排序、動態班別、完整權重設定
+// 🔧 最終完整版：UI 控制、拖曳排序、動態資料
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -7,13 +7,12 @@ const scheduleRuleManager = {
     
     init: async function() {
         console.log("Scheduling Rules Manager Loaded.");
-        
         const container = document.getElementById('rulesContainer');
         if(container) container.style.display = 'none';
 
         await this.loadUnitDropdown();
         
-        // 監聽夜班時間區間變化 -> 觸發動態重繪
+        // 監聽夜班時間變化
         const startInput = document.getElementById('rule_nightStart');
         const endInput = document.getElementById('rule_nightEnd');
         if (startInput && endInput) {
@@ -69,11 +68,9 @@ const scheduleRuleManager = {
     loadDataToForm: async function() {
         if(!this.currentUnitId) return;
         try {
-            // 1. 載入該單位的班別 (用於 Tab 2 夜班 & Tab 3 輪替)
             const shiftSnap = await db.collection('shifts').where('unitId','==',this.currentUnitId).get();
             this.activeShifts = shiftSnap.docs.map(d => d.data());
 
-            // 2. 載入規則
             const doc = await db.collection('units').doc(this.currentUnitId).get();
             if(!doc.exists) return;
             const data = doc.data();
@@ -82,7 +79,7 @@ const scheduleRuleManager = {
             const setCheck = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val; };
             const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val || ''; };
 
-            // --- Tab 1: Hard Rules ---
+            // Hard
             setCheck('rule_minGap11', r.hard?.minGap11 !== false);
             setCheck('rule_maxDiversity3', r.hard?.maxDiversity3 !== false);
             setCheck('rule_protectPregnant', r.hard?.protectPregnant !== false);
@@ -90,39 +87,34 @@ const scheduleRuleManager = {
             setVal('rule_offGapMax', r.hard?.offGapMax || 12);
             setVal('rule_weekStartDay', r.hard?.weekStartDay || 1);
 
-            // --- Tab 2: Policy Rules ---
+            // Policy
             setCheck('rule_limitConsecutive', r.policy?.limitConsecutive !== false);
             setVal('rule_maxConsDays', r.policy?.maxConsDays || 6);
+            setVal('rule_longVacationDays', r.policy?.longVacationDays || 7);
+            setVal('rule_longVacationWorkLimit', r.policy?.longVacationWorkLimit || 7);
+            
             setCheck('rule_bundleNightOnly', r.policy?.bundleNightOnly !== false);
             setCheck('rule_noNightAfterOff', r.policy?.noNightAfterOff !== false);
             
-            // 4大權重設定
             setVal('rule_prioritize_bundle', r.policy?.prioritizeBundle || 'must');
             setVal('rule_prioritize_pref', r.policy?.prioritizePref || 'must');
             setVal('rule_prioritize_prereq', r.policy?.prioritizePreReq || 'must');
             setVal('rule_prioritize_avoid', r.policy?.prioritizeAvoid || 'must');
-            
-            // 救火模式
             setCheck('rule_enableRelaxation', r.policy?.enableRelaxation === true);
 
-            // 夜班設定
             if (r.policy?.nightStart) document.getElementById('rule_nightStart').value = r.policy.nightStart;
             if (r.policy?.nightEnd) document.getElementById('rule_nightEnd').value = r.policy.nightEnd;
             this.renderNightShiftOptions(r.policy?.noNightAfterOff_List || []);
 
-            // --- Tab 3: Pattern Rules ---
+            // Pattern
             setCheck('rule_consecutivePref', r.pattern?.consecutivePref !== false);
             setVal('rule_minConsecutive', r.pattern?.minConsecutive || 2);
             setCheck('rule_avoidLonelyOff', r.pattern?.avoidLonelyOff !== false);
             
-            // 🆕 動態起始班別 (下拉)
             this.renderStartShiftSelect(r.pattern?.dayStartShift || 'D');
-            
-            // 🆕 動態輪替順序 (拖曳)
-            const savedOrder = r.pattern?.rotationOrder || 'OFF,N,E,D';
-            this.renderRotationSortableList(savedOrder);
+            this.renderRotationSortableList(r.pattern?.rotationOrder || 'OFF,N,E,D');
 
-            // --- Tab 4 & 5 ---
+            // Fairness & AI
             setCheck('rule_fairOff', r.fairness?.fairOff !== false);
             setVal('rule_fairOffVar', r.fairness?.fairOffVar || 2);
             setCheck('rule_fairNight', r.fairness?.fairNight !== false);
@@ -144,7 +136,6 @@ const scheduleRuleManager = {
         const getVal = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
         const getInt = (id, def) => { const v = parseInt(getVal(id)); return isNaN(v) ? def : v; };
 
-        // 取得拖曳排序結果
         const rotationOrder = this.getRotationOrderFromDOM();
 
         const rules = {
@@ -159,23 +150,22 @@ const scheduleRuleManager = {
             policy: {
                 limitConsecutive: getCheck('rule_limitConsecutive'),
                 maxConsDays: getInt('rule_maxConsDays', 6),
+                longVacationDays: getInt('rule_longVacationDays', 7),
+                longVacationWorkLimit: getInt('rule_longVacationWorkLimit', 7),
                 bundleNightOnly: getCheck('rule_bundleNightOnly'),
                 noNightAfterOff: getCheck('rule_noNightAfterOff'),
                 noNightAfterOff_List: this.getCheckedNightLimits(),
                 nightStart: getVal('rule_nightStart'),
                 nightEnd: getVal('rule_nightEnd'),
-                
-                // 4大權重
                 prioritizeBundle: getVal('rule_prioritize_bundle'), 
                 prioritizePref: getVal('rule_prioritize_pref'),
                 prioritizePreReq: getVal('rule_prioritize_prereq'),
                 prioritizeAvoid: getVal('rule_prioritize_avoid'),
-                
                 enableRelaxation: getCheck('rule_enableRelaxation') 
             },
             pattern: {
-                dayStartShift: getVal('rule_dayStartShift'), // 下拉選單值
-                rotationOrder: rotationOrder,                // 拖曳排序值
+                dayStartShift: getVal('rule_dayStartShift'),
+                rotationOrder: rotationOrder,
                 consecutivePref: getCheck('rule_consecutivePref'),
                 minConsecutive: getInt('rule_minConsecutive', 2),
                 avoidLonelyOff: getCheck('rule_avoidLonelyOff')
@@ -202,70 +192,48 @@ const scheduleRuleManager = {
         } catch(e) { console.error(e); alert("儲存失敗: " + e.message); }
     },
 
-    // 🆕 渲染起始班別下拉選單
     renderStartShiftSelect: function(currentVal) {
         const select = document.getElementById('rule_dayStartShift');
         if(!select) return;
         select.innerHTML = '';
-        
         this.activeShifts.forEach(s => {
             const opt = document.createElement('option');
             opt.value = s.code;
             opt.textContent = `${s.code} (${s.name})`;
             select.appendChild(opt);
         });
-
-        // 若無班別資料，預設 D
         if (select.options.length === 0) {
             const opt = document.createElement('option'); opt.value = 'D'; opt.textContent = 'D';
             select.appendChild(opt);
         }
-
-        // 嘗試選中之前的值，否則選第一個
-        if (currentVal && Array.from(select.options).some(o => o.value === currentVal)) {
-            select.value = currentVal;
-        } else {
-            select.selectedIndex = 0;
-        }
+        if (currentVal && Array.from(select.options).some(o => o.value === currentVal)) select.value = currentVal;
+        else select.selectedIndex = 0;
     },
 
-    // 🆕 渲染拖曳排序列表
     renderRotationSortableList: function(savedOrderStr) {
         const container = document.getElementById('rotationSortableList');
         if(!container) return;
         container.innerHTML = '';
-
-        // 準備所有可用班別 (含 OFF)
         const availableCodes = ['OFF', ...this.activeShifts.map(s => s.code)];
+        let orderArray = savedOrderStr ? savedOrderStr.split(',').map(s => s.trim()) : [];
         
-        let orderArray = [];
-        if (savedOrderStr) orderArray = savedOrderStr.split(',').map(s => s.trim());
-
-        // 合併邏輯：確保現有班別都在，且移除已刪除的
         const finalOrder = orderArray.filter(code => availableCodes.includes(code));
-        availableCodes.forEach(code => {
-            if (!finalOrder.includes(code)) finalOrder.push(code);
-        });
+        availableCodes.forEach(code => { if (!finalOrder.includes(code)) finalOrder.push(code); });
 
         finalOrder.forEach(code => {
             const item = document.createElement('div');
             item.className = 'sortable-item';
             item.draggable = true;
             item.dataset.code = code;
-            item.innerHTML = `
-                <span>${code}</span>
-                <i class="fas fa-grip-lines-vertical"></i>
-            `;
+            item.innerHTML = `<span>${code}</span><i class="fas fa-grip-lines-vertical"></i>`;
             container.appendChild(item);
             this.addDragEvents(item, container);
         });
     },
 
-    // 🆕 拖曳事件綁定
     addDragEvents: function(item, container) {
         item.addEventListener('dragstart', () => item.classList.add('dragging'));
         item.addEventListener('dragend', () => item.classList.remove('dragging'));
-
         container.addEventListener('dragover', (e) => {
             e.preventDefault();
             const afterElement = this.getDragAfterElement(container, e.clientX);
@@ -288,61 +256,40 @@ const scheduleRuleManager = {
     getRotationOrderFromDOM: function() {
         const container = document.getElementById('rotationSortableList');
         if(!container) return 'OFF,N,E,D';
-        const items = container.querySelectorAll('.sortable-item');
-        return Array.from(items).map(item => item.dataset.code).join(',');
+        return Array.from(container.querySelectorAll('.sortable-item')).map(item => item.dataset.code).join(',');
     },
 
-    // 夜班選項渲染
     renderNightShiftOptions: function(checkedCodes) {
         const container = document.getElementById('nightShiftOptions');
         if(!container) return;
         container.innerHTML = '';
-        
-        const nStartStr = document.getElementById('rule_nightStart').value || '20:00';
-        const nEndStr = document.getElementById('rule_nightEnd').value || '06:00';
-        
-        const parse = (t) => { if(!t) return 0; const [h, m] = t.split(':').map(Number); return h + m/60; };
-        const nStart = parse(nStartStr);
-        const nEnd = parse(nEndStr);
-
-        const isNight = (shift) => {
-            if (!shift.startTime) return false;
-            const sStart = parse(shift.startTime);
-            if (nStart > nEnd) return (sStart >= nStart) || (sStart <= nEnd);
-            else return (sStart >= nStart) && (sStart <= nEnd);
-        };
+        const nStart = this.parseTime(document.getElementById('rule_nightStart').value || '20:00');
+        const nEnd = this.parseTime(document.getElementById('rule_nightEnd').value || '06:00');
 
         let hasOptions = false;
         this.activeShifts.forEach(s => {
-            if (isNight(s)) {
+            const sStart = this.parseTime(s.startTime);
+            let isNight = (nStart > nEnd) ? (sStart >= nStart || sStart <= nEnd) : (sStart >= nStart && sStart <= nEnd);
+            
+            if (isNight) {
                 hasOptions = true;
                 const isChecked = checkedCodes.includes(s.code);
                 const div = document.createElement('div');
-                div.innerHTML = `
-                    <label style="display:inline-flex; align-items:center; margin-right:15px; cursor:pointer;">
-                        <input type="checkbox" value="${s.code}" class="night-limit-chk" ${isChecked?'checked':''}>
-                        <span style="margin-left:4px; font-weight:bold; color:#2c3e50;">${s.code}</span>
-                        <span style="font-size:0.8rem; color:#888; margin-left:2px;">(${s.startTime})</span>
-                    </label>
-                `;
+                div.innerHTML = `<label style="display:inline-flex; align-items:center; margin-right:15px;"><input type="checkbox" value="${s.code}" class="night-limit-chk" ${isChecked?'checked':''}> <span style="margin-left:4px; font-weight:bold;">${s.code}</span></label>`;
                 container.appendChild(div);
             }
         });
-
-        if (!hasOptions) container.innerHTML = '<span style="color:#999; font-size:0.9rem;">(依據目前時間設定，無符合的夜班班別)</span>';
+        if (!hasOptions) container.innerHTML = '<span style="color:#999;">(無符合班別)</span>';
     },
 
-    getCheckedNightLimits: function() {
-        const chks = document.querySelectorAll('.night-limit-chk:checked');
-        return Array.from(chks).map(c => c.value);
-    },
-
+    parseTime: function(t) { if(!t) return 0; const [h, m] = t.split(':').map(Number); return h + m/60; },
+    getCheckedNightLimits: function() { return Array.from(document.querySelectorAll('.night-limit-chk:checked')).map(c => c.value); },
+    
     switchTab: function(tabName) {
         const wrapper = document.querySelector('.tab-content-wrapper');
         if(wrapper) {
             wrapper.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            const target = document.getElementById(`tab-${tabName}`);
-            if(target) target.classList.add('active');
+            document.getElementById(`tab-${tabName}`)?.classList.add('active');
         }
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.classList.remove('active');
