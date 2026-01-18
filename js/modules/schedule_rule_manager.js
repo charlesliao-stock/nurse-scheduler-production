@@ -1,5 +1,5 @@
 // js/modules/schedule_rule_manager.js
-// 🔧 最終完整版：UI 控制、拖曳排序、動態資料 (修正 Tab 切換誤判)
+// 🔧 最終完整版：UI 控制、拖曳排序、動態資料 (含分段平衡設定)
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -12,7 +12,6 @@ const scheduleRuleManager = {
 
         await this.loadUnitDropdown();
         
-        // 監聽夜班時間變化
         const startInput = document.getElementById('rule_nightStart');
         const endInput = document.getElementById('rule_nightEnd');
         if (startInput && endInput) {
@@ -79,7 +78,6 @@ const scheduleRuleManager = {
             const setCheck = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val; };
             const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val || ''; };
 
-            // Hard
             setCheck('rule_minGap11', r.hard?.minGap11 !== false);
             setCheck('rule_maxDiversity3', r.hard?.maxDiversity3 !== false);
             setCheck('rule_protectPregnant', r.hard?.protectPregnant !== false);
@@ -87,7 +85,6 @@ const scheduleRuleManager = {
             setVal('rule_offGapMax', r.hard?.offGapMax || 12);
             setVal('rule_weekStartDay', r.hard?.weekStartDay || 1);
 
-            // Policy
             setCheck('rule_limitConsecutive', r.policy?.limitConsecutive !== false);
             setVal('rule_maxConsDays', r.policy?.maxConsDays || 6);
             setVal('rule_longVacationDays', r.policy?.longVacationDays || 7);
@@ -106,7 +103,6 @@ const scheduleRuleManager = {
             if (r.policy?.nightEnd) document.getElementById('rule_nightEnd').value = r.policy.nightEnd;
             this.renderNightShiftOptions(r.policy?.noNightAfterOff_List || []);
 
-            // Pattern
             setCheck('rule_consecutivePref', r.pattern?.consecutivePref !== false);
             setVal('rule_minConsecutive', r.pattern?.minConsecutive || 2);
             setCheck('rule_avoidLonelyOff', r.pattern?.avoidLonelyOff !== false);
@@ -114,14 +110,16 @@ const scheduleRuleManager = {
             this.renderStartShiftSelect(r.pattern?.dayStartShift || 'D');
             this.renderRotationSortableList(r.pattern?.rotationOrder || 'OFF,N,E,D');
 
-            // Fairness & AI
             setCheck('rule_fairOff', r.fairness?.fairOff !== false);
             setVal('rule_fairOffVar', r.fairness?.fairOffVar || 2);
             setCheck('rule_fairNight', r.fairness?.fairNight !== false);
             setVal('rule_fairNightVar', r.fairness?.fairNightVar || 2);
             setVal('rule_fairBalanceRounds', r.fairness?.balanceRounds || 100);
+            
+            // 🆕 AI 參數讀取
             setVal('ai_backtrack_depth', r.aiParams?.backtrack_depth || 3);
             setVal('ai_max_attempts', r.aiParams?.max_attempts || 20);
+            setVal('ai_balancing_segments', r.aiParams?.balancingSegments || 1); // 預設 1 段
 
             const container = document.getElementById('rulesContainer');
             if(container) container.style.display = 'block';
@@ -179,7 +177,8 @@ const scheduleRuleManager = {
             },
             aiParams: {
                 backtrack_depth: getInt('ai_backtrack_depth', 3),
-                max_attempts: getInt('ai_max_attempts', 20)
+                max_attempts: getInt('ai_max_attempts', 20),
+                balancingSegments: getInt('ai_balancing_segments', 1) // 🆕 儲存段數
             }
         };
 
@@ -285,7 +284,6 @@ const scheduleRuleManager = {
     parseTime: function(t) { if(!t) return 0; const [h, m] = t.split(':').map(Number); return h + m/60; },
     getCheckedNightLimits: function() { return Array.from(document.querySelectorAll('.night-limit-chk:checked')).map(c => c.value); },
     
-    // [關鍵修正]：使用 dataset.tab 做精確比對
     switchTab: function(tabName) {
         const wrapper = document.querySelector('.tab-content-wrapper');
         if(wrapper) {
