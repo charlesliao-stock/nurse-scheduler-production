@@ -14,7 +14,6 @@
     </div>
 
     <div id="rulesContainer" class="rules-container" style="display:none;">
-        
         <div class="tab-nav">
             <button class="tab-btn active" data-tab="hard" onclick="scheduleRuleManager.switchTab('hard')"><i class="fas fa-exclamation-circle"></i> 1. 硬性規則</button>
             <button class="tab-btn" data-tab="policy" onclick="scheduleRuleManager.switchTab('policy')"><i class="fas fa-building"></i> 2. 單位規範</button>
@@ -69,8 +68,7 @@
                     <div class="rule-header"><label class="switch-label"><input type="checkbox" id="rule_limitConsecutive" checked> <span class="label-text">2. 限制連續上班天數</span></label></div>
                     <div class="rule-body form-inline-group"><div class="form-item"><label>最大連續上班:</label><input type="number" id="rule_maxConsDays" value="6" class="form-control small-input"> 天</div></div>
                 </div>
-                <div class="rule-card" style="background:#f0f8ff; border-left:4px solid #3498db;">
-                    <div class="rule-header">3. 長假排班例外</div>
+                <div class="rule-card" style="background:#f0f8ff; border-left-color:#3498db;"> <div class="rule-header">3. 長假排班例外</div>
                     <div class="rule-body">
                         <div class="form-inline-group">當連續放假 <input type="number" id="rule_longVacationDays" value="7" class="form-control small-input"> 天以上，允許最大連上 <input type="number" id="rule_longVacationWorkLimit" value="7" class="form-control small-input"> 天。</div>
                     </div>
@@ -138,6 +136,7 @@
 </div>
 
 <style>
+    /* 容器樣式 */
     .toolbar-card { background: #fff; padding: 15px 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
     .rules-container { background: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); min-height: 600px; overflow: hidden; }
     .tab-nav { display: flex; background: #f8f9fa; border-bottom: 1px solid #eee; }
@@ -148,12 +147,44 @@
     .tab-content { display: none; animation: fadeIn 0.3s; }
     .tab-content.active { display: block; }
     .section-title { font-size: 1.2rem; font-weight: bold; color: #2c3e50; border-left: 5px solid #3498db; padding-left: 15px; margin-bottom: 10px; }
-    .rule-card { background: #fff; border: 1px solid #eee; border-radius: 8px; padding: 20px; margin-bottom: 15px; transition: transform 0.2s, box-shadow 0.2s; }
-    .rule-card:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.05); border-color: #e0e0e0; }
+    
+    /* === [更新] 規則卡片樣式 === */
+    .rule-card { 
+        background: #fff; 
+        border: 1px solid #eee; 
+        border-radius: 8px; 
+        padding: 20px; 
+        margin-bottom: 15px; 
+        
+        /* 1. 預設：灰色側框 */
+        border-left: 5px solid #bdc3c7; 
+        
+        transition: all 0.2s ease-in-out; /* 平滑過渡 */
+    }
+
+    .rule-card:hover { 
+        /* 2. 滑鼠移入：藍色側框 + 輕微藍底 */
+        border-left-color: #3498db !important; /* 強制覆蓋可能的其他顏色 */
+        background-color: #ebf5fb !important; /* 輕微藍底 */
+        
+        transform: translateY(-2px); 
+        box-shadow: 0 5px 15px rgba(52, 152, 219, 0.15); 
+    }
+    
+    /* 特殊卡片：救火模式 (紅色) - 保持特殊性 */
+    .danger-card { 
+        border-left-color: #c0392b; 
+        background: #fff5f5;
+    }
+    /* 讓紅色卡片 hover 時變為深紅底，而不是藍底，以示警示 */
+    .danger-card:hover {
+        background-color: #fadbd8 !important;
+        border-left-color: #e74c3c !important;
+    }
+
     .rule-header { font-weight: bold; color: #34495e; margin-bottom: 10px; }
     .rule-body { color: #555; font-size: 0.95rem; line-height: 1.6; }
-    .highlight-card { background: #fdfefe; border-left: 4px solid #3498db; }
-    .danger-card { background: #fff5f5; border: 1px solid #ffcccc; border-left: 4px solid #c0392b; }
+    
     .form-control { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.95rem; }
     .small-input { width: 80px; text-align: center; }
     .medium-input { width: 200px; }
