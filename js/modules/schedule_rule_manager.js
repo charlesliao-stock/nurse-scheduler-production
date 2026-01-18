@@ -1,5 +1,5 @@
 // js/modules/schedule_rule_manager.js
-// 🔧 最終完整版：UI 控制、拖曳排序、動態資料 (含分段平衡設定)
+// 🔧 最終修正版
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -116,10 +116,9 @@ const scheduleRuleManager = {
             setVal('rule_fairNightVar', r.fairness?.fairNightVar || 2);
             setVal('rule_fairBalanceRounds', r.fairness?.balanceRounds || 100);
             
-            // 🆕 AI 參數讀取
             setVal('ai_backtrack_depth', r.aiParams?.backtrack_depth || 3);
             setVal('ai_max_attempts', r.aiParams?.max_attempts || 20);
-            setVal('ai_balancing_segments', r.aiParams?.balancingSegments || 1); // 預設 1 段
+            setVal('ai_balancing_segments', r.aiParams?.balancingSegments || 1); 
 
             const container = document.getElementById('rulesContainer');
             if(container) container.style.display = 'block';
@@ -178,7 +177,7 @@ const scheduleRuleManager = {
             aiParams: {
                 backtrack_depth: getInt('ai_backtrack_depth', 3),
                 max_attempts: getInt('ai_max_attempts', 20),
-                balancingSegments: getInt('ai_balancing_segments', 1) // 🆕 儲存段數
+                balancingSegments: getInt('ai_balancing_segments', 1)
             }
         };
 
