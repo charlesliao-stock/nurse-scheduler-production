@@ -68,7 +68,8 @@
                     <div class="rule-header"><label class="switch-label"><input type="checkbox" id="rule_limitConsecutive" checked> <span class="label-text">2. 限制連續上班天數</span></label></div>
                     <div class="rule-body form-inline-group"><div class="form-item"><label>最大連續上班:</label><input type="number" id="rule_maxConsDays" value="6" class="form-control small-input"> 天</div></div>
                 </div>
-                <div class="rule-card" style="background:#f0f8ff; border-left-color:#3498db;"> <div class="rule-header">3. 長假排班例外</div>
+                <div class="rule-card" style="background:#f0f8ff; border-left-color:#3498db;">
+                    <div class="rule-header">3. 長假排班例外</div>
                     <div class="rule-body">
                         <div class="form-inline-group">當連續放假 <input type="number" id="rule_longVacationDays" value="7" class="form-control small-input"> 天以上，允許最大連上 <input type="number" id="rule_longVacationWorkLimit" value="7" class="form-control small-input"> 天。</div>
                     </div>
@@ -126,6 +127,24 @@
                 <div class="section-title" style="border-left-color: #8e44ad;">AI 運算參數</div>
                 <div class="rule-card">
                     <div class="rule-body">
+                        <div class="form-inline-group" style="margin-bottom:15px;">
+                            <div class="form-item">
+                                <label style="font-weight:bold; color:#2c3e50;">平衡微調段數設定:</label>
+                                <select id="ai_balancing_segments" class="form-control small-input" style="width: 150px;">
+                                    <option value="1">1 段 (僅月底)</option>
+                                    <option value="2">2 段 (月中/底)</option>
+                                    <option value="3">3 段 (每10天)</option>
+                                    <option value="4">4 段 (每週)</option>
+                                    <option value="5">5 段 (每6天)</option>
+                                    <option value="6">6 段 (每5天)</option>
+                                </select>
+                            </div>
+                            <div class="form-text" style="width:100%; margin-top:5px;">
+                                段數越多，執行平衡的頻率越高 (例如 3 段會在 10號、20號、30號執行)。<br>
+                                <i class="fas fa-info-circle"></i> 較高的段數可提早解決不均，但可能降低排班彈性。
+                            </div>
+                        </div>
+                        <div style="border-top:1px solid #eee; margin:10px 0;"></div>
                         <div class="form-inline-group" style="margin-bottom:10px;"><div class="form-item"><label>回溯深度:</label><input type="number" id="ai_backtrack_depth" value="3" class="form-control small-input"> 天</div></div>
                         <div class="form-inline-group"><div class="form-item"><label>單格嘗試次數:</label><input type="number" id="ai_max_attempts" value="20" class="form-control small-input"> 次</div></div>
                     </div>
@@ -136,7 +155,6 @@
 </div>
 
 <style>
-    /* 容器樣式 */
     .toolbar-card { background: #fff; padding: 15px 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
     .rules-container { background: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); min-height: 600px; overflow: hidden; }
     .tab-nav { display: flex; background: #f8f9fa; border-bottom: 1px solid #eee; }
@@ -147,44 +165,13 @@
     .tab-content { display: none; animation: fadeIn 0.3s; }
     .tab-content.active { display: block; }
     .section-title { font-size: 1.2rem; font-weight: bold; color: #2c3e50; border-left: 5px solid #3498db; padding-left: 15px; margin-bottom: 10px; }
-    
-    /* === [更新] 規則卡片樣式 === */
-    .rule-card { 
-        background: #fff; 
-        border: 1px solid #eee; 
-        border-radius: 8px; 
-        padding: 20px; 
-        margin-bottom: 15px; 
-        
-        /* 1. 預設：灰色側框 */
-        border-left: 5px solid #bdc3c7; 
-        
-        transition: all 0.2s ease-in-out; /* 平滑過渡 */
-    }
-
-    .rule-card:hover { 
-        /* 2. 滑鼠移入：藍色側框 + 輕微藍底 */
-        border-left-color: #3498db !important; /* 強制覆蓋可能的其他顏色 */
-        background-color: #ebf5fb !important; /* 輕微藍底 */
-        
-        transform: translateY(-2px); 
-        box-shadow: 0 5px 15px rgba(52, 152, 219, 0.15); 
-    }
-    
-    /* 特殊卡片：救火模式 (紅色) - 保持特殊性 */
-    .danger-card { 
-        border-left-color: #c0392b; 
-        background: #fff5f5;
-    }
-    /* 讓紅色卡片 hover 時變為深紅底，而不是藍底，以示警示 */
-    .danger-card:hover {
-        background-color: #fadbd8 !important;
-        border-left-color: #e74c3c !important;
-    }
-
+    .rule-card { background: #fff; border: 1px solid #eee; border-radius: 8px; padding: 20px; margin-bottom: 15px; border-left: 5px solid #bdc3c7; transition: all 0.2s ease-in-out; }
+    .rule-card:hover { border-left-color: #3498db !important; background-color: #ebf5fb !important; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(52, 152, 219, 0.15); }
+    .danger-card { border-left-color: #c0392b; background: #fff5f5; }
+    .danger-card:hover { background-color: #fadbd8 !important; border-left-color: #e74c3c !important; }
     .rule-header { font-weight: bold; color: #34495e; margin-bottom: 10px; }
     .rule-body { color: #555; font-size: 0.95rem; line-height: 1.6; }
-    
+    .highlight-card { background: #fdfefe; border-left: 4px solid #3498db; }
     .form-control { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.95rem; }
     .small-input { width: 80px; text-align: center; }
     .medium-input { width: 200px; }
@@ -198,13 +185,11 @@
     .form-col label { font-size: 0.9rem; font-weight: bold; color: #555; }
     .warning-text { font-size: 0.85rem; color: #d35400; background: #fff3e0; padding: 8px; border-radius: 4px; margin-top: 10px; }
     .checkbox-group { display: flex; gap: 15px; flex-wrap: wrap; }
-    
     .sortable-list { display: flex; gap: 10px; padding: 15px; background: #f8f9fa; border: 1px dashed #ccc; border-radius: 8px; flex-wrap: wrap; min-height: 60px; align-items: center; }
     .sortable-item { background: #fff; border: 1px solid #3498db; color: #2c3e50; padding: 8px 16px; border-radius: 20px; cursor: grab; font-weight: bold; user-select: none; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; align-items: center; gap: 5px; }
     .sortable-item:hover { background: #ebf5fb; transform: translateY(-2px); }
     .sortable-item:active { cursor: grabbing; }
     .sortable-item.dragging { opacity: 0.5; background: #e0e0e0; border-style: dashed; }
     .sortable-item i { color: #bdc3c7; font-size: 0.8rem; margin-left: 5px; }
-
     @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 </style>
