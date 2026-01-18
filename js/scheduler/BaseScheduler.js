@@ -1,5 +1,5 @@
 // js/scheduler/BaseScheduler.js
-// 🔧 最終完整版：整合分段平衡規則讀取
+// 🔧 最終修正版：驗證邏輯完整對應 V2 需求
 
 class BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -30,29 +30,24 @@ class BaseScheduler {
         this.rule_offGapMax = parseInt(r.hard?.offGapMax) || 12;
         this.rule_weekStartDay = parseInt(r.hard?.weekStartDay) || 1; 
 
+        // 政策與長假
         this.rule_enableRelaxation = r.policy?.enableRelaxation === true;
         this.rule_limitConsecutive = r.policy?.limitConsecutive !== false;
         this.rule_maxConsDays = r.policy?.maxConsDays || 6;
-        
         this.rule_longVacationDays = r.policy?.longVacationDays || 7;
         this.rule_longVacationWorkLimit = r.policy?.longVacationWorkLimit || 7;
-
         this.rule_noNightAfterOff = r.policy?.noNightAfterOff !== false;
         
-        // 🆕 AI 平衡參數
-        this.rule_balancingSegments = parseInt(r.aiParams?.balancingSegments) || 1;
-
+        // 權重
         let prioritizeBundle = r.policy?.prioritizeBundle || 'must';
         let prioritizePref = r.policy?.prioritizePref || 'must';
         let prioritizePreReq = r.policy?.prioritizePreReq || 'must'; 
         let prioritizeAvoid = r.policy?.prioritizeAvoid || 'must';
 
+        // 只有當管理者開啟救火時，權重才降級
         if (this.rule_enableRelaxation) {
-            console.warn("🔥 救火模式已啟動");
-            prioritizeBundle = 'try';
-            prioritizePref = 'try';
-            prioritizePreReq = 'try';
-            prioritizeAvoid = 'try';
+            prioritizeBundle = 'try'; prioritizePref = 'try'; 
+            prioritizePreReq = 'try'; prioritizeAvoid = 'try';
         }
 
         this.rule_strictBundle = (prioritizeBundle === 'must');
@@ -127,6 +122,7 @@ class BaseScheduler {
         return this.schedule[dateStr][shiftCode].length;
     }
 
+    // --- 核心驗證 ---
     isValidAssignment(staff, dateStr, shiftCode, isRelaxMode = false) {
         if (shiftCode === 'OFF') {
             if (!this.checkOffGap(staff, dateStr)) return false; 
@@ -160,12 +156,19 @@ class BaseScheduler {
             if (this.rule_strictPref) return false;
         }
 
+        // 救火模式 (如果管理者開啟且參數為 true，允許放寬軟性規則)
         if (isRelaxMode && this.rule_enableRelaxation) return true;
 
+        // 連續上班限制
         if (this.rule_limitConsecutive) {
             const currentCons = this.getConsecutiveWorkDays(staff.id, dateStr);
             let limit = this.rule_maxConsDays;
-            if (this.isLongVacationMonth(staff)) limit = this.rule_longVacationWorkLimit;
+            
+            // 長假例外判定
+            if (this.isLongVacationMonth(staff)) {
+                limit = this.rule_longVacationWorkLimit;
+            }
+            
             if (currentCons >= limit) return false;
         }
 
@@ -185,13 +188,15 @@ class BaseScheduler {
         const params = staff.schedulingParams || {};
         let maxSeq = 0;
         let currentSeq = 0;
+        const longDays = this.rule_longVacationDays || 7;
+        
         for(let d=1; d<=this.daysInMonth; d++) {
             const dateStr = this.getDateStr(d);
             if (params[dateStr] === 'REQ_OFF') currentSeq++;
             else { maxSeq = Math.max(maxSeq, currentSeq); currentSeq = 0; }
         }
         maxSeq = Math.max(maxSeq, currentSeq);
-        return maxSeq >= this.rule_longVacationDays;
+        return maxSeq >= longDays;
     }
 
     checkFixedWeekDiversity(uid, dateStr, newShift) {
