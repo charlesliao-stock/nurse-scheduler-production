@@ -1,5 +1,5 @@
 // js/modules/schedule_rule_manager.js
-// 🔧 最終完整版：UI 控制、拖曳排序、動態資料
+// 🔧 最終完整版：UI 控制、拖曳排序、動態資料 (修正 Tab 切換誤判)
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -285,6 +285,7 @@ const scheduleRuleManager = {
     parseTime: function(t) { if(!t) return 0; const [h, m] = t.split(':').map(Number); return h + m/60; },
     getCheckedNightLimits: function() { return Array.from(document.querySelectorAll('.night-limit-chk:checked')).map(c => c.value); },
     
+    // [關鍵修正]：使用 dataset.tab 做精確比對
     switchTab: function(tabName) {
         const wrapper = document.querySelector('.tab-content-wrapper');
         if(wrapper) {
@@ -293,7 +294,7 @@ const scheduleRuleManager = {
         }
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.classList.remove('active');
-            if(btn.getAttribute('onclick').includes(tabName)) btn.classList.add('active');
+            if(btn.dataset.tab === tabName) btn.classList.add('active');
         });
     }
 };
