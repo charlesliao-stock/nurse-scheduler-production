@@ -80,15 +80,28 @@ const scoreSettingsManager = {
     // 單位切換
     onUnitChange: async function() {
         const select = document.getElementById('scoreUnitSelect');
+        const container = document.getElementById('scoreSettingsContainer');
+        
+        if(!select) {
+            console.error("找不到 scoreUnitSelect");
+            return;
+        }
+        
+        if(!container) {
+            console.error("找不到 scoreSettingsContainer");
+            return;
+        }
+        
         const unitId = select.value;
+        console.log("單位切換:", unitId);
         
         if (!unitId) {
-            document.getElementById('scoreSettingsContainer').style.display = 'none';
+            container.style.display = 'none';
             return;
         }
 
         this.currentUnitId = unitId;
-        document.getElementById('scoreSettingsContainer').style.display = 'block';
+        container.style.display = 'block';
 
         await this.loadSettings();
     },
