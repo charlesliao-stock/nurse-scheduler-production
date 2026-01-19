@@ -70,16 +70,18 @@ if(typeof scoringManager !== 'undefined') {
     createElementFromHTML: function(html) { const d=document.createElement('div'); d.innerHTML=html.trim(); return d.firstChild; },
 
     updateScheduleScore: function() {
-        if (!typeof scoringManager) return;
-        const res = scoringManager.calculate(this.assignments, this.data.staffList, this.data.dailyNeeds, this.data.specificNeeds);
-        const score = parseFloat(res.percentage);
+        if (typeof scoringManager === 'undefined') return;
+        const res = scoringManager.calculate(this.assignments, this.data.staffList, this.data.year, this.data.month);
+        // 將 1-5 分轉換為 0-100 百分比顯示
+        const score = Math.round(res.total * 20 * 10) / 10;
 
         document.getElementById('scoreValue').innerText = score;
         document.getElementById('scoreCircleBg').style.background = `conic-gradient(#3498db 0% ${score}%, #ecf0f1 ${score}% 100%)`;
         
         ['eff','fat','sat','fai','cos'].forEach(k => {
             const map = { eff:'efficiency', fat:'fatigue', sat:'satisfaction', fai:'fairness', cos:'cost' };
-            document.getElementById(`scoreVal_${k}`).innerText = res.details[map[k]];
+            const val = res.breakdown[map[k]];
+            document.getElementById(`scoreVal_${k}`).innerText = (typeof val === 'number') ? (Math.round(val * 20 * 10) / 10) : '-';
         });
 
         const badge = document.getElementById('scoreCompareBadge');
