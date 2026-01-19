@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_manager.js
-// 🔧 完整修復版：確保抓得到 HTML ID
+// 🔧 修正版：確保 Modal 開啟時正確載入班別與組別資料
 
 const preScheduleManager = {
     currentUnitId: null,
@@ -36,6 +36,7 @@ const preScheduleManager = {
                 option.textContent = doc.data().name;
                 select.appendChild(option);
             });
+            // 若只有一個單位，自動選取並載入
             if(snapshot.size === 1) { 
                 select.selectedIndex = 1; 
                 this.loadData(); 
@@ -44,6 +45,7 @@ const preScheduleManager = {
         } catch(e) { console.error(e); }
     },
 
+    // 列表頁面載入
     loadData: async function() {
         this.currentUnitId = document.getElementById('filterPreUnit').value;
         if(!this.currentUnitId) return;
@@ -52,6 +54,7 @@ const preScheduleManager = {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">載入中...</td></tr>';
         
         try {
+            // 這裡也載入一次，為了列表顯示
             const unitDoc = await db.collection('units').doc(this.currentUnitId).get();
             this.currentUnitGroups = unitDoc.data().groups || [];
             
@@ -106,6 +109,22 @@ const preScheduleManager = {
         if(tabName === 'staff') btns[2].classList.add('active');
     },
 
+    // [新增] 強制載入單位詳情 (確保 Modal 有資料)
+    loadUnitDataForModal: async function() {
+        if(!this.currentUnitId) return;
+        try {
+            // 1. 載入班別 (Shifts)
+            const shiftSnap = await db.collection('shifts').where('unitId','==',this.currentUnitId).orderBy('startTime').get();
+            this.activeShifts = shiftSnap.docs.map(d => d.data());
+            
+            // 2. 載入組別 (Groups)
+            const unitDoc = await db.collection('units').doc(this.currentUnitId).get();
+            this.currentUnitGroups = unitDoc.data().groups || [];
+            
+            console.log("Modal Data Loaded. Shifts:", this.activeShifts.length, "Groups:", this.currentUnitGroups.length);
+        } catch(e) { console.error("Load Modal Data Error:", e); }
+    },
+
     loadCurrentUnitStaff: async function() {
         if(!this.currentUnitId) return;
         const snap = await db.collection('users').where('unitId', '==', this.currentUnitId).where('isActive', '==', true).get();
@@ -122,10 +141,14 @@ const preScheduleManager = {
 
     openModal: async function(docId = null) {
         if(!this.currentUnitId) { alert("請先選擇單位"); return; }
+        
         const modal = document.getElementById('preScheduleModal');
         modal.classList.add('show');
         document.getElementById('preScheduleDocId').value = docId || '';
         this.switchTab('basic');
+
+        // [關鍵修正] 打開 Modal 時，強制確認班別與組別資料存在
+        await this.loadUnitDataForModal();
 
         let data = {};
         if (docId) {
@@ -146,7 +169,7 @@ const preScheduleManager = {
         this.fillForm(data);
         this.renderStaffList();
         
-        // 渲染三個區塊
+        // 渲染三個關鍵區塊
         this.renderDailyNeedsTable(data.dailyNeeds);
         this.renderSpecificNeedsUI(data.specificNeeds || {}); 
         this.renderGroupLimitsTable(data.groupLimits);
@@ -168,12 +191,19 @@ const preScheduleManager = {
         if(s.shiftTypeMode === "2") document.getElementById('checkAllowThree').checked = s.allowThreeShifts;
     },
 
-    // 1. 常態需求
+    // 1. 各班每日人力需求 (週循環)
     renderDailyNeedsTable: function(savedNeeds = {}) {
         const container = document.getElementById('dailyNeedsTable');
         if(!container) return;
         
         let html = `<h4 style="margin-top:0; border-bottom:1px solid #eee; padding-bottom:10px; color:#2c3e50;">1. 各班每日人力需求 (週循環)</h4>`;
+        
+        // 防呆檢查
+        if (!this.activeShifts || this.activeShifts.length === 0) {
+            container.innerHTML = html + `<div style="color:red; padding:10px;">⚠️ 未偵測到班別資料。請先至「班別管理」新增班別。</div>`;
+            return;
+        }
+
         html += `<table class="table table-bordered table-sm text-center">`;
         const days = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
         let thead = '<thead><tr><th style="background:#f8f9fa;">班別 \\ 星期</th>';
@@ -193,7 +223,7 @@ const preScheduleManager = {
         container.innerHTML = html;
     },
 
-    // 2. 臨時需求
+    // 2. 臨時人力需求
     renderSpecificNeedsUI: function(specificNeeds = {}) {
         const container = document.getElementById('specificNeedsContainer'); 
         if(!container) return;
@@ -202,6 +232,7 @@ const preScheduleManager = {
 
         let html = `<h4 style="margin-top:20px; border-bottom:1px solid #eee; padding-bottom:10px; color:#2c3e50;">2. 臨時人力設定 (指定日期覆蓋)</h4>`;
         
+        // 輸入區
         html += `<div style="display:flex; gap:10px; margin-bottom:10px; background:#f9f9f9; padding:10px; border-radius:4px; align-items:center;">
             <input type="date" id="inputTempDate" class="form-control" style="width:150px;">
             <select id="inputTempShift" class="form-control" style="width:120px;">
@@ -213,6 +244,7 @@ const preScheduleManager = {
             </button>
         </div>`;
 
+        // 列表區
         html += `<div style="max-height:150px; overflow-y:auto; border:1px solid #eee;">
             <table class="table table-sm text-center" style="margin:0;">
             <thead style="position:sticky; top:0; background:#fff;">
@@ -262,12 +294,19 @@ const preScheduleManager = {
         this.renderSpecificNeedsUI(this.tempSpecificNeeds);
     },
 
-    // 3. 組別限制 (改為: 組別 x 班別 (至少/最多))
+    // 3. 組別限制
     renderGroupLimitsTable: function(savedLimits = {}) {
         const container = document.getElementById('groupLimitTableContainer');
         if(!container) return;
         
         let html = `<h4 style="margin-top:20px; border-bottom:1px solid #eee; padding-bottom:10px; color:#2c3e50;">3. 組別限制 (進階演算法參考)</h4>`;
+        
+        // 防呆
+        if (!this.currentUnitGroups || this.currentUnitGroups.length === 0) {
+            container.innerHTML = html + `<div style="color:orange; padding:10px;">⚠️ 此單位尚未設定「組別」。請至「單位管理」或「組別管理」新增組別。</div>`;
+            return;
+        }
+
         html += `<div style="overflow-x:auto;"><table class="table table-bordered table-sm text-center" id="groupLimitTable" style="min-width:100%;">
             <thead><tr><th style="background:#f8f9fa; width:100px;">組別</th>`;
         
@@ -299,7 +338,7 @@ const preScheduleManager = {
         if(!ym) { alert("請選擇月份"); return; }
         const [year, month] = ym.split('-').map(Number);
         
-        // 1. 收集組別限制 (新結構: Group -> Shift -> Min/Max)
+        // 收集組別限制
         const groupLimits = {};
         document.querySelectorAll('#groupLimitTable .limit-input').forEach(i => {
             const g = i.dataset.group;
@@ -313,7 +352,7 @@ const preScheduleManager = {
             }
         });
 
-        // 2. 收集每日需求
+        // 收集每日需求
         const dailyNeeds = {};
         document.querySelectorAll('.needs-input').forEach(i => {
             if(i.value) dailyNeeds[i.dataset.key] = parseInt(i.value);
@@ -354,7 +393,7 @@ const preScheduleManager = {
                         await db.collection('schedules').doc(schDoc.id).update({
                             dailyNeeds: dailyNeeds,
                             specificNeeds: specificNeeds,
-                            groupLimits: groupLimits, // 同步組別限制
+                            groupLimits: groupLimits,
                             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                         });
                     }
@@ -394,7 +433,6 @@ const preScheduleManager = {
             `;
             tbody.appendChild(tr);
         });
-        document.getElementById('staffCountBadge').innerText = this.staffListSnapshot.length;
     },
     
     updateStaffGroup: function(index, val) { this.staffListSnapshot[index].group = val; },
@@ -404,14 +442,5 @@ const preScheduleManager = {
     deleteSchedule: async function(id) { 
         if(confirm("確定刪除?")) { await db.collection('pre_schedules').doc(id).delete(); this.loadData(); } 
     },
-    
-    // 工具: 簡易開關三班選項
-    toggleThreeShiftOption: function() {
-        const mode = document.getElementById('inputShiftMode').value;
-        const opt = document.getElementById('threeShiftOption');
-        if(mode === '2') opt.style.display = 'block';
-        else opt.style.display = 'none';
-    },
-
     manage: function(id) { window.location.hash = `/admin/pre_schedule_matrix?id=${id}`; }
 };
