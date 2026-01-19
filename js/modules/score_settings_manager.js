@@ -1,245 +1,293 @@
 // js/modules/score_settings_manager.js
-// 🚀 完整版：連動計算 (細項 -> 大項 -> 總分)
+// 🚀 強化版：支援細項說明、Tiers 編輯與權重自動連動計算
 
 const scoreSettingsManager = {
     currentUnitId: null,
+    allSettings: {}, // 儲存從 DB 載入的原始設定
+    standardLabels: ["極佳", "良好", "普通", "待改進", "極差"],
 
-    // 定義欄位對應關係與群組
-    fieldMap: [
-        // 1. 公平性 (Fairness)
-        { checkId: 'metric_fairness_off', valId: 'val_fairness_off', key: 'fairness_off', group: 'fairness' },
-        { checkId: 'metric_fairness_night', valId: 'val_fairness_night', key: 'fairness_night', group: 'fairness' },
-        { checkId: 'metric_fairness_weekend', valId: 'val_fairness_weekend', key: 'fairness_weekend', group: 'fairness' },
-        
-        // 2. 滿意度 (Satisfaction)
-        { checkId: 'metric_sat_pref', valId: 'val_sat_pref', key: 'sat_pref', group: 'satisfaction' },
-        { checkId: 'metric_sat_req', valId: 'val_sat_req', key: 'sat_req', group: 'satisfaction' },
-        
-        // 3. 疲勞度 (Fatigue)
-        { checkId: 'metric_fat_consec', valId: 'val_fat_consec', key: 'fat_consec', group: 'fatigue' },
-        { checkId: 'metric_fat_night', valId: 'val_fat_night', key: 'fat_night', group: 'fatigue' },
-        { checkId: 'metric_fat_rest', valId: 'val_fat_rest', key: 'fat_rest', group: 'fatigue' },
-        { checkId: 'metric_fat_sd', valId: 'val_fat_sd', key: 'fat_sd', group: 'fatigue' },
-        
-        // 4. 排班效率 (Efficiency)
-        { checkId: 'metric_eff_gap', valId: 'val_eff_gap', key: 'eff_gap', group: 'efficiency' },
-        { checkId: 'metric_eff_over', valId: 'val_eff_over', key: 'eff_over', group: 'efficiency' },
-        { checkId: 'metric_eff_dist', valId: 'val_eff_dist', key: 'eff_dist', group: 'efficiency' },
-        
-        // 5. 成本控制 (Cost)
-        { checkId: 'metric_cost_over', valId: 'val_cost_over', key: 'cost_over', group: 'cost' }
-    ],
-
-    // 定義各群組對應的顯示 ID
-    groupTargets: {
-        'fairness': 'fairness_weight_display',
-        'satisfaction': 'satisfaction_weight_display',
-        'fatigue': 'fatigue_weight_display',
-        'efficiency': 'efficiency_weight_display',
-        'cost': 'cost_weight_display'
-    },
-
-    init: async function() {
-        console.log("🎯 Score Settings Manager Init START");
-        const container = document.getElementById('scoreSettingsContainer');
-        if (container) container.style.display = 'none';
-
-        await this.loadUnitDropdown();
-        this.setupAutoSum(); // 啟動監聽器
-        console.log("🎯 Score Settings Manager Init COMPLETE");
-    },
-
-    // --- [核心] 自動加總邏輯設定 ---
-    setupAutoSum: function() {
-        this.fieldMap.forEach(item => {
-            // 監聽數值改變
-            const valEl = document.getElementById(item.valId);
-            if (valEl) {
-                valEl.addEventListener('input', () => this.calculateAll());
-            }
-            // 監聽開關改變 (關閉時不計分)
-            const checkEl = document.getElementById(item.checkId);
-            if (checkEl) {
-                checkEl.addEventListener('change', () => this.calculateAll());
-            }
-        });
-    },
-
-    // --- [核心] 計算所有分數 ---
-    calculateAll: function() {
-        let grandTotal = 0;
-        const groupSums = { fairness: 0, satisfaction: 0, fatigue: 0, efficiency: 0, cost: 0 };
-
-        // 1. 遍歷所有欄位，累加到對應群組
-        this.fieldMap.forEach(item => {
-            const checkEl = document.getElementById(item.checkId);
-            const valEl = document.getElementById(item.valId);
-
-            // 只有當 Checkbox 存在且被勾選時，才計算該分數
-            if (checkEl && valEl && checkEl.checked) {
-                const val = parseFloat(valEl.value) || 0;
-                if (item.group && groupSums.hasOwnProperty(item.group)) {
-                    groupSums[item.group] += val;
+    // 1. 定義完整的配置結構 (對應您提供的邏輯)
+    config: {
+        fairness: {
+            label: "1. 公平性指標",
+            displayId: 'fairness_weight_display',
+            subs: {
+                hoursDiff: {
+                    label: "(1) 工時差異 (標準差)", desc: "所有員工工時與平均工時的標準差差異程度", weight: 10, enabled: true,
+                    tiers: [{limit: 2, score: 100, label: "極佳"}, {limit: 4, score: 80, label: "良好"}, {limit: 6, score: 60, label: "普通"}, {limit: 8, score: 40, label: "待改進"}, {limit: 999, score: 20, label: "極差"}]
+                },
+                nightDiff: {
+                    label: "(2) 夜班差異 (次)", desc: "員工之間夜班天數差異程度 (Max - Min)", weight: 10, enabled: true, excludeBatch: true,
+                    tiers: [{limit: 1, score: 100, label: "極佳"}, {limit: 2, score: 80, label: "良好"}, {limit: 3, score: 60, label: "普通"}, {limit: 4, score: 40, label: "待改進"}, {limit: 999, score: 20, label: "極差"}]
+                },
+                holidayDiff: {
+                    label: "(3) 假日差異 (天)", desc: "員工之間假日放假天數差異程度 (Max - Min)", weight: 10, enabled: true,
+                    tiers: [{limit: 1, score: 100, label: "極佳"}, {limit: 2, score: 80, label: "良好"}, {limit: 3, score: 60, label: "普通"}, {limit: 4, score: 40, label: "待改進"}, {limit: 999, score: 20, label: "極差"}]
                 }
             }
-        });
-
-        // 2. 更新各大項的顯示 Badge
-        for (const [group, sum] of Object.entries(groupSums)) {
-            const targetId = this.groupTargets[group];
-            const targetEl = document.getElementById(targetId);
-            if (targetEl) {
-                targetEl.innerText = sum + '%';
-                grandTotal += sum; // 累加到總分
+        },
+        satisfaction: {
+            label: "2. 滿意度指標",
+            displayId: 'satisfaction_weight_display',
+            subs: {
+                prefRate: {
+                    label: "(1) 排班偏好滿足度 (%)", desc: "排班的結果符合員工偏好的程度", weight: 15, enabled: true,
+                    tiers: [{limit: 10, score: 100, label: "極佳"}, {limit: 20, score: 80, label: "良好"}, {limit: 30, score: 60, label: "普通"}, {limit: 40, score: 40, label: "待改進"}, {limit: 100, score: 20, label: "極差"}]
+                },
+                wishRate: {
+                    label: "(2) 預班達成率 (%)", desc: "排假的結果符合員工預班OFF的程度", weight: 10, enabled: true,
+                    tiers: [{limit: 5, score: 100, label: "極佳"}, {limit: 10, score: 80, label: "良好"}, {limit: 15, score: 60, label: "普通"}, {limit: 20, score: 40, label: "待改進"}, {limit: 100, score: 20, label: "極差"}]
+                }
+            }
+        },
+        fatigue: {
+            label: "3. 疲勞度指標",
+            displayId: 'fatigue_weight_display',
+            subs: {
+                consWork: {
+                    label: "(1) 連續工作>6天 (人次)", desc: "最長連續工作天數達6天(以上)的人次次數", weight: 8, enabled: true,
+                    tiers: [{limit: 0, score: 100, label: "極佳"}, {limit: 2, score: 80, label: "良好"}, {limit: 4, score: 60, label: "普通"}, {limit: 6, score: 40, label: "待改進"}, {limit: 999, score: 20, label: "極差"}]
+                },
+                nToD: {
+                    label: "(2) 大夜接白 (次)", desc: "前一天大夜，隔天早班的次數", weight: 7, enabled: true,
+                    tiers: [{limit: 0, score: 100, label: "極佳"}, {limit: 3, score: 80, label: "良好"}, {limit: 6, score: 60, label: "普通"}, {limit: 10, score: 40, label: "待改進"}, {limit: 999, score: 20, label: "極差"}]
+                },
+                offTargetRate: {
+                    label: "(3) 休假達標率 (%)", desc: "符合應放天數規定的員工比例", weight: 5, enabled: true,
+                    tiers: [{limit: 0, score: 100, label: "極佳"}, {limit: 5, score: 80, label: "良好"}, {limit: 10, score: 60, label: "普通"}, {limit: 15, score: 40, label: "待改進"}, {limit: 100, score: 20, label: "極差"}]
+                },
+                weeklyNight: {
+                    label: "(4) 週夜班頻率 (SD)", desc: "每位員工週平均夜班次數的標準差", weight: 5, enabled: true, excludeBatch: true,
+                    tiers: [{limit: 0.3, score: 100, label: "極佳"}, {limit: 0.5, score: 80, label: "良好"}, {limit: 0.7, score: 60, label: "普通"}, {limit: 1.0, score: 40, label: "待改進"}, {limit: 999, score: 20, label: "極差"}]
+                }
+            }
+        },
+        efficiency: {
+            label: "4. 排班效率",
+            displayId: 'efficiency_weight_display',
+            subs: {
+                shortageRate: {
+                    label: "(1) 缺班率 (%)", desc: "未成功分配人員的班次比例", weight: 8, enabled: true,
+                    tiers: [{limit: 0, score: 100, label: "極佳"}, {limit: 2, score: 80, label: "良好"}, {limit: 5, score: 60, label: "普通"}, {limit: 10, score: 40, label: "待改進"}, {limit: 100, score: 20, label: "極差"}]
+                },
+                seniorDist: {
+                    label: "(2) 資深分佈合理性 (%)", desc: "各班至少1位年資2年以上員工", weight: 4, enabled: true,
+                    tiers: [{limit: 0, score: 100, label: "極佳"}, {limit: 5, score: 80, label: "良好"}, {limit: 10, score: 60, label: "普通"}, {limit: 15, score: 40, label: "待改進"}, {limit: 100, score: 20, label: "極差"}]
+                },
+                juniorDist: {
+                    label: "(3) 資淺分佈合理性 (%)", desc: "各班最多1位年資2年以下員工", weight: 3, enabled: true,
+                    tiers: [{limit: 0, score: 100, label: "極佳"}, {limit: 10, score: 80, label: "良好"}, {limit: 20, score: 60, label: "普通"}, {limit: 30, score: 40, label: "待改進"}, {limit: 100, score: 20, label: "極差"}]
+                }
+            }
+        },
+        cost: {
+            label: "5. 成本控制",
+            displayId: 'cost_weight_display',
+            subs: {
+                overtimeRate: {
+                    label: "(1) 加班費比率 (%)", desc: "加班班數佔總班數的比例", weight: 5, enabled: true,
+                    tiers: [{limit: 3, score: 100, label: "極佳"}, {limit: 5, score: 80, label: "良好"}, {limit: 8, score: 60, label: "普通"}, {limit: 12, score: 40, label: "待改進"}, {limit: 100, score: 20, label: "極差"}]
+                }
             }
         }
+    },
 
-        // 3. 更新最上方的總分顯示
-        const totalEl = document.getElementById('totalWeight');
-        if (totalEl) {
-            totalEl.innerText = grandTotal + '%';
-            
-            // 視覺回饋：若非 100%，顯示為橘色或紅色
-            if (grandTotal === 100) {
-                totalEl.style.color = '#2ecc71'; // 綠色 (OK)
-            } else {
-                totalEl.style.color = '#e74c3c'; // 紅色 (警告)
-            }
-        }
+    currentKey: null,
+    tempTiers: [],
+
+    // 2. 初始化
+    init: async function() {
+        console.log("Score Settings Manager Loaded.");
+        await this.loadUnitDropdown();
+        this.setupEventListeners();
     },
 
     loadUnitDropdown: async function() {
         const select = document.getElementById('scoreUnitSelect');
         if(!select) return;
-
         select.innerHTML = '<option value="">載入中...</option>';
         try {
             let query = db.collection('units');
-            if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
-                if(app.userUnitId) {
-                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
-                }
+            if (app.userRole !== 'system_admin' && app.userUnitId) {
+                query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
             }
-
-            const snapshot = await query.get();
+            const snap = await query.get();
             select.innerHTML = '<option value="">請選擇單位</option>';
-            
-            snapshot.forEach(doc => {
-                const option = document.createElement('option');
-                option.value = doc.id;
-                option.textContent = doc.data().name;
-                select.appendChild(option);
+            snap.forEach(doc => {
+                const opt = document.createElement('option');
+                opt.value = doc.id;
+                opt.textContent = doc.data().name;
+                select.appendChild(opt);
             });
-
-            if (snapshot.size === 1) {
-                select.selectedIndex = 1;
-                select.dispatchEvent(new Event('change'));
-            }
-
-            select.onchange = () => this.onUnitChange();
-
-        } catch (e) { 
-            console.error("❌ 載入單位列表失敗:", e);
-        }
+            select.onchange = () => this.loadData();
+        } catch(e) { console.error(e); }
     },
 
-    onUnitChange: async function() {
-        const select = document.getElementById('scoreUnitSelect');
-        this.currentUnitId = select.value;
-        const container = document.getElementById('scoreSettingsContainer');
+    // 3. 載入資料並更新 UI
+    loadData: async function() {
+        const unitId = document.getElementById('scoreUnitSelect').value;
+        if(!unitId) return;
+        this.currentUnitId = unitId;
 
-        if(this.currentUnitId) {
-            if(container) container.style.display = 'block';
-            await this.loadSettings();
-        } else {
-            if(container) container.style.display = 'none';
-        }
-    },
-
-    loadSettings: async function() {
-        if(!this.currentUnitId) return;
-        
         try {
-            const doc = await db.collection('units').doc(this.currentUnitId).get();
-            const data = doc.data().scoreSettings || {};
-            
-            const thresholds = data.thresholds || {};
-            const enables = data.enables || {};
-            // 注意：我們不再直接讀取 data.weights，而是由細項自動算出來
+            const doc = await db.collection('units').doc(unitId).get();
+            const data = doc.data()?.scoreSettings || {};
+            this.allSettings = data;
 
-            this.fieldMap.forEach(item => {
-                // 還原 Checkbox 狀態
-                const checkEl = document.getElementById(item.checkId);
-                if(checkEl) checkEl.checked = enables[item.key] !== false; // 預設 true
+            // 遍歷 config 並更新各項數值
+            for (let groupKey in this.config) {
+                const group = this.config[groupKey];
+                for (let subKey in group.subs) {
+                    const sub = group.subs[subKey];
+                    const savedThreshold = data.thresholds?.[subKey];
+                    const savedEnabled = data.enables?.[subKey];
 
-                // 還原 Input 數值
-                const valEl = document.getElementById(item.valId);
-                if(valEl) {
-                    valEl.value = thresholds[item.key] !== undefined ? thresholds[item.key] : this.getDefaultValue(item.key);
+                    const valInput = document.getElementById(`val_${subKey}`);
+                    const checkInput = document.getElementById(`metric_${subKey}`);
+
+                    if (valInput) valInput.value = savedThreshold !== undefined ? savedThreshold : sub.weight;
+                    if (checkInput) checkInput.checked = savedEnabled !== undefined ? savedEnabled : sub.enabled;
                 }
-            });
+            }
+            this.calculateWeights();
+            document.getElementById('scoreSettingsContainer').style.display = 'block';
+        } catch(e) { console.error(e); }
+    },
 
-            // 載入完成後，立即執行一次計算，更新所有 Badge 和總分
-            this.calculateAll();
-            
-        } catch (e) { 
-            console.error("❌ 載入設定失敗:", e);
+    // 4. 即時計算權重加總
+    calculateWeights: function() {
+        let grandTotal = 0;
+        for (let groupKey in this.config) {
+            let groupTotal = 0;
+            const group = this.config[groupKey];
+            for (let subKey in group.subs) {
+                const valEl = document.getElementById(`val_${subKey}`);
+                const checkEl = document.getElementById(`metric_${subKey}`);
+                if (checkEl?.checked) {
+                    groupTotal += parseFloat(valEl?.value || 0);
+                }
+            }
+            const displayEl = document.getElementById(group.displayId);
+            if (displayEl) displayEl.innerText = `${groupTotal}%`;
+            grandTotal += groupTotal;
+        }
+        const totalEl = document.getElementById('totalWeight');
+        if (totalEl) {
+            totalEl.innerText = `${grandTotal}%`;
+            totalEl.style.color = (grandTotal === 100) ? '#2ecc71' : '#e74c3c';
         }
     },
 
-    saveData: async function() {
-        if(!this.currentUnitId) { alert("請先選擇單位"); return; }
+    // 5. 評分標準 (Tiers) Modal 操作
+    openGradingModal: function(subKey) {
+        this.currentKey = subKey;
+        const sub = this.findSubConfig(subKey);
         
-        // 取得目前的計算結果 (直接從畫面上抓取最準確)
-        const getWeightVal = (id) => parseFloat(document.getElementById(id)?.innerText) || 0;
+        document.getElementById('gradingTargetName').innerText = sub.label;
+        document.getElementById('gradingTargetDesc').innerText = `說明：${sub.desc}`;
 
-        // 這邊的 weights 將會是「自動加總」後的結果
-        const weights = {
-            fairness: getWeightVal('fairness_weight_display'),
-            satisfaction: getWeightVal('satisfaction_weight_display'),
-            fatigue: getWeightVal('fatigue_weight_display'),
-            efficiency: getWeightVal('efficiency_weight_display'),
-            cost: getWeightVal('cost_weight_display')
-        };
+        // 從 DB 或 Config 取得 Tiers (優先使用 DB 存檔)
+        this.tempTiers = JSON.parse(JSON.stringify(this.allSettings.tiers?.[subKey] || sub.tiers));
+        this.renderTierRows();
+        document.getElementById('gradingModal').classList.add('show');
+    },
 
+    renderTierRows: function() {
+        const tbody = document.getElementById('gradingTableBody');
+        tbody.innerHTML = '';
+        this.tempTiers.forEach((t, i) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="number" step="0.1" class="metric-input" style="width:100%" value="${t.limit}" onchange="scoreSettingsManager.updateTier(${i}, 'limit', this.value)"></td>
+                <td><input type="number" class="metric-input" style="width:100%" value="${t.score}" onchange="scoreSettingsManager.updateTier(${i}, 'score', this.value)"></td>
+                <td><input type="text" class="metric-input" style="width:100%" value="${t.label}" onchange="scoreSettingsManager.updateTier(${i}, 'label', this.value)"></td>
+                <td><button class="btn btn-delete btn-sm" onclick="scoreSettingsManager.removeTier(${i})"><i class="fas fa-trash-alt"></i></button></td>
+            `;
+            tbody.appendChild(tr);
+        });
+    },
+
+    addTierRow: function() {
+        this.tempTiers.push({ limit: 999, score: 0, label: "新等級" });
+        this.renderTierRows();
+    },
+
+    removeTier: function(i) {
+        this.tempTiers.splice(i, 1);
+        this.renderTierRows();
+    },
+
+    updateTier: function(i, field, val) {
+        if (field === 'limit' || field === 'score') val = parseFloat(val);
+        this.tempTiers[i][field] = val;
+    },
+
+    saveTiers: function() {
+        if (!this.allSettings.tiers) this.allSettings.tiers = {};
+        // 排序：確保 limit 小的在前面
+        this.tempTiers.sort((a, b) => a.limit - b.limit);
+        this.allSettings.tiers[this.currentKey] = this.tempTiers;
+        this.closeGradingModal();
+        console.log(`✅ 暫存 ${this.currentKey} 的評分標準`);
+    },
+
+    closeGradingModal: function() {
+        document.getElementById('gradingModal').classList.remove('show');
+    },
+
+    // 6. 最終存檔至 Firebase
+    saveData: async function() {
+        if(!this.currentUnitId) return;
+
+        const weights = {};
         const thresholds = {};
         const enables = {};
 
-        this.fieldMap.forEach(item => {
-            const checkEl = document.getElementById(item.checkId);
-            const valEl = document.getElementById(item.valId);
+        for (let groupKey in this.config) {
+            let groupSum = 0;
+            for (let subKey in this.config[groupKey].subs) {
+                const check = document.getElementById(`metric_${subKey}`).checked;
+                const val = parseFloat(document.getElementById(`val_${subKey}`).value || 0);
+                enables[subKey] = check;
+                thresholds[subKey] = val;
+                if (check) groupSum += val;
+            }
+            weights[groupKey] = groupSum;
+        }
 
-            if(checkEl) enables[item.key] = checkEl.checked;
-            if(valEl) thresholds[item.key] = parseFloat(valEl.value) || 0;
-        });
+        const total = Object.values(weights).reduce((a, b) => a + b, 0);
+        if (total !== 100) {
+            if (!confirm(`目前總權重為 ${total}%，非 100%，確定要儲存嗎？`)) return;
+        }
 
         const scoreSettings = {
-            weights,     // 儲存加總後的大項權重
-            thresholds,  // 儲存各細項配分
-            enables,     // 儲存開關狀態
+            weights,
+            thresholds,
+            enables,
+            tiers: this.allSettings.tiers || {}, // 包含手動編輯過的 Tiers
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
         try {
-            await db.collection('units').doc(this.currentUnitId).update({
-                scoreSettings: scoreSettings
-            });
-            alert("✅ 評分設定已儲存！");
-        } catch(e) { 
-            console.error("❌ 儲存失敗:", e); 
-            alert("儲存失敗: " + e.message); 
-        }
+            await db.collection('units').doc(this.currentUnitId).update({ scoreSettings });
+            alert("✅ 評分與標準配置儲存成功！");
+        } catch(e) { alert("儲存失敗: " + e.message); }
     },
 
-    getDefaultValue: function(key) {
-        const defaults = {
-            fairness_off: 10, fairness_night: 10, fairness_weekend: 10, // 合計 30
-            sat_pref: 15, sat_req: 10, // 合計 25
-            fat_consec: 8, fat_night: 7, fat_rest: 5, fat_sd: 5, // 合計 25
-            eff_gap: 8, eff_over: 4, eff_dist: 3, // 合計 15
-            cost_over: 5 // 合計 5
-        };
-        // 預設總分 = 30+25+25+15+5 = 100
-        return defaults[key] || 0;
+    // 輔助工具
+    findSubConfig: function(subKey) {
+        for (let g in this.config) {
+            if (this.config[g].subs[subKey]) return this.config[g].subs[subKey];
+        }
+        return {};
+    },
+
+    setupEventListeners: function() {
+        // 為所有 input 加入連動計算事件
+        document.addEventListener('input', (e) => {
+            if (e.target.id.startsWith('val_') || e.target.id.startsWith('metric_')) {
+                this.calculateWeights();
+            }
+        });
     }
 };
