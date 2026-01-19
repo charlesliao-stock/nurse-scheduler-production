@@ -568,3 +568,26 @@ input:checked + .slider:before {
     border-color: #667eea;
     color: #667eea;
 }
+
+/* 問號說明圖示 */
+.tip-icon {
+    color: #a0aec0;
+    font-size: 0.85rem;
+    margin-left: 5px;
+    cursor: help;
+    transition: color 0.2s;
+}
+
+.tip-icon:hover {
+    color: #667eea;
+}
+
+/* Modal 內表格微調 */
+#gradingTableBody input {
+    padding: 4px 8px;
+    text-align: center;
+}
+
+#gradingTableBody .btn-delete {
+    padding: 2px 8px;
+}
