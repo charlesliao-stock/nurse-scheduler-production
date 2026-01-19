@@ -13,7 +13,9 @@ const preScheduleManager = {
     init: async function() {
         console.log("Pre-Schedule Manager Loaded.");
         const adminToolbar = document.getElementById('adminToolbar');
-        if (adminToolbar) adminToolbar.style.display = (app.userRole === 'user') ? 'none' : 'block';
+        if (adminToolbar) {
+            adminToolbar.style.display = (app.userRole === 'user') ? 'none' : 'block';
+        }
         await this.loadUnitDropdown();
     },
 
@@ -34,7 +36,10 @@ const preScheduleManager = {
                 option.textContent = doc.data().name;
                 select.appendChild(option);
             });
-            if(snapshot.size === 1) { select.selectedIndex = 1; this.loadData(); }
+            if(snapshot.size === 1) { 
+                select.selectedIndex = 1; 
+                this.loadData(); 
+            }
             select.onchange = () => this.loadData();
         } catch(e) { console.error(e); }
     },
@@ -46,7 +51,6 @@ const preScheduleManager = {
         const tbody = document.getElementById('preScheduleTableBody');
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">載入中...</td></tr>';
         
-        // 載入班別與組別
         try {
             const unitDoc = await db.collection('units').doc(this.currentUnitId).get();
             this.currentUnitGroups = unitDoc.data().groups || [];
@@ -95,6 +99,7 @@ const preScheduleManager = {
         document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
         document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
         document.getElementById(`tab-${tabName}`).classList.add('active');
+        
         // 簡單處理 active class
         const btns = document.querySelectorAll('.tab-btn');
         if(tabName === 'basic') btns[0].classList.add('active');
@@ -143,7 +148,7 @@ const preScheduleManager = {
         
         // 渲染三個區塊
         this.renderDailyNeedsTable(data.dailyNeeds);
-        this.renderSpecificNeedsUI(data.specificNeeds || {}); // 新增
+        this.renderSpecificNeedsUI(data.specificNeeds || {}); // 新增：臨時人力
         this.renderGroupLimitsTable(data.groupLimits);
     },
 
@@ -163,7 +168,7 @@ const preScheduleManager = {
         if(s.shiftTypeMode === "2") document.getElementById('checkAllowThree').checked = s.allowThreeShifts;
     },
 
-    // 1. 常態需求
+    // 1. 常態需求 (週循環)
     renderDailyNeedsTable: function(savedNeeds = {}) {
         const container = document.getElementById('dailyNeedsTable');
         if(!container) return;
@@ -188,10 +193,10 @@ const preScheduleManager = {
         container.innerHTML = html;
     },
 
-    // 2. 臨時需求
+    // [新增] 2. 臨時人力設定
     renderSpecificNeedsUI: function(specificNeeds = {}) {
         const container = document.getElementById('specificNeedsContainer'); 
-        if(!container) return; // 需在 HTML 增加此容器 ID
+        if(!container) return;
 
         this.tempSpecificNeeds = JSON.parse(JSON.stringify(specificNeeds)); 
 
@@ -261,9 +266,11 @@ const preScheduleManager = {
     renderGroupLimitsTable: function(savedLimits = {}) {
         const container = document.getElementById('groupLimitTableContainer');
         if(!container) return;
+        
         let html = `<h4 style="margin-top:20px; border-bottom:1px solid #eee; padding-bottom:10px; color:#2c3e50;">3. 組別限制 (進階演算法參考)</h4>`;
         html += `<table class="table table-bordered table-sm text-center" id="groupLimitTable">
-            <thead><tr><th style="background:#f8f9fa;">組別</th><th>每班至少</th><th>小夜至少</th><th>大夜至少</th><th>小夜最多</th><th>大夜最多</th></tr></thead><tbody>`;
+            <thead><tr><th style="background:#f8f9fa;">組別</th><th>每班至少</th><th>小夜至少</th><th>大夜至少</th><th>小夜最多</th><th>大夜最多</th></tr></thead>
+            <tbody>`;
         html += this.currentUnitGroups.map(g => {
             const row = (k) => `<input type="number" class="limit-input" placeholder="-" data-group="${g}" data-key="${k}" value="${(savedLimits[g] && savedLimits[g][k]) || ''}" style="width:100%; text-align:center;">`;
             return `<tr><td style="font-weight:bold;">${g}</td><td>${row('minTotal')}</td><td>${row('minE')}</td><td>${row('minN')}</td><td>${row('maxE')}</td><td>${row('maxN')}</td></tr>`;
@@ -272,13 +279,14 @@ const preScheduleManager = {
         container.innerHTML = html;
     },
 
-    // 儲存並同步
+    // [重點] 儲存並檢查同步
     saveData: async function() {
         const docId = document.getElementById('preScheduleDocId').value;
         const ym = document.getElementById('inputPreYearMonth').value;
         if(!ym) { alert("請選擇月份"); return; }
         const [year, month] = ym.split('-').map(Number);
         
+        // 收集資料
         const groupLimits = {};
         document.querySelectorAll('#groupLimitTable .limit-input').forEach(i => {
             const g = i.dataset.group, k = i.dataset.key;
@@ -307,20 +315,21 @@ const preScheduleManager = {
                 shiftTypeMode: document.getElementById('inputShiftMode').value,
                 allowThreeShifts: document.getElementById('checkAllowThree').checked
             },
-            groupLimits, dailyNeeds, specificNeeds,
+            groupLimits,
+            dailyNeeds,
+            specificNeeds, // 儲存臨時需求
             staffList: this.staffListSnapshot,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
         try {
             if(docId) {
-                // 同步檢查
+                // 檢查是否已有正式班表草稿
                 const schSnap = await db.collection('schedules').where('sourceId', '==', docId).get();
                 let needSync = false;
                 
                 if (!schSnap.empty) {
                     const schDoc = schSnap.docs[0];
-                    // 警示對話框
                     if (confirm(`⚠️ 系統偵測到該月份已有「排班草稿」！\n\n您修改了人力需求設定。\n\n[確定]：同步更新排班表需求 (排班表下方將出現紅字缺額，需確認)\n[取消]：僅儲存預班表`)) {
                         needSync = true;
                         await db.collection('schedules').doc(schDoc.id).update({
@@ -340,11 +349,40 @@ const preScheduleManager = {
                 await db.collection('pre_schedules').add(data);
                 alert("建立成功");
             }
-            this.closeModal(); this.loadData();
+            this.closeModal(); 
+            this.loadData();
         } catch(e) { console.error(e); alert("錯誤: " + e.message); }
     },
     
-    renderStaffList: function() { /* ...同原檔 (略) ... */ },
-    deleteSchedule: async function(id) { if(confirm("刪除?")) { await db.collection('pre_schedules').doc(id).delete(); this.loadData(); } },
+    // ... 其他標準功能 ...
+    renderStaffList: function() {
+        const tbody = document.getElementById('preStaffBody');
+        tbody.innerHTML = '';
+        this.staffListSnapshot.forEach((s, idx) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${s.empId}</td>
+                <td>${s.name}</td>
+                <td>${s.level}</td>
+                <td>
+                    <select onchange="preScheduleManager.updateStaffGroup(${idx}, this.value)">
+                        <option value="">無</option>
+                        ${this.currentUnitGroups.map(g => `<option value="${g}" ${s.group===g?'selected':''}>${g}</option>`).join('')}
+                    </select>
+                </td>
+                <td>${s.isSupport ? '<span class="badge badge-warning">支援</span>' : '本單位'}</td>
+                <td><button class="btn btn-sm btn-delete" onclick="preScheduleManager.removeStaff(${idx})">移除</button></td>
+            `;
+            tbody.appendChild(tr);
+        });
+    },
+    
+    updateStaffGroup: function(index, val) { this.staffListSnapshot[index].group = val; },
+    removeStaff: function(index) { this.staffListSnapshot.splice(index, 1); this.renderStaffList(); },
+    
+    importLastSettings: async function() { alert("功能開發中"); },
+    deleteSchedule: async function(id) { 
+        if(confirm("確定刪除?")) { await db.collection('pre_schedules').doc(id).delete(); this.loadData(); } 
+    },
     manage: function(id) { window.location.hash = `/admin/pre_schedule_matrix?id=${id}`; }
 };
