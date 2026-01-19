@@ -107,6 +107,9 @@ const router = {
         else if (viewName === 'schedule_rules') {
             if(typeof scheduleRuleManager !== 'undefined') scheduleRuleManager.init();
         }
+        else if (viewName === 'score_settings') {
+    if(typeof scoreSettingsManager !== 'undefined') scoreSettingsManager.init();
+}
     },
 
     reset: function() {
