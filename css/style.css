@@ -459,3 +459,25 @@ th {
         padding-top: 60px;
     }
 }
+
+/* === 評分儀表板樣式 === */
+#scoreDashboard {
+    animation: fadeIn 0.5s ease-out;
+}
+
+#scoreCompareBadge {
+    transition: all 0.3s;
+}
+
+/* 確保儀表板在 RWD 下不破版 */
+@media (max-width: 1024px) {
+    #scoreDashboard {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 15px;
+    }
+    #scoreDashboard > div {
+        width: 100%;
+        justify-content: flex-start;
+    }
+}
