@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_manager.js
-// 🔧 最終整合版：含載入修復、上月帶入、防呆驗證、同步機制
+// 🔧 最終整合版:載入修復、上月帶入、防呆驗證、同步機制
 
 const preScheduleManager = {
     currentUnitId: null,
@@ -36,7 +36,7 @@ const preScheduleManager = {
                 option.textContent = doc.data().name;
                 select.appendChild(option);
             });
-            // 若只有一個單位，自動選取並載入
+            // 若只有一個單位,自動選取並載入
             if(snapshot.size === 1) { 
                 select.selectedIndex = 1; 
                 this.loadData(); 
@@ -121,7 +121,7 @@ const preScheduleManager = {
             const unitDoc = await db.collection('units').doc(this.currentUnitId).get();
             this.currentUnitGroups = unitDoc.data().groups || [];
             
-            console.log("Modal Data Loaded. Shifts:", this.activeShifts.length, "Groups:", this.currentUnitGroups.length);
+            console.log("✅ Modal Data Loaded. Shifts:", this.activeShifts.length, "Groups:", this.currentUnitGroups.length);
         } catch(e) { console.error("Load Modal Data Error:", e); }
     },
 
@@ -147,7 +147,7 @@ const preScheduleManager = {
         document.getElementById('preScheduleDocId').value = docId || '';
         this.switchTab('basic');
 
-        // [關鍵] 先載入 Shift/Group 資料，再渲染表格
+        // [關鍵] 先載入 Shift/Group 資料,再渲染表格
         await this.loadUnitDataForModal();
 
         let data = {};
@@ -195,7 +195,7 @@ const preScheduleManager = {
         if(s.shiftTypeMode === "2") document.getElementById('checkAllowThree').checked = s.allowThreeShifts;
     },
 
-    // 1. 各班每日人力需求 (週循環)
+    // [關鍵修正] 1. 各班每日人力需求 (週循環)
     renderDailyNeedsTable: function(savedNeeds = {}) {
         const container = document.getElementById('dailyNeedsTable');
         if(!container) return;
@@ -204,27 +204,32 @@ const preScheduleManager = {
         
         // 防呆檢查
         if (!this.activeShifts || this.activeShifts.length === 0) {
-            container.innerHTML = html + `<div style="color:red; padding:10px; background:#fff3cd;">⚠️ 未偵測到班別資料。請先至「班別管理」新增班別，或重新整理頁面。</div>`;
+            container.innerHTML = html + `<div style="color:red; padding:10px; background:#fff3cd;">⚠️ 未偵測到班別資料。請先至「班別管理」新增班別,或重新整理頁面。</div>`;
             return;
         }
 
         html += `<table class="table table-bordered table-sm text-center">`;
         const days = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
-        let thead = '<thead><tr><th style="background:#f8f9fa;">班別 \\ 星期</th>';
-        days.forEach(d => thead += `<th style="background:#f8f9fa; min-width:60px;">${d}</th>`);
-        thead += '</tr></thead><tbody>';
+        
+        // [修正] 使用新變數 tableHTML 來拼接表格內容
+        let tableHTML = '<thead><tr><th style="background:#f8f9fa;">班別 \\ 星期</th>';
+        days.forEach(d => tableHTML += `<th style="background:#f8f9fa; min-width:60px;">${d}</th>`);
+        tableHTML += '</tr></thead><tbody>';
 
         this.activeShifts.forEach(shift => {
-            thead += `<tr><td style="font-weight:bold;">${shift.name} (${shift.code})</td>`;
+            tableHTML += `<tr><td style="font-weight:bold;">${shift.name} (${shift.code})</td>`;
             for(let i=0; i<7; i++) {
                 const key = `${shift.code}_${i}`; 
                 const val = (savedNeeds && savedNeeds[key] !== undefined) ? savedNeeds[key] : '';
-                thead += `<td><input type="number" class="limit-input needs-input" data-key="${key}" value="${val}" style="width:100%;"></td>`;
+                tableHTML += `<td><input type="number" class="limit-input needs-input" data-key="${key}" value="${val}" style="width:100%;"></td>`;
             }
-            thead += `</tr>`;
+            tableHTML += `</tr>`;
         });
-        thead += '</tbody></table>';
-        container.innerHTML = html;
+        
+        tableHTML += '</tbody></table>';
+        
+        // [修正] 完整賦值
+        container.innerHTML = html + tableHTML;
     },
 
     // 2. 臨時人力需求
@@ -338,7 +343,7 @@ const preScheduleManager = {
     // [實作] 帶入上月設定
     importLastSettings: async function() {
         const ym = document.getElementById('inputPreYearMonth').value;
-        if (!ym) { alert("請先選擇本月月份，系統才能推算上個月。"); return; }
+        if (!ym) { alert("請先選擇本月月份,系統才能推算上個月。"); return; }
         
         const [currentYear, currentMonth] = ym.split('-').map(Number);
         
@@ -349,7 +354,7 @@ const preScheduleManager = {
             prevYear -= 1;
         }
 
-        if (!confirm(`確定要帶入 ${prevYear} 年 ${prevMonth} 月 的設定嗎？\n\n注意：這將覆蓋目前畫面上的「基本規則」與「人力需求」。`)) return;
+        if (!confirm(`確定要帶入 ${prevYear} 年 ${prevMonth} 月 的設定嗎?\n\n注意:這將覆蓋目前畫面上的「基本規則」與「人力需求」。`)) return;
 
         this.isLoading = true;
         try {
@@ -361,7 +366,7 @@ const preScheduleManager = {
                 .get();
 
             if (snapshot.empty) {
-                alert(`找不到上個月 (${prevYear}-${prevMonth}) 的資料，無法帶入。`);
+                alert(`找不到上個月 (${prevYear}-${prevMonth}) 的資料,無法帶入。`);
                 this.isLoading = false;
                 return;
             }
@@ -385,7 +390,7 @@ const preScheduleManager = {
             this.renderDailyNeedsTable(data.dailyNeeds || {});
             this.renderGroupLimitsTable(data.groupLimits || {});
 
-            alert(`✅ 已成功帶入 ${prevYear}/${prevMonth} 的設定！\n請切換至「2. 人力需求設定」檢查內容。`);
+            alert(`✅ 已成功帶入 ${prevYear}/${prevMonth} 的設定!\n請切換至「2. 人力需求設定」檢查內容。`);
 
         } catch (e) {
             console.error("Import Error:", e);
@@ -413,9 +418,9 @@ const preScheduleManager = {
             }
         });
 
-        // 防呆驗證：若無人力需求，禁止建立
+        // 防呆驗證:若無人力需求,禁止建立
         if (!hasNeeds) {
-            alert("⚠️ 無法儲存：\n\n「1. 各班每日人力需求」尚未填寫。\n\n請切換至該頁籤手動輸入，或使用「帶入上月設定」功能。");
+            alert("⚠️ 無法儲存:\n\n「1. 各班每日人力需求」尚未填寫。\n\n請切換至該頁籤手動輸入,或使用「帶入上月設定」功能。");
             this.switchTab('needs'); 
             return;
         }
@@ -465,7 +470,7 @@ const preScheduleManager = {
                 
                 if (!schSnap.empty) {
                     const schDoc = schSnap.docs[0];
-                    if (confirm(`⚠️ 系統偵測到該月份已有「排班草稿」！\n\n您修改了人力需求設定。\n\n[確定]：同步更新排班表需求 (排班表下方將出現紅字缺額，需確認)\n[取消]：僅儲存預班表`)) {
+                    if (confirm(`⚠️ 系統偵測到該月份已有「排班草稿」!\n\n您修改了人力需求設定。\n\n[確定]:同步更新排班表需求 (排班表下方將出現紅字缺額,需確認)\n[取消]:僅儲存預班表`)) {
                         needSync = true;
                         await db.collection('schedules').doc(schDoc.id).update({
                             dailyNeeds: dailyNeeds,
@@ -477,7 +482,7 @@ const preScheduleManager = {
                 }
 
                 await db.collection('pre_schedules').doc(docId).update(data);
-                alert(needSync ? "預班已儲存，並同步至排班表！" : "預班設定已儲存。");
+                alert(needSync ? "預班已儲存,並同步至排班表!" : "預班設定已儲存。");
                 
             } else {
                 data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
