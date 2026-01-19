@@ -1,5 +1,5 @@
 // js/modules/score_settings_manager.js
-// 班表評分設定管理器
+// 班表評分設定管理器 - 修正版
 
 const scoreSettingsManager = {
     currentUnitId: null,
@@ -23,7 +23,7 @@ const scoreSettingsManager = {
         this.setupWeightSliders();
     },
 
-    // 載入單位下拉選單
+    // [關鍵修正] 載入單位下拉選單
     loadUnitDropdown: async function() {
         const select = document.getElementById('scoreUnitSelect');
         if(!select) {
@@ -45,7 +45,7 @@ const scoreSettingsManager = {
 
             const snapshot = await query.get();
             
-            console.log(`載入 ${snapshot.size} 個單位`);
+            console.log(`✅ 載入 ${snapshot.size} 個單位`);
             
             select.innerHTML = '<option value="">請選擇單位</option>';
             
@@ -56,18 +56,16 @@ const scoreSettingsManager = {
                 select.appendChild(option);
             });
 
-            // 綁定事件 (先移除舊事件避免重複)
+            // [修正] 先移除舊事件,再綁定新事件
             select.onchange = null;
-            select.addEventListener('change', () => {
-                this.onUnitChange();
+            select.addEventListener('change', async () => {
+                await this.onUnitChange();
             });
 
-            // 如果只有一個單位,自動選擇
+            // 如果只有一個單位,自動選擇並載入
             if (snapshot.size === 1) {
                 select.selectedIndex = 1;
-                // 手動觸發事件
-                const event = new Event('change');
-                select.dispatchEvent(event);
+                await this.onUnitChange();
             }
             
         } catch (e) {
@@ -77,23 +75,18 @@ const scoreSettingsManager = {
         }
     },
 
-    // 單位切換
+    // [修正] 單位切換處理
     onUnitChange: async function() {
         const select = document.getElementById('scoreUnitSelect');
         const container = document.getElementById('scoreSettingsContainer');
         
-        if(!select) {
-            console.error("找不到 scoreUnitSelect");
-            return;
-        }
-        
-        if(!container) {
-            console.error("找不到 scoreSettingsContainer");
+        if(!select || !container) {
+            console.error("找不到必要元素");
             return;
         }
         
         const unitId = select.value;
-        console.log("單位切換:", unitId);
+        console.log("📌 單位切換:", unitId);
         
         if (!unitId) {
             container.style.display = 'none';
@@ -112,10 +105,15 @@ const scoreSettingsManager = {
 
         try {
             const doc = await db.collection('units').doc(this.currentUnitId).get();
-            if(!doc.exists) return;
+            if(!doc.exists) {
+                console.warn("單位不存在");
+                return;
+            }
 
             const data = doc.data();
             const settings = data.scoreSettings || this.getDefaultSettings();
+
+            console.log("載入評分設定:", settings);
 
             // 填入權重
             const weights = settings.weights || {};
@@ -243,7 +241,7 @@ const scoreSettingsManager = {
             
             // 同步更新 scoringManager (如果存在)
             if(typeof scoringManager !== 'undefined') {
-                scoringManager.loadSettings(this.currentUnitId);
+                await scoringManager.loadSettings(this.currentUnitId);
             }
 
         } catch (e) {
