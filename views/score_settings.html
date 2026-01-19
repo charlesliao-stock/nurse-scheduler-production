@@ -1,264 +1,50 @@
-<div class="page-section active">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-        <h2 style="margin:0; color: #2c3e50;"><i class="fas fa-star"></i> 班表評分與標準配置</h2>
-    </div>
-    
-    <div class="toolbar">
-        <label style="margin-right:10px; font-weight:bold; color:#555;">設定單位:</label>
-        <select id="scoreUnitSelect" class="form-control" style="width: 250px; display:inline-block;">
-            <option value="">載入中...</option>
-        </select>
-        <button class="btn btn-add" onclick="scoreSettingsManager.saveData()" style="margin-left:auto;">
-            <i class="fas fa-save"></i> 儲存評分設定
+<div class="metric-item">
+    <div class="metric-header">
+        <label class="switch">
+            <input type="checkbox" id="metric_fairness_off" checked>
+            <span class="slider"></span>
+        </label>
+        <span class="metric-name">
+            (1) 工時差異 (標準差)
+            <i class="fas fa-question-circle tip-icon" title="計算全體人員月總工時的標準差，數值越低代表排班越平均。"></i>
+        </span>
+        <button class="btn-standard" onclick="scoreSettingsManager.openGradingModal('fairness_off')">
+            <i class="fas fa-edit"></i> 評分標準
         </button>
     </div>
+    <div class="metric-value">
+        <input type="number" id="val_fairness_off" class="metric-input" value="10"> %
+    </div>
+</div>
 
-    <div id="scoreSettingsContainer" class="scoring-container" style="display:none;">
+<div id="gradingModal" class="modal">
+    <div class="modal-content" style="max-width: 550px;">
+        <h3><i class="fas fa-tasks"></i> 評分標準編輯</h3>
+        <p id="gradingTargetName" style="color: #667eea; font-weight: bold;"></p>
         
-        <div class="alert-info">
-            <i class="fas fa-info-circle"></i>
-            設定後請記得點擊右上角「儲存評分設定」。
+        <div class="alert-info" style="font-size: 0.85rem;">
+            定義指標數值與得分的對應關係。例如：標準差 < 1.0 得到 5 分。
         </div>
 
-        <div class="weight-total-card">
-            <span style="font-size:0.9rem; color:#666;">總權重:</span>
-            <span id="totalWeight" style="font-size:1.8rem; font-weight:bold; color:#2ecc71; margin-left:10px;">100%</span>
-        </div>
+        <table class="table table-sm">
+            <thead>
+                <tr>
+                    <th>指標數值 (<=)</th>
+                    <th>得分 (1-5)</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="gradingTableBody">
+                </tbody>
+        </table>
 
-        <div class="score-cards-grid">
-            
-            <div class="score-card">
-                <div class="card-header">
-                    <span class="card-number">1.</span>
-                    <span class="card-title">公平性指標</span>
-                    <span class="card-weight" id="fairness_weight_display">10%</span>
-                </div>
-                <div class="card-body">
-                    
-                    <div class="metric-item">
-                        <div class="metric-header">
-                            <label class="switch">
-                                <input type="checkbox" id="metric_fairness_off" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span class="metric-name">(1) 工時差異 (標準差)</span>
-                            <button class="btn-standard">📊 標準</button>
-                        </div>
-                        <div class="metric-value">
-                            <input type="number" id="val_fairness_off" class="metric-input" value="10"> %
-                        </div>
-                    </div>
+        <button class="btn btn-add" style="width: 100%; margin-top: 10px;" onclick="scoreSettingsManager.addGradingRow()">
+            <i class="fas fa-plus"></i> 新增評分區間
+        </button>
 
-                    <div class="metric-item">
-                        <div class="metric-header">
-                            <label class="switch">
-                                <input type="checkbox" id="metric_fairness_night" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span class="metric-name">(2) 夜班差異 (次)</span>
-                            <button class="btn-standard">📊 標準</button>
-                        </div>
-                        <div class="metric-value">
-                            <input type="number" id="val_fairness_night" class="metric-input" value="10"> %
-                        </div>
-                    </div>
-
-                    <div class="metric-item">
-                        <div class="metric-header">
-                            <label class="switch">
-                                <input type="checkbox" id="metric_fairness_weekend" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span class="metric-name">(3) 假日差異 (天)</span>
-                            <button class="btn-standard">📊 標準</button>
-                        </div>
-                        <div class="metric-value">
-                            <input type="number" id="val_fairness_weekend" class="metric-input" value="10"> %
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="score-card">
-                <div class="card-header">
-                    <span class="card-number">2.</span>
-                    <span class="card-title">滿意度指標</span>
-                    <span class="card-weight" id="satisfaction_weight_display">25%</span>
-                </div>
-                <div class="card-body">
-                    
-                    <div class="metric-item">
-                        <div class="metric-header">
-                            <label class="switch">
-                                <input type="checkbox" id="metric_sat_pref" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span class="metric-name">(1) 排班偏好滿足率 (%)</span>
-                            <button class="btn-standard">📊 標準</button>
-                        </div>
-                        <div class="metric-value">
-                            <input type="number" id="val_sat_pref" class="metric-input" value="15"> %
-                        </div>
-                    </div>
-
-                    <div class="metric-item">
-                        <div class="metric-header">
-                            <label class="switch">
-                                <input type="checkbox" id="metric_sat_req" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span class="metric-name">(2) 預班達成率 (%)</span>
-                            <button class="btn-standard">📊 標準</button>
-                        </div>
-                        <div class="metric-value">
-                            <input type="number" id="val_sat_req" class="metric-input" value="10"> %
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="score-card">
-                <div class="card-header">
-                    <span class="card-number">3.</span>
-                    <span class="card-title">疲勞度指標</span>
-                    <span class="card-weight" id="fatigue_weight_display">25%</span>
-                </div>
-                <div class="card-body">
-                    
-                    <div class="metric-item">
-                        <div class="metric-header">
-                            <label class="switch">
-                                <input type="checkbox" id="metric_fat_consec" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span class="metric-name">(1) 連續工作>6天 (人次)</span>
-                            <button class="btn-standard">📊 標準</button>
-                        </div>
-                        <div class="metric-value">
-                            <input type="number" id="val_fat_consec" class="metric-input" value="8"> %
-                        </div>
-                    </div>
-
-                    <div class="metric-item">
-                        <div class="metric-header">
-                            <label class="switch">
-                                <input type="checkbox" id="metric_fat_night" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span class="metric-name">(2) 大夜接白 (次)</span>
-                            <button class="btn-standard">📊 標準</button>
-                        </div>
-                        <div class="metric-value">
-                            <input type="number" id="val_fat_night" class="metric-input" value="7"> %
-                        </div>
-                    </div>
-
-                    <div class="metric-item">
-                        <div class="metric-header">
-                            <label class="switch">
-                                <input type="checkbox" id="metric_fat_rest" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span class="metric-name">(3) 休假違標率 (%)</span>
-                            <button class="btn-standard">📊 標準</button>
-                        </div>
-                        <div class="metric-value">
-                            <input type="number" id="val_fat_rest" class="metric-input" value="5"> %
-                        </div>
-                    </div>
-
-                    <div class="metric-item">
-                        <div class="metric-header">
-                            <label class="switch">
-                                <input type="checkbox" id="metric_fat_sd" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span class="metric-name">(4) 還夜班標率 (SD)</span>
-                            <button class="btn-standard">📊 標準</button>
-                        </div>
-                        <div class="metric-value">
-                            <input type="number" id="val_fat_sd" class="metric-input" value="5"> %
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="score-card">
-                <div class="card-header">
-                    <span class="card-number">4.</span>
-                    <span class="card-title">排班效率</span>
-                    <span class="card-weight" id="efficiency_weight_display">15%</span>
-                </div>
-                <div class="card-body">
-                    
-                    <div class="metric-item">
-                        <div class="metric-header">
-                            <label class="switch">
-                                <input type="checkbox" id="metric_eff_gap" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span class="metric-name">(1) 缺班率 (%)</span>
-                            <button class="btn-standard">📊 標準</button>
-                        </div>
-                        <div class="metric-value">
-                            <input type="number" id="val_eff_gap" class="metric-input" value="8"> %
-                        </div>
-                    </div>
-
-                    <div class="metric-item">
-                        <div class="metric-header">
-                            <label class="switch">
-                                <input type="checkbox" id="metric_eff_over" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span class="metric-name">(2) 資深分佈合理性 (%)</span>
-                            <button class="btn-standard">📊 標準</button>
-                        </div>
-                        <div class="metric-value">
-                            <input type="number" id="val_eff_over" class="metric-input" value="4"> %
-                        </div>
-                    </div>
-
-                    <div class="metric-item">
-                        <div class="metric-header">
-                            <label class="switch">
-                                <input type="checkbox" id="metric_eff_dist" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span class="metric-name">(3) 資淺分佈合理性 (%)</span>
-                            <button class="btn-standard">📊 標準</button>
-                        </div>
-                        <div class="metric-value">
-                            <input type="number" id="val_eff_dist" class="metric-input" value="3"> %
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="score-card">
-                <div class="card-header">
-                    <span class="card-number">5.</span>
-                    <span class="card-title">成本控制</span>
-                    <span class="card-weight" id="cost_weight_display">5%</span>
-                </div>
-                <div class="card-body">
-                    
-                    <div class="metric-item">
-                        <div class="metric-header">
-                            <label class="switch">
-                                <input type="checkbox" id="metric_cost_over" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span class="metric-name">(1) 加班費比率 (%)</span>
-                            <button class="btn-standard">📊 標準</button>
-                        </div>
-                        <div class="metric-value">
-                            <input type="number" id="val_cost_over" class="metric-input" value="5"> %
-                        </div>
-                    </div>
-                </div>
-            </div>
-
+        <div style="text-align: right; margin-top: 20px;">
+            <button class="btn btn-close" onclick="scoreSettingsManager.closeGradingModal()">取消</button>
+            <button class="btn btn-primary" onclick="scoreSettingsManager.saveGradingScale()">儲存標準</button>
         </div>
     </div>
 </div>
