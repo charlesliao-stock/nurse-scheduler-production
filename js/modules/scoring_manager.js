@@ -1,5 +1,6 @@
 // js/modules/scoring_manager.js
 // 🚀 最終強化版：具備結構防呆機制，解決 'efficiency' undefined 報錯
+// 修正：嚴格遵循 score_settings_manager.js 的啟用狀態與權重配分
 
 const scoringManager = {
     aiBaseScore: null,     // 記錄 AI 剛排完的原始分數
@@ -30,7 +31,7 @@ const scoringManager = {
         }
     },
 
-    // 內部工具：確保設定結構完整，避免讀取 weights.efficiency 時報錯
+    // 內部工具：確保設定結構完整
     ensureSettingsStructure: function(s) {
         const d = this.getDefaultSettings();
         return {
@@ -55,11 +56,18 @@ const scoringManager = {
     // --- 2. 核心計算引擎 (calculate) ---
 
     calculate: function(scheduleData, staffList, year, month) {
-        // 確保 settings 存在且 weights 不會為 undefined
         const settings = this.currentSettings || this.getDefaultSettings();
-        const weights = settings.weights || {};
-        
+        const enables = settings.enables || {};
         const daysInMonth = new Date(year, month, 0).getDate();
+
+        // 定義大項與其對應的子項 key
+        const metricMap = {
+            fairness: ['hoursDiff', 'nightDiff', 'holidayDiff'],
+            satisfaction: ['prefRate', 'wishRate'],
+            fatigue: ['consWork', 'nToD', 'offTargetRate', 'weeklyNight'],
+            efficiency: ['shortageRate', 'seniorDist', 'juniorDist'],
+            cost: ['overtimeRate']
+        };
 
         const results = {
             fairness: this.calculateFairness(scheduleData, staffList, year, month, daysInMonth, settings),
@@ -73,10 +81,27 @@ const scoringManager = {
         let totalWeight = 0;
 
         for (let key in results) {
-            // 使用 || 0 確保就算 weights[key] 不存在也不會出錯
-            const w = parseFloat(weights[key] || 0);
-            totalWeightedScore += (results[key] * w);
-            totalWeight += w;
+            // 檢查該大項是否有任何子項被啟用
+            const subKeys = metricMap[key] || [];
+            const isAnySubEnabled = subKeys.some(sk => enables[sk] === true);
+
+            if (isAnySubEnabled) {
+                // 根據啟用的子項權重總和作為該大項的權重
+                let groupWeight = 0;
+                subKeys.forEach(sk => {
+                    if (enables[sk]) {
+                        groupWeight += parseFloat(settings.thresholds?.[sk] || 0);
+                    }
+                });
+
+                if (groupWeight > 0) {
+                    totalWeightedScore += (results[key] * groupWeight);
+                    totalWeight += groupWeight;
+                }
+            } else {
+                // 如果該大項完全沒啟用，分數設為 0 或 null，避免干擾介面
+                results[key] = 0;
+            }
         }
 
         const finalScore = totalWeight > 0 ? (totalWeightedScore / totalWeight) : 0;
@@ -108,7 +133,7 @@ const scoringManager = {
             const diff = Math.max(...holidayOffs) - Math.min(...holidayOffs);
             scores.push(this.getScoreByTier(diff, tiers.holidayDiff));
         }
-        return scores.length ? this.average(scores) : 5;
+        return scores.length ? this.average(scores) : 0;
     },
 
     calculateSatisfaction: function(scheduleData, staffList, days, settings) {
@@ -130,7 +155,8 @@ const scoringManager = {
             const failRate = totalReq === 0 ? 0 : ((totalReq - hit) / totalReq) * 100;
             scores.push(this.getScoreByTier(failRate, tiers.wishRate)); 
         }
-        return scores.length ? this.average(scores) : 5;
+        // prefRate 邏輯可在此擴充
+        return scores.length ? this.average(scores) : 0;
     },
 
     calculateFatigue: function(scheduleData, staffList, days, settings) {
@@ -151,11 +177,25 @@ const scoringManager = {
             });
             scores.push(this.getScoreByTier(totalVio, tiers.consWork));
         }
-        return scores.length ? this.average(scores) : 5;
+        // nToD, offTargetRate, weeklyNight 邏輯可在此擴充
+        return scores.length ? this.average(scores) : 0;
     },
 
-    calculateEfficiency: function() { return 4.0; },
-    calculateCost: function() { return 4.5; },
+    calculateEfficiency: function(scheduleData, staffList, days, settings) { 
+        const enables = settings.enables || {};
+        if (enables.shortageRate || enables.seniorDist || enables.juniorDist) {
+            return 4.0; // 暫時回傳預設值，未來可實作具體邏輯
+        }
+        return 0; 
+    },
+
+    calculateCost: function(scheduleData, staffList, days, settings) { 
+        const enables = settings.enables || {};
+        if (enables.overtimeRate) {
+            return 4.5; // 暫時回傳預設值，未來可實作具體邏輯
+        }
+        return 0; 
+    },
 
     // --- 4. 輔助工具 ---
 
@@ -199,13 +239,22 @@ const scoringManager = {
         return count;
     },
 
-    average: arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 5,
+    average: arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0,
 
     getDefaultSettings: function() {
         return {
             weights: { fairness: 30, satisfaction: 25, fatigue: 20, efficiency: 15, cost: 10 },
-            enables: {},
-            thresholds: {},
+            enables: {
+                hoursDiff: true, nightDiff: true, holidayDiff: true,
+                wishRate: true, consWork: true
+            },
+            thresholds: {
+                hoursDiff: 10, nightDiff: 10, holidayDiff: 10,
+                prefRate: 15, wishRate: 10,
+                consWork: 8, nToD: 7, offTargetRate: 5, weeklyNight: 5,
+                shortageRate: 8, seniorDist: 4, juniorDist: 3,
+                overtimeRate: 5
+            },
             tiers: {}
         };
     }
