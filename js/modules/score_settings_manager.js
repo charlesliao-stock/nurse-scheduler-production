@@ -1,31 +1,28 @@
 // js/modules/score_settings_manager.js
-// 🔧 修正版：修復 "Cannot set properties of null" 錯誤 (對應 HTML ID)
+// 🔧 自動加總修正版
 
 const scoreSettingsManager = {
     currentUnitId: null,
 
-    // 定義欄位對應關係，確保 JS 能找到 HTML 元素
-    // checkId: 開關 Checkbox 的 ID
-    // valId:   數值 Input 的 ID (這是我們在 HTML 中新增的)
-    // key:     存入 DB 的欄位名稱
+    // 定義欄位對應關係
     fieldMap: [
-        // 1. 公平性
-        { checkId: 'metric_fairness_off', valId: 'val_fairness_off', key: 'fairness_off' },
-        { checkId: 'metric_fairness_night', valId: 'val_fairness_night', key: 'fairness_night' },
-        { checkId: 'metric_fairness_weekend', valId: 'val_fairness_weekend', key: 'fairness_weekend' },
+        // 1. 公平性 (我們將針對這三個做連動)
+        { checkId: 'metric_fairness_off', valId: 'val_fairness_off', key: 'fairness_off', group: 'fairness' },
+        { checkId: 'metric_fairness_night', valId: 'val_fairness_night', key: 'fairness_night', group: 'fairness' },
+        { checkId: 'metric_fairness_weekend', valId: 'val_fairness_weekend', key: 'fairness_weekend', group: 'fairness' },
+        
         // 2. 滿意度
-        { checkId: 'metric_sat_pref', valId: 'val_sat_pref', key: 'sat_pref' },
-        { checkId: 'metric_sat_req', valId: 'val_sat_req', key: 'sat_req' },
-        // 3. 疲勞度
+        { checkId: 'metric_sat_pref', valId: 'val_sat_pref', key: 'sat_pref', group: 'satisfaction' },
+        { checkId: 'metric_sat_req', valId: 'val_sat_req', key: 'sat_req', group: 'satisfaction' },
+        
+        // 其他指標... (略)
         { checkId: 'metric_fat_consec', valId: 'val_fat_consec', key: 'fat_consec' },
         { checkId: 'metric_fat_night', valId: 'val_fat_night', key: 'fat_night' },
         { checkId: 'metric_fat_rest', valId: 'val_fat_rest', key: 'fat_rest' },
         { checkId: 'metric_fat_sd', valId: 'val_fat_sd', key: 'fat_sd' },
-        // 4. 效率
         { checkId: 'metric_eff_gap', valId: 'val_eff_gap', key: 'eff_gap' },
         { checkId: 'metric_eff_over', valId: 'val_eff_over', key: 'eff_over' },
         { checkId: 'metric_eff_dist', valId: 'val_eff_dist', key: 'eff_dist' },
-        // 5. 成本
         { checkId: 'metric_cost_over', valId: 'val_cost_over', key: 'cost_over' }
     ],
 
@@ -35,20 +32,64 @@ const scoreSettingsManager = {
         if (container) container.style.display = 'none';
 
         await this.loadUnitDropdown();
+        this.setupAutoSum(); // <--- [新增] 啟動自動加總監聽
         console.log("🎯 Score Settings Manager Init COMPLETE");
+    },
+
+    // --- [新增] 自動加總邏輯 ---
+    setupAutoSum: function() {
+        // 定義要連動的群組
+        const groups = {
+            'fairness': { ids: ['val_fairness_off', 'val_fairness_night', 'val_fairness_weekend'], target: 'fairness_weight_display' },
+            'satisfaction': { ids: ['val_sat_pref', 'val_sat_req'], target: 'satisfaction_weight_display' }
+            // 您可以依此類推增加其他群組
+        };
+
+        Object.keys(groups).forEach(groupKey => {
+            const config = groups[groupKey];
+            const targetEl = document.getElementById(config.target);
+            
+            if (!targetEl) return;
+
+            // 為每個輸入框綁定事件
+            config.ids.forEach(inputId => {
+                const inputEl = document.getElementById(inputId);
+                if (inputEl) {
+                    inputEl.addEventListener('input', () => {
+                        this.calculateGroupSum(config.ids, targetEl);
+                    });
+                }
+            });
+        });
+    },
+
+    // --- [新增] 計算總和並更新顯示 ---
+    calculateGroupSum: function(inputIds, targetElement) {
+        let sum = 0;
+        inputIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                sum += parseFloat(el.value) || 0;
+            }
+        });
+        // 更新右上角的顯示文字
+        targetElement.innerText = sum + '%';
+        
+        // 更新總權重顯示 (所有大項加總)
+        this.calculateTotalWeight();
+    },
+
+    calculateTotalWeight: function() {
+        // 這裡可以實作將所有大類別 (10% + 25%...) 加總顯示在最上方的邏輯
+        // 暫時略過，視您需求而定
     },
 
     loadUnitDropdown: async function() {
         const select = document.getElementById('scoreUnitSelect');
-        if(!select) {
-            console.error("❌ 找不到 scoreUnitSelect 元素");
-            return;
-        }
-        console.log("✅ 找到 scoreUnitSelect 元素");
+        if(!select) return;
 
         select.innerHTML = '<option value="">載入中...</option>';
         try {
-            console.log("📥 開始載入單位列表...");
             let query = db.collection('units');
             if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
                 if(app.userUnitId) {
@@ -57,17 +98,13 @@ const scoreSettingsManager = {
             }
 
             const snapshot = await query.get();
-            console.log(`✅ Firestore 查詢成功, 共 ${snapshot.size} 個單位`);
-            
             select.innerHTML = '<option value="">請選擇單位</option>';
             
-            let idx = 1;
             snapshot.forEach(doc => {
                 const option = document.createElement('option');
                 option.value = doc.id;
                 option.textContent = doc.data().name;
                 select.appendChild(option);
-                console.log(`  - 單位 ${idx++}: ${doc.id} (${doc.data().name})`);
             });
 
             if (snapshot.size === 1) {
@@ -76,11 +113,9 @@ const scoreSettingsManager = {
             }
 
             select.onchange = () => this.onUnitChange();
-            console.log("✅ 成功載入單位選項");
 
         } catch (e) { 
             console.error("❌ 載入單位列表失敗:", e);
-            select.innerHTML = '<option value="">載入失敗</option>';
         }
     },
 
@@ -90,14 +125,9 @@ const scoreSettingsManager = {
         const container = document.getElementById('scoreSettingsContainer');
 
         if(this.currentUnitId) {
-            console.log(`📌 單位切換: ${this.currentUnitId}`);
-            if(container) {
-                container.style.display = 'block';
-                console.log("顯示設定容器");
-            }
+            if(container) container.style.display = 'block';
             await this.loadSettings();
         } else {
-            console.log("未選擇單位，隱藏容器");
             if(container) container.style.display = 'none';
         }
     },
@@ -105,66 +135,61 @@ const scoreSettingsManager = {
     loadSettings: async function() {
         if(!this.currentUnitId) return;
         
-        console.log(`📥 載入單位設定: ${this.currentUnitId}`);
         try {
             const doc = await db.collection('units').doc(this.currentUnitId).get();
             const data = doc.data().scoreSettings || {};
             
-            console.log("✅ 取得評分設定資料:", data);
-
-            // 1. 載入權重顯示
-            const weights = data.weights || {};
-            const setWeight = (id, val) => {
-                const el = document.getElementById(id);
-                if(el) el.innerText = (val || 0) + '%';
-                else console.warn(`⚠️ 找不到權重元素: ${id}`);
-            };
-
-            setWeight('fairness_weight_display', weights.fairness || 10);
-            setWeight('satisfaction_weight_display', weights.satisfaction || 25);
-            setWeight('fatigue_weight_display', weights.fatigue || 25);
-            setWeight('efficiency_weight_display', weights.efficiency || 15);
-            setWeight('cost_weight_display', weights.cost || 5);
-
-            // 2. 載入各項指標 (Thresholds & Enables)
+            // 載入數值
             const thresholds = data.thresholds || {};
             const enables = data.enables || {};
+            const weights = data.weights || {};
 
             this.fieldMap.forEach(item => {
-                // 設定 Checkbox
+                // Checkbox
                 const checkEl = document.getElementById(item.checkId);
-                if(checkEl) {
-                    checkEl.checked = enables[item.key] !== false; // 預設 true
-                } else {
-                    console.warn(`⚠️ 找不到 Checkbox: ${item.checkId}`);
-                }
+                if(checkEl) checkEl.checked = enables[item.key] !== false;
 
-                // 設定數值 Input
+                // Input Value
                 const valEl = document.getElementById(item.valId);
                 if(valEl) {
                     valEl.value = thresholds[item.key] !== undefined ? thresholds[item.key] : this.getDefaultValue(item.key);
-                } else {
-                    console.error(`❌ 嚴重錯誤: 找不到數值輸入框 ID: ${item.valId} (這導致了之前的錯誤)`);
                 }
             });
-            
-            console.log("✅ 設定載入完成");
 
+            // --- [修改] 載入後立即觸發一次計算，確保畫面同步 ---
+            // 這會覆蓋掉原本直接讀取 weights 的邏輯，改由下方細項加總決定
+            const fairnessIds = ['val_fairness_off', 'val_fairness_night', 'val_fairness_weekend'];
+            const fairnessTarget = document.getElementById('fairness_weight_display');
+            if(fairnessTarget) this.calculateGroupSum(fairnessIds, fairnessTarget);
+
+            const satIds = ['val_sat_pref', 'val_sat_req'];
+            const satTarget = document.getElementById('satisfaction_weight_display');
+            if(satTarget) this.calculateGroupSum(satIds, satTarget);
+
+            // 其他類別如果沒有細項加總邏輯，維持原樣讀取
+            const setWeight = (id, val) => {
+                const el = document.getElementById(id);
+                if(el) el.innerText = (val || 0) + '%';
+            };
+            setWeight('fatigue_weight_display', weights.fatigue || 25);
+            setWeight('efficiency_weight_display', weights.efficiency || 15);
+            setWeight('cost_weight_display', weights.cost || 5);
+            
         } catch (e) { 
             console.error("❌ 載入設定失敗:", e);
-            alert("載入設定失敗，請查看 Console");
         }
     },
 
     saveData: async function() {
         if(!this.currentUnitId) { alert("請先選擇單位"); return; }
         
-        console.log("💾 開始儲存設定...");
-        
+        // --- [修改] 儲存時，權重(weights) 應該是當前畫面上顯示的加總值 ---
+        const getWeightVal = (id) => parseInt(document.getElementById(id)?.innerText) || 0;
+
         const weights = {
-            fairness: 10, // 暫時寫死，因為 UI 上目前是靜態顯示，若要修改需增加輸入介面
-            satisfaction: 25,
-            fatigue: 25,
+            fairness: getWeightVal('fairness_weight_display'),      // 儲存加總後的值
+            satisfaction: getWeightVal('satisfaction_weight_display'), // 儲存加總後的值
+            fatigue: 25,   // 暫時寫死或另增輸入框
             efficiency: 15,
             cost: 5
         };
@@ -191,7 +216,6 @@ const scoreSettingsManager = {
             await db.collection('units').doc(this.currentUnitId).update({
                 scoreSettings: scoreSettings
             });
-            console.log("✅ 設定儲存成功");
             alert("評分設定已儲存！");
         } catch(e) { 
             console.error("❌ 儲存失敗:", e); 
