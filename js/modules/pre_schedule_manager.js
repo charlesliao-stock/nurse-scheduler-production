@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_manager.js
-// 🔧 完整版：組別限制改為「依班別設定上下限」
+// 🔧 完整修復版：確保抓得到 HTML ID
 
 const preScheduleManager = {
     currentUnitId: null,
@@ -8,7 +8,7 @@ const preScheduleManager = {
     staffListSnapshot: [], 
     staffSortState: { field: 'isSupport', order: 'asc' },
     isLoading: false,
-    tempSpecificNeeds: {}, // 暫存臨時需求
+    tempSpecificNeeds: {}, 
 
     init: async function() {
         console.log("Pre-Schedule Manager Loaded.");
@@ -117,6 +117,7 @@ const preScheduleManager = {
             group: doc.data().groupId,
             isSupport: false 
         }));
+        document.getElementById('staffCountBadge').innerText = this.staffListSnapshot.length;
     },
 
     openModal: async function(docId = null) {
@@ -145,8 +146,9 @@ const preScheduleManager = {
         this.fillForm(data);
         this.renderStaffList();
         
+        // 渲染三個區塊
         this.renderDailyNeedsTable(data.dailyNeeds);
-        this.renderSpecificNeedsUI(data.specificNeeds || {});
+        this.renderSpecificNeedsUI(data.specificNeeds || {}); 
         this.renderGroupLimitsTable(data.groupLimits);
     },
 
@@ -260,7 +262,7 @@ const preScheduleManager = {
         this.renderSpecificNeedsUI(this.tempSpecificNeeds);
     },
 
-    // [修改] 3. 組別限制 (動態班別)
+    // 3. 組別限制 (改為: 組別 x 班別 (至少/最多))
     renderGroupLimitsTable: function(savedLimits = {}) {
         const container = document.getElementById('groupLimitTableContainer');
         if(!container) return;
@@ -291,14 +293,13 @@ const preScheduleManager = {
         container.innerHTML = html;
     },
 
-    // 儲存並檢查同步
     saveData: async function() {
         const docId = document.getElementById('preScheduleDocId').value;
         const ym = document.getElementById('inputPreYearMonth').value;
         if(!ym) { alert("請選擇月份"); return; }
         const [year, month] = ym.split('-').map(Number);
         
-        // 1. 收集組別限制 (新結構)
+        // 1. 收集組別限制 (新結構: Group -> Shift -> Min/Max)
         const groupLimits = {};
         document.querySelectorAll('#groupLimitTable .limit-input').forEach(i => {
             const g = i.dataset.group;
@@ -353,6 +354,7 @@ const preScheduleManager = {
                         await db.collection('schedules').doc(schDoc.id).update({
                             dailyNeeds: dailyNeeds,
                             specificNeeds: specificNeeds,
+                            groupLimits: groupLimits, // 同步組別限制
                             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                         });
                     }
@@ -392,13 +394,24 @@ const preScheduleManager = {
             `;
             tbody.appendChild(tr);
         });
+        document.getElementById('staffCountBadge').innerText = this.staffListSnapshot.length;
     },
     
     updateStaffGroup: function(index, val) { this.staffListSnapshot[index].group = val; },
     removeStaff: function(index) { this.staffListSnapshot.splice(index, 1); this.renderStaffList(); },
+    
     importLastSettings: async function() { alert("功能開發中"); },
     deleteSchedule: async function(id) { 
         if(confirm("確定刪除?")) { await db.collection('pre_schedules').doc(id).delete(); this.loadData(); } 
     },
+    
+    // 工具: 簡易開關三班選項
+    toggleThreeShiftOption: function() {
+        const mode = document.getElementById('inputShiftMode').value;
+        const opt = document.getElementById('threeShiftOption');
+        if(mode === '2') opt.style.display = 'block';
+        else opt.style.display = 'none';
+    },
+
     manage: function(id) { window.location.hash = `/admin/pre_schedule_matrix?id=${id}`; }
 };
