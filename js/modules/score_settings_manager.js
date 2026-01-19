@@ -5,7 +5,7 @@ const scoreSettingsManager = {
     currentUnitId: null,
     
     init: async function() {
-        console.log("Score Settings Manager Loaded.");
+        console.log("🎯 Score Settings Manager Init START");
         
         // 權限檢查
         if (app.userRole === 'user') {
@@ -19,8 +19,19 @@ const scoreSettingsManager = {
             return;
         }
 
+        // 確認元素存在
+        const select = document.getElementById('scoreUnitSelect');
+        if (!select) {
+            console.error("❌ scoreUnitSelect 元素不存在,頁面可能尚未載入");
+            // 延遲重試
+            setTimeout(() => this.init(), 100);
+            return;
+        }
+
+        console.log("✅ 找到 scoreUnitSelect 元素");
         await this.loadUnitDropdown();
         this.setupWeightSliders();
+        console.log("🎯 Score Settings Manager Init COMPLETE");
     },
 
     // [關鍵修正] 載入單位下拉選單
