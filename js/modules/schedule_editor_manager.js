@@ -1,17 +1,16 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 Phase 2 完整版：OFF統計 + 動態班別選單 + 即時規則驗證 + AI/儲存完整邏輯
+// 🚀 Phase 3 完整版：加入評分儀表板與即時運算
 
 const scheduleEditorManager = {
     scheduleId: null,
-    data: null,      // 排班草稿資料
-    unitRules: {},   // 單位規則
-    shifts: [],      // 班別列表
+    data: null,
+    unitRules: {},
+    shifts: [],
     staffMap: {},
     assignments: {},
     usersMap: {}, 
     isLoading: false,
     
-    // 拖曳暫存
     dragSrcUid: null,
     dragSrcDay: null,
 
@@ -35,11 +34,18 @@ const scheduleEditorManager = {
             this.assignments = this.data.assignments || {};
 
             this.renderToolbar(); 
+            
+            // [新增] 渲染評分儀表板容器
+            this.renderScoreBoardContainer();
+            
             this.renderMatrix();
-            this.updateRealTimeStats(); // 計算 OFF 與缺額
+            this.updateRealTimeStats(); 
+            
+            // [新增] 初始評分
+            this.updateScheduleScore();
+
             this.setupEvents();
             
-            // 初始化右鍵選單容器
             let menu = document.getElementById('schContextMenu');
             if (!menu) {
                 menu = document.createElement('div');
@@ -58,6 +64,106 @@ const scheduleEditorManager = {
         }
     },
 
+    // [新增] 插入評分儀表板 HTML
+    renderScoreBoardContainer: function() {
+        const container = document.getElementById('matrixContainer');
+        const parent = container.parentElement; // 取得外層 flex container
+        
+        // 避免重複插入
+        if(document.getElementById('scoreDashboard')) return;
+
+        const html = `
+        <div id="scoreDashboard" style="background:#fff; padding:15px 25px; border-bottom:1px solid #ddd; display:flex; align-items:center; gap:30px; flex-shrink:0;">
+            <div style="display:flex; align-items:center; gap:15px;">
+                <div style="position:relative; width:60px; height:60px; border-radius:50%; background:#ecf0f1; display:flex; justify-content:center; align-items:center;" id="scoreCircleBg">
+                    <div style="width:50px; height:50px; background:#fff; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:2;">
+                        <span id="scoreValue" style="font-size:1.1rem; font-weight:bold; color:#2c3e50;">--</span>
+                        <span style="font-size:0.6rem; color:#999;">%</span>
+                    </div>
+                </div>
+                <div>
+                    <h4 style="margin:0; font-size:1rem; color:#2c3e50;">班表品質</h4>
+                    <div id="scoreCompareBadge" style="font-size:0.8rem; color:#95a5a6; background:#f0f2f5; padding:2px 8px; border-radius:4px; display:inline-block; margin-top:4px;">待評分</div>
+                </div>
+            </div>
+
+            <div style="flex:1; display:flex; gap:20px; justify-content:flex-end;">
+                ${this.renderMiniScore('效率', 'eff')}
+                ${this.renderMiniScore('疲勞', 'fat')}
+                ${this.renderMiniScore('滿意', 'sat')}
+                ${this.renderMiniScore('公平', 'fai')}
+                ${this.renderMiniScore('成本', 'cos')}
+            </div>
+        </div>`;
+        
+        // 插入在 Toolbar 之後，Matrix 之前
+        parent.insertBefore(this.createElementFromHTML(html), container);
+    },
+
+    renderMiniScore: function(label, id) {
+        return `
+        <div style="text-align:center;">
+            <div style="font-size:0.8rem; color:#7f8c8d; margin-bottom:4px;">${label}</div>
+            <div style="font-weight:bold; color:#2c3e50; font-size:1.1rem;" id="scoreVal_${id}">-</div>
+        </div>`;
+    },
+
+    createElementFromHTML: function(htmlString) {
+        const div = document.createElement('div');
+        div.innerHTML = htmlString.trim();
+        return div.firstChild;
+    },
+
+    // [新增] 更新分數邏輯
+    updateScheduleScore: function() {
+        if (!typeof scoringManager) return;
+
+        // 將 assignments 轉換為 scoringManager 需要的格式
+        const scoreResult = scoringManager.calculate(
+            this.assignments, 
+            this.data.staffList, 
+            this.data.dailyNeeds
+        );
+
+        const score = parseFloat(scoreResult.percentage);
+
+        // 1. 更新圓環
+        document.getElementById('scoreValue').innerText = score;
+        document.getElementById('scoreCircleBg').style.background = 
+            `conic-gradient(#3498db 0% ${score}%, #ecf0f1 ${score}% 100%)`;
+
+        // 2. 更新比較標籤
+        const badge = document.getElementById('scoreCompareBadge');
+        if (scoringManager.aiBaseScore === null) {
+            badge.innerHTML = 'AI 原始分數';
+            badge.style.color = '#7f8c8d';
+            badge.style.background = '#f0f2f5';
+        } else {
+            const diff = (score - scoringManager.aiBaseScore).toFixed(1);
+            if (diff > 0) {
+                badge.innerHTML = `<i class="fas fa-arrow-up"></i> 提升 ${diff}%`;
+                badge.style.color = '#27ae60';
+                badge.style.background = '#eafaf1';
+            } else if (diff < 0) {
+                badge.innerHTML = `<i class="fas fa-arrow-down"></i> 下降 ${Math.abs(diff)}%`;
+                badge.style.color = '#e74c3c';
+                badge.style.background = '#fdedec';
+            } else {
+                badge.innerHTML = '持平';
+                badge.style.color = '#7f8c8d';
+                badge.style.background = '#f0f2f5';
+            }
+        }
+
+        // 3. 更新細項 (轉為 5分制顯示)
+        document.getElementById('scoreVal_eff').innerText = scoreResult.details.efficiency;
+        document.getElementById('scoreVal_fat').innerText = scoreResult.details.fatigue;
+        document.getElementById('scoreVal_sat').innerText = scoreResult.details.satisfaction;
+        document.getElementById('scoreVal_fai').innerText = scoreResult.details.fairness;
+        document.getElementById('scoreVal_cos').innerText = scoreResult.details.cost;
+    },
+
+    // --- 原有函式 ---
     showLoading: function() {
         const tbody = document.getElementById('schBody');
         if(tbody) tbody.innerHTML = '<tr><td colspan="20" style="padding:40px; text-align:center;"><i class="fas fa-spinner fa-spin"></i> 載入中...</td></tr>';
@@ -134,7 +240,6 @@ const scheduleEditorManager = {
         const lastMonthEnd = lastMonthDate.getDate();
         const prevShowDays = 3; 
         
-        // --- Header ---
         let h1 = `<tr>
             <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa;">職編</th>
             <th rowspan="2" style="width:80px; position:sticky; left:60px; z-index:110; background:#f8f9fa;">姓名</th>
@@ -149,7 +254,6 @@ const scheduleEditorManager = {
             const color = (w===0||w===6) ? 'color:red;' : '';
             h1 += `<th class="cell-narrow" style="${color}">${d}</th>`;
         }
-        // OFF 統計欄位
         h1 += `<th rowspan="2" style="width:50px; border-left:2px solid #ccc; color:#2c3e50;">休假<br>(OFF)</th>
                <th rowspan="2" style="width:50px;">時數</th></tr>`;
 
@@ -165,7 +269,6 @@ const scheduleEditorManager = {
         h2 += `</tr>`;
         thead.innerHTML = h1 + h2;
 
-        // --- Body ---
         let bodyHtml = '';
         const sortedStaff = [...this.data.staffList].sort((a,b) => {
             const idA = this.usersMap[a.uid]?.employeeId || '';
@@ -187,14 +290,12 @@ const scheduleEditorManager = {
                 <td style="position:sticky; left:60px; background:#fff; z-index:100; font-weight:bold; border-right:1px solid #ddd; white-space:nowrap;">${staff.name}</td>
                 <td>${bundleHtml}</td>`;
             
-            // 上個月
             for(let i=prevShowDays-1; i>=0; i--) {
                 const d = lastMonthEnd - i;
                 const val = userAssign[`last_${d}`] || '';
                 bodyHtml += `<td class="cell-narrow" style="background:#f9f9f9; color:#999;">${val}</td>`;
             }
 
-            // 本月
             for(let d=1; d<=daysInMonth; d++) {
                 const val = userAssign[`current_${d}`] || '';
                 const isLocked = (val === 'REQ_OFF' || (typeof val === 'string' && val.startsWith('!')));
@@ -208,7 +309,6 @@ const scheduleEditorManager = {
                             ${this.renderCellContent(val)}</td>`;
             }
 
-            // 統計欄位
             bodyHtml += `<td id="stat_off_${uid}" style="border-left:2px solid #ccc; font-weight:bold; color:#007bff;">0</td>
                          <td id="stat_hours_${uid}">0</td></tr>`;
         });
@@ -230,7 +330,6 @@ const scheduleEditorManager = {
         const countMap = {};
         for(let d=1; d<=daysInMonth; d++) countMap[d] = {};
 
-        // 1. 計算人員 OFF 數與工時
         this.data.staffList.forEach(s => {
             let offCount = 0;
             let totalHours = 0;
@@ -240,7 +339,6 @@ const scheduleEditorManager = {
             for(let d=1; d<=daysInMonth; d++) {
                 const val = userAssign[`current_${d}`];
                 
-                // OFF 與 REQ_OFF 都算休假
                 if(val === 'OFF' || val === 'REQ_OFF') {
                     offCount++;
                 } 
@@ -261,7 +359,6 @@ const scheduleEditorManager = {
             if(hoursEl) hoursEl.textContent = totalHours;
         });
 
-        // 2. 渲染底部缺額監控
         let fHtml = '';
         const targetShifts = this.shifts.map(s => s.code);
         
@@ -277,7 +374,7 @@ const scheduleEditorManager = {
             for(let d=1; d<=daysInMonth; d++) {
                 const actual = countMap[d][code] || 0;
                 const date = new Date(year, month-1, d);
-                const jsDay = date.getDay(); // 0=Sun
+                const jsDay = date.getDay(); 
                 const needKeyIndex = (jsDay === 0) ? 6 : jsDay - 1; 
                 
                 const need = dailyNeeds[`${code}_${needKeyIndex}`] || 0;
@@ -353,7 +450,6 @@ const scheduleEditorManager = {
         });
     },
 
-    // 修正 2: 動態班別選單
     handleRightClick: function(e, uid, d) {
         this.targetCell = { uid, d };
         const menu = document.getElementById('schContextMenu');
@@ -379,7 +475,6 @@ const scheduleEditorManager = {
         menu.style.top = `${e.pageY}px`;
     },
 
-    // 修正 3: 驗證邏輯
     validateShiftChange: function(uid, day, newCode) {
         if (!newCode || newCode === 'OFF' || newCode === 'REQ_OFF') return { valid: true };
 
@@ -394,7 +489,6 @@ const scheduleEditorManager = {
             return this.shifts.find(s => s.code === code);
         };
 
-        // 1. 檢查與「前一天」的間隔
         let prevShiftCode = null;
         if (day > 1) {
             prevShiftCode = this.assignments[uid][`current_${day-1}`];
@@ -418,7 +512,6 @@ const scheduleEditorManager = {
             }
         }
 
-        // 2. 檢查連續上班
         if (this.unitRules.policy?.limitConsecutive) {
             let cons = 1; 
             for(let i=1; i<=10; i++) {
@@ -456,7 +549,10 @@ const scheduleEditorManager = {
 
         this.refreshCell(uid, d);
         document.getElementById('schContextMenu').style.display = 'none';
+        
         this.updateRealTimeStats();
+        // [新增] 即時更新分數
+        this.updateScheduleScore();
     },
 
     swapShift: function(uid1, uid2, day) {
@@ -482,7 +578,10 @@ const scheduleEditorManager = {
 
         this.refreshCell(uid1, day);
         this.refreshCell(uid2, day);
+        
         this.updateRealTimeStats();
+        // [新增] 即時更新分數
+        this.updateScheduleScore();
     },
 
     refreshCell: function(uid, day) {
@@ -490,8 +589,6 @@ const scheduleEditorManager = {
         const val = this.assignments[uid][`current_${day}`];
         if(cell) cell.innerHTML = this.renderCellContent(val);
     },
-
-    // --- 完整還原的 AI 與儲存邏輯 ---
 
     runAI: async function() {
         if (typeof SchedulerFactory === 'undefined') {
@@ -510,7 +607,6 @@ const scheduleEditorManager = {
             const lastMonthDate = new Date(year, month - 1, 0);
             const lastMonthEnd = lastMonthDate.getDate();
             
-            // 準備上月資料
             this.data.staffList.forEach(s => {
                 const userAssign = this.assignments[s.uid] || {};
                 lastMonthData[s.uid] = {
@@ -522,7 +618,6 @@ const scheduleEditorManager = {
                 }
             });
 
-            // 準備人員資料
             const staffListForAI = this.data.staffList.map(s => {
                 const userAssign = this.assignments[s.uid] || {};
                 return {
@@ -535,7 +630,6 @@ const scheduleEditorManager = {
                 };
             });
 
-            // 合併規則
             const rules = {
                 dailyNeeds: this.data.dailyNeeds || {},
                 shiftCodes: this.shifts.map(s => s.code),
@@ -544,9 +638,6 @@ const scheduleEditorManager = {
                 ...(this.data.settings || {})
             };
 
-            console.log("🚀 啟動 AI 排班", rules);
-
-            // 執行 V2
             const scheduler = SchedulerFactory.create(
                 'V2', 
                 staffListForAI, 
@@ -562,6 +653,10 @@ const scheduleEditorManager = {
             this.renderMatrix();
             this.updateRealTimeStats();
             
+            // [新增] 重置基準分並更新
+            scoringManager.setBase(null);
+            this.updateScheduleScore();
+
             await this.saveDraft(true);
             alert("✅ AI 排班完成!");
 
