@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_manager.js
-// 🔧 完整版：包含臨時人力設定與同步機制
+// 🔧 完整版：組別限制改為「依班別設定上下限」
 
 const preScheduleManager = {
     currentUnitId: null,
@@ -100,7 +100,6 @@ const preScheduleManager = {
         document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
         document.getElementById(`tab-${tabName}`).classList.add('active');
         
-        // 簡單處理 active class
         const btns = document.querySelectorAll('.tab-btn');
         if(tabName === 'basic') btns[0].classList.add('active');
         if(tabName === 'needs') btns[1].classList.add('active');
@@ -146,9 +145,8 @@ const preScheduleManager = {
         this.fillForm(data);
         this.renderStaffList();
         
-        // 渲染三個區塊
         this.renderDailyNeedsTable(data.dailyNeeds);
-        this.renderSpecificNeedsUI(data.specificNeeds || {}); // 新增：臨時人力
+        this.renderSpecificNeedsUI(data.specificNeeds || {});
         this.renderGroupLimitsTable(data.groupLimits);
     },
 
@@ -168,7 +166,7 @@ const preScheduleManager = {
         if(s.shiftTypeMode === "2") document.getElementById('checkAllowThree').checked = s.allowThreeShifts;
     },
 
-    // 1. 常態需求 (週循環)
+    // 1. 常態需求
     renderDailyNeedsTable: function(savedNeeds = {}) {
         const container = document.getElementById('dailyNeedsTable');
         if(!container) return;
@@ -193,7 +191,7 @@ const preScheduleManager = {
         container.innerHTML = html;
     },
 
-    // [新增] 2. 臨時人力設定
+    // 2. 臨時需求
     renderSpecificNeedsUI: function(specificNeeds = {}) {
         const container = document.getElementById('specificNeedsContainer'); 
         if(!container) return;
@@ -262,38 +260,59 @@ const preScheduleManager = {
         this.renderSpecificNeedsUI(this.tempSpecificNeeds);
     },
 
-    // 3. 組別限制
+    // [修改] 3. 組別限制 (動態班別)
     renderGroupLimitsTable: function(savedLimits = {}) {
         const container = document.getElementById('groupLimitTableContainer');
         if(!container) return;
         
         let html = `<h4 style="margin-top:20px; border-bottom:1px solid #eee; padding-bottom:10px; color:#2c3e50;">3. 組別限制 (進階演算法參考)</h4>`;
-        html += `<table class="table table-bordered table-sm text-center" id="groupLimitTable">
-            <thead><tr><th style="background:#f8f9fa;">組別</th><th>每班至少</th><th>小夜至少</th><th>大夜至少</th><th>小夜最多</th><th>大夜最多</th></tr></thead>
-            <tbody>`;
-        html += this.currentUnitGroups.map(g => {
-            const row = (k) => `<input type="number" class="limit-input" placeholder="-" data-group="${g}" data-key="${k}" value="${(savedLimits[g] && savedLimits[g][k]) || ''}" style="width:100%; text-align:center;">`;
-            return `<tr><td style="font-weight:bold;">${g}</td><td>${row('minTotal')}</td><td>${row('minE')}</td><td>${row('minN')}</td><td>${row('maxE')}</td><td>${row('maxN')}</td></tr>`;
-        }).join('');
-        html += `</tbody></table>`;
+        html += `<div style="overflow-x:auto;"><table class="table table-bordered table-sm text-center" id="groupLimitTable" style="min-width:100%;">
+            <thead><tr><th style="background:#f8f9fa; width:100px;">組別</th>`;
+        
+        // 動態產生班別表頭
+        this.activeShifts.forEach(s => {
+            html += `<th style="background:#f8f9fa;">${s.name} (至少)</th><th style="background:#f8f9fa;">${s.name} (最多)</th>`;
+        });
+        html += `</tr></thead><tbody>`;
+
+        this.currentUnitGroups.forEach(g => {
+            html += `<tr><td style="font-weight:bold;">${g}</td>`;
+            this.activeShifts.forEach(s => {
+                const minVal = (savedLimits[g] && savedLimits[g][s.code] && savedLimits[g][s.code].min) || '';
+                const maxVal = (savedLimits[g] && savedLimits[g][s.code] && savedLimits[g][s.code].max) || '';
+                
+                html += `<td><input type="number" class="limit-input" placeholder="-" data-group="${g}" data-shift="${s.code}" data-type="min" value="${minVal}" style="width:50px; text-align:center;"></td>`;
+                html += `<td><input type="number" class="limit-input" placeholder="-" data-group="${g}" data-shift="${s.code}" data-type="max" value="${maxVal}" style="width:50px; text-align:center;"></td>`;
+            });
+            html += `</tr>`;
+        });
+        
+        html += `</tbody></table></div>`;
         container.innerHTML = html;
     },
 
-    // [重點] 儲存並檢查同步
+    // 儲存並檢查同步
     saveData: async function() {
         const docId = document.getElementById('preScheduleDocId').value;
         const ym = document.getElementById('inputPreYearMonth').value;
         if(!ym) { alert("請選擇月份"); return; }
         const [year, month] = ym.split('-').map(Number);
         
-        // 收集資料
+        // 1. 收集組別限制 (新結構)
         const groupLimits = {};
         document.querySelectorAll('#groupLimitTable .limit-input').forEach(i => {
-            const g = i.dataset.group, k = i.dataset.key;
+            const g = i.dataset.group;
+            const s = i.dataset.shift;
+            const t = i.dataset.type; // min 或 max
             if(!groupLimits[g]) groupLimits[g] = {};
-            if(i.value) groupLimits[g][k] = parseInt(i.value);
+            if(!groupLimits[g][s]) groupLimits[g][s] = {};
+            
+            if(i.value !== '') {
+                groupLimits[g][s][t] = parseInt(i.value);
+            }
         });
 
+        // 2. 收集每日需求
         const dailyNeeds = {};
         document.querySelectorAll('.needs-input').forEach(i => {
             if(i.value) dailyNeeds[i.dataset.key] = parseInt(i.value);
@@ -317,14 +336,13 @@ const preScheduleManager = {
             },
             groupLimits,
             dailyNeeds,
-            specificNeeds, // 儲存臨時需求
+            specificNeeds,
             staffList: this.staffListSnapshot,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
         try {
             if(docId) {
-                // 檢查是否已有正式班表草稿
                 const schSnap = await db.collection('schedules').where('sourceId', '==', docId).get();
                 let needSync = false;
                 
@@ -354,7 +372,6 @@ const preScheduleManager = {
         } catch(e) { console.error(e); alert("錯誤: " + e.message); }
     },
     
-    // ... 其他標準功能 ...
     renderStaffList: function() {
         const tbody = document.getElementById('preStaffBody');
         tbody.innerHTML = '';
@@ -379,7 +396,6 @@ const preScheduleManager = {
     
     updateStaffGroup: function(index, val) { this.staffListSnapshot[index].group = val; },
     removeStaff: function(index) { this.staffListSnapshot.splice(index, 1); this.renderStaffList(); },
-    
     importLastSettings: async function() { alert("功能開發中"); },
     deleteSchedule: async function(id) { 
         if(confirm("確定刪除?")) { await db.collection('pre_schedules').doc(id).delete(); this.loadData(); } 
