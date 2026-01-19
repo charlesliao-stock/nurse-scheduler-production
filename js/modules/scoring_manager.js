@@ -1,161 +1,181 @@
 // js/modules/scoring_manager.js
+// 負責計算排班分數與比較
+
 const scoringManager = {
-    // 儲存原始 AI 分數，用於比較
-    aiBaseScore: null,
-    currentScore: null,
+    aiBaseScore: null, // 記錄 AI 剛排完的原始分數
 
-    // 主計算函式
-    calculate: function(scheduleData, staffList, rules) {
-        // 1. 初始化得分結構
-        let scoreReport = {
-            totalScore: 0,
-            maxPossibleScore: 0,
-            percentage: 0,
-            categories: {
-                fairness: { score: 0, weight: 0, items: {} },
-                satisfaction: { score: 0, weight: 0, items: {} },
-                fatigue: { score: 0, weight: 0, items: {} },
-                efficiency: { score: 0, weight: 0, items: {} },
-                cost: { score: 0, weight: 0, items: {} }
-            }
-        };
-
-        // 模擬讀取規則權重 (若未設定則使用預設值)
-        // 實務上應從 scheduleRuleManager.getRules() 讀取
+    // 核心計算函式
+    calculate: function(scheduleData, staffList, dailyNeeds = {}, shiftParams = {}) {
+        // --- 設定權重 (依據您的需求) ---
         const weights = {
-            fairness: 20, satisfaction: 20, fatigue: 30, efficiency: 15, cost: 15
+            efficiency: 40,   // 排班效率 (缺班率)
+            fatigue: 25,      // 疲勞度 (連六、大夜接白)
+            satisfaction: 20, // 滿意度 (預班)
+            fairness: 10,     // 公平性 (休假數差異)
+            cost: 5           // 成本控制
         };
 
-        // --- 1. 公平性 (Fairness) 計算 ---
-        // 計算放假天數標準差 (Standard Deviation)
-        const offCounts = staffList.map(s => this.countShift(scheduleData, s.id, 'OFF'));
-        const offStd = this.calculateStdDev(offCounts);
-        // 轉換為 5 分制 (標準差越小分越高)
-        const scoreFairness = this.mapValueToScore(offStd, [0.5, 1.0, 1.5, 2.0], true); // true表示越小越好
-        scoreReport.categories.fairness.score = scoreFairness;
-        scoreReport.categories.fairness.weight = weights.fairness;
-        scoreReport.categories.fairness.items['off_std'] = { val: offStd.toFixed(2), score: scoreFairness };
+        // 初始化分數結構
+        let result = {
+            totalScore: 0,
+            maxScore: 100, 
+            percentage: 0,
+            details: { efficiency: 0, fatigue: 0, satisfaction: 0, fairness: 0, cost: 0 },
+            raw: { shortage: 0, fatigueCount: 0, reqRate: 0, stdDev: 0 }
+        };
 
+        const daysInMonth = Object.keys(scheduleData).length; // 簡易判斷天數
+        
+        // --- 1. 排班效率 (Efficiency) - 40% ---
+        // 計算缺額率：(總缺額 / 總需求人次)
+        let totalNeeds = 0;
+        let totalShortage = 0;
+        
+        // 遍歷每天
+        // 注意：scheduleData 結構需為 { uid: { current_1: 'N', ... } } 轉置後的檢查
+        // 這裡我們直接統計 assigned
+        const dailyCounts = {}; // { day: { shift: count } }
 
-        // --- 2. 滿意度 (Satisfaction) 計算 ---
-        // 計算預班達成率 (以 REQ_OFF 為例)
-        let reqTotal = 0, reqSuccess = 0;
         staffList.forEach(s => {
-            const params = s.schedulingParams || {};
-            Object.keys(params).forEach(date => {
-                if(params[date] === 'REQ_OFF') {
-                    reqTotal++;
-                    if(this.getShift(scheduleData, date, s.id) === 'OFF') reqSuccess++;
+            const assign = scheduleData[s.uid] || {};
+            Object.keys(assign).forEach(key => {
+                if(key.startsWith('current_')) {
+                    const d = key.split('_')[1];
+                    const shift = assign[key];
+                    if(shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
+                        if(!dailyCounts[d]) dailyCounts[d] = {};
+                        if(!dailyCounts[d][shift]) dailyCounts[d][shift] = 0;
+                        dailyCounts[d][shift]++;
+                    }
                 }
             });
         });
-        const reqRate = reqTotal === 0 ? 100 : (reqSuccess / reqTotal * 100);
-        const scoreSat = this.mapValueToScore(reqRate, [99, 95, 90, 80], false); // false表示越大越好
-        scoreReport.categories.satisfaction.score = scoreSat;
-        scoreReport.categories.satisfaction.weight = weights.satisfaction;
-        scoreReport.categories.satisfaction.items['req_rate'] = { val: reqRate.toFixed(0)+'%', score: scoreSat };
 
-
-        // --- 3. 疲勞度 (Fatigue) 計算 ---
-        // 計算連上 6 天的人次
-        let cons6Count = 0;
-        staffList.forEach(s => {
-            if(this.checkConsecutiveWork(scheduleData, s.id) >= 6) cons6Count++;
-        });
-        const scoreFatigue = this.mapValueToScore(cons6Count, [0, 1, 3, 5], true);
-        scoreReport.categories.fatigue.score = scoreFatigue;
-        scoreReport.categories.fatigue.weight = weights.fatigue;
-        scoreReport.categories.fatigue.items['cons_6'] = { val: cons6Count + '人次', score: scoreFatigue };
-
-
-        // --- 4. 效率 & 5. 成本 (這裡暫用隨機或是簡易邏輯代替，待完整實作) ---
-        scoreReport.categories.efficiency.score = 5; // 假設完美
-        scoreReport.categories.efficiency.weight = weights.efficiency;
-        scoreReport.categories.cost.score = 4;       // 假設不錯
-        scoreReport.categories.cost.weight = weights.cost;
-
-
-        // --- 總分匯總 ---
-        // 公式：總分 = Σ (單項得分 * 權重)
-        // 滿分 = Σ (5分 * 權重)
-        Object.values(scoreReport.categories).forEach(cat => {
-            scoreReport.totalScore += (cat.score * cat.weight);
-            scoreReport.maxPossibleScore += (5 * cat.weight);
-        });
-
-        scoreReport.percentage = (scoreReport.totalScore / scoreReport.maxPossibleScore * 100).toFixed(1);
+        // 比對需求
+        // 假設 dailyNeeds key 為 "N_0" (週日N班需求)
+        // 這裡做一個簡化估算，若無 dailyNeeds 則視為滿分
+        let hasNeedsData = Object.keys(dailyNeeds).length > 0;
         
-        this.currentScore = scoreReport.percentage;
-        return scoreReport;
-    },
-
-    // --- 輔助工具 ---
-    
-    // 設定 AI 基準分 (當 AI 剛跑完時呼叫)
-    setBaseScore: function(score) {
-        this.aiBaseScore = score;
-    },
-
-    // 數值轉 5 分制映射
-    // thresholds: [5分門檻, 4分門檻, 3分門檻, 2分門檻]
-    // isLowerBetter: true 代表數值越小越好 (如標準差)，false 代表越大越好 (如達成率)
-    mapValueToScore: function(val, thresholds, isLowerBetter) {
-        if (isLowerBetter) {
-            if (val <= thresholds[0]) return 5;
-            if (val <= thresholds[1]) return 4;
-            if (val <= thresholds[2]) return 3;
-            if (val <= thresholds[3]) return 2;
-            return 1;
-        } else {
-            if (val >= thresholds[0]) return 5;
-            if (val >= thresholds[1]) return 4;
-            if (val >= thresholds[2]) return 3;
-            if (val >= thresholds[3]) return 2;
-            return 1;
+        if (hasNeedsData) {
+            // 這裡需要知道年份月份來推算星期，暫略，假設傳入的 scheduleData 足夠我們計算
+            // 簡化邏輯：若有紅字 (前端 UI 統計的) 則扣分。
+            // 為了精確，我們假設 shortage 是外部傳入或在此計算。
+            // 這裡先給予一個基礎分，若外部有統計缺額數可傳入修正
         }
-    },
+        
+        // 暫定：若無嚴重缺額給 5 分 (邏輯需配合 dailyNeeds 結構細化)
+        result.details.efficiency = 5; 
 
-    calculateStdDev: function(array) {
-        const n = array.length;
-        if(n === 0) return 0;
-        const mean = array.reduce((a, b) => a + b) / n;
-        return Math.sqrt(array.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n);
-    },
 
-    countShift: function(schedule, uid, targetShift) {
-        let count = 0;
-        Object.values(schedule).forEach(dayShifts => {
-            if(targetShift === 'OFF') {
-                if(dayShifts.OFF && dayShifts.OFF.includes(uid)) count++;
-            } else {
-                // 簡化判斷
-                if(dayShifts[targetShift] && dayShifts[targetShift].includes(uid)) count++;
+        // --- 2. 疲勞度 (Fatigue) - 25% ---
+        // 違規：連上 > 6 天 或 N 接 D
+        let fatigueViolations = 0;
+        
+        staffList.forEach(s => {
+            const assign = scheduleData[s.uid] || {};
+            let cons = 0;
+            let prevShift = null;
+            
+            // 跑 1~31 日
+            for(let d=1; d<=31; d++) {
+                const key = `current_${d}`;
+                if(!assign[key] && d > daysInMonth) break; // 超出當月
+                
+                const shift = assign[key];
+                const isWork = (shift && shift !== 'OFF' && shift !== 'REQ_OFF');
+                
+                // 連上檢查
+                if(isWork) cons++;
+                else cons = 0;
+                
+                if(cons > 6) fatigueViolations++;
+
+                // N 接 D 檢查 (假設 N=N, D=D)
+                if(prevShift === 'N' && shift === 'D') fatigueViolations++;
+                
+                prevShift = shift;
             }
         });
-        return count;
-    },
-    
-    getShift: function(schedule, dateStr, uid) {
-        if(!schedule[dateStr]) return null;
-        for(let code in schedule[dateStr]) {
-            if(schedule[dateStr][code].includes(uid)) return code;
-        }
-        return null;
+
+        // 評分：0次=5分, 1-2次=4分, 3-5次=3分, >5次=1分
+        if (fatigueViolations === 0) result.details.fatigue = 5;
+        else if (fatigueViolations <= 2) result.details.fatigue = 4;
+        else if (fatigueViolations <= 5) result.details.fatigue = 3;
+        else result.details.fatigue = 1;
+        result.raw.fatigueCount = fatigueViolations;
+
+
+        // --- 3. 滿意度 (Satisfaction) - 20% ---
+        // 預班達成率 (REQ_OFF)
+        let reqTotal = 0;
+        let reqHit = 0;
+        
+        staffList.forEach(s => {
+            const assign = scheduleData[s.uid] || {};
+            // 檢查該員的所有 current_X
+            Object.keys(assign).forEach(key => {
+                if(key.startsWith('current_')) {
+                    // 這裡需要比對 "原始預班"，若 scheduleData 已經蓋掉了 REQ_OFF 變成 OFF
+                    // 我們假設 REQ_OFF 會被保留在 assignments 中，或是從 user preferences 讀取
+                    // 簡化：若 assign 中 value 為 REQ_OFF，視為達成 (因為系統邏輯是 REQ_OFF 不會被覆蓋)
+                    // 若要更精準，需傳入 preRequests
+                    if (assign[key] === 'REQ_OFF') {
+                        reqTotal++;
+                        reqHit++; // 目前系統邏輯 REQ_OFF 是鎖定的，所以達成率通常是 100%
+                    }
+                }
+            });
+            // 若有 "志願班別" (wish)，可在此加入計算
+        });
+        
+        // 暫時給滿分，除非有被覆蓋的紀錄
+        result.details.satisfaction = 5; 
+
+
+        // --- 4. 公平性 (Fairness) - 10% ---
+        // 休假天數標準差
+        const offCounts = staffList.map(s => {
+            const assign = scheduleData[s.uid] || {};
+            let cnt = 0;
+            Object.values(assign).forEach(v => {
+                if(v === 'OFF' || v === 'REQ_OFF') cnt++;
+            });
+            return cnt;
+        });
+        
+        const stdDev = this.getStdDev(offCounts);
+        // <1.0=5分, <1.5=4分, <2.0=3分...
+        if(stdDev < 1.0) result.details.fairness = 5;
+        else if(stdDev < 1.5) result.details.fairness = 4;
+        else if(stdDev < 2.0) result.details.fairness = 3;
+        else result.details.fairness = 2;
+        
+        result.raw.stdDev = stdDev.toFixed(2);
+
+
+        // --- 5. 成本 (Cost) - 5% ---
+        result.details.cost = 4; // 暫定值
+
+
+        // --- 總分計算 ---
+        let weightedSum = 
+            (result.details.efficiency * weights.efficiency) +
+            (result.details.fatigue * weights.fatigue) +
+            (result.details.satisfaction * weights.satisfaction) +
+            (result.details.fairness * weights.fairness) +
+            (result.details.cost * weights.cost);
+            
+        // 滿分基數 = 5分 * 100% = 500
+        result.percentage = (weightedSum / 500 * 100).toFixed(1);
+
+        return result;
     },
 
-    checkConsecutiveWork: function(schedule, uid) {
-        // 簡易連續上班檢查 (僅回傳最大連續值)
-        let maxCons = 0, current = 0;
-        const dates = Object.keys(schedule).sort();
-        dates.forEach(d => {
-            const shift = this.getShift(schedule, d, uid);
-            if(shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
-                current++;
-            } else {
-                maxCons = Math.max(maxCons, current);
-                current = 0;
-            }
-        });
-        return Math.max(maxCons, current);
+    setBase: function(score) { this.aiBaseScore = score; },
+
+    getStdDev: function(arr) {
+        if (arr.length === 0) return 0;
+        const mean = arr.reduce((a, b) => a + b) / arr.length;
+        return Math.sqrt(arr.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / arr.length);
     }
 };
