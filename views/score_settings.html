@@ -1,61 +1,188 @@
-<div class="score-cards-grid" id="scoreCardsContainer">
-    <div class="score-card" data-group="fairness">
-        <div class="card-header">
-            <span class="card-number">1.</span>
-            <span class="card-title">公平性指標</span>
-            <span class="card-weight" id="fairness_weight_display">30%</span>
-        </div>
-        <div class="card-body">
-            <div class="metric-item">
-                <div class="metric-header">
-                    <label class="switch">
-                        <input type="checkbox" id="metric_hoursDiff" checked>
-                        <span class="slider"></span>
-                    </label>
-                    <span class="metric-name">
-                        (1) 工時差異 (標準差)
-                        <i class="fas fa-question-circle tip-icon" title="所有員工工時與平均工時的標準差差異程度"></i>
-                    </span>
-                    <button class="btn-standard" onclick="scoreSettingsManager.openGradingModal('hoursDiff')">
-                        <i class="fas fa-tasks"></i> 評分標準
-                    </button>
-                </div>
-                <div class="metric-value">
-                    <input type="number" id="val_hoursDiff" class="metric-input" value="10"> %
-                </div>
-            </div>
-            </div>
+<div class="page-section active">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <h2 style="margin:0; color: #2c3e50;"><i class="fas fa-star"></i> 班表評分與標準配置</h2>
     </div>
+    
+    <div class="toolbar">
+        <label style="margin-right:10px; font-weight:bold; color:#555;">設定單位:</label>
+        <select id="scoreUnitSelect" class="form-control" style="width: 250px; display:inline-block;">
+            <option value="">載入中...</option>
+        </select>
+        <button class="btn btn-add" onclick="scoreSettingsManager.saveData()" style="margin-left:auto;">
+            <i class="fas fa-save"></i> 儲存評分設定
+        </button>
     </div>
 
-<div id="gradingModal" class="modal">
-    <div class="modal-content" style="max-width: 650px;">
-        <h3><i class="fas fa-edit"></i> 評分標準標準配置</h3>
-        <p id="gradingTargetName" style="color: #667eea; font-weight: bold; font-size: 1.1rem;"></p>
-        <p id="gradingTargetDesc" style="color: #666; font-size: 0.9rem; margin-bottom: 15px;"></p>
+    <div id="scoreSettingsContainer" class="scoring-container" style="display:none;">
         
-        <table class="table" style="width: 100%; border-collapse: collapse;">
-            <thead>
-                <tr style="background: #f8f9fa;">
-                    <th style="padding: 10px; border-bottom: 2px solid #dee2e6;">指標數值 (上限 <=)</th>
-                    <th style="padding: 10px; border-bottom: 2px solid #dee2e6;">得分 (100-20)</th>
-                    <th style="padding: 10px; border-bottom: 2px solid #dee2e6;">顯示標籤</th>
-                    <th style="padding: 10px; border-bottom: 2px solid #dee2e6;">操作</th>
-                </tr>
-            </thead>
-            <tbody id="gradingTableBody">
-                </tbody>
-        </table>
-
-        <div style="margin-top: 15px; display: flex; gap: 10px;">
-            <button class="btn btn-add" onclick="scoreSettingsManager.addTierRow()">
-                <i class="fas fa-plus"></i> 新增評分級別
-            </button>
+        <div class="alert-info">
+            <i class="fas fa-info-circle"></i>
+            設定後請記得點擊右上角「儲存評分設定」。各項權重加總必須等於 100%。
         </div>
 
-        <div style="text-align: right; margin-top: 25px; border-top: 1px solid #eee; padding-top: 15px;">
-            <button class="btn btn-close" onclick="scoreSettingsManager.closeGradingModal()">取消</button>
-            <button class="btn btn-primary" onclick="scoreSettingsManager.saveTiers()">儲存標準</button>
+        <div class="weight-total-card">
+            <span style="font-size:0.9rem; color:#666;">總權重加總:</span>
+            <span id="totalWeight" style="font-size:1.8rem; font-weight:bold; color:#2ecc71; margin-left:10px;">0%</span>
+        </div>
+
+        <div class="score-cards-grid" id="scoreCardsContainer">
+            <div class="score-card">
+                <div class="card-header">
+                    <span class="card-number">1.</span>
+                    <span class="card-title">公平性指標</span>
+                    <span class="card-weight" id="fairness_weight_display">0%</span>
+                </div>
+                <div class="card-body">
+                    <div id="metrics_fairness"></div>
+                </div>
+            </div>
+
+            <div class="score-card">
+                <div class="card-header">
+                    <span class="card-number">2.</span>
+                    <span class="card-title">滿意度指標</span>
+                    <span class="card-weight" id="satisfaction_weight_display">0%</span>
+                </div>
+                <div class="card-body">
+                    <div id="metrics_satisfaction"></div>
+                </div>
+            </div>
+
+            <div class="score-card">
+                <div class="card-header">
+                    <span class="card-number">3.</span>
+                    <span class="card-title">疲勞度指標</span>
+                    <span class="card-weight" id="fatigue_weight_display">0%</span>
+                </div>
+                <div class="card-body">
+                    <div id="metrics_fatigue"></div>
+                </div>
+            </div>
+
+            <div class="score-card">
+                <div class="card-header">
+                    <span class="card-number">4.</span>
+                    <span class="card-title">排班效率</span>
+                    <span class="card-weight" id="efficiency_weight_display">0%</span>
+                </div>
+                <div class="card-body">
+                    <div id="metrics_efficiency"></div>
+                </div>
+            </div>
+
+            <div class="score-card">
+                <div class="card-header">
+                    <span class="card-number">5.</span>
+                    <span class="card-title">成本控制</span>
+                    <span class="card-weight" id="cost_weight_display">0%</span>
+                </div>
+                <div class="card-body">
+                    <div id="metrics_cost"></div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
+
+<div id="gradingModal" class="modal">
+    <div class="modal-content" style="max-width: 650px;">
+        <h3><i class="fas fa-tasks"></i> 評分級距設定</h3>
+        <p id="gradingTargetName" style="color: #667eea; font-weight: bold; font-size: 1.1rem; margin-bottom:5px;"></p>
+        <p id="gradingTargetDesc" style="color: #666; font-size: 0.85rem; margin-bottom: 20px; line-height:1.4;"></p>
+        
+        <table class="table" style="width:100%; text-align:center; border-collapse: collapse;">
+            <thead>
+                <tr style="background:#f4f6f8;">
+                    <th style="padding:10px;">指標上限 (<=)</th>
+                    <th style="padding:10px;">得分 (1-100)</th>
+                    <th style="padding:10px;">顯示標籤</th>
+                    <th style="padding:10px;">操作</th>
+                </tr>
+            </thead>
+            <tbody id="gradingTableBody"></tbody>
+        </table>
+
+        <button class="btn btn-add" style="width:100%; margin-top:15px;" onclick="scoreSettingsManager.addTierRow()">
+            <i class="fas fa-plus"></i> 新增評分區間
+        </button>
+
+        <div style="text-align:right; margin-top:25px; border-top:1px solid #eee; padding-top:15px;">
+            <button class="btn btn-close" onclick="scoreSettingsManager.closeGradingModal()">取消</button>
+            <button class="btn btn-primary" onclick="scoreSettingsManager.saveTiers()">確認暫存</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    // 監聽 manager 的初始化，當數據載入後執行 UI 渲染
+    const originalLoadData = scoreSettingsManager.loadData;
+    scoreSettingsManager.loadData = async function() {
+        await originalLoadData.apply(this, arguments);
+        renderAllMetrics();
+    };
+
+    function renderAllMetrics() {
+        for (let groupKey in scoreSettingsManager.config) {
+            const container = document.getElementById(`metrics_${groupKey}`);
+            if (!container) continue;
+            
+            container.innerHTML = ''; // 清空
+            const subs = scoreSettingsManager.config[groupKey].subs;
+            
+            for (let subKey in subs) {
+                const sub = subs[subKey];
+                const html = `
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <label class="switch">
+                                <input type="checkbox" id="metric_${subKey}" ${sub.enabled ? 'checked' : ''}>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="metric-name">
+                                ${sub.label}
+                                <i class="fas fa-question-circle tip-icon" title="${sub.desc}"></i>
+                            </span>
+                            <button class="btn-standard" onclick="scoreSettingsManager.openGradingModal('${subKey}')">
+                                評分標準
+                            </button>
+                        </div>
+                        <div class="metric-value">
+                            <input type="number" id="val_${subKey}" class="metric-input" value="${sub.weight}"> %
+                        </div>
+                    </div>
+                `;
+                container.insertAdjacentHTML('beforeend', html);
+            }
+        }
+        // 重新啟動一次權重計算
+        scoreSettingsManager.calculateWeights();
+    }
+})();
+</script>
+
+<style>
+    /* 強化問號說明圖示 */
+    .tip-icon {
+        color: #a0aec0;
+        font-size: 0.85rem;
+        margin-left: 5px;
+        cursor: help;
+        transition: color 0.2s;
+    }
+    .tip-icon:hover { color: #667eea; }
+
+    /* 調整細項按鈕與間距 */
+    .metric-header { display: flex; align-items: center; gap: 10px; flex: 1; }
+    .btn-standard {
+        background: #fff;
+        border: 1px solid #cbd5e0;
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        color: #4a5568;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .btn-standard:hover { border-color: #667eea; color: #667eea; }
+</style>
