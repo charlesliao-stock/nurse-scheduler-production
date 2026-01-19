@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_manager.js
-// 🔧 修正版：確保 Modal 開啟時正確載入班別與組別資料
+// 🔧 最終整合版：含載入修復、上月帶入、防呆驗證、同步機制
 
 const preScheduleManager = {
     currentUnitId: null,
@@ -8,7 +8,7 @@ const preScheduleManager = {
     staffListSnapshot: [], 
     staffSortState: { field: 'isSupport', order: 'asc' },
     isLoading: false,
-    tempSpecificNeeds: {}, 
+    tempSpecificNeeds: {}, // 暫存臨時需求
 
     init: async function() {
         console.log("Pre-Schedule Manager Loaded.");
@@ -54,7 +54,7 @@ const preScheduleManager = {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">載入中...</td></tr>';
         
         try {
-            // 這裡也載入一次，為了列表顯示
+            // 載入單位基礎資訊 (為了列表顯示)
             const unitDoc = await db.collection('units').doc(this.currentUnitId).get();
             this.currentUnitGroups = unitDoc.data().groups || [];
             
@@ -109,7 +109,7 @@ const preScheduleManager = {
         if(tabName === 'staff') btns[2].classList.add('active');
     },
 
-    // [新增] 強制載入單位詳情 (確保 Modal 有資料)
+    // [關鍵修正] 強制載入單位詳情 (確保 Modal 有資料可渲染表格)
     loadUnitDataForModal: async function() {
         if(!this.currentUnitId) return;
         try {
@@ -147,15 +147,17 @@ const preScheduleManager = {
         document.getElementById('preScheduleDocId').value = docId || '';
         this.switchTab('basic');
 
-        // [關鍵修正] 打開 Modal 時，強制確認班別與組別資料存在
+        // [關鍵] 先載入 Shift/Group 資料，再渲染表格
         await this.loadUnitDataForModal();
 
         let data = {};
         if (docId) {
+            document.getElementById('btnImportLast').style.display = 'none'; // 編輯模式隱藏帶入按鈕
             const doc = await db.collection('pre_schedules').doc(docId).get();
             data = doc.data();
             this.staffListSnapshot = data.staffList || [];
         } else {
+            document.getElementById('btnImportLast').style.display = 'inline-block'; // 新增模式顯示
             const nextMonth = new Date(); nextMonth.setMonth(nextMonth.getMonth() + 1);
             data = {
                 year: nextMonth.getFullYear(),
@@ -169,7 +171,7 @@ const preScheduleManager = {
         this.fillForm(data);
         this.renderStaffList();
         
-        // 渲染三個關鍵區塊
+        // 渲染三個設定表格
         this.renderDailyNeedsTable(data.dailyNeeds);
         this.renderSpecificNeedsUI(data.specificNeeds || {}); 
         this.renderGroupLimitsTable(data.groupLimits);
@@ -188,6 +190,8 @@ const preScheduleManager = {
         document.getElementById('inputDailyReserve').value = s.dailyReserved;
         document.getElementById('checkShowAllNames').checked = s.showAllNames;
         document.getElementById('inputShiftMode').value = s.shiftTypeMode;
+        
+        this.toggleThreeShiftOption();
         if(s.shiftTypeMode === "2") document.getElementById('checkAllowThree').checked = s.allowThreeShifts;
     },
 
@@ -200,7 +204,7 @@ const preScheduleManager = {
         
         // 防呆檢查
         if (!this.activeShifts || this.activeShifts.length === 0) {
-            container.innerHTML = html + `<div style="color:red; padding:10px;">⚠️ 未偵測到班別資料。請先至「班別管理」新增班別。</div>`;
+            container.innerHTML = html + `<div style="color:red; padding:10px; background:#fff3cd;">⚠️ 未偵測到班別資料。請先至「班別管理」新增班別，或重新整理頁面。</div>`;
             return;
         }
 
@@ -294,14 +298,13 @@ const preScheduleManager = {
         this.renderSpecificNeedsUI(this.tempSpecificNeeds);
     },
 
-    // 3. 組別限制
+    // 3. 組別限制 (組別 x 班別 (至少/最多))
     renderGroupLimitsTable: function(savedLimits = {}) {
         const container = document.getElementById('groupLimitTableContainer');
         if(!container) return;
         
         let html = `<h4 style="margin-top:20px; border-bottom:1px solid #eee; padding-bottom:10px; color:#2c3e50;">3. 組別限制 (進階演算法參考)</h4>`;
         
-        // 防呆
         if (!this.currentUnitGroups || this.currentUnitGroups.length === 0) {
             container.innerHTML = html + `<div style="color:orange; padding:10px;">⚠️ 此單位尚未設定「組別」。請至「單位管理」或「組別管理」新增組別。</div>`;
             return;
@@ -332,13 +335,92 @@ const preScheduleManager = {
         container.innerHTML = html;
     },
 
+    // [實作] 帶入上月設定
+    importLastSettings: async function() {
+        const ym = document.getElementById('inputPreYearMonth').value;
+        if (!ym) { alert("請先選擇本月月份，系統才能推算上個月。"); return; }
+        
+        const [currentYear, currentMonth] = ym.split('-').map(Number);
+        
+        let prevYear = currentYear;
+        let prevMonth = currentMonth - 1;
+        if (prevMonth === 0) {
+            prevMonth = 12;
+            prevYear -= 1;
+        }
+
+        if (!confirm(`確定要帶入 ${prevYear} 年 ${prevMonth} 月 的設定嗎？\n\n注意：這將覆蓋目前畫面上的「基本規則」與「人力需求」。`)) return;
+
+        this.isLoading = true;
+        try {
+            const snapshot = await db.collection('pre_schedules')
+                .where('unitId', '==', this.currentUnitId)
+                .where('year', '==', prevYear)
+                .where('month', '==', prevMonth)
+                .limit(1)
+                .get();
+
+            if (snapshot.empty) {
+                alert(`找不到上個月 (${prevYear}-${prevMonth}) 的資料，無法帶入。`);
+                this.isLoading = false;
+                return;
+            }
+
+            const data = snapshot.docs[0].data();
+            const s = data.settings || {};
+
+            // 填入基本設定
+            document.getElementById('inputMaxOff').value = s.maxOffDays || 8;
+            document.getElementById('inputMaxHoliday').value = s.maxHolidayOffs || 2;
+            document.getElementById('inputDailyReserve').value = s.dailyReserved || 1;
+            document.getElementById('checkShowAllNames').checked = s.showAllNames !== false;
+            document.getElementById('inputShiftMode').value = s.shiftTypeMode || "3";
+            
+            this.toggleThreeShiftOption(); 
+            if (s.shiftTypeMode === "2") {
+                document.getElementById('checkAllowThree').checked = s.allowThreeShifts === true;
+            }
+
+            // 填入表格
+            this.renderDailyNeedsTable(data.dailyNeeds || {});
+            this.renderGroupLimitsTable(data.groupLimits || {});
+
+            alert(`✅ 已成功帶入 ${prevYear}/${prevMonth} 的設定！\n請切換至「2. 人力需求設定」檢查內容。`);
+
+        } catch (e) {
+            console.error("Import Error:", e);
+            alert("帶入失敗: " + e.message);
+        } finally {
+            this.isLoading = false;
+        }
+    },
+
+    // 儲存並檢查同步 (含防呆驗證)
     saveData: async function() {
         const docId = document.getElementById('preScheduleDocId').value;
         const ym = document.getElementById('inputPreYearMonth').value;
         if(!ym) { alert("請選擇月份"); return; }
         const [year, month] = ym.split('-').map(Number);
         
-        // 收集組別限制
+        // 1. 收集每日需求 & 驗證
+        const dailyNeeds = {};
+        let hasNeeds = false; 
+
+        document.querySelectorAll('.needs-input').forEach(i => {
+            if(i.value && parseInt(i.value) > 0) {
+                dailyNeeds[i.dataset.key] = parseInt(i.value);
+                hasNeeds = true;
+            }
+        });
+
+        // 防呆驗證：若無人力需求，禁止建立
+        if (!hasNeeds) {
+            alert("⚠️ 無法儲存：\n\n「1. 各班每日人力需求」尚未填寫。\n\n請切換至該頁籤手動輸入，或使用「帶入上月設定」功能。");
+            this.switchTab('needs'); 
+            return;
+        }
+
+        // 2. 收集組別限制
         const groupLimits = {};
         document.querySelectorAll('#groupLimitTable .limit-input').forEach(i => {
             const g = i.dataset.group;
@@ -350,12 +432,6 @@ const preScheduleManager = {
             if(i.value !== '') {
                 groupLimits[g][s][t] = parseInt(i.value);
             }
-        });
-
-        // 收集每日需求
-        const dailyNeeds = {};
-        document.querySelectorAll('.needs-input').forEach(i => {
-            if(i.value) dailyNeeds[i.dataset.key] = parseInt(i.value);
         });
 
         const specificNeeds = this.tempSpecificNeeds || {};
@@ -383,6 +459,7 @@ const preScheduleManager = {
 
         try {
             if(docId) {
+                // 同步檢查
                 const schSnap = await db.collection('schedules').where('sourceId', '==', docId).get();
                 let needSync = false;
                 
@@ -433,77 +510,23 @@ const preScheduleManager = {
             `;
             tbody.appendChild(tr);
         });
+        document.getElementById('staffCountBadge').innerText = this.staffListSnapshot.length;
     },
     
     updateStaffGroup: function(index, val) { this.staffListSnapshot[index].group = val; },
     removeStaff: function(index) { this.staffListSnapshot.splice(index, 1); this.renderStaffList(); },
     
-// [實作] 帶入上月設定
-    importLastSettings: async function() {
-        const ym = document.getElementById('inputPreYearMonth').value;
-        if (!ym) { alert("請先選擇本月月份，系統才能推算上個月。"); return; }
-        
-        const [currentYear, currentMonth] = ym.split('-').map(Number);
-        
-        // 1. 計算上個月
-        let prevYear = currentYear;
-        let prevMonth = currentMonth - 1;
-        if (prevMonth === 0) {
-            prevMonth = 12;
-            prevYear -= 1;
-        }
-
-        if (!confirm(`確定要帶入 ${prevYear} 年 ${prevMonth} 月 的設定嗎？\n\n注意：這將覆蓋目前畫面上的「基本規則」與「人力需求」。`)) return;
-
-        this.isLoading = true;
-        try {
-            // 2. 查詢上個月資料
-            const snapshot = await db.collection('pre_schedules')
-                .where('unitId', '==', this.currentUnitId)
-                .where('year', '==', prevYear)
-                .where('month', '==', prevMonth)
-                .limit(1)
-                .get();
-
-            if (snapshot.empty) {
-                alert(`找不到上個月 (${prevYear}-${prevMonth}) 的資料，無法帶入。`);
-                this.isLoading = false;
-                return;
-            }
-
-            const data = snapshot.docs[0].data();
-            const s = data.settings || {};
-
-            // 3. 填入基本設定
-            document.getElementById('inputMaxOff').value = s.maxOffDays || 8;
-            document.getElementById('inputMaxHoliday').value = s.maxHolidayOffs || 2;
-            document.getElementById('inputDailyReserve').value = s.dailyReserved || 1;
-            document.getElementById('checkShowAllNames').checked = s.showAllNames !== false;
-            document.getElementById('inputShiftMode').value = s.shiftTypeMode || "3";
-            
-            // 連動 UI
-            this.toggleThreeShiftOption(); 
-            if (s.shiftTypeMode === "2") {
-                document.getElementById('checkAllowThree').checked = s.allowThreeShifts === true;
-            }
-
-            // 4. 填入人力需求 (關鍵步驟)
-            this.renderDailyNeedsTable(data.dailyNeeds || {});
-            
-            // 5. 填入組別限制
-            this.renderGroupLimitsTable(data.groupLimits || {});
-
-            alert(`✅ 已成功帶入 ${prevYear}/${prevMonth} 的設定！\n請切換至「2. 人力需求設定」檢查內容。`);
-
-        } catch (e) {
-            console.error("Import Error:", e);
-            alert("帶入失敗: " + e.message);
-        } finally {
-            this.isLoading = false;
-        }
-    },
     deleteSchedule: async function(id) { 
         if(confirm("確定刪除?")) { await db.collection('pre_schedules').doc(id).delete(); this.loadData(); } 
     },
+    
+    // 工具: 簡易開關三班選項
+    toggleThreeShiftOption: function() {
+        const mode = document.getElementById('inputShiftMode').value;
+        const opt = document.getElementById('threeShiftOption');
+        if(mode === '2') opt.style.display = 'block';
+        else opt.style.display = 'none';
+    },
+
     manage: function(id) { window.location.hash = `/admin/pre_schedule_matrix?id=${id}`; }
 };
