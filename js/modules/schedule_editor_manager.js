@@ -15,6 +15,10 @@ const scheduleEditorManager = {
         try {
             await this.loadContext(); 
             await Promise.all([this.loadShifts(), this.loadUsers(), this.loadUnitRules()]);
+if(typeof scoringManager !== 'undefined') {
+    await scoringManager.loadSettings(this.data.unitId);
+}
+            
             this.assignments = this.data.assignments || {};
             
             this.renderToolbar(); 
