@@ -1,345 +1,118 @@
-// ============================================
-// 方案 A: 修正 score_settings_manager.js
-// ============================================
+// js/router.js
 
-// js/modules/score_settings_manager.js (完整版)
-
-const scoreSettingsManager = {
-    currentUnitId: null,
-    
-    init: async function() {
-        console.log("🎯 Score Settings Manager Init START");
-        console.log("當前用戶角色:", app.userRole);
+const router = {
+    routes: {
+        // --- 系統基礎 ---
+        '/admin/dashboard': 'dashboard',       
         
-        // 權限檢查
-        if (app.userRole === 'user') {
-            document.getElementById('content-area').innerHTML = `
-                <div class="empty-state">
-                    <i class="fas fa-lock"></i>
-                    <h3>權限不足</h3>
-                    <p>一般使用者無法存取評分設定</p>
-                </div>
-            `;
-            return;
-        }
-
-        // 延遲確認元素存在
-        let retryCount = 0;
-        const checkElement = () => {
-            const select = document.getElementById('scoreUnitSelect');
-            if (!select) {
-                retryCount++;
-                if (retryCount < 10) {
-                    console.warn(`⏳ 等待元素載入... (${retryCount}/10)`);
-                    setTimeout(checkElement, 100);
-                } else {
-                    console.error("❌ scoreUnitSelect 元素始終不存在!");
-                }
-                return;
-            }
-            
-            console.log("✅ 找到 scoreUnitSelect 元素");
-            this.loadUnitDropdown();
-            this.setupWeightSliders();
-            console.log("🎯 Score Settings Manager Init COMPLETE");
-        };
+        // --- 基本資料管理 ---
+        '/staff/list': 'staff',                
+        '/admin/staff': 'staff',               
+        '/admin/units': 'units',               
+        '/admin/shifts': 'shifts',             
+        '/admin/groups': 'groups',             
+        '/admin/menus': 'menus',               
         
-        checkElement();
+        // --- 預班階段 ---
+        '/admin/pre_schedules': 'pre_schedules',         
+        '/admin/pre_schedule_matrix': 'pre_schedule_matrix',
+        '/staff/pre_schedule_list': 'staff_pre_schedule_list', 
+        '/staff/pre_schedule': 'staff_pre_schedule',
+        
+        // --- 正式排班階段 ---
+        '/admin/score_settings': 'score_settings',
+        '/admin/schedule_list': 'schedule_list',
+        '/admin/schedule_editor': 'schedule_matrix',
+        '/admin/schedule_rules': 'schedule_rules'
     },
 
-    loadUnitDropdown: async function() {
-        const select = document.getElementById('scoreUnitSelect');
-        if(!select) {
-            console.error("❌ loadUnitDropdown: 找不到 scoreUnitSelect");
-            return;
-        }
+    currentView: null,
+    isLoading: false,
 
-        console.log("📥 開始載入單位列表...");
-        select.innerHTML = '<option value="">載入中...</option>';
+    load: async function(path) {
+        if(this.isLoading) return;
+
+        const [cleanPath, queryString] = path.split('?');
+        const viewName = this.routes[cleanPath];
         
-        try {
-            let query = db.collection('units');
-            
-            // 權限過濾
-            if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
-                console.log("權限過濾:", app.userUnitId);
-                if(app.userUnitId) {
-                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
-                }
-            }
+        if(this.currentView === viewName && !queryString) return;
 
-            const snapshot = await query.get();
-            
-            console.log(`✅ Firestore 查詢成功,共 ${snapshot.size} 個單位`);
-            
-            if (snapshot.empty) {
-                select.innerHTML = '<option value="">無單位資料</option>';
-                console.warn("⚠️ 資料庫中沒有單位");
-                return;
-            }
-            
-            select.innerHTML = '<option value="">請選擇單位</option>';
-            
-            let unitCount = 0;
-            snapshot.forEach(doc => {
-                const unitData = doc.data();
-                const option = document.createElement('option');
-                option.value = doc.id;
-                option.textContent = unitData.name || doc.id;
-                select.appendChild(option);
-                unitCount++;
-                console.log(`  - 單位 ${unitCount}: ${doc.id} (${unitData.name})`);
-            });
+        const urlParams = new URLSearchParams(queryString);
+        const id = urlParams.get('id');
 
-            console.log(`✅ 成功載入 ${unitCount} 個單位選項`);
+        console.log(`Router: ${cleanPath} -> ${viewName}, ID: ${id}`);
 
-            // 移除舊事件
-            select.onchange = null;
-            
-            // 綁定新事件
-            select.addEventListener('change', async (e) => {
-                console.log("📌 單位選擇事件觸發:", e.target.value);
-                await this.onUnitChange();
-            });
-
-            // 如果只有一個單位,自動選擇
-            if (snapshot.size === 1) {
-                console.log("🔄 自動選擇唯一單位");
-                select.selectedIndex = 1;
-                await this.onUnitChange();
-            }
-            
-        } catch (e) {
-            console.error("❌ 載入單位失敗:", e);
-            select.innerHTML = '<option value="">載入失敗</option>';
-            alert("載入單位失敗: " + e.message);
-        }
-    },
-
-    onUnitChange: async function() {
-        const select = document.getElementById('scoreUnitSelect');
-        const container = document.getElementById('scoreSettingsContainer');
-        
-        if(!select || !container) {
-            console.error("❌ 找不到必要元素:", { select: !!select, container: !!container });
-            return;
-        }
-        
-        const unitId = select.value;
-        console.log("📌 單位切換處理:", unitId);
-        
-        if (!unitId) {
-            container.style.display = 'none';
-            console.log("隱藏設定容器 (未選擇單位)");
-            return;
+        if (!viewName) { 
+            console.warn("404 Not Found: " + cleanPath); 
+            if(cleanPath === '' || cleanPath === '/') this.load('/admin/dashboard');
+            return; 
         }
 
-        this.currentUnitId = unitId;
-        container.style.display = 'block';
-        console.log("顯示設定容器");
+        const container = document.getElementById('content-area');
+        if(!container) return;
 
-        await this.loadSettings();
-    },
-
-    loadSettings: async function() {
-        if(!this.currentUnitId) {
-            console.warn("⚠️ loadSettings: currentUnitId 為空");
-            return;
-        }
-
-        console.log("📥 載入單位設定:", this.currentUnitId);
+        this.isLoading = true;
+        container.innerHTML = '<div style="padding:40px; text-align:center; color:#666;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
 
         try {
-            const doc = await db.collection('units').doc(this.currentUnitId).get();
+            // [關鍵修正] 改為 'views/' (加上 s)
+            const response = await fetch(`views/${viewName}.html`);
             
-            if(!doc.exists) {
-                console.warn("⚠️ 單位文件不存在");
-                return;
-            }
-
-            const data = doc.data();
-            const settings = data.scoreSettings || this.getDefaultSettings();
-
-            console.log("✅ 載入評分設定:", settings);
-
-            // 填入權重
-            const weights = settings.weights || {};
-            document.getElementById('weight_efficiency').value = weights.efficiency || 40;
-            document.getElementById('weight_fatigue').value = weights.fatigue || 25;
-            document.getElementById('weight_satisfaction').value = weights.satisfaction || 20;
-            document.getElementById('weight_fairness').value = weights.fairness || 10;
-            document.getElementById('weight_cost').value = weights.cost || 5;
-
-            // 填入閾值
-            const thresholds = settings.thresholds || {};
-            document.getElementById('threshold_maxConsecutive').value = thresholds.maxConsecutive || 6;
-            document.getElementById('threshold_fatigueLevel').value = thresholds.fatigueLevel || 'moderate';
-            document.getElementById('threshold_offStdDev').value = thresholds.offStdDev || 1.5;
-            document.getElementById('threshold_gapTolerance').value = thresholds.gapTolerance || 5;
-
-            this.updateWeightDisplay();
-
-        } catch (e) {
-            console.error("❌ 載入設定失敗:", e);
-            alert("載入設定失敗: " + e.message);
-        }
-    },
-
-    getDefaultSettings: function() {
-        return {
-            weights: {
-                efficiency: 40,
-                fatigue: 25,
-                satisfaction: 20,
-                fairness: 10,
-                cost: 5
-            },
-            thresholds: {
-                maxConsecutive: 6,
-                fatigueLevel: 'moderate',
-                offStdDev: 1.5,
-                gapTolerance: 5
-            }
-        };
-    },
-
-    setupWeightSliders: function() {
-        const sliders = ['efficiency', 'fatigue', 'satisfaction', 'fairness', 'cost'];
-        sliders.forEach(name => {
-            const slider = document.getElementById(`weight_${name}`);
-            if(slider) {
-                slider.addEventListener('input', () => this.updateWeightDisplay());
-            }
-        });
-    },
-
-    updateWeightDisplay: function() {
-        const weights = {
-            efficiency: parseInt(document.getElementById('weight_efficiency')?.value || 0),
-            fatigue: parseInt(document.getElementById('weight_fatigue')?.value || 0),
-            satisfaction: parseInt(document.getElementById('weight_satisfaction')?.value || 0),
-            fairness: parseInt(document.getElementById('weight_fairness')?.value || 0),
-            cost: parseInt(document.getElementById('weight_cost')?.value || 0)
-        };
-
-        Object.keys(weights).forEach(key => {
-            const display = document.getElementById(`display_${key}`);
-            if(display) display.textContent = `${weights[key]}%`;
-        });
-
-        const total = Object.values(weights).reduce((sum, val) => sum + val, 0);
-        const totalElement = document.getElementById('totalWeight');
-        const warningElement = document.getElementById('weightWarning');
-
-        if(totalElement) {
-            totalElement.textContent = `${total}%`;
-            totalElement.style.color = total === 100 ? '#27ae60' : '#e74c3c';
-        }
-
-        if(warningElement) {
-            warningElement.style.display = total !== 100 ? 'block' : 'none';
-        }
-
-        return total === 100;
-    },
-
-    saveData: async function() {
-        if(!this.currentUnitId) {
-            alert("請先選擇單位");
-            return;
-        }
-
-        if(!this.updateWeightDisplay()) {
-            alert("權重總和必須為 100%,請調整後再儲存。");
-            this.switchTab('weights');
-            return;
-        }
-
-        const settings = {
-            weights: {
-                efficiency: parseInt(document.getElementById('weight_efficiency').value),
-                fatigue: parseInt(document.getElementById('weight_fatigue').value),
-                satisfaction: parseInt(document.getElementById('weight_satisfaction').value),
-                fairness: parseInt(document.getElementById('weight_fairness').value),
-                cost: parseInt(document.getElementById('weight_cost').value)
-            },
-            thresholds: {
-                maxConsecutive: parseInt(document.getElementById('threshold_maxConsecutive').value),
-                fatigueLevel: document.getElementById('threshold_fatigueLevel').value,
-                offStdDev: parseFloat(document.getElementById('threshold_offStdDev').value),
-                gapTolerance: parseInt(document.getElementById('threshold_gapTolerance').value)
-            },
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
-
-        try {
-            await db.collection('units').doc(this.currentUnitId).update({
-                scoreSettings: settings
-            });
-
-            alert("✅ 評分設定已儲存成功!");
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status} (Path: views/${viewName}.html)`);
+            const html = await response.text();
+            container.innerHTML = html;
             
-            if(typeof scoringManager !== 'undefined') {
-                await scoringManager.loadSettings(this.currentUnitId);
-            }
+            this.currentView = viewName;
+            this.initModule(viewName, id);
 
-        } catch (e) {
-            console.error("❌ 儲存失敗:", e);
-            alert("儲存失敗: " + e.message);
+        } catch (error) {
+            console.error("Load View Error:", error);
+            container.innerHTML = `<div style="padding:40px; text-align:center; color:red;">
+                <h3>載入失敗</h3>
+                <p>找不到檔案: views/${viewName}.html</p>
+                <small>${error.message}</small>
+            </div>`;
+        } finally {
+            this.isLoading = false;
         }
     },
 
-    switchTab: function(tabName) {
-        const wrapper = document.querySelector('.tab-content-wrapper');
-        if(wrapper) {
-            wrapper.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            document.getElementById(`tab-${tabName}`)?.classList.add('active');
-        }
+    initModule: function(viewName, id) {
+        if (viewName === 'dashboard') { }
+        else if (viewName === 'staff' && typeof staffManager !== 'undefined') staffManager.init();
+        else if (viewName === 'units' && typeof unitManager !== 'undefined') unitManager.init();
+        else if (viewName === 'shifts' && typeof shiftManager !== 'undefined') shiftManager.init();
+        else if (viewName === 'groups' && typeof groupManager !== 'undefined') groupManager.init();
+        else if (viewName === 'menus' && typeof menuManager !== 'undefined') menuManager.init();
         
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.classList.remove('active');
-            if(btn.dataset.tab === tabName) btn.classList.add('active');
-        });
+        else if (viewName === 'pre_schedules') { 
+            if(typeof preScheduleManager !== 'undefined') preScheduleManager.init(); 
+        }
+        else if (viewName === 'pre_schedule_matrix') { 
+            if(typeof matrixManager !== 'undefined') matrixManager.init(id); 
+        }
+        else if (viewName === 'staff_pre_schedule_list') {
+            if(typeof staffPreScheduleListManager !== 'undefined') staffPreScheduleListManager.init();
+        }
+        else if (viewName === 'staff_pre_schedule') {
+            if(typeof staffPreScheduleManager !== 'undefined') staffPreScheduleManager.init(id);
+        }
+
+        else if (viewName === 'schedule_list') {
+            if(typeof scheduleListManager !== 'undefined') scheduleListManager.init();
+        }
+        else if (viewName === 'schedule_matrix') { 
+            if(typeof scheduleEditorManager !== 'undefined') scheduleEditorManager.init(id);
+        }
+        else if (viewName === 'schedule_rules') {
+            if(typeof scheduleRuleManager !== 'undefined') scheduleRuleManager.init();
+        }
+        else if (viewName === 'score_settings') {
+    if(typeof scoreSettingsManager !== 'undefined') scoreSettingsManager.init();
+}
+    },
+
+    reset: function() {
+        this.currentView = null;
     }
 };
-
-
-// ============================================
-// 方案 B: 檢查 router.js 是否正確調用
-// ============================================
-
-// 在 router.js 的 initModule 函數中,確認有以下代碼:
-
-/*
-    initModule: function(viewName, id) {
-        // ... 其他模組 ...
-        
-        else if (viewName === 'score_settings') {
-            if(typeof scoreSettingsManager !== 'undefined') {
-                scoreSettingsManager.init();
-            } else {
-                console.error("❌ scoreSettingsManager 未定義!");
-            }
-        }
-        
-        // ... 其他模組 ...
-    }
-*/
-
-
-// ============================================
-// 方案 C: 檢查 index.html 是否引入 JS
-// ============================================
-
-/*
-確認 index.html 中有以下引用順序:
-
-<script src="js/modules/scoring_manager.js"></script>
-<script src="js/modules/schedule_rule_manager.js"></script>
-
-<!-- 如果沒有這行,請加上: -->
-<script src="js/modules/score_settings_manager.js"></script>
-
-<script src="js/router.js"></script>
-<script src="js/app.js"></script>
-*/
