@@ -21,7 +21,7 @@ body {
     overflow: hidden;
     height: 100vh;
     display: flex;
-    font-size: 14px; /* [修正] 縮小全域字體 */
+    font-size: 14px;
 }
 
 /* === 登入畫面 === */
@@ -68,17 +68,17 @@ body {
 /* === 按鈕優化 === */
 .btn {
     border: none;
-    padding: 6px 12px; /* [修正] 縮小內距 */
+    padding: 6px 12px;
     border-radius: 4px;
     cursor: pointer;
-    font-size: 13px; /* [修正] 縮小字體 */
+    font-size: 13px;
     color: white;
     transition: all 0.2s;
     font-weight: 500;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 5px; /* [修正] 縮小間距 */
+    gap: 5px;
     width: auto !important;
     min-width: max-content;
     white-space: nowrap; 
@@ -107,10 +107,10 @@ body {
 .modal-content { background: white; width: 90%; max-width: 650px; padding: 20px; border-radius: 8px; max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column;}
 .modal-xl { max-width: 1100px !important; width: 95vw !important; }
 
-.form-row { display: flex; gap: 12px; margin-bottom: 12px; } /* [修正] 縮小間距 */
+.form-row { display: flex; gap: 12px; margin-bottom: 12px; }
 .form-group { flex: 1; }
-.form-group label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 0.85rem; } /* [修正] 縮小字體 */
-.form-group input, .form-group select { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 13px; } /* [修正] 縮小內距和字體 */
+.form-group label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 0.85rem; }
+.form-group input, .form-group select { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 13px; }
 
 .form-row.compact { gap: 12px; align-items: flex-end; }
 .form-col-sm { flex: 0 0 150px; } 
@@ -127,7 +127,7 @@ body {
 }
 
 .tab-btn {
-    padding: 8px 16px; /* [修正] 縮小內距 */
+    padding: 8px 16px;
     margin-right: 5px;
     border: 1px solid transparent;
     border-bottom: none;
@@ -136,7 +136,7 @@ body {
     color: #666;
     cursor: pointer;
     font-weight: bold;
-    font-size: 0.9rem; /* [修正] 縮小字體 */
+    font-size: 0.9rem;
     position: relative;
     top: 2px;
     transition: all 0.2s;
@@ -157,7 +157,7 @@ body {
 .tab-content-wrapper {
     flex: 1;
     overflow-y: auto;
-    padding: 15px; /* [修正] 縮小內距 */
+    padding: 15px;
     border: 2px solid #ddd;
     border-top: none;
     background-color: #fff;
@@ -173,15 +173,15 @@ body {
     animation: fadeIn 0.3s; 
 }
 
-/* === [關鍵修正] 表格緊湊樣式 === */
+/* === 表格緊湊樣式 === */
 .toolbar { 
     background: white; 
-    padding: 10px; /* [修正] 縮小內距 */
+    padding: 10px;
     border-radius: 8px; 
     box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
-    margin-bottom: 15px; /* [修正] 縮小間距 */
+    margin-bottom: 15px;
     display: flex; 
-    gap: 8px; /* [修正] 縮小間距 */
+    gap: 8px;
     align-items: center; 
     flex-wrap: wrap; 
 }
@@ -196,31 +196,31 @@ body {
 table { 
     width: 100%; 
     border-collapse: collapse; 
-    font-size: 13px; /* [修正] 縮小表格字體 */
+    font-size: 13px;
 }
 
 th, td { 
-    padding: 6px 8px; /* [修正] 大幅縮小內距 */
+    padding: 6px 8px;
     text-align: left; 
     border-bottom: 1px solid #eee; 
-    white-space: nowrap; /* [修正] 防止換行 */
+    white-space: nowrap;
 }
 
 th { 
     background-color: #f8f9fa; 
     font-weight: bold; 
-    font-size: 12px; /* [修正] 縮小表頭字體 */
+    font-size: 12px;
     position: sticky;
     top: 0;
     z-index: 10;
 }
 
-/* === [關鍵修正] 排班矩陣專用緊湊樣式 === */
+/* === 排班矩陣專用緊湊樣式 === */
 .matrix-container { 
     background: #fff; 
     scrollbar-width: thin; 
     overflow: auto;
-    max-height: calc(100vh - 120px); /* [修正] 自動適應視窗高度 */
+    max-height: calc(100vh - 120px);
 }
 
 #scheduleMatrix { 
@@ -228,25 +228,25 @@ th {
     border-spacing: 0; 
     width: max-content; 
     min-width: 100%; 
-    font-size: 12px; /* [修正] 縮小字體 */
+    font-size: 12px;
 }
 
 #scheduleMatrix th, #scheduleMatrix td { 
     border-right: 1px solid #ddd; 
     border-bottom: 1px solid #ddd; 
-    padding: 0; /* [修正] 移除內距，完全緊湊 */
+    padding: 0;
     text-align: center; 
     vertical-align: middle; 
-    height: 28px; /* [修正] 縮小行高 */
-    line-height: 28px; /* [修正] 對齊文字 */
+    height: 28px;
+    line-height: 28px;
 }
 
 .cell-narrow { 
-    width: 28px !important; /* [修正] 縮小欄寬 */
+    width: 28px !important;
     min-width: 28px !important; 
     max-width: 28px; 
     overflow: hidden; 
-    font-size: 11px; /* [修正] 縮小字體 */
+    font-size: 11px;
 }
 
 #scheduleMatrix thead th { 
@@ -255,86 +255,36 @@ th {
     z-index: 20; 
     background: #f1f1f1; 
     border-bottom: 2px solid #ccc; 
-    font-size: 11px; /* [修正] 縮小字體 */
-    padding: 4px 2px; /* [修正] 微調內距 */
+    font-size: 11px;
+    padding: 4px 2px;
 }
 
-/* [修正] 左側固定欄位 - 縮小寬度 */
+/* 左側固定欄位 */
 #scheduleMatrix th:nth-child(1), #scheduleMatrix td:nth-child(1) { 
-    position: sticky; 
-    left: 0; 
-    z-index: 10; 
-    background: #fff; 
-    width: 50px; /* [修正] 從 65px 縮小 */
-    font-size: 11px;
+    position: sticky; left: 0; z-index: 10; background: #fff; width: 50px; font-size: 11px;
 }
 #scheduleMatrix th:nth-child(2), #scheduleMatrix td:nth-child(2) { 
-    position: sticky; 
-    left: 50px; /* [修正] 對應調整 */
-    z-index: 10; 
-    background: #fff; 
-    width: 60px; /* [修正] 從 70px 縮小 */
-    font-size: 11px;
+    position: sticky; left: 50px; z-index: 10; background: #fff; width: 60px; font-size: 11px;
 }
 #scheduleMatrix th:nth-child(3), #scheduleMatrix td:nth-child(3) { 
-    position: sticky; 
-    left: 110px; /* [修正] 對應調整 */
-    z-index: 10; 
-    background: #fff; 
-    width: 30px; /* [修正] 從 35px 縮小 */
-    font-size: 10px;
+    position: sticky; left: 110px; z-index: 10; background: #fff; width: 30px; font-size: 10px;
 }
 #scheduleMatrix th:nth-child(4), #scheduleMatrix td:nth-child(4) { 
-    position: sticky; 
-    left: 140px; /* [修正] 對應調整 */
-    z-index: 10; 
-    background: #fff; 
-    width: 30px; /* [修正] 從 35px 縮小 */
-    border-right: 2px solid #999; 
-    font-size: 10px;
+    position: sticky; left: 140px; z-index: 10; background: #fff; width: 30px; border-right: 2px solid #999; font-size: 10px;
 }
 
-/* [修正] 排班矩陣專用 badge 樣式 */
+/* 排班矩陣專用 badge */
 #scheduleMatrix .badge {
-    padding: 2px 4px; /* [修正] 縮小 badge */
+    padding: 2px 4px;
     font-size: 10px;
     border-radius: 3px;
     display: inline-block;
 }
 
-.shift-admin-off { 
-    color: #fff; 
-    background-color: #9b59b6; 
-    display:flex; 
-    justify-content:center; 
-    align-items:center; 
-    height:100%; 
-    font-size: 11px; /* [修正] 縮小字體 */
-}
-
-.shift-req-off { 
-    color: #fff; 
-    background-color: #2ecc71; 
-    display:flex; 
-    justify-content:center; 
-    align-items:center; 
-    height:100%; 
-    font-size: 11px; /* [修正] 縮小字體 */
-}
-
-.shift-ban { 
-    color: #e74c3c; 
-    font-size: 10px; /* [修正] 縮小字體 */
-    display:flex; 
-    justify-content:center; 
-    align-items:center; 
-}
-
-.text-danger { 
-    color: red !important; 
-    font-weight: 900 !important; 
-    background-color: #ffe6e6 !important; 
-}
+.shift-admin-off { color: #fff; background-color: #9b59b6; display:flex; justify-content:center; align-items:center; height:100%; font-size: 11px; }
+.shift-req-off { color: #fff; background-color: #2ecc71; display:flex; justify-content:center; align-items:center; height:100%; font-size: 11px; }
+.shift-ban { color: #e74c3c; font-size: 10px; display:flex; justify-content:center; align-items:center; }
+.text-danger { color: red !important; font-weight: 900 !important; background-color: #ffe6e6 !important; }
 
 /* === 右鍵選單樣式 === */
 .context-menu { 
@@ -344,78 +294,53 @@ th {
     box-shadow: 3px 3px 10px rgba(0,0,0,0.2); 
     border-radius: 4px; 
     z-index: 9999; 
-    min-width: 140px; /* [修正] 縮小最小寬度 */
-    font-size: 12px; /* [修正] 縮小字體 */
-    padding: 4px 0; /* [修正] 縮小內距 */
+    min-width: 140px;
+    font-size: 12px;
+    padding: 4px 0;
     display: none;
 }
 
 .menu-header { 
     background: #f1f1f1; 
-    padding: 6px 10px; /* [修正] 縮小內距 */
+    padding: 6px 10px;
     font-weight: bold; 
     color: #555; 
     border-bottom: 1px solid #ddd; 
-    font-size: 11px; /* [修正] 縮小字體 */
+    font-size: 11px;
 }
 
 .menu-item { 
-    padding: 6px 12px; /* [修正] 縮小內距 */
+    padding: 6px 12px;
     cursor: pointer; 
     display: flex; 
     align-items: center; 
-    gap: 6px; /* [修正] 縮小間距 */
+    gap: 6px;
     color: #333;
     transition: background 0.15s;
-    font-size: 12px; /* [修正] 縮小字體 */
+    font-size: 12px;
 }
 
-.menu-item:hover { 
-    background: #3498db; 
-    color: white; 
-}
+.menu-item:hover { background: #3498db; color: white; }
+.menu-icon { width: 16px; text-align: center; font-weight: bold; display: inline-flex; align-items: center; justify-content: center; }
+.menu-separator { height: 1px; background: #ddd; margin: 4px 0; }
+.color-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 
-.menu-icon { 
-    width: 16px; /* [修正] 縮小圖示 */
-    text-align: center; 
-    font-weight: bold; 
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.menu-separator {
-    height: 1px;
-    background: #ddd;
-    margin: 4px 0; /* [修正] 縮小間距 */
-}
-
-.color-dot {
-    width: 10px; /* [修正] 縮小圓點 */
-    height: 10px;
-    border-radius: 50%;
-    display: inline-block;
-}
-
-/* === Phase 2 樣式: 拖曳與統計 === */
+/* === 統計監控與拖曳 === */
 .stat-monitor-row td {
-    font-size: 11px; /* [修正] 縮小字體 */
+    font-size: 11px;
     font-weight: bold;
     background: #fdfefe;
     border-top: 2px solid #bdc3c7;
     color: #555;
     vertical-align: middle !important;
-    padding: 4px 2px; /* [修正] 縮小內距 */
+    padding: 4px 2px;
 }
 
 .stat-cell-shortage { background-color: #fadbd8 !important; color: #c0392b !important; }
 .stat-cell-ok { background-color: #d5f5e3 !important; color: #27ae60 !important; }
 .stat-cell-over { background-color: #fcf3cf !important; color: #f39c12 !important; }
 
-.cell-draggable { 
-    cursor: grab; 
-    transition: transform 0.1s, box-shadow 0.1s; 
-}
+.cell-draggable { cursor: grab; transition: transform 0.1s, box-shadow 0.1s; }
 .cell-draggable:active { cursor: grabbing; }
 
 .cell-dragging { 
@@ -431,53 +356,215 @@ th {
     background: #ebf5fb !important;
 }
 
-/* === [新增] 響應式優化 === */
+/* === 響應式優化 === */
 @media (max-width: 1600px) {
-    #scheduleMatrix {
-        font-size: 11px;
-    }
-    
-    .cell-narrow {
-        width: 24px !important;
-        min-width: 24px !important;
-        max-width: 24px;
-    }
-    
-    #scheduleMatrix th, #scheduleMatrix td {
-        height: 24px;
-        line-height: 24px;
-    }
+    #scheduleMatrix { font-size: 11px; }
+    .cell-narrow { width: 24px !important; min-width: 24px !important; max-width: 24px; }
+    #scheduleMatrix th, #scheduleMatrix td { height: 24px; line-height: 24px; }
 }
 
 @media (max-width: 1200px) {
-    .sidebar-header {
-        font-size: 1rem;
-    }
-    
-    #content-area {
-        padding: 10px;
-        padding-top: 60px;
-    }
+    .sidebar-header { font-size: 1rem; }
+    #content-area { padding: 10px; padding-top: 60px; }
+    /* 評分卡片 RWD */
+    .score-cards-grid { grid-template-columns: 1fr; }
 }
 
-/* === 評分儀表板樣式 === */
-#scoreDashboard {
-    animation: fadeIn 0.5s ease-out;
+/* === [新增] 評分設定頁面 (Score Settings) === */
+.scoring-container {
+    padding: 20px 0;
 }
 
-#scoreCompareBadge {
-    transition: all 0.3s;
+/* 提示框 */
+.alert-info {
+    background: #d1ecf1;
+    border-left: 4px solid #17a2b8;
+    padding: 12px 15px;
+    border-radius: 4px;
+    color: #0c5460;
+    margin-bottom: 20px;
+    font-size: 0.9rem;
 }
 
-/* 確保儀表板在 RWD 下不破版 */
-@media (max-width: 1024px) {
-    #scoreDashboard {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 15px;
-    }
-    #scoreDashboard > div {
-        width: 100%;
-        justify-content: flex-start;
-    }
+/* 總權重卡片 */
+.weight-total-card {
+    background: white;
+    padding: 15px 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin-bottom: 20px;
+}
+
+/* 卡片網格 */
+.score-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+    gap: 20px;
+}
+
+/* 評分卡片 */
+.score-card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    overflow: hidden;
+    transition: all 0.2s;
+}
+
+.score-card:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    transform: translateY(-2px);
+}
+
+/* 卡片標題 */
+.card-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 15px 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.card-number {
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+
+.card-title {
+    flex: 1;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.card-weight {
+    background: rgba(255,255,255,0.2);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: bold;
+    font-size: 1.1rem;
+}
+
+/* 卡片內容 */
+.card-body {
+    padding: 15px;
+}
+
+/* 指標項目 */
+.metric-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
+    margin-bottom: 8px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.metric-item:hover {
+    background: #e9ecef;
+}
+
+.metric-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+.metric-name {
+    font-size: 0.9rem;
+    color: #333;
+    flex: 1;
+}
+
+.metric-value {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: bold;
+    color: #495057;
+}
+
+.metric-input {
+    width: 60px;
+    padding: 6px 8px;
+    border: 2px solid #dee2e6;
+    border-radius: 4px;
+    text-align: center;
+    font-weight: bold;
+    font-size: 0.95rem;
+}
+
+.metric-input:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+/* Toggle Switch */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: .3s;
+    border-radius: 24px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .3s;
+    border-radius: 50%;
+}
+
+input:checked + .slider {
+    background-color: #2196F3;
+}
+
+input:checked + .slider:before {
+    transform: translateX(20px);
+}
+
+/* 標準按鈕 */
+.btn-standard {
+    background: white;
+    border: 1px solid #dee2e6;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-standard:hover {
+    background: #f8f9fa;
+    border-color: #667eea;
+    color: #667eea;
 }
