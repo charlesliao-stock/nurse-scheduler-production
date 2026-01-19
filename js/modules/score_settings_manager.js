@@ -26,7 +26,10 @@ const scoreSettingsManager = {
     // 載入單位下拉選單
     loadUnitDropdown: async function() {
         const select = document.getElementById('scoreUnitSelect');
-        if(!select) return;
+        if(!select) {
+            console.error("找不到 scoreUnitSelect 元素");
+            return;
+        }
 
         select.innerHTML = '<option value="">載入中...</option>';
         
@@ -41,6 +44,9 @@ const scoreSettingsManager = {
             }
 
             const snapshot = await query.get();
+            
+            console.log(`載入 ${snapshot.size} 個單位`);
+            
             select.innerHTML = '<option value="">請選擇單位</option>';
             
             snapshot.forEach(doc => {
@@ -50,17 +56,24 @@ const scoreSettingsManager = {
                 select.appendChild(option);
             });
 
+            // 綁定事件 (先移除舊事件避免重複)
+            select.onchange = null;
+            select.addEventListener('change', () => {
+                this.onUnitChange();
+            });
+
             // 如果只有一個單位,自動選擇
             if (snapshot.size === 1) {
                 select.selectedIndex = 1;
-                this.onUnitChange();
+                // 手動觸發事件
+                const event = new Event('change');
+                select.dispatchEvent(event);
             }
-
-            select.onchange = () => this.onUnitChange();
             
         } catch (e) {
             console.error("Load Units Error:", e);
             select.innerHTML = '<option value="">載入失敗</option>';
+            alert("載入單位失敗: " + e.message);
         }
     },
 
