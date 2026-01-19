@@ -1,7 +1,3 @@
-// ============================================
-// 方案 A: 修正 score_settings_manager.js
-// ============================================
-
 // js/modules/score_settings_manager.js (完整版)
 
 const scoreSettingsManager = {
