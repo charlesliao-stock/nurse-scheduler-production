@@ -18,8 +18,9 @@ const router = {
         '/admin/pre_schedule_matrix': 'pre_schedule_matrix',
         '/staff/pre_schedule_list': 'staff_pre_schedule_list', 
         '/staff/pre_schedule': 'staff_pre_schedule',
-
+        
         // --- 正式排班階段 ---
+        '/admin/score_settings': 'score_settings',
         '/admin/schedule_list': 'schedule_list',
         '/admin/schedule_editor': 'schedule_matrix',
         '/admin/schedule_rules': 'schedule_rules'
