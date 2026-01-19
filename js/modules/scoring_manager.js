@@ -201,12 +201,13 @@ const scoringManager = {
 
     getScoreByTier: function(value, tierList) {
         if (!tierList || !tierList.length) return 3;
-        // 改為 >= 邏輯：由大到小排序，找到第一個符合 value >= limit 的區間
+        // 邏輯：找到所有符合 value >= limit 的區間中，limit 最大的那一個
+        // 先按 limit 由大到小排序
         const sorted = [...tierList].sort((a, b) => b.limit - a.limit);
         for (let t of sorted) {
             if (value >= t.limit) return t.score;
         }
-        // 如果都不符合（比最小的下限還小），回傳最後一個（最小）的分數
+        // 如果連最小的下限都不滿足，則回傳排序後最後一個（通常是下限最小的）區間的分數
         return sorted[sorted.length - 1].score;
     },
 

@@ -7,7 +7,7 @@ const scoreSettingsManager = {
         fairness: {
             label: "1. 公平性指標", displayId: 'fairness_weight_display',
             subs: {
-                hoursDiff: { label: "(1) 工時差異 (標準差)", desc: "所有員工工時與平均工時的標準差差異程度", weight: 10, tiers: [{limit: 0, score: 5, label: "極佳"}, {limit: 2, score: 4, label: "良好"}, {limit: 4, score: 3, label: "普通"}, {limit: 6, score: 2, label: "待改進"}, {limit: 8, score: 1, label: "極差"}] },
+                hoursDiff: { label: "(1) 工時差異 (標準差)", desc: "所有員工工時與平均工時的標準差差異程度", weight: 10, tiers: [{limit: 0, score: 5, label: "極佳"}, {limit: 1, score: 4, label: "良好"}, {limit: 2, score: 3, label: "普通"}, {limit: 3, score: 2, label: "待改進"}, {limit: 4, score: 1, label: "極差"}] },
                 nightDiff: { label: "(2) 夜班差異 (次)", desc: "員工之間夜班天數差異程度 (Max - Min)", weight: 10, tiers: [{limit: 0, score: 5, label: "極佳"}, {limit: 1, score: 4, label: "良好"}, {limit: 2, score: 3, label: "普通"}, {limit: 3, score: 2, label: "待改進"}, {limit: 4, score: 1, label: "極差"}] },
                 holidayDiff: { label: "(3) 假日差異 (天)", desc: "員工之間假日放假天數差異程度 (Max - Min)", weight: 10, tiers: [{limit: 0, score: 5, label: "極佳"}, {limit: 1, score: 4, label: "良好"}, {limit: 2, score: 3, label: "普通"}, {limit: 3, score: 2, label: "待改進"}, {limit: 4, score: 1, label: "極差"}] }
             }
@@ -15,31 +15,31 @@ const scoreSettingsManager = {
         satisfaction: {
             label: "2. 滿意度指標", displayId: 'satisfaction_weight_display',
             subs: {
-                prefRate: { label: "(1) 排班偏好滿足度 (%)", desc: "符合員工偏好的程度", weight: 15, tiers: [{limit: 90, score: 5, label: "極佳"}, {limit: 80, score: 4, label: "良好"}, {limit: 70, score: 3, label: "普通"}, {limit: 60, score: 2, label: "待改進"}, {limit: 0, score: 1, label: "極差"}] },
-                wishRate: { label: "(2) 預班達成率 (%)", desc: "符合員工預班OFF的程度", weight: 10, tiers: [{limit: 95, score: 5, label: "極佳"}, {limit: 90, score: 4, label: "良好"}, {limit: 85, score: 3, label: "普通"}, {limit: 80, score: 2, label: "待改進"}, {limit: 0, score: 1, label: "極差"}] }
+                prefRate: { label: "(1) 排班偏好滿足度 (%)", desc: "符合員工偏好的程度", weight: 15, tiers: [{limit: 0, score: 1, label: "極差"}, {limit: 60, score: 2, label: "待改進"}, {limit: 70, score: 3, label: "普通"}, {limit: 80, score: 4, label: "良好"}, {limit: 90, score: 5, label: "極佳"}] },
+                wishRate: { label: "(2) 預班達成率 (%)", desc: "符合員工預班OFF的程度", weight: 10, tiers: [{limit: 0, score: 1, label: "極差"}, {limit: 80, score: 2, label: "待改進"}, {limit: 85, score: 3, label: "普通"}, {limit: 90, score: 4, label: "良好"}, {limit: 95, score: 5, label: "極佳"}] }
             }
         },
         fatigue: {
             label: "3. 疲勞度指標", displayId: 'fatigue_weight_display',
             subs: {
-                consWork: { label: "(1) 連續工作>6天 (人次)", desc: "最長連續工作天數達6天(以上)的人次", weight: 8, tiers: [{limit: 0, score: 5, label: "極佳"}, {limit: 1, score: 4, label: "良好"}, {limit: 3, score: 3, label: "普通"}, {limit: 5, score: 2, label: "待改進"}, {limit: 10, score: 1, label: "極差"}] },
-                nToD: { label: "(2) 大夜接白 (次)", desc: "前一天大夜，隔天早班的次數", weight: 7, tiers: [{limit: 0, score: 5, label: "極佳"}, {limit: 1, score: 4, label: "良好"}, {limit: 3, score: 3, label: "普通"}, {limit: 5, score: 2, label: "待改進"}, {limit: 10, score: 1, label: "極差"}] },
-                offTargetRate: { label: "(3) 休假達標率 (%)", desc: "符合應放天數規定的員工比例", weight: 5, tiers: [{limit: 100, score: 5, label: "極佳"}, {limit: 95, score: 4, label: "良好"}, {limit: 90, score: 3, label: "普通"}, {limit: 85, score: 2, label: "待改進"}, {limit: 0, score: 1, label: "極差"}] },
+                consWork: { label: "(1) 連續工作>6天 (人次)", desc: "最長連續工作天數達6天(以上)的人次", weight: 8, tiers: [{limit: 0, score: 5, label: "極佳"}, {limit: 1, score: 4, label: "良好"}, {limit: 2, score: 3, label: "普通"}, {limit: 3, score: 2, label: "待改進"}, {limit: 4, score: 1, label: "極差"}] },
+                nToD: { label: "(2) 大夜接白 (次)", desc: "前一天大夜，隔天早班的次數", weight: 7, tiers: [{limit: 0, score: 5, label: "極佳"}, {limit: 1, score: 4, label: "良好"}, {limit: 2, score: 3, label: "普通"}, {limit: 3, score: 2, label: "待改進"}, {limit: 4, score: 1, label: "極差"}] },
+                offTargetRate: { label: "(3) 休假達標率 (%)", desc: "符合應放天數規定的員工比例", weight: 5, tiers: [{limit: 0, score: 1, label: "極差"}, {limit: 85, score: 2, label: "待改進"}, {limit: 90, score: 3, label: "普通"}, {limit: 95, score: 4, label: "良好"}, {limit: 100, score: 5, label: "極佳"}] },
                 weeklyNight: { label: "(4) 週夜班頻率 (SD)", desc: "每位員工週平均夜班次數的標準差", weight: 5, tiers: [{limit: 0, score: 5, label: "極佳"}, {limit: 0.3, score: 4, label: "良好"}, {limit: 0.5, score: 3, label: "普通"}, {limit: 0.7, score: 2, label: "待改進"}, {limit: 1.0, score: 1, label: "極差"}] }
             }
         },
         efficiency: {
             label: "4. 排班效率", displayId: 'efficiency_weight_display',
             subs: {
-                shortageRate: { label: "(1) 缺班率 (%)", desc: "未成功分配人員的班次比例", weight: 8, tiers: [{limit: 0, score: 5, label: "極佳"}, {limit: 2, score: 4, label: "良好"}, {limit: 5, score: 3, label: "普通"}, {limit: 10, score: 2, label: "待改進"}, {limit: 20, score: 1, label: "極差"}] },
-                seniorDist: { label: "(2) 資深分佈 (%)", desc: "各班至少1位年資2年以上員工", weight: 4, tiers: [{limit: 100, score: 5, label: "極佳"}, {limit: 95, score: 4, label: "良好"}, {limit: 90, score: 3, label: "普通"}, {limit: 85, score: 2, label: "待改進"}, {limit: 0, score: 1, label: "極差"}] },
-                juniorDist: { label: "(3) 資淺分佈 (%)", desc: "各班最多1位年資2年以下員工", weight: 3, tiers: [{limit: 100, score: 5, label: "極佳"}, {limit: 90, score: 4, label: "良好"}, {limit: 80, score: 3, label: "普通"}, {limit: 70, score: 2, label: "待改進"}, {limit: 0, score: 1, label: "極差"}] }
+                shortageRate: { label: "(1) 缺班率 (%)", desc: "未成功分配人員的班次比例", weight: 8, tiers: [{limit: 0, score: 5, label: "極佳"}, {limit: 1, score: 4, label: "良好"}, {limit: 2, score: 3, label: "普通"}, {limit: 3, score: 2, label: "待改進"}, {limit: 4, score: 1, label: "極差"}] },
+                seniorDist: { label: "(2) 資深分佈 (%)", desc: "各班至少1位年資2年以上員工", weight: 4, tiers: [{limit: 0, score: 1, label: "極差"}, {limit: 85, score: 2, label: "待改進"}, {limit: 90, score: 3, label: "普通"}, {limit: 95, score: 4, label: "良好"}, {limit: 100, score: 5, label: "極佳"}] },
+                juniorDist: { label: "(3) 資淺分佈 (%)", desc: "各班最多1位年資2年以下員工", weight: 3, tiers: [{limit: 0, score: 1, label: "極差"}, {limit: 70, score: 2, label: "待改進"}, {limit: 80, score: 3, label: "普通"}, {limit: 90, score: 4, label: "良好"}, {limit: 100, score: 5, label: "極佳"}] }
             }
         },
         cost: {
             label: "5. 成本控制", displayId: 'cost_weight_display',
             subs: {
-                overtimeRate: { label: "(1) 加班費比率 (%)", desc: "加班班數佔總班數比例", weight: 5, tiers: [{limit: 0, score: 5, label: "極佳"}, {limit: 3, score: 4, label: "良好"}, {limit: 5, score: 3, label: "普通"}, {limit: 8, score: 2, label: "待改進"}, {limit: 12, score: 1, label: "極差"}] }
+                overtimeRate: { label: "(1) 加班費比率 (%)", desc: "加班班數佔總班數比例", weight: 5, tiers: [{limit: 0, score: 5, label: "極佳"}, {limit: 1, score: 4, label: "良好"}, {limit: 2, score: 3, label: "普通"}, {limit: 3, score: 2, label: "待改進"}, {limit: 4, score: 1, label: "極差"}] }
             }
         }
     },
@@ -148,8 +148,8 @@ const scoreSettingsManager = {
     renderTierRows: function() {
         const tbody = document.getElementById('gradingTableBody');
         tbody.innerHTML = '';
-        // 渲染時按 limit 由大到小排序，方便使用者理解 >= 邏輯
-        this.tempTiers.sort((a, b) => b.limit - a.limit);
+        // 渲染時按 limit 由小到大排序，符合使用者 0, 1, 2, 3, 4 的直覺
+        this.tempTiers.sort((a, b) => a.limit - b.limit);
         this.tempTiers.forEach((t, i) => {
             tbody.innerHTML += `
                 <tr>
@@ -162,12 +162,12 @@ const scoreSettingsManager = {
     },
 
     updateTier: function(i, f, v) { this.tempTiers[i][f] = (f==='label')? v : parseFloat(v); },
-    addTierRow: function() { this.tempTiers.push({limit:99, score:1, label:"新區間"}); this.renderTierRows(); },
+    addTierRow: function() { this.tempTiers.push({limit:0, score:1, label:"新區間"}); this.renderTierRows(); },
     removeTier: function(i) { this.tempTiers.splice(i, 1); this.renderTierRows(); },
     saveTiers: function() {
         if(!this.allSettings.tiers) this.allSettings.tiers = {};
-        // 儲存時按 limit 由大到小排序
-        this.tempTiers.sort((a,b) => b.limit - a.limit);
+        // 儲存時按 limit 由小到大排序
+        this.tempTiers.sort((a,b) => a.limit - b.limit);
         this.allSettings.tiers[this.currentKey] = this.tempTiers;
         this.closeGradingModal();
     },
