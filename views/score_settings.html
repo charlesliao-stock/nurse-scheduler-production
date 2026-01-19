@@ -15,194 +15,248 @@
 
     <div id="scoreSettingsContainer" class="scoring-container" style="display:none;">
         
-        <!-- 頂部提示 -->
         <div class="alert-info">
             <i class="fas fa-info-circle"></i>
             設定後請記得點擊右上角「儲存評分設定」。
         </div>
 
-        <!-- Tab 導航 -->
-        <div class="tab-nav">
-            <button class="tab-btn active" data-tab="weights" onclick="scoreSettingsManager.switchTab('weights')">
-                <i class="fas fa-balance-scale"></i> 1. 權重設定
-            </button>
-            <button class="tab-btn" data-tab="thresholds" onclick="scoreSettingsManager.switchTab('thresholds')">
-                <i class="fas fa-sliders-h"></i> 2. 閾值設定
-            </button>
+        <div class="weight-total-card">
+            <span style="font-size:0.9rem; color:#666;">總權重:</span>
+            <span id="totalWeight" style="font-size:1.8rem; font-weight:bold; color:#2ecc71; margin-left:10px;">100%</span>
         </div>
 
-        <div class="tab-content-wrapper">
+        <div class="score-cards-grid">
             
-            <!-- Tab 1: 權重設定 -->
-            <div id="tab-weights" class="tab-content active">
-                <div class="section-title" style="border-left-color: #667eea;">評分權重配置</div>
-                <p class="section-desc">調整各項指標在總分中的比重,總和必須為 100%</p>
-
-                <!-- 總權重顯示 -->
-                <div class="weight-total-card">
-                    <span style="font-size:0.9rem; color:#666;">總權重:</span>
-                    <span id="totalWeight" style="font-size:1.8rem; font-weight:bold; color:#2ecc71; margin-left:10px;">100%</span>
+            <div class="score-card">
+                <div class="card-header">
+                    <span class="card-number">1.</span>
+                    <span class="card-title">公平性指標</span>
+                    <span class="card-weight" id="fairness_weight_display">10%</span>
                 </div>
-                
-                <div id="weightWarning" style="display:none; background:#fff3cd; border-left:4px solid #f39c12; padding:10px; margin-bottom:20px; color:#856404;">
-                    ⚠️ 權重總和必須等於 100%
-                </div>
-
-                <!-- 權重滑桿卡片 -->
-                <div class="score-cards-grid">
+                <div class="card-body">
                     
-                    <!-- 1. 排班效率 -->
-                    <div class="score-card">
-                        <div class="card-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                            <span class="card-number">1.</span>
-                            <span class="card-title">排班效率</span>
-                            <span class="card-weight" id="display_efficiency">40%</span>
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <label class="switch">
+                                <input type="checkbox" id="metric_fairness_off" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="metric-name">(1) 工時差異 (標準差)</span>
+                            <button class="btn-standard">📊 標準</button>
                         </div>
-                        <div class="card-body">
-                            <input type="range" id="weight_efficiency" min="0" max="100" value="40" 
-                                   style="width:100%; margin:10px 0;">
-                            <p style="font-size:0.85rem; color:#666; margin:0;">
-                                評估缺班率、人力配置合理性等效率指標
-                            </p>
+                        <div class="metric-value">
+                            <input type="number" id="val_fairness_off" class="metric-input" value="10"> %
                         </div>
                     </div>
 
-                    <!-- 2. 疲勞度控制 -->
-                    <div class="score-card">
-                        <div class="card-header" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                            <span class="card-number">2.</span>
-                            <span class="card-title">疲勞度控制</span>
-                            <span class="card-weight" id="display_fatigue">25%</span>
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <label class="switch">
+                                <input type="checkbox" id="metric_fairness_night" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="metric-name">(2) 夜班差異 (次)</span>
+                            <button class="btn-standard">📊 標準</button>
                         </div>
-                        <div class="card-body">
-                            <input type="range" id="weight_fatigue" min="0" max="100" value="25" 
-                                   style="width:100%; margin:10px 0;">
-                            <p style="font-size:0.85rem; color:#666; margin:0;">
-                                評估連續工作天數、夜班接白班等疲勞因素
-                            </p>
+                        <div class="metric-value">
+                            <input type="number" id="val_fairness_night" class="metric-input" value="10"> %
                         </div>
                     </div>
 
-                    <!-- 3. 滿意度 -->
-                    <div class="score-card">
-                        <div class="card-header" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
-                            <span class="card-number">3.</span>
-                            <span class="card-title">滿意度</span>
-                            <span class="card-weight" id="display_satisfaction">20%</span>
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <label class="switch">
+                                <input type="checkbox" id="metric_fairness_weekend" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="metric-name">(3) 假日差異 (天)</span>
+                            <button class="btn-standard">📊 標準</button>
                         </div>
-                        <div class="card-body">
-                            <input type="range" id="weight_satisfaction" min="0" max="100" value="20" 
-                                   style="width:100%; margin:10px 0;">
-                            <p style="font-size:0.85rem; color:#666; margin:0;">
-                                評估預休達成率、排班偏好滿足程度
-                            </p>
+                        <div class="metric-value">
+                            <input type="number" id="val_fairness_weekend" class="metric-input" value="10"> %
                         </div>
                     </div>
-
-                    <!-- 4. 公平性 -->
-                    <div class="score-card">
-                        <div class="card-header" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
-                            <span class="card-number">4.</span>
-                            <span class="card-title">公平性</span>
-                            <span class="card-weight" id="display_fairness">10%</span>
-                        </div>
-                        <div class="card-body">
-                            <input type="range" id="weight_fairness" min="0" max="100" value="10" 
-                                   style="width:100%; margin:10px 0;">
-                            <p style="font-size:0.85rem; color:#666; margin:0;">
-                                評估工時差異、夜班分配均衡度
-                            </p>
-                        </div>
-                    </div>
-
-                    <!-- 5. 成本控制 -->
-                    <div class="score-card">
-                        <div class="card-header" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
-                            <span class="card-number">5.</span>
-                            <span class="card-title">成本控制</span>
-                            <span class="card-weight" id="display_cost">5%</span>
-                        </div>
-                        <div class="card-body">
-                            <input type="range" id="weight_cost" min="0" max="100" value="5" 
-                                   style="width:100%; margin:10px 0;">
-                            <p style="font-size:0.85rem; color:#666; margin:0;">
-                                評估加班費比率等成本因素
-                            </p>
-                        </div>
-                    </div>
-
                 </div>
             </div>
 
-            <!-- Tab 2: 閾值設定 -->
-            <div id="tab-thresholds" class="tab-content">
-                <div class="section-title" style="border-left-color: #e67e22;">評分閾值設定</div>
-                <p class="section-desc">設定各項指標的判斷標準</p>
-
-                <div class="rule-card">
-                    <div class="rule-header">1. 連續工作天數上限</div>
-                    <div class="rule-body">
-                        <div class="form-inline-group">
-                            <div class="form-item">
-                                <label>最大連續工作:</label>
-                                <input type="number" id="threshold_maxConsecutive" value="6" class="form-control small-input" min="1" max="14"> 天
-                            </div>
+            <div class="score-card">
+                <div class="card-header">
+                    <span class="card-number">2.</span>
+                    <span class="card-title">滿意度指標</span>
+                    <span class="card-weight" id="satisfaction_weight_display">25%</span>
+                </div>
+                <div class="card-body">
+                    
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <label class="switch">
+                                <input type="checkbox" id="metric_sat_pref" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="metric-name">(1) 排班偏好滿足率 (%)</span>
+                            <button class="btn-standard">📊 標準</button>
                         </div>
-                        <div style="margin-top:5px; color:#666; font-size:0.85rem;">
-                            超過此天數將影響疲勞度評分
+                        <div class="metric-value">
+                            <input type="number" id="val_sat_pref" class="metric-input" value="15"> %
+                        </div>
+                    </div>
+
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <label class="switch">
+                                <input type="checkbox" id="metric_sat_req" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="metric-name">(2) 預班達成率 (%)</span>
+                            <button class="btn-standard">📊 標準</button>
+                        </div>
+                        <div class="metric-value">
+                             <input type="number" id="val_sat_req" class="metric-input" value="10"> %
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <div class="rule-card">
-                    <div class="rule-header">2. 疲勞度評估標準</div>
-                    <div class="rule-body">
-                        <div class="form-inline-group">
-                            <div class="form-item">
-                                <label>評估等級:</label>
-                                <select id="threshold_fatigueLevel" class="form-control medium-input">
-                                    <option value="strict">嚴格 (低容錯)</option>
-                                    <option value="moderate" selected>適中 (建議)</option>
-                                    <option value="relaxed">寬鬆 (高彈性)</option>
-                                </select>
-                            </div>
+            <div class="score-card">
+                <div class="card-header">
+                    <span class="card-number">3.</span>
+                    <span class="card-title">疲勞度指標</span>
+                    <span class="card-weight" id="fatigue_weight_display">25%</span>
+                </div>
+                <div class="card-body">
+                    
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <label class="switch">
+                                <input type="checkbox" id="metric_fat_consec" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="metric-name">(1) 連續工作>6天 (人次)</span>
+                            <button class="btn-standard">📊 標準</button>
                         </div>
-                        <div style="margin-top:5px; color:#666; font-size:0.85rem;">
-                            設定對疲勞指標的寬容程度
+                        <div class="metric-value">
+                            <input type="number" id="val_fat_consec" class="metric-input" value="8"> %
+                        </div>
+                    </div>
+
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <label class="switch">
+                                <input type="checkbox" id="metric_fat_night" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="metric-name">(2) 大夜接白 (次)</span>
+                            <button class="btn-standard">📊 標準</button>
+                        </div>
+                        <div class="metric-value">
+                            <input type="number" id="val_fat_night" class="metric-input" value="7"> %
+                        </div>
+                    </div>
+
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <label class="switch">
+                                <input type="checkbox" id="metric_fat_rest" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="metric-name">(3) 休假違標率 (%)</span>
+                            <button class="btn-standard">📊 標準</button>
+                        </div>
+                        <div class="metric-value">
+                             <input type="number" id="val_fat_rest" class="metric-input" value="5"> %
+                        </div>
+                    </div>
+
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <label class="switch">
+                                <input type="checkbox" id="metric_fat_sd" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="metric-name">(4) 還夜班標率 (SD)</span>
+                            <button class="btn-standard">📊 標準</button>
+                        </div>
+                        <div class="metric-value">
+                            <input type="number" id="val_fat_sd" class="metric-input" value="5"> %
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <div class="rule-card">
-                    <div class="rule-header">3. 公平性標準差閾值</div>
-                    <div class="rule-body">
-                        <div class="form-inline-group">
-                            <div class="form-item">
-                                <label>休假標準差:</label>
-                                <input type="number" id="threshold_offStdDev" value="1.5" class="form-control small-input" min="0" max="5" step="0.1">
-                            </div>
+            <div class="score-card">
+                <div class="card-header">
+                    <span class="card-number">4.</span>
+                    <span class="card-title">排班效率</span>
+                    <span class="card-weight" id="efficiency_weight_display">15%</span>
+                </div>
+                <div class="card-body">
+                    
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <label class="switch">
+                                <input type="checkbox" id="metric_eff_gap" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="metric-name">(1) 缺班率 (%)</span>
+                            <button class="btn-standard">📊 標準</button>
                         </div>
-                        <div style="margin-top:5px; color:#666; font-size:0.85rem;">
-                            評估休假分配的離散程度,數值越小要求越嚴格
+                        <div class="metric-value">
+                            <input type="number" id="val_eff_gap" class="metric-input" value="8"> %
+                        </div>
+                    </div>
+
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <label class="switch">
+                                <input type="checkbox" id="metric_eff_over" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="metric-name">(2) 資深分佈合理性 (%)</span>
+                            <button class="btn-standard">📊 標準</button>
+                        </div>
+                        <div class="metric-value">
+                            <input type="number" id="val_eff_over" class="metric-input" value="4"> %
+                        </div>
+                    </div>
+
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <label class="switch">
+                                <input type="checkbox" id="metric_eff_dist" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="metric-name">(3) 資淺分佈合理性 (%)</span>
+                            <button class="btn-standard">📊 標準</button>
+                        </div>
+                        <div class="metric-value">
+                            <input type="number" id="val_eff_dist" class="metric-input" value="3"> %
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <div class="rule-card">
-                    <div class="rule-header">4. 缺班容忍度</div>
-                    <div class="rule-body">
-                        <div class="form-inline-group">
-                            <div class="form-item">
-                                <label>可接受缺班率:</label>
-                                <input type="number" id="threshold_gapTolerance" value="5" class="form-control small-input" min="0" max="20"> %
-                            </div>
+            <div class="score-card">
+                <div class="card-header">
+                    <span class="card-number">5.</span>
+                    <span class="card-title">成本控制</span>
+                    <span class="card-weight" id="cost_weight_display">5%</span>
+                </div>
+                <div class="card-body">
+                    
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <label class="switch">
+                                <input type="checkbox" id="metric_cost_over" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="metric-name">(1) 加班費比率 (%)</span>
+                            <button class="btn-standard">📊 標準</button>
                         </div>
-                        <div style="margin-top:5px; color:#666; font-size:0.85rem;">
-                            超過此比率將顯著影響效率評分
+                        <div class="metric-value">
+                            <input type="number" id="val_cost_over" class="metric-input" value="5"> %
                         </div>
                     </div>
                 </div>
-
             </div>
 
         </div>
@@ -226,69 +280,6 @@
     font-size: 0.9rem;
 }
 
-/* Tab 導航 */
-.tab-nav {
-    display: flex;
-    gap: 5px;
-    background: #f8f9fa;
-    border-bottom: 1px solid #ddd;
-    margin-bottom: 0;
-}
-
-.tab-btn {
-    flex: 1;
-    padding: 15px;
-    border: none;
-    background: transparent;
-    font-weight: 600;
-    color: #7f8c8d;
-    cursor: pointer;
-    transition: all 0.2s;
-    border-bottom: 3px solid transparent;
-}
-
-.tab-btn:hover {
-    background: #ecf0f1;
-    color: #2c3e50;
-}
-
-.tab-btn.active {
-    color: #3498db;
-    border-bottom-color: #3498db;
-    background: #fff;
-}
-
-.tab-content-wrapper {
-    padding: 30px;
-    background: #fff;
-    border: 1px solid #ddd;
-    border-top: none;
-}
-
-.tab-content {
-    display: none;
-    animation: fadeIn 0.3s;
-}
-
-.tab-content.active {
-    display: block;
-}
-
-.section-title {
-    font-size: 1.2rem;
-    font-weight: bold;
-    color: #2c3e50;
-    border-left: 5px solid #3498db;
-    padding-left: 15px;
-    margin-bottom: 15px;
-}
-
-.section-desc {
-    color: #7f8c8d;
-    margin-bottom: 20px;
-    font-size: 0.95rem;
-}
-
 /* 總權重卡片 */
 .weight-total-card {
     background: white;
@@ -297,15 +288,14 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-end;
     margin-bottom: 20px;
-    border: 2px solid #ecf0f1;
 }
 
 /* 卡片網格 */
 .score-cards-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
     gap: 20px;
 }
 
@@ -325,6 +315,7 @@
 
 /* 卡片標題 */
 .card-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     padding: 15px 20px;
     display: flex;
@@ -353,115 +344,129 @@
 
 /* 卡片內容 */
 .card-body {
-    padding: 20px;
+    padding: 15px;
 }
 
-/* 滑桿樣式 */
-input[type="range"] {
-    -webkit-appearance: none;
-    appearance: none;
-    background: #ecf0f1;
-    outline: none;
-    border-radius: 5px;
-    height: 8px;
-}
-
-input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 20px;
-    height: 20px;
-    background: #3498db;
-    cursor: pointer;
-    border-radius: 50%;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-}
-
-input[type="range"]::-moz-range-thumb {
-    width: 20px;
-    height: 20px;
-    background: #3498db;
-    cursor: pointer;
-    border-radius: 50%;
-    border: none;
-}
-
-/* 規則卡片 */
-.rule-card {
-    background: #fff;
-    border: 1px solid #eee;
-    border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 15px;
-    border-left: 5px solid #bdc3c7;
-    transition: all 0.2s ease-in-out;
-}
-
-.rule-card:hover {
-    border-left-color: #3498db !important;
-    background-color: #ebf5fb !important;
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(52, 152, 219, 0.15);
-}
-
-.rule-header {
-    font-size: 16px;
-    font-weight: bold;
-    color: #2c3e50;
+/* 指標項目 */
+.metric-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
     margin-bottom: 8px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    transition: all 0.2s;
 }
 
-.rule-body {
-    font-size: 13px;
-    color: #666;
-    line-height: 1.5;
+.metric-item:hover {
+    background: #e9ecef;
 }
 
-/* 表單元素 */
-.form-control {
-    padding: 8px 12px;
-    border: 1px solid #ccc;
+.metric-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+.metric-name {
+    font-size: 0.9rem;
+    color: #333;
+    flex: 1;
+}
+
+.metric-value {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: bold;
+    color: #495057;
+}
+
+.metric-input {
+    width: 60px;
+    padding: 6px 8px;
+    border: 2px solid #dee2e6;
     border-radius: 4px;
-    font-size: 14px;
-}
-
-.small-input {
-    width: 80px;
     text-align: center;
+    font-weight: bold;
+    font-size: 0.95rem;
 }
 
-.medium-input {
-    width: 200px;
+.metric-input:focus {
+    outline: none;
+    border-color: #667eea;
 }
 
-.form-inline-group {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    flex-wrap: wrap;
+/* Toggle Switch */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
 }
 
-.form-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: .3s;
+    border-radius: 24px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .3s;
+    border-radius: 50%;
+}
+
+input:checked + .slider {
+    background-color: #2196F3;
+}
+
+input:checked + .slider:before {
+    transform: translateX(20px);
+}
+
+/* 標準按鈕 */
+.btn-standard {
+    background: white;
+    border: 1px solid #dee2e6;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-standard:hover {
+    background: #f8f9fa;
+    border-color: #667eea;
+    color: #667eea;
 }
 
 /* RWD */
 @media (max-width: 1200px) {
     .score-cards-grid {
         grid-template-columns: 1fr;
-    }
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(5px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
     }
 }
 </style>
