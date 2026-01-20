@@ -152,7 +152,7 @@ const staffPreScheduleManager = {
     },
 
     // [新增] 取得每日可預班人數 (分母)
-    // 邏輯：人員設定中的總人數 - 每日需求設定中的總需求數
+    // 邏輯：人員設定中的總人數 - 每日需求設定中的總需求數 - 每日保留名額 (控床)
     getDailyQuota: function(day) {
         if (!this.data) return 0;
         
@@ -189,10 +189,13 @@ const staffPreScheduleManager = {
                 }
             });
         }
+
+        // 3. 取得每日保留名額 (控床)
+        const dailyReserved = parseInt(this.data.settings?.dailyReserved) || 0;
         
-        // 3. 計算分母：總人數 - 總需求數
+        // 4. 計算分母：總人數 - 總需求數 - 每日保留名額
         // 確保結果不小於 0
-        return Math.max(0, totalStaff - dailyNeedCount);
+        return Math.max(0, totalStaff - dailyNeedCount - dailyReserved);
     },
 
     // --- 3. 渲染側邊欄 ---
