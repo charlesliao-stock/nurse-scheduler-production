@@ -1,5 +1,5 @@
 // js/modules/staff_pre_schedule_manager.js
-// 🔧 完美整合版：恢復所有統計、名單顯示、邊框顏色，並結合新版操作邏輯
+// 🔧 修復版：解決初始化順序錯誤 (Init Error)
 
 const staffPreScheduleManager = {
     docId: null,
@@ -30,7 +30,7 @@ const staffPreScheduleManager = {
     },
 
     init: async function(id) {
-        console.log("Staff Pre-Schedule Init (Merged):", id);
+        console.log("Staff Pre-Schedule Init (Fixed):", id);
         this.docId = id;
         
         if (!app.currentUser) { alert("請先登入"); return; }
@@ -42,17 +42,20 @@ const staffPreScheduleManager = {
         if(grid) grid.innerHTML = '<div style="padding:20px; text-align:center;">資料載入中...</div>';
 
         try {
+            // [關鍵修正] 1. 必須先載入主檔，取得 unitId
+            await this.loadData(); 
+
+            // [關鍵修正] 2. 確定有 unitId 後，再平行載入其他相依資料
             await Promise.all([
-                this.loadData(),        // 載入主檔
-                this.loadUserProfile(), // 載入個人權限
-                this.loadAllUserNames(),// 載入同事名單(用於Tooltip)
-                this.loadShifts()       // 載入班別
+                this.loadUserProfile(), 
+                this.loadAllUserNames(), // 這裡需要 this.data.unitId
+                this.loadShifts()        // 這裡需要 this.data.unitId
             ]);
             
-            this.parseRules();         // 解析規則
-            this.renderSidebar();      // 渲染側邊欄
-            this.renderCalendar();     // 渲染日曆(含顏色邏輯)
-            this.updateSidebarStats(); // 更新統計
+            this.parseRules();         
+            this.renderSidebar();      
+            this.renderCalendar();     
+            this.updateSidebarStats(); 
             this.setupEvents();
             this.initContextMenu();
 
@@ -90,24 +93,28 @@ const staffPreScheduleManager = {
         const uid = app.currentUser.uid;
         this.allAssignments = this.data.assignments || {};
         
-        // 深拷貝自己的資料，避免直接修改原始物件影響統計
+        // 深拷貝自己的資料
         this.userRequest = (this.allAssignments[uid]) ? JSON.parse(JSON.stringify(this.allAssignments[uid])) : {};
         
         this.isReadOnly = (this.data.status !== 'open');
         
         // UI 更新
-        document.getElementById('staffPreTitle').innerText = `${this.data.year}年 ${this.data.month}月 預班表`;
+        const titleEl = document.getElementById('staffPreTitle');
+        if(titleEl) titleEl.innerText = `${this.data.year}年 ${this.data.month}月 預班表`;
+        
         const statusBadge = document.getElementById('staffPreStatus');
         const saveBtn = document.getElementById('btnStaffSave');
         
-        if (this.isReadOnly) {
-            statusBadge.innerText = "唯讀 (已關閉)";
-            statusBadge.className = "badge badge-secondary";
-            if(saveBtn) saveBtn.style.display = 'none';
-        } else {
-            statusBadge.innerText = "開放填寫中";
-            statusBadge.className = "badge badge-success";
-            if(saveBtn) saveBtn.style.display = 'inline-block';
+        if (statusBadge) {
+            if (this.isReadOnly) {
+                statusBadge.innerText = "唯讀 (已關閉)";
+                statusBadge.className = "badge badge-secondary";
+                if(saveBtn) saveBtn.style.display = 'none';
+            } else {
+                statusBadge.innerText = "開放填寫中";
+                statusBadge.className = "badge badge-success";
+                if(saveBtn) saveBtn.style.display = 'inline-block';
+            }
         }
     },
 
@@ -118,7 +125,9 @@ const staffPreScheduleManager = {
     },
 
     loadAllUserNames: async function() {
-        if(!this.data.unitId) return;
+        // 這裡安全了，因為 loadData 已經執行完畢
+        if(!this.data || !this.data.unitId) return;
+        
         const snap = await db.collection('users').where('unitId', '==', this.data.unitId).get();
         this.allUsersMap = {};
         snap.forEach(doc => {
@@ -128,7 +137,7 @@ const staffPreScheduleManager = {
     },
 
     loadShifts: async function() {
-        if(!this.data.unitId) return;
+        if(!this.data || !this.data.unitId) return;
         const snapshot = await db.collection('shifts')
             .where('unitId', '==', this.data.unitId)
             .orderBy('startTime')
@@ -138,12 +147,10 @@ const staffPreScheduleManager = {
 
     parseRules: function() {
         const settings = this.data.settings || {};
-        // 讀取設定，若無則給預設值
         this.rules.maxOff = parseInt(settings.maxPreScheduleOff) || 10;
-        this.rules.dailyLimit = parseInt(settings.maxDailyOff) || 0; // 0 代表不限
+        this.rules.dailyLimit = parseInt(settings.maxDailyOff) || 0; 
         this.rules.showNames = (settings.privacyShowNames !== false); 
         
-        // 計算假日數
         const year = this.data.year;
         const month = this.data.month;
         const daysInMonth = new Date(year, month, 0).getDate();
@@ -258,19 +265,18 @@ const staffPreScheduleManager = {
             const isWeekend = (dateObj.getDay() === 0 || dateObj.getDay() === 6);
             if(isWeekend) div.classList.add('weekend');
 
-            // --- 統計邏輯 (恢復原始邏輯) ---
+            // --- 統計邏輯 ---
             const offCount = this.calculateDailyOffCount(d);
             const limit = this.rules.dailyLimit;
             const isFull = (limit > 0 && offCount >= limit);
             
-            // 決定邊框顏色 (Orange: 充足, Red: 滿了)
-            // 根據您的需求：橘框=名額充足, 紅框=名額已滿
+            // 決定邊框顏色
             if (limit > 0) {
                 if (isFull) div.classList.add('quota-full');      
                 else div.classList.add('quota-available');        
             }
 
-            // Tooltip (Hover 顯示姓名)
+            // Tooltip (Hover)
             let tooltipText = `預休: ${offCount} 人`;
             if (this.rules.showNames && offCount > 0) {
                 const names = this.getDailyOffNames(d);
@@ -297,9 +303,8 @@ const staffPreScheduleManager = {
                 }
             }
 
-            // 右下角統計數字 (目前/上限)
+            // 右下角統計數字
             const statsText = limit > 0 ? `${offCount}/${limit}` : `${offCount}`;
-            // 根據狀態變色
             const statsColor = isFull ? '#e74c3c' : '#aaa'; 
 
             div.innerHTML = `
@@ -309,9 +314,7 @@ const staffPreScheduleManager = {
             `;
 
             if (!this.isReadOnly) {
-                // 左鍵：預設排休
                 div.onclick = () => this.handleLeftClick(d);
-                // 右鍵：選單
                 div.oncontextmenu = (e) => this.handleRightClick(e, d);
             } else {
                 div.classList.add('disabled');
@@ -327,18 +330,17 @@ const staffPreScheduleManager = {
         const key = `current_${day}`;
         const myUid = app.currentUser.uid;
 
-        // 1. 計算除了我以外，資料庫裡已經排休的人
+        // 1. 算別人
         Object.keys(this.allAssignments).forEach(uid => {
             if (uid !== myUid && this.allAssignments[uid][key] === 'REQ_OFF') {
                 count++;
             }
         });
         
-        // 2. 加上我目前的狀態 (userRequest 是我正在編輯的)
+        // 2. 算我 (依目前編輯狀態)
         if (this.userRequest[key] === 'REQ_OFF') {
             count++;
         }
-        
         return count;
     },
 
@@ -371,7 +373,6 @@ const staffPreScheduleManager = {
 
     // --- 5. 互動事件 ---
 
-    // [左鍵邏輯]：預設切換 "REQ_OFF"
     handleLeftClick: function(day) {
         if(this.isReadOnly) return;
         
@@ -379,10 +380,8 @@ const staffPreScheduleManager = {
         const currentVal = this.userRequest[key];
 
         if (!currentVal) {
-            // 空白 -> 設為休
             this.trySetShift(day, 'REQ_OFF');
         } else {
-            // 有值 (無論是休或班) -> 清除
             this.trySetShift(day, null);
         }
     },
@@ -405,7 +404,6 @@ const staffPreScheduleManager = {
                 </li>
         `;
         
-        // 指定班別
         html += `<li style="padding:5px 12px; font-size:0.8rem; color:#999; background:#fafafa;">指定班別</li>`;
         this.shifts.forEach(s => {
             html += `
@@ -414,7 +412,6 @@ const staffPreScheduleManager = {
                 </li>`;
         });
 
-        // 勿排
         html += `<li style="padding:5px 12px; font-size:0.8rem; color:#999; background:#fafafa;">希望避開</li>`;
         this.shifts.forEach(s => {
             html += `
@@ -446,7 +443,6 @@ const staffPreScheduleManager = {
         document.getElementById('staffContextMenu').style.display = 'none';
     },
 
-    // 統一設定入口，包含檢查
     trySetShift: function(day, val) {
         const key = `current_${day}`;
         
@@ -460,13 +456,11 @@ const staffPreScheduleManager = {
             }
         }
 
-        // 檢查 2: 每日名額上限 (僅警告)
+        // 檢查 2: 每日名額上限
         if (val === 'REQ_OFF') {
              const dayCount = this.calculateDailyOffCount(day);
-             // dayCount 已經包含了 "如果我現在是休" 的狀態
-             // 我們要預測 "如果我變成休" 會不會爆
-             // 如果我原本不是休，那加了我之後就是 dayCount + 1
              const myOldVal = this.userRequest[key];
+             // 如果我原本不是休，那加了我之後數量會 +1
              const willBeCount = (myOldVal === 'REQ_OFF') ? dayCount : dayCount + 1;
              
              if (this.rules.dailyLimit > 0 && willBeCount > this.rules.dailyLimit) {
@@ -477,7 +471,7 @@ const staffPreScheduleManager = {
         if (val === null) delete this.userRequest[key];
         else this.userRequest[key] = val;
         
-        this.renderCalendar(); // 重繪日曆
+        this.renderCalendar(); 
         this.updateSidebarStats();
     },
 
