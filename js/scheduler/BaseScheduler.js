@@ -1,5 +1,5 @@
 // js/scheduler/BaseScheduler.js
-// 🔧 最終修正版：驗證邏輯完整對應 V2 需求
+// 🔧 最終修正版：強化跨月連續上班檢查與資料防呆
 
 class BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -253,6 +253,9 @@ class BaseScheduler {
     getDateStr(d) { return `${this.year}-${String(this.month).padStart(2, '0')}-${String(d).padStart(2, '0')}`; }
     getDateStrFromDate(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
 
+    /**
+     * [修正] 檢查連續上班天數 (含跨月安全檢查)
+     */
     getConsecutiveWorkDays(uid, dateStr) {
         const targetDate = new Date(dateStr);
         let count = 0;
@@ -260,12 +263,22 @@ class BaseScheduler {
             const checkDate = new Date(targetDate);
             checkDate.setDate(checkDate.getDate() - i);
             let shift = null;
+            
+            // 判斷是否跨到上個月
             if (checkDate.getMonth() + 1 !== this.month) {
                 const d = checkDate.getDate();
-                if (this.lastMonthData[uid]) shift = this.lastMonthData[uid][`last_${d}`];
+                // [安全檢查] 確保 lastMonthData[uid] 存在
+                if (this.lastMonthData && this.lastMonthData[uid]) {
+                    // 支援兩種格式: { last_31: 'N' } 或 { lastShift: 'N' (僅最後一天) }
+                    shift = this.lastMonthData[uid][`last_${d}`] || 
+                            (i === 1 ? this.lastMonthData[uid].lastShift : 'OFF');
+                } else {
+                    shift = 'OFF'; // 資料缺失視為休息，避免卡死
+                }
             } else {
                 shift = this.getShiftByDate(this.getDateStrFromDate(checkDate), uid);
             }
+            
             if (!shift || shift === 'OFF' || shift === 'REQ_OFF') break;
             count++;
         }
