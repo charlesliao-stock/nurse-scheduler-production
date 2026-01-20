@@ -1,5 +1,5 @@
 // js/modules/staff_pre_schedule_manager.js
-// 🔧 修復版：解決初始化順序錯誤 (Init Error)
+// 🔧 最終完美版：初始化修復 + 完整統計功能 (人數/名單/紅框/橘框)
 
 const staffPreScheduleManager = {
     docId: null,
@@ -14,10 +14,10 @@ const staffPreScheduleManager = {
     
     // 規則與限制
     rules: {
-        maxOff: 8,        
-        maxHoliday: 8,     
-        dailyLimit: 2,     
-        showNames: true    
+        maxOff: 8,         // 每月最大預休數
+        maxHoliday: 8,     // 假日數
+        dailyLimit: 2,     // 每日預休上限
+        showNames: true    // 是否顯示名單
     },
     
     isReadOnly: false,
@@ -30,31 +30,29 @@ const staffPreScheduleManager = {
     },
 
     init: async function(id) {
-        console.log("Staff Pre-Schedule Init (Fixed):", id);
+        console.log("Staff Pre-Schedule Init (Final Fix):", id);
         this.docId = id;
         
         if (!app.currentUser) { alert("請先登入"); return; }
-
         this.cleanup();
         
-        // 顯示載入中
         const grid = document.getElementById('calendarGrid');
         if(grid) grid.innerHTML = '<div style="padding:20px; text-align:center;">資料載入中...</div>';
 
         try {
-            // [關鍵修正] 1. 必須先載入主檔，取得 unitId
+            // [關鍵 1] 必須先載入主檔，確保取得 unitId 與 assignments
             await this.loadData(); 
 
-            // [關鍵修正] 2. 確定有 unitId 後，再平行載入其他相依資料
+            // [關鍵 2] 有了 unitId 後，才能並行載入其他資料
             await Promise.all([
                 this.loadUserProfile(), 
-                this.loadAllUserNames(), // 這裡需要 this.data.unitId
-                this.loadShifts()        // 這裡需要 this.data.unitId
+                this.loadAllUserNames(), // 用於顯示 Tooltip 名單
+                this.loadShifts()
             ]);
             
             this.parseRules();         
             this.renderSidebar();      
-            this.renderCalendar();     
+            this.renderCalendar();     // [關鍵] 這裡會渲染紅框/橘框
             this.updateSidebarStats(); 
             this.setupEvents();
             this.initContextMenu();
@@ -91,9 +89,10 @@ const staffPreScheduleManager = {
         this.data = doc.data();
         
         const uid = app.currentUser.uid;
+        // [重要] 取得所有人的資料，用於計算當日已休人數
         this.allAssignments = this.data.assignments || {};
         
-        // 深拷貝自己的資料
+        // 深拷貝自己的資料，作為編輯中的狀態
         this.userRequest = (this.allAssignments[uid]) ? JSON.parse(JSON.stringify(this.allAssignments[uid])) : {};
         
         this.isReadOnly = (this.data.status !== 'open');
@@ -125,9 +124,7 @@ const staffPreScheduleManager = {
     },
 
     loadAllUserNames: async function() {
-        // 這裡安全了，因為 loadData 已經執行完畢
         if(!this.data || !this.data.unitId) return;
-        
         const snap = await db.collection('users').where('unitId', '==', this.data.unitId).get();
         this.allUsersMap = {};
         snap.forEach(doc => {
@@ -147,8 +144,8 @@ const staffPreScheduleManager = {
 
     parseRules: function() {
         const settings = this.data.settings || {};
-        this.rules.maxOff = parseInt(settings.maxPreScheduleOff) || 10;
-        this.rules.dailyLimit = parseInt(settings.maxDailyOff) || 0; 
+        this.rules.maxOff = parseInt(settings.maxPreScheduleOff) || 8;
+        this.rules.dailyLimit = parseInt(settings.maxDailyOff) || 0; // 0 為不限
         this.rules.showNames = (settings.privacyShowNames !== false); 
         
         const year = this.data.year;
@@ -164,7 +161,6 @@ const staffPreScheduleManager = {
 
     // --- 3. 渲染側邊欄 ---
     renderSidebar: function() {
-        // A. 包班意願
         const bundleSelect = document.getElementById('inputBundleShift');
         const bundleSection = document.getElementById('bundleSection');
         if (bundleSelect) {
@@ -184,7 +180,6 @@ const staffPreScheduleManager = {
             }
         }
 
-        // B. 偏好班別
         const prefList = document.getElementById('prefList');
         if (prefList) {
             const savedPref = this.userRequest.preferences?.favShift || '';
@@ -214,11 +209,15 @@ const staffPreScheduleManager = {
             else if (v !== 'REQ_OFF' && !v.startsWith('preference')) shiftCount++;
         });
 
+        // 超額紅字邏輯
+        const isOverLimit = offCount > this.rules.maxOff;
+        const offColor = isOverLimit ? '#e74c3c' : '#2c3e50';
+
         statsDiv.innerHTML = `
             <div style="margin-bottom:10px; border-bottom:1px solid #eee; padding-bottom:10px;">
                 <div style="display:flex; justify-content:space-between;">
                     <span>已預休天數:</span>
-                    <span style="font-weight:bold; ${offCount>this.rules.maxOff?'color:red':''}">${offCount} / ${this.rules.maxOff}</span>
+                    <span style="font-weight:bold; color:${offColor};">${offCount} / ${this.rules.maxOff}</span>
                 </div>
                 <div style="font-size:0.8rem; color:#999;">(本月假日共 ${this.rules.maxHoliday} 天)</div>
             </div>
@@ -229,7 +228,7 @@ const staffPreScheduleManager = {
         `;
     },
 
-    // --- 4. 核心渲染：日曆視圖 ---
+    // --- 4. 核心渲染：日曆視圖 (含統計、名單、顏色) ---
     renderCalendar: function() {
         const grid = document.getElementById('calendarGrid');
         if(!grid) return;
@@ -240,7 +239,6 @@ const staffPreScheduleManager = {
         const daysInMonth = new Date(year, month, 0).getDate();
         const firstDayOfWeek = new Date(year, month - 1, 1).getDay(); 
 
-        // 標頭
         ['日','一','二','三','四','五','六'].forEach(w => {
             const div = document.createElement('div');
             div.className = 'calendar-header';
@@ -248,14 +246,12 @@ const staffPreScheduleManager = {
             grid.appendChild(div);
         });
 
-        // 空白
         for(let i=0; i<firstDayOfWeek; i++) {
             const div = document.createElement('div');
             div.className = 'calendar-day empty';
             grid.appendChild(div);
         }
 
-        // 日子
         for(let d=1; d<=daysInMonth; d++) {
             const div = document.createElement('div');
             div.className = 'calendar-day';
@@ -265,22 +261,25 @@ const staffPreScheduleManager = {
             const isWeekend = (dateObj.getDay() === 0 || dateObj.getDay() === 6);
             if(isWeekend) div.classList.add('weekend');
 
-            // --- 統計邏輯 ---
+            // --- [恢復] 統計與名單計算邏輯 ---
+            // 1. 計算該日預休人數 (資料庫別人 + 我目前的修改)
             const offCount = this.calculateDailyOffCount(d);
             const limit = this.rules.dailyLimit;
             const isFull = (limit > 0 && offCount >= limit);
             
-            // 決定邊框顏色
+            // 2. 決定邊框顏色 (Orange: 充足, Red: 滿了)
             if (limit > 0) {
                 if (isFull) div.classList.add('quota-full');      
                 else div.classList.add('quota-available');        
             }
 
-            // Tooltip (Hover)
+            // 3. Tooltip (顯示姓名)
             let tooltipText = `預休: ${offCount} 人`;
             if (this.rules.showNames && offCount > 0) {
                 const names = this.getDailyOffNames(d);
-                tooltipText += `\n名單: ${names.join(', ')}`;
+                if (names.length > 0) {
+                    tooltipText += `\n名單: ${names.join(', ')}`;
+                }
             }
             div.title = tooltipText;
 
@@ -303,7 +302,7 @@ const staffPreScheduleManager = {
                 }
             }
 
-            // 右下角統計數字
+            // 4. 右下角統計數字
             const statsText = limit > 0 ? `${offCount}/${limit}` : `${offCount}`;
             const statsColor = isFull ? '#e74c3c' : '#aaa'; 
 
@@ -314,7 +313,9 @@ const staffPreScheduleManager = {
             `;
 
             if (!this.isReadOnly) {
+                // 左鍵：預設排休
                 div.onclick = () => this.handleLeftClick(d);
+                // 右鍵：更多選項
                 div.oncontextmenu = (e) => this.handleRightClick(e, d);
             } else {
                 div.classList.add('disabled');
@@ -324,26 +325,29 @@ const staffPreScheduleManager = {
         }
     },
 
-    // --- 輔助函數 ---
+    // --- [恢復] 核心統計輔助函式 ---
+    
+    // 計算某天總共有多少人休假 (含我)
     calculateDailyOffCount: function(day) {
         let count = 0;
         const key = `current_${day}`;
         const myUid = app.currentUser.uid;
 
-        // 1. 算別人
+        // 1. 算別人 (從資料庫讀取)
         Object.keys(this.allAssignments).forEach(uid => {
             if (uid !== myUid && this.allAssignments[uid][key] === 'REQ_OFF') {
                 count++;
             }
         });
         
-        // 2. 算我 (依目前編輯狀態)
+        // 2. 算我 (從本地編輯狀態讀取)
         if (this.userRequest[key] === 'REQ_OFF') {
             count++;
         }
         return count;
     },
 
+    // 取得某天休假的名單
     getDailyOffNames: function(day) {
         const names = [];
         const key = `current_${day}`;
@@ -375,25 +379,19 @@ const staffPreScheduleManager = {
 
     handleLeftClick: function(day) {
         if(this.isReadOnly) return;
-        
         const key = `current_${day}`;
         const currentVal = this.userRequest[key];
-
-        if (!currentVal) {
-            this.trySetShift(day, 'REQ_OFF');
-        } else {
-            this.trySetShift(day, null);
-        }
+        // 空白 -> 休，其他 -> 清除
+        if (!currentVal) this.trySetShift(day, 'REQ_OFF');
+        else this.trySetShift(day, null);
     },
 
     handleRightClick: function(e, day) {
         e.preventDefault();
         if(this.isReadOnly) return;
-        
         this.selectedDay = day;
         const menu = document.getElementById('staffContextMenu');
         
-        // 構建選單
         let html = `
             <div class="menu-header" style="padding:8px 12px; font-weight:bold; background:#f0f0f0; border-bottom:1px solid #ddd;">
                 ${this.data.month}月${day}日
@@ -454,24 +452,21 @@ const staffPreScheduleManager = {
                 alert(`無法預休：您本月預休已達上限 (${this.rules.maxOff} 天)`);
                 return;
             }
-        }
-
-        // 檢查 2: 每日名額上限
-        if (val === 'REQ_OFF') {
-             const dayCount = this.calculateDailyOffCount(day);
-             const myOldVal = this.userRequest[key];
-             // 如果我原本不是休，那加了我之後數量會 +1
-             const willBeCount = (myOldVal === 'REQ_OFF') ? dayCount : dayCount + 1;
+            
+            // 檢查 2: 每日名額上限 (預測)
+            const dayCount = this.calculateDailyOffCount(day);
+            const myOldVal = this.userRequest[key];
+            const willBeCount = (myOldVal === 'REQ_OFF') ? dayCount : dayCount + 1;
              
-             if (this.rules.dailyLimit > 0 && willBeCount > this.rules.dailyLimit) {
+            if (this.rules.dailyLimit > 0 && willBeCount > this.rules.dailyLimit) {
                  if(!confirm(`該日預休名額將達 (${willBeCount}/${this.rules.dailyLimit}) 人。確定仍要排休嗎？`)) return;
-             }
+            }
         }
 
         if (val === null) delete this.userRequest[key];
         else this.userRequest[key] = val;
         
-        this.renderCalendar(); 
+        this.renderCalendar(); // 重繪
         this.updateSidebarStats();
     },
 
