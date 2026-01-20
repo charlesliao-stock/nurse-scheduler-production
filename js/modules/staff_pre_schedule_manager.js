@@ -162,7 +162,7 @@ const staffPreScheduleManager = {
     // --- 3. 渲染側邊欄 ---
     renderSidebar: function() {
         const bundleSelect = document.getElementById('inputBundleShift');
-        const bundleSection = document.getElementById('bundleSection');
+        const bundleGroup = document.getElementById('bundleGroup');
         if (bundleSelect) {
             const canBundle = this.userData?.schedulingParams?.canBundleShifts === true;
             if (canBundle) {
@@ -173,59 +173,93 @@ const staffPreScheduleManager = {
                 bundleSelect.innerHTML = options;
                 bundleSelect.disabled = this.isReadOnly;
                 if (this.userRequest.preferences?.bundleShift) bundleSelect.value = this.userRequest.preferences.bundleShift;
-                if(bundleSection) bundleSection.style.display = 'block';
+                if(bundleGroup) bundleGroup.style.display = 'block';
             } else {
-                bundleSelect.innerHTML = '<option value="">未開放包班</option>';
-                bundleSelect.disabled = true;
+                if(bundleGroup) bundleGroup.style.display = 'none';
             }
         }
 
-        const prefList = document.getElementById('prefList');
-        if (prefList) {
-            const savedPref = this.userRequest.preferences?.favShift || '';
-            prefList.innerHTML = `
-                <div class="form-group" style="margin-top:15px;">
-                    <label style="font-weight:bold; color:#2c3e50;">偏好主要班別</label>
+        const prefContainer = document.getElementById('prefContainer');
+        if (prefContainer) {
+            const preferences = this.userRequest.preferences || {};
+            let html = '';
+            
+            // 志願 1
+            const pref1 = preferences.favShift || '';
+            html += `
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="flex-shrink:0; width:60px;">第一志願</span>
                     <select id="pref_favShift" class="pref-select form-control" ${this.isReadOnly ? 'disabled' : ''}>
                         <option value="">無特別偏好</option>
-                        ${this.shifts.map(s => `<option value="${s.code}" ${savedPref===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
+                        ${this.shifts.map(s => `<option value="${s.code}" ${pref1===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
                     </select>
                 </div>
             `;
+
+            // 志願 2
+            const pref2 = preferences.favShift2 || '';
+            html += `
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="flex-shrink:0; width:60px;">第二志願</span>
+                    <select id="pref_favShift2" class="pref-select form-control" ${this.isReadOnly ? 'disabled' : ''}>
+                        <option value="">無特別偏好</option>
+                        ${this.shifts.map(s => `<option value="${s.code}" ${pref2===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
+                    </select>
+                </div>
+            `;
+
+            prefContainer.innerHTML = html;
         }
     },
 
     updateSidebarStats: function() {
-        const statsDiv = document.getElementById('staffStats');
-        if(!statsDiv) return;
-
         const offCount = this.countMyOffs();
-        let avoidCount = 0;
-        let shiftCount = 0;
+        const holidayOffCount = this.countMyHolidayOffs();
+        
+        const elOffCount = document.getElementById('statOffCount');
+        const elMaxOff = document.getElementById('limitMaxOff');
+        const elHolidayOffCount = document.getElementById('statHolidayOffCount');
+        const elMaxHoliday = document.getElementById('limitMaxHoliday');
 
-        Object.values(this.userRequest).forEach(v => {
-            if(typeof v !== 'string') return;
-            if(v.startsWith('!')) avoidCount++;
-            else if (v !== 'REQ_OFF' && !v.startsWith('preference')) shiftCount++;
+        if (elOffCount) {
+            elOffCount.innerText = offCount;
+            elOffCount.style.color = offCount > this.rules.maxOff ? '#e74c3c' : 'inherit';
+        }
+        if (elMaxOff) elMaxOff.innerText = this.rules.maxOff;
+        
+        if (elHolidayOffCount) {
+            elHolidayOffCount.innerText = holidayOffCount;
+            // 假設假日也有上限，如果有的話可以加顏色
+        }
+        if (elMaxHoliday) elMaxHoliday.innerText = this.rules.maxHoliday;
+
+        // 懷孕/哺乳狀態
+        const specialArea = document.getElementById('specialStatusArea');
+        if (specialArea) {
+            const isPregnant = this.userData?.isPregnant === true;
+            const isBreastfeeding = this.userData?.isBreastfeeding === true;
+            
+            document.getElementById('badgePregnant').style.display = isPregnant ? 'inline-block' : 'none';
+            document.getElementById('badgeBreastfeeding').style.display = isBreastfeeding ? 'inline-block' : 'none';
+            
+            specialArea.style.display = (isPregnant || isBreastfeeding) ? 'block' : 'none';
+        }
+    },
+
+    countMyHolidayOffs: function() {
+        let count = 0;
+        const year = this.data.year;
+        const month = this.data.month;
+        
+        Object.keys(this.userRequest).forEach(key => {
+            if (key.startsWith('current_') && this.userRequest[key] === 'REQ_OFF') {
+                const day = parseInt(key.replace('current_', ''));
+                const dateObj = new Date(year, month - 1, day);
+                const isWeekend = (dateObj.getDay() === 0 || dateObj.getDay() === 6);
+                if (isWeekend) count++;
+            }
         });
-
-        // 超額紅字邏輯
-        const isOverLimit = offCount > this.rules.maxOff;
-        const offColor = isOverLimit ? '#e74c3c' : '#2c3e50';
-
-        statsDiv.innerHTML = `
-            <div style="margin-bottom:10px; border-bottom:1px solid #eee; padding-bottom:10px;">
-                <div style="display:flex; justify-content:space-between;">
-                    <span>已預休天數:</span>
-                    <span style="font-weight:bold; color:${offColor};">${offCount} / ${this.rules.maxOff}</span>
-                </div>
-                <div style="font-size:0.8rem; color:#999;">(本月假日共 ${this.rules.maxHoliday} 天)</div>
-            </div>
-            <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                <span class="badge badge-primary">指定: ${shiftCount}</span>
-                <span class="badge badge-danger">勿排: ${avoidCount}</span>
-            </div>
-        `;
+        return count;
     },
 
     // --- 4. 核心渲染：日曆視圖 (含統計、名單、顏色) ---
