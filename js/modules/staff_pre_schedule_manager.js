@@ -144,19 +144,11 @@ const staffPreScheduleManager = {
 
     parseRules: function() {
         const settings = this.data.settings || {};
-        this.rules.maxOff = parseInt(settings.maxPreScheduleOff) || 8;
-        this.rules.dailyLimit = parseInt(settings.maxDailyOff) || 0; // 0 為不限
-        this.rules.showNames = (settings.privacyShowNames !== false); 
-        
-        const year = this.data.year;
-        const month = this.data.month;
-        const daysInMonth = new Date(year, month, 0).getDate();
-        let holidays = 0;
-        for(let d=1; d<=daysInMonth; d++) {
-            const day = new Date(year, month-1, d).getDay();
-            if(day === 0 || day === 6) holidays++;
-        }
-        this.rules.maxHoliday = holidays;
+        // [修正] 對應 pre_schedule_manager.js 中的欄位名稱
+        this.rules.maxOff = parseInt(settings.maxOffDays) || 8;
+        this.rules.maxHoliday = parseInt(settings.maxHolidayOffs) || 0;
+        this.rules.dailyLimit = parseInt(settings.dailyReserved) || 0; // 這裡通常是控床名額，但在預班端可能被當作上限
+        this.rules.showNames = (settings.showAllNames !== false); 
     },
 
     // --- 3. 渲染側邊欄 ---
@@ -229,7 +221,7 @@ const staffPreScheduleManager = {
         
         if (elHolidayOffCount) {
             elHolidayOffCount.innerText = holidayOffCount;
-            // 假設假日也有上限，如果有的話可以加顏色
+            elHolidayOffCount.style.color = (this.rules.maxHoliday > 0 && holidayOffCount > this.rules.maxHoliday) ? '#e74c3c' : 'inherit';
         }
         if (elMaxHoliday) elMaxHoliday.innerText = this.rules.maxHoliday;
 
@@ -481,10 +473,27 @@ const staffPreScheduleManager = {
         // 檢查 1: 個人預休上限
         if (val === 'REQ_OFF') {
             const currentOffs = this.countMyOffs();
+            const currentHolidayOffs = this.countMyHolidayOffs();
             const oldValue = this.userRequest[key];
-            if (oldValue !== 'REQ_OFF' && currentOffs >= this.rules.maxOff) {
-                alert(`無法預休：您本月預休已達上限 (${this.rules.maxOff} 天)`);
-                return;
+            
+            if (oldValue !== 'REQ_OFF') {
+                // 總預休上限檢查
+                if (currentOffs >= this.rules.maxOff) {
+                    alert(`無法預休：您本月預休已達上限 (${this.rules.maxOff} 天)`);
+                    return;
+                }
+                
+                // 假日預休上限檢查
+                const year = this.data.year;
+                const month = this.data.month;
+                const day = parseInt(key.replace('current_', ''));
+                const dateObj = new Date(year, month - 1, day);
+                const isWeekend = (dateObj.getDay() === 0 || dateObj.getDay() === 6);
+                
+                if (isWeekend && this.rules.maxHoliday > 0 && currentHolidayOffs >= this.rules.maxHoliday) {
+                    alert(`無法預休：您本月假日預休已達上限 (${this.rules.maxHoliday} 天)`);
+                    return;
+                }
             }
             
             // 檢查 2: 每日名額上限 (預測)
