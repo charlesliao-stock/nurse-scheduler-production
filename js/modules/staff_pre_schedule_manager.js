@@ -151,6 +151,50 @@ const staffPreScheduleManager = {
         this.rules.showNames = (settings.showAllNames !== false); 
     },
 
+    // [新增] 取得每日可預班人數 (分母)
+    // 邏輯：人員設定中的總人數 - 每日需求設定中的總需求數
+    getDailyQuota: function(day) {
+        if (!this.data) return 0;
+        
+        // 1. 取得人員設定中的總人數 (來自 staffList)
+        const totalStaff = (this.data.staffList || []).length;
+        
+        // 2. 取得該日的每日需求數 (來自 dailyNeeds 或 specificNeeds)
+        const year = this.data.year;
+        const month = this.data.month;
+        const dateObj = new Date(year, month - 1, day);
+        const dayOfWeek = dateObj.getDay(); // 0 (日) 到 6 (六)
+        const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        
+        let dailyNeedCount = 0;
+        
+        // 優先檢查臨時需求 (specificNeeds)
+        const specific = this.data.specificNeeds || {};
+        const hasSpecific = Object.values(specific).some(sn => sn.date === dateStr);
+        
+        if (hasSpecific) {
+            // 如果當天有臨時需求，加總該日所有班別的需求
+            Object.values(specific).forEach(sn => {
+                if (sn.date === dateStr) {
+                    dailyNeedCount += (parseInt(sn.count) || 0);
+                }
+            });
+        } else {
+            // 否則使用週循環需求 (dailyNeeds)
+            const needs = this.data.dailyNeeds || {};
+            this.shifts.forEach(s => {
+                const key = `${s.code}_${dayOfWeek}`;
+                if (needs[key]) {
+                    dailyNeedCount += (parseInt(needs[key]) || 0);
+                }
+            });
+        }
+        
+        // 3. 計算分母：總人數 - 總需求數
+        // 確保結果不小於 0
+        return Math.max(0, totalStaff - dailyNeedCount);
+    },
+
     // --- 3. 渲染側邊欄 ---
     renderSidebar: function() {
         const bundleSelect = document.getElementById('inputBundleShift');
@@ -290,7 +334,8 @@ const staffPreScheduleManager = {
             // --- [恢復] 統計與名單計算邏輯 ---
             // 1. 計算該日預休人數 (資料庫別人 + 我目前的修改)
             const offCount = this.calculateDailyOffCount(d);
-            const limit = this.rules.dailyLimit;
+            // [修正] 分母改為「可預班人數」 = 總人數 - 每日需求數
+            const limit = this.getDailyQuota(d);
             const isFull = (limit > 0 && offCount >= limit);
             
             // 2. 決定邊框顏色 (Orange: 充足, Red: 滿了)
@@ -300,7 +345,7 @@ const staffPreScheduleManager = {
             }
 
             // 3. Tooltip (顯示姓名)
-            let tooltipText = `預休: ${offCount} 人`;
+            let tooltipText = `預休: ${offCount} 人 / 可預休上限: ${limit} 人`;
             if (this.rules.showNames && offCount > 0) {
                 const names = this.getDailyOffNames(d);
                 if (names.length > 0) {
@@ -330,7 +375,7 @@ const staffPreScheduleManager = {
 
             // 4. 右下角統計數字
             const statsText = limit > 0 ? `${offCount}/${limit}` : `${offCount}`;
-            const statsColor = isFull ? '#e74c3c' : '#aaa'; 
+            const statsColor = (limit > 0 && isFull) ? '#e74c3c' : '#aaa'; 
 
             div.innerHTML = `
                 <div class="day-number ${isWeekend?'holiday':''}">${d}</div>
@@ -500,9 +545,12 @@ const staffPreScheduleManager = {
             const dayCount = this.calculateDailyOffCount(day);
             const myOldVal = this.userRequest[key];
             const willBeCount = (myOldVal === 'REQ_OFF') ? dayCount : dayCount + 1;
+            
+            // [修正] 使用 getDailyQuota(day) 作為上限判斷基準
+            const limit = this.getDailyQuota(day);
              
-            if (this.rules.dailyLimit > 0 && willBeCount > this.rules.dailyLimit) {
-                 if(!confirm(`該日預休名額將達 (${willBeCount}/${this.rules.dailyLimit}) 人。確定仍要排休嗎？`)) return;
+            if (limit > 0 && willBeCount > limit) {
+                 if(!confirm(`該日預休名額將達 (${willBeCount}/${limit}) 人。確定仍要排休嗎？`)) return;
             }
         }
 
