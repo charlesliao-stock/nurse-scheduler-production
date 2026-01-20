@@ -15,12 +15,23 @@ const scheduleEditorManager = {
         try {
             await this.loadContext(); 
             await Promise.all([this.loadShifts(), this.loadUsers(), this.loadUnitRules()]);
-if(typeof scoringManager !== 'undefined') {
-    await scoringManager.loadSettings(this.data.unitId);
-}
             
-            this.assignments = this.data.assignments || {};
+            if(typeof scoringManager !== 'undefined') {
+                await scoringManager.loadSettings(this.data.unitId);
+            }
             
+            // [修正] 資料驗證：確保 assignments 物件存在
+            if (!this.data.assignments || typeof this.data.assignments !== 'object') {
+                console.warn("Assignments data is missing or invalid. Initializing empty object.");
+                this.data.assignments = {};
+            }
+            this.assignments = this.data.assignments;
+            
+            // [修正] 驗證 staffList
+            if (!this.data.staffList || !Array.isArray(this.data.staffList)) {
+                throw new Error("人員名單 (StaffList) 資料損毀，無法載入排班表。");
+            }
+
             this.renderToolbar(); 
             this.renderScoreBoardContainer(); 
             this.renderMatrix();
@@ -35,7 +46,10 @@ if(typeof scoringManager !== 'undefined') {
                 menu.className = 'context-menu';
                 document.body.appendChild(menu);
             }
-        } catch (e) { alert("初始化失敗: " + e.message); }
+        } catch (e) { 
+            console.error(e);
+            document.getElementById('schBody').innerHTML = `<tr><td colspan="20" style="color:red; text-align:center; padding:20px;">初始化失敗: ${e.message}</td></tr>`;
+        }
         finally { this.isLoading = false; }
     },
 
@@ -236,7 +250,6 @@ if(typeof scoringManager !== 'undefined') {
                 }
             });
 
-            // 準備員工資料 (含組別)
             const staffListForAI = this.data.staffList.map(s => {
                 const ua = this.assignments[s.uid] || {};
                 const preReq = {};
@@ -245,7 +258,6 @@ if(typeof scoringManager !== 'undefined') {
                     if(ua[k] === 'REQ_OFF') preReq[this.getDateStr(d)] = 'REQ_OFF';
                 }
                 
-                // 重要：傳遞組別資訊給 AI
                 const userDetail = this.usersMap[s.uid];
                 const group = userDetail ? userDetail.groupId : '';
 
@@ -260,7 +272,7 @@ if(typeof scoringManager !== 'undefined') {
             const rules = {
                 dailyNeeds: this.data.dailyNeeds || {},
                 specificNeeds: this.data.specificNeeds || {}, 
-                groupLimits: this.data.groupLimits || {}, // 傳遞組別限制
+                groupLimits: this.data.groupLimits || {}, 
                 shiftCodes: this.shifts.map(s => s.code),
                 shifts: this.shifts, 
                 ...this.unitRules, 
