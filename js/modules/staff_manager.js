@@ -79,7 +79,8 @@ const staffManager = {
         if(this.isLoading) return;
         const tbody = document.getElementById('staffTableBody');
         if(!tbody) return;
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">資料載入中...</td></tr>';
+        
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;"><i class="fas fa-spinner fa-spin"></i> 資料載入中...</td></tr>';
         this.isLoading = true;
 
         let query = db.collection('users').where('isActive', '==', true);
@@ -93,7 +94,18 @@ const staffManager = {
             this.renderTable();
         } catch (error) {
             console.error("Fetch Data Error:", error);
-            tbody.innerHTML = `<tr><td colspan="7" style="color:red;">載入失敗: ${error.message}</td></tr>`;
+            // [修正] 更友善的 UI 錯誤提示
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" style="text-align:center; padding:30px; color:#e74c3c;">
+                        <i class="fas fa-exclamation-triangle" style="font-size:2rem; margin-bottom:10px;"></i><br>
+                        <strong>資料載入失敗</strong><br>
+                        <small>錯誤代碼: ${error.message}</small><br>
+                        <button class="btn btn-sm" onclick="staffManager.fetchData()" style="margin-top:10px; background:#95a5a6; color:white;">
+                            <i class="fas fa-sync"></i> 重試
+                        </button>
+                    </td>
+                </tr>`;
         } finally { this.isLoading = false; }
     },
 
@@ -203,7 +215,6 @@ const staffManager = {
             this.onUnitChange(); 
             document.getElementById('inputGroup').value = u.groupId || '';
 
-            // [修正] 載入特殊身份與日期
             const params = u.schedulingParams || {};
             document.getElementById('checkPregnant').checked = params.isPregnant || false;
             document.getElementById('datePregnant').value = params.pregnantExpiry || '';
@@ -256,14 +267,11 @@ const staffManager = {
             hireDate: document.getElementById('inputHireDate').value,
             role: selectedRole,
             isActive: true,
-            // [修正] 儲存特殊身份與日期
             schedulingParams: {
                 isPregnant: document.getElementById('checkPregnant').checked,
                 pregnantExpiry: document.getElementById('datePregnant').value,
-                
                 isBreastfeeding: document.getElementById('checkBreastfeeding').checked,
                 breastfeedingExpiry: document.getElementById('dateBreastfeeding').value,
-                
                 canBundleShifts: document.getElementById('checkBundle').checked
             },
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
