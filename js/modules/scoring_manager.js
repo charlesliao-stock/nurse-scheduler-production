@@ -1,11 +1,10 @@
 // js/modules/scoring_manager.js
-// 🚀 最終進化版：支援詳細評分視窗結構 (Details Structure)
+// 🚀 最終修正版：動態讀取設定、精確計算人力缺口 (應排 vs 實排)
 
 const scoringManager = {
     aiBaseScore: null,     
     currentSettings: null, 
 
-    // --- 1. 資料初始化 ---
     loadSettings: async function(unitId) {
         if(!unitId) { this.currentSettings = this.getDefaultSettings(); return; }
         try {
@@ -35,37 +34,44 @@ const scoringManager = {
         return Math.round((currentScore - this.aiBaseScore) * 10) / 10;
     },
 
-    // --- 2. 核心計算 (回傳詳細結構) ---
-    calculate: function(scheduleData, staffList, year, month) {
+    // --- 核心計算 ---
+    // 這裡我們需要 dailyNeeds 來計算缺口，但原本架構 scheduleData 只有 assignments
+    // 為了解決此問題，我們嘗試從 scheduleData 外部傳入 needs，或者在此進行估算
+    // 最佳解：在 calculate 時傳入 dailyNeeds。
+    // 如果 schedule_editor_manager 沒有傳 dailyNeeds，我們會嘗試從 data 恢復，或忽略此項
+    
+    calculate: function(scheduleData, staffList, year, month, extraData = {}) {
         const settings = this.currentSettings || this.getDefaultSettings();
         const enables = settings.enables || {};
-        const thresholds = settings.thresholds || {}; // 這裡當作各子項的"配分"
+        const thresholds = settings.thresholds || {}; 
         const daysInMonth = new Date(year, month, 0).getDate();
+        
+        // 取得每日需求設定 (若有傳入)
+        // extraData 應該由外部傳入 { dailyNeeds: ... }
+        // 為了相容舊呼叫方式，這裡做個防呆
+        let dailyNeeds = {};
+        if (extraData && extraData.dailyNeeds) {
+            dailyNeeds = extraData.dailyNeeds;
+        } else {
+            // 如果沒傳，嘗試從全域或 DOM 獲取 (這是不好的做法，但為了救急)
+            // 建議 schedule_editor_manager.js 的 updateScheduleScore 修改呼叫方式
+            if (typeof scheduleEditorManager !== 'undefined' && scheduleEditorManager.data) {
+                dailyNeeds = scheduleEditorManager.data.dailyNeeds || {};
+            }
+        }
 
-        // 定義結構與標籤
         const structure = {
-            fairness: { label: "1. 公平性指標", subs: {
-                hoursDiff: "工時差異 (標準差)", nightDiff: "夜班差異 (次)", holidayDiff: "假日差異 (天)"
-            }},
-            satisfaction: { label: "2. 滿意度指標", subs: {
-                prefRate: "排班偏好達成率", wishRate: "預班願望達成率"
-            }},
-            fatigue: { label: "3. 疲勞度指標", subs: {
-                consWork: "連續上班超過限制", nToD: "夜接日 (N-D) 次數", offTargetRate: "積借休達成率", weeklyNight: "單週夜班過量"
-            }},
-            efficiency: { label: "4. 效率指標", subs: {
-                shortageRate: "人力缺口率", seniorDist: "資深人員分佈", juniorDist: "新進人員分佈"
-            }},
-            cost: { label: "5. 成本指標", subs: {
-                overtimeRate: "加班費控管"
-            }}
+            fairness: { label: "1. 公平性指標", subs: { hoursDiff: "工時差異", nightDiff: "夜班差異", holidayDiff: "假日差異" }},
+            satisfaction: { label: "2. 滿意度指標", subs: { wishRate: "預班願望達成率" }},
+            fatigue: { label: "3. 疲勞度指標", subs: { consWork: "連續上班限制" }},
+            efficiency: { label: "4. 效率指標", subs: { shortageRate: "人力缺口率" }},
+            cost: { label: "5. 成本指標", subs: { overtimeRate: "加班費控管" }}
         };
 
         let grandTotalScore = 0;
         let grandTotalMax = 0;
         const resultDetails = {};
 
-        // 開始逐項計算
         for (let catKey in structure) {
             const catConfig = structure[catKey];
             const subResults = [];
@@ -74,22 +80,16 @@ const scoringManager = {
 
             for (let subKey in catConfig.subs) {
                 if (enables[subKey]) {
-                    // 1. 取得該項配分 (Weight)
                     const weight = parseFloat(thresholds[subKey] || 0);
                     
-                    // 2. 計算原始得分 (1-5分)
-                    const rawTierScore = this.calculateSubItemRaw(subKey, scheduleData, staffList, year, month, daysInMonth, settings);
-                    
-                    // 3. 換算實際得分: (原始分 / 5) * 配分
-                    // 例如: 拿4分(良好)，配分10分 => (4/5)*10 = 8分
+                    // 傳入 dailyNeeds 給子計算
+                    const rawTierScore = this.calculateSubItemRaw(subKey, scheduleData, staffList, year, month, daysInMonth, settings, dailyNeeds);
                     const actualScore = (rawTierScore / 5) * weight;
 
                     subResults.push({
-                        key: subKey,
-                        label: catConfig.subs[subKey],
+                        key: subKey, label: catConfig.subs[subKey],
                         score: Math.round(actualScore * 10) / 10,
-                        max: weight,
-                        tier: rawTierScore // 保留原始級距分(除錯用)
+                        max: weight, tier: rawTierScore
                     });
 
                     catScore += actualScore;
@@ -108,9 +108,6 @@ const scoringManager = {
             grandTotalMax += catMax;
         }
 
-        // 雖然理論上總分是各項加總，但為了避免浮點數誤差，或是如果有些項目未啟用
-        // 這裡我們直接回傳 grandTotalScore
-        
         return {
             total: Math.round(grandTotalScore * 10) / 10,
             maxTotal: grandTotalMax,
@@ -118,8 +115,7 @@ const scoringManager = {
         };
     },
 
-    // --- 3. 各子項原始分數計算 (回傳 1-5 分) ---
-    calculateSubItemRaw: function(subKey, scheduleData, staffList, year, month, days, settings) {
+    calculateSubItemRaw: function(subKey, scheduleData, staffList, year, month, days, settings, dailyNeeds) {
         const tiers = settings.tiers || {};
         
         // 公平性
@@ -128,7 +124,7 @@ const scoringManager = {
             return this.getScoreByTier(this.getStdDev(hours), tiers.hoursDiff);
         }
         if (subKey === 'nightDiff') {
-            const counts = staffList.map(s => this.countShifts(scheduleData[s.uid], ['N', 'EN', 'AN']));
+            const counts = staffList.map(s => this.countShifts(scheduleData[s.uid], ['N', 'EN', 'AN', 'MN']));
             return this.getScoreByTier(Math.max(...counts) - Math.min(...counts), tiers.nightDiff);
         }
         if (subKey === 'holidayDiff') {
@@ -144,15 +140,14 @@ const scoringManager = {
                 for (let d=1; d<=days; d++) {
                     if (params[`current_${d}`] === 'REQ_OFF') {
                         totalReq++;
-                        if (scheduleData[s.uid]?.[`current_${d}`] === 'OFF') hit++;
+                        const val = scheduleData[s.uid]?.[`current_${d}`];
+                        if (!val || val === 'OFF' || val === 'REQ_OFF') hit++;
                     }
                 }
             });
             const failRate = totalReq === 0 ? 0 : ((totalReq - hit) / totalReq) * 100;
             return this.getScoreByTier(failRate, tiers.wishRate);
         }
-        // 暫時給滿分項目 (未來可實作)
-        if (['prefRate'].includes(subKey)) return 5;
 
         // 疲勞度
         if (subKey === 'consWork') {
@@ -161,30 +156,95 @@ const scoringManager = {
                 let cons = 0;
                 for (let d=1; d<=days; d++) {
                     const shift = scheduleData[s.uid]?.[`current_${d}`];
-                    if (shift && shift !== 'OFF') {
+                    if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
                         cons++; if (cons > 6) totalVio++;
                     } else cons = 0;
                 }
             });
             return this.getScoreByTier(totalVio, tiers.consWork);
         }
-        // 暫時給滿分項目
-        if (['nToD', 'offTargetRate', 'weeklyNight'].includes(subKey)) return 5;
 
-        // 效率與成本 (暫時給滿分)
-        if (['shortageRate', 'seniorDist', 'juniorDist', 'overtimeRate'].includes(subKey)) return 5;
+        // [關鍵修正]：人力缺口率 (Shortage Rate)
+        // 邏輯：累加每天每班別的 (需求人數 - 實際人數)
+        if (subKey === 'shortageRate') {
+            let totalShortage = 0; // 總缺額 (人次)
+            let totalRequired = 0; // 總需求 (人次)
 
-        return 3; // 預設
+            // 統計每日實際排班狀況
+            // 結構: actualCounts[day][shiftCode] = count
+            const actualCounts = {};
+            for(let d=1; d<=days; d++) actualCounts[d] = {};
+
+            staffList.forEach(s => {
+                const assign = scheduleData[s.uid] || {};
+                for(let d=1; d<=days; d++) {
+                    const code = assign[`current_${d}`];
+                    if(code && code !== 'OFF' && code !== 'REQ_OFF') {
+                        if(!actualCounts[d][code]) actualCounts[d][code] = 0;
+                        actualCounts[d][code]++;
+                    }
+                }
+            });
+
+            // 比對需求
+            // dailyNeeds key 格式: "ShiftCode_DayOfWeek" (例如 "D_1")
+            // 我們需要反向遍歷：對於每一天，檢查所有班別的需求
+            
+            // 找出所有出現過的班別代號 (從 dailyNeeds 的 key 解析)
+            const shiftCodes = new Set();
+            Object.keys(dailyNeeds).forEach(k => {
+                const code = k.split('_')[0];
+                if(code) shiftCodes.add(code);
+            });
+
+            for (let d = 1; d <= days; d++) {
+                const dayOfWeek = new Date(year, month - 1, d).getDay(); // 0-6
+                
+                shiftCodes.forEach(code => {
+                    const needKey = `${code}_${dayOfWeek}`;
+                    const required = parseInt(dailyNeeds[needKey]) || 0;
+                    const actual = actualCounts[d][code] || 0;
+
+                    if (required > 0) {
+                        totalRequired += required;
+                        if (actual < required) {
+                            totalShortage += (required - actual);
+                        }
+                    }
+                });
+            }
+
+            // 若完全沒有設定需求，視為無缺口 (滿分)
+            if (totalRequired === 0) return 5;
+
+            // 計算缺口率 %
+            const shortageRate = (totalShortage / totalRequired) * 100;
+
+            // 使用「設定檔中的 Tiers」來決定分數，而不是寫死
+            return this.getScoreByTier(shortageRate, tiers.shortageRate);
+        }
+
+        if (subKey === 'overtimeRate') return 5; 
+
+        return 3;
     },
 
-    // --- 4. 輔助工具 ---
     getScoreByTier: function(value, tierList) {
-        if (!tierList || !tierList.length) return 3;
+        // 如果沒有設定 tier，回傳預設 3
+        if (!tierList || !Array.isArray(tierList) || tierList.length === 0) return 3;
+        
+        // 排序：假設 limit 是下限 (>= limit)，則由大到小排序找出第一個符合的
+        // 或者：假設 limit 是上限？通常是 "數值 >= X 得分 Y"
+        // 您的設定介面是 "下限 (>=)"
+        
         const sorted = [...tierList].sort((a, b) => b.limit - a.limit);
         for (let t of sorted) {
             if (value >= t.limit) return t.score;
         }
-        return sorted[sorted.length - 1].score;
+        // 如果比最小的 limit 還小 (例如缺口率 0.5%，最小 limit 是 1%)
+        // 通常這代表極佳，回傳列表最高分 (通常是最後一個或第一個，視排序而定)
+        // 這裡回傳 sorted 中分數最高的
+        return Math.max(...tierList.map(t => t.score));
     },
 
     getStdDev: function(array) {
@@ -194,7 +254,7 @@ const scoringManager = {
     },
     sumWorkHours: function(assign) {
         if (!assign) return 0;
-        return Object.values(assign).filter(v => v !== 'OFF' && v !== 'REQ_OFF').length * 8;
+        return Object.values(assign).filter(v => v && v !== 'OFF' && v !== 'REQ_OFF').length * 8;
     },
     countShifts: function(assign, codes) {
         if (!assign) return 0;
@@ -208,15 +268,12 @@ const scoringManager = {
             const day = date.getDay();
             if (day === 0 || day === 6) { 
                 const v = assign[`current_${d}`];
-                if (v === 'OFF' || v === 'REQ_OFF') count++;
+                if (!v || v === 'OFF' || v === 'REQ_OFF') count++;
             }
         }
         return count;
     },
     getDefaultSettings: function() {
-        // 回傳完整的預設結構，確保不會報錯
-        return {
-            weights: {}, enables: {}, thresholds: {}, tiers: {}
-        };
+        return { weights: {}, enables: {}, thresholds: {}, tiers: {} };
     }
 };
