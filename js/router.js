@@ -24,6 +24,9 @@ const router = {
         '/admin/schedule_list': 'schedule_list',
         '/admin/schedule_editor': 'schedule_matrix',
         '/admin/schedule_rules': 'schedule_rules'
+
+        '/staff/schedule': 'staff_schedule',          // 對應 staff_schedule.html
+        '/staff/exchange_list': 'shift_exchange_list' // 對應 shift_exchange_list.html
     },
 
     currentView: null,
@@ -108,8 +111,12 @@ const router = {
             if(typeof scheduleRuleManager !== 'undefined') scheduleRuleManager.init();
         }
         else if (viewName === 'score_settings') {
-    if(typeof scoreSettingsManager !== 'undefined') scoreSettingsManager.init();
-}
+            if(typeof scoreSettingsManager !== 'undefined') scoreSettingsManager.init();
+        }
+        else if (viewName === 'staff_schedule') {
+            if(typeof staffScheduleManager !== 'undefined') staffScheduleManager.init();
+        }
+// exchange_list 的 init 在 HTML 內或另建 manager
     },
 
     reset: function() {
