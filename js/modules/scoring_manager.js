@@ -80,34 +80,41 @@ const scoringManager = {
 
         let totalWeightedScore = 0;
         let totalWeight = 0;
+        const groupWeightedScores = {};
+        const groupWeights = {};
 
         for (let key in results) {
             const subKeys = metricMap[key] || [];
-            const isAnySubEnabled = subKeys.some(sk => enables[sk] === true);
+            let groupWeight = 0;
+            let groupScoreSum = 0;
+            let enabledSubCount = 0;
 
-            if (isAnySubEnabled) {
-                let groupWeight = 0;
-                subKeys.forEach(sk => {
-                    if (enables[sk]) {
-                        groupWeight += parseFloat(settings.thresholds?.[sk] || 0);
-                    }
-                });
-
-                if (groupWeight > 0) {
-                    totalWeightedScore += (results[key] * groupWeight);
-                    totalWeight += groupWeight;
+            subKeys.forEach(sk => {
+                if (enables[sk]) {
+                    const subWeight = parseFloat(settings.thresholds?.[sk] || 0);
+                    const subRawScore = subResults[sk] || 0; // 1-5 分
+                    // 將 1-5 分轉換為該細項權重下的得分 (例如 5分且權重10% = 10分)
+                    const subWeightedScore = (subRawScore / 5) * subWeight;
+                    
+                    subResults[sk] = subWeightedScore; // 更新為權重得分
+                    groupScoreSum += subWeightedScore;
+                    groupWeight += subWeight;
+                    enabledSubCount++;
                 }
-            } else {
-                results[key] = 0;
-            }
+            });
+
+            groupWeightedScores[key] = groupScoreSum;
+            groupWeights[key] = groupWeight;
+            
+            totalWeightedScore += groupScoreSum;
+            totalWeight += groupWeight;
         }
 
-        const finalScore = totalWeight > 0 ? (totalWeightedScore / totalWeight) : 0;
-
         return {
-            total: Math.round(finalScore * 10) / 10,
-            breakdown: results,
-            subBreakdown: subResults
+            total: Math.round(totalWeightedScore * 10) / 10, // 總分 (滿分通常為 100)
+            breakdown: groupWeightedScores, // 大項得分 (例如 25)
+            groupWeights: groupWeights,     // 大項配分 (例如 30)
+            subBreakdown: subResults        // 細項得分 (例如 8)
         };
     },
 

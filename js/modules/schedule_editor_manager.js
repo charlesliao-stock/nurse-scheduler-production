@@ -97,10 +97,10 @@ const scheduleEditorManager = {
     updateScheduleScore: function() {
         if (typeof scoringManager === 'undefined') return;
         const res = scoringManager.calculate(this.assignments, this.data.staffList, this.data.year, this.data.month);
-        // 將 1-5 分轉換為 0-100 百分比顯示
-        const score = Math.round(res.total * 20 * 10) / 10;
+        // 總分現在直接是權重得分加總 (滿分 100)
+        const score = res.total;
 
-        document.getElementById('scoreValue').innerText = score;
+        document.getElementById('scoreValue').innerText = Math.round(score);
         document.getElementById('scoreCircleBg').style.background = `conic-gradient(#3498db 0% ${score}%, #ecf0f1 ${score}% 100%)`;
         
         const badge = document.getElementById('scoreCompareBadge');
@@ -110,8 +110,8 @@ const scheduleEditorManager = {
             badge.style.color = '#7f8c8d'; badge.style.background='#f5f5f5';
         } else {
             const diff = (score - scoringManager.aiBaseScore).toFixed(1);
-            if (diff > 0) { badge.innerHTML = `▲ ${diff}%`; badge.style.color='#27ae60'; badge.style.background='#eafaf1'; }
-            else if (diff < 0) { badge.innerHTML = `▼ ${Math.abs(diff)}%`; badge.style.color='#e74c3c'; badge.style.background='#fdedec'; }
+            if (diff > 0) { badge.innerHTML = `▲ ${diff}`; badge.style.color='#27ae60'; badge.style.background='#eafaf1'; }
+            else if (diff < 0) { badge.innerHTML = `▼ ${Math.abs(diff)}`; badge.style.color='#e74c3c'; badge.style.background='#fdedec'; }
             else { badge.innerHTML = '持平'; badge.style.color='#7f8c8d'; badge.style.background='#f5f5f5'; }
         }
         this.lastScoreResult = res; // 暫存結果供彈窗使用
@@ -138,31 +138,28 @@ const scheduleEditorManager = {
 
         groups.forEach(g => {
             const groupScore = res.breakdown[g.key] || 0;
+            const groupWeight = res.groupWeights[g.key] || 0;
             const subKeys = Object.keys(config[g.key]?.subs || {});
             const enabledSubs = subKeys.filter(sk => enables[sk]);
             
             if(enabledSubs.length === 0) return;
 
-            // 計算該大項的總權重
-            let groupTotalWeight = 0;
-            enabledSubs.forEach(sk => groupTotalWeight += (thresholds[sk] || 0));
-
             html += `<div style="margin-bottom:20px; border:1px solid #eee; border-radius:8px; padding:15px;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                     <h4 style="margin:0; color:#2c3e50;">${g.label}</h4>
-                    <span style="font-weight:bold; color:#3498db; font-size:1.1rem;">${(groupScore * 20).toFixed(1)} / 100</span>
+                    <span style="font-weight:bold; color:#3498db; font-size:1.1rem;">${groupScore.toFixed(1)} / ${groupWeight}</span>
                 </div>`;
             
             enabledSubs.forEach(sk => {
                 const sub = config[g.key].subs[sk];
-                const subScore = res.subBreakdown?.[sk] || 0; // 需要在 scoringManager 補上 subBreakdown
+                const subScore = res.subBreakdown?.[sk] || 0;
                 const subWeight = thresholds[sk] || 0;
                 
                 html += `<div style="display:flex; justify-content:space-between; font-size:0.9rem; padding:5px 0; border-top:1px dashed #eee;">
                     <span style="color:#7f8c8d;">${sub.label}</span>
                     <span>
-                        <span style="font-weight:bold;">${(subScore * 20).toFixed(1)}</span>
-                        <span style="color:#999; font-size:0.8rem;"> (權重: ${subWeight}%)</span>
+                        <span style="font-weight:bold;">${subScore.toFixed(1)}</span>
+                        <span style="color:#999; font-size:0.8rem;"> / ${subWeight}</span>
                     </span>
                 </div>`;
             });
