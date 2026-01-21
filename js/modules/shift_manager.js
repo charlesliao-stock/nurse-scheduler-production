@@ -1,4 +1,5 @@
 // js/modules/shift_manager.js
+// 🔧 修改版：新增「排班偏好」設定欄位
 
 const shiftManager = {
     allShifts: [],
@@ -106,7 +107,12 @@ const shiftManager = {
         });
 
         filtered.forEach(s => {
-            const bundleIcon = s.isBundleAvailable ? '<i class="fas fa-check" style="color:#27ae60;"></i>' : '<span style="color:#eee;">-</span>';
+            // [新增] 顯示包班與偏好狀態
+            const bundleIcon = s.isBundleAvailable ? '<i class="fas fa-box" title="可包班" style="color:#27ae60; margin-right:5px;"></i>' : '';
+            const prefIcon = s.isPrefAvailable ? '<i class="fas fa-heart" title="可選偏好" style="color:#e74c3c;"></i>' : '';
+            
+            const statusDisplay = (bundleIcon || prefIcon) ? `${bundleIcon} ${prefIcon}` : '<span style="color:#eee;">-</span>';
+
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td><div class="color-dot" style="background-color:${s.color || '#ccc'};"></div></td>
@@ -114,7 +120,7 @@ const shiftManager = {
                 <td>${s.name}</td>
                 <td>${s.startTime} - ${s.endTime}</td>
                 <td>${s.hours || 0}</td>
-                <td style="text-align:center;">${bundleIcon}</td>
+                <td style="text-align:center;">${statusDisplay}</td>
                 <td>
                     <button class="btn btn-edit" onclick="shiftManager.openModal('${s.id}')">編輯</button>
                     <button class="btn btn-delete" onclick="shiftManager.deleteShift('${s.id}')">刪除</button>
@@ -147,7 +153,12 @@ const shiftManager = {
             document.getElementById('inputWorkHours').value = s.hours || 0;
             document.getElementById('inputShiftColor').value = s.color || '#3498db';
             document.getElementById('colorHexCode').textContent = s.color || '#3498db';
-            document.getElementById('checkIsBundle').checked = s.isBundleAvailable || false; // [新增]
+            document.getElementById('checkIsBundle').checked = s.isBundleAvailable || false;
+            
+            // [新增] 讀取偏好設定
+            const prefCheck = document.getElementById('checkIsPref');
+            if(prefCheck) prefCheck.checked = s.isPrefAvailable || false;
+
             modalUnitSelect.disabled = true;
         } else {
             if (currentUnitId) modalUnitSelect.value = currentUnitId;
@@ -158,7 +169,11 @@ const shiftManager = {
             document.getElementById('inputEndTime').value = '16:00';
             document.getElementById('inputWorkHours').value = '8';
             document.getElementById('inputShiftColor').value = '#3498db';
-            document.getElementById('checkIsBundle').checked = false; // [新增]
+            document.getElementById('checkIsBundle').checked = false;
+            
+            // [新增] 預設
+            const prefCheck = document.getElementById('checkIsPref');
+            if(prefCheck) prefCheck.checked = false;
         }
     },
 
@@ -184,7 +199,10 @@ const shiftManager = {
         const end = document.getElementById('inputEndTime').value;
         const hours = document.getElementById('inputWorkHours').value;
         const color = document.getElementById('inputShiftColor').value;
-        const isBundle = document.getElementById('checkIsBundle').checked; // [新增]
+        const isBundle = document.getElementById('checkIsBundle').checked;
+        
+        // [新增] 取得偏好設定值
+        const isPref = document.getElementById('checkIsPref') ? document.getElementById('checkIsPref').checked : false;
 
         if (!unitId || !code || !name || !start || !end) { alert("請填寫完整資訊"); return; }
 
@@ -196,7 +214,8 @@ const shiftManager = {
         const data = {
             unitId, code: code.toUpperCase(), name, startTime: start, endTime: end,
             hours: parseFloat(hours) || 0, color,
-            isBundleAvailable: isBundle, // [新增]
+            isBundleAvailable: isBundle, 
+            isPrefAvailable: isPref, // [新增] 存入資料庫
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
