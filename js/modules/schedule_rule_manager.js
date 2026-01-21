@@ -1,5 +1,5 @@
 // js/modules/schedule_rule_manager.js
-// 🔧 最終修正版
+// 🔧 最終修正版 - 已修復週日(0)存取問題
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -78,13 +78,17 @@ const scheduleRuleManager = {
             const setCheck = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val; };
             const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val || ''; };
 
+            // Hard Rules
             setCheck('rule_minGap11', r.hard?.minGap11 !== false);
             setCheck('rule_maxDiversity3', r.hard?.maxDiversity3 !== false);
             setCheck('rule_protectPregnant', r.hard?.protectPregnant !== false);
             setCheck('rule_twoOffPerFortnight', r.hard?.twoOffPerFortnight !== false);
-            setVal('rule_offGapMax', r.hard?.offGapMax || 12);
-            setVal('rule_weekStartDay', r.hard?.weekStartDay || 1);
+            
+            // [修正] 使用 ?? 運算子，確保 0 不會被視為 false 而變成預設值
+            setVal('rule_offGapMax', r.hard?.offGapMax ?? 12);
+            setVal('rule_weekStartDay', r.hard?.weekStartDay ?? 1); 
 
+            // Policy Rules
             setCheck('rule_limitConsecutive', r.policy?.limitConsecutive !== false);
             setVal('rule_maxConsDays', r.policy?.maxConsDays || 6);
             setVal('rule_longVacationDays', r.policy?.longVacationDays || 7);
@@ -103,6 +107,7 @@ const scheduleRuleManager = {
             if (r.policy?.nightEnd) document.getElementById('rule_nightEnd').value = r.policy.nightEnd;
             this.renderNightShiftOptions(r.policy?.noNightAfterOff_List || []);
 
+            // Pattern Rules
             setCheck('rule_consecutivePref', r.pattern?.consecutivePref !== false);
             setVal('rule_minConsecutive', r.pattern?.minConsecutive || 2);
             setCheck('rule_avoidLonelyOff', r.pattern?.avoidLonelyOff !== false);
@@ -110,12 +115,14 @@ const scheduleRuleManager = {
             this.renderStartShiftSelect(r.pattern?.dayStartShift || 'D');
             this.renderRotationSortableList(r.pattern?.rotationOrder || 'OFF,N,E,D');
 
+            // Fairness Rules
             setCheck('rule_fairOff', r.fairness?.fairOff !== false);
             setVal('rule_fairOffVar', r.fairness?.fairOffVar || 2);
             setCheck('rule_fairNight', r.fairness?.fairNight !== false);
             setVal('rule_fairNightVar', r.fairness?.fairNightVar || 2);
             setVal('rule_fairBalanceRounds', r.fairness?.balanceRounds || 100);
             
+            // AI Params
             setVal('ai_backtrack_depth', r.aiParams?.backtrack_depth || 3);
             setVal('ai_max_attempts', r.aiParams?.max_attempts || 20);
             setVal('ai_balancing_segments', r.aiParams?.balancingSegments || 1); 
@@ -131,7 +138,12 @@ const scheduleRuleManager = {
         
         const getCheck = (id) => { const el = document.getElementById(id); return el ? el.checked : false; };
         const getVal = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
-        const getInt = (id, def) => { const v = parseInt(getVal(id)); return isNaN(v) ? def : v; };
+        
+        // [修正] 改進 getInt 邏輯：明確檢查 NaN，允許 0 值通過
+        const getInt = (id, def) => { 
+            const v = parseInt(getVal(id)); 
+            return isNaN(v) ? def : v; 
+        };
 
         const rotationOrder = this.getRotationOrderFromDOM();
 
@@ -142,7 +154,7 @@ const scheduleRuleManager = {
                 protectPregnant: getCheck('rule_protectPregnant'),
                 twoOffPerFortnight: getCheck('rule_twoOffPerFortnight'),
                 offGapMax: getInt('rule_offGapMax', 12),
-                weekStartDay: getInt('rule_weekStartDay', 1)
+                weekStartDay: getInt('rule_weekStartDay', 1) // 現在可以正確儲存 0 了
             },
             policy: {
                 limitConsecutive: getCheck('rule_limitConsecutive'),
