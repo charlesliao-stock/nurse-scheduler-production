@@ -48,33 +48,79 @@
 </div>
 
 <style>
-    /* 表格基礎 */
-    #scheduleGrid th, #scheduleGrid td { vertical-align: middle; padding: 4px; }
+    /* --- 表格對齊核心修正 --- */
     
-    /* 上月班表區 (灰色背景) */
-    .prev-month-cell { background-color: #f0f0f0; color: #aaa; border-right: 1px dashed #ccc; }
-    .prev-month-header { background-color: #e9ecef; color: #7f8c8d; border-bottom: 2px solid #bdc3c7; }
+    /* 1. 給表格設定固定佈局演算法，讓寬度更穩定 */
+    #scheduleGrid {
+        table-layout: fixed; 
+        border-collapse: separate; /* 這是讓 sticky 生效的關鍵 */
+        border-spacing: 0;
+    }
 
-    /* 統計欄位 */
-    .stats-header { background-color: #d1ecf1; color: #0c5460; font-size: 0.85rem; width: 50px; }
-    .stats-cell { background-color: #e3f2fd; font-weight: bold; font-size: 0.9rem; color: #2980b9; }
+    /* 2. 定義姓名欄的固定寬度 (Sticky Left) */
+    .col-name {
+        width: 120px; 
+        min-width: 120px; 
+        max-width: 120px;
+        position: sticky; 
+        left: 0; 
+        border-right: 2px solid #ddd !important;
+        z-index: 10; /* Body 的層級 */
+        background: #fff;
+    }
 
-    /* 底部需求統計 */
-    .footer-cell { font-size: 0.75rem; text-align: left; vertical-align: top; padding: 2px !important; height: 80px; }
-    .footer-item { display: flex; justify-content: space-between; margin-bottom: 1px; }
-    .shortage { color: red; font-weight: bold; background: #ffe6e6; border-radius: 2px; padding: 0 2px; }
+    /* 3. 定義日期欄的固定寬度 */
+    .col-date {
+        width: 45px;      /* 強制寬度 */
+        min-width: 45px;
+        max-width: 45px;
+        padding: 4px 0 !important; /* 減少內距避免撐開 */
+        text-align: center;
+    }
+
+    /* 4. 定義統計欄的固定寬度 */
+    .col-stat {
+        width: 50px;
+        min-width: 50px;
+        font-size: 0.85rem;
+    }
+
+    /* --- 表頭特殊處理 (Sticky Top) --- */
+    #schHead th {
+        position: sticky;
+        top: 0;
+        z-index: 20; /* 比 Body 高 */
+        background-color: #f8f9fa; /* 避免透明看到下面的字 */
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        vertical-align: middle;
+    }
     
-    /* 按鈕樣式增強 */
-    .btn-action-lg { padding: 8px 20px; font-size: 1rem; border-radius: 50px; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: transform 0.1s; }
-    .btn-action-lg:active { transform: scale(0.98); }
+    /* 左上角那一格 (姓名/日期) 要最高層級，才不會被蓋住 */
+    #schHead th.col-name {
+        z-index: 30; 
+    }
 
-    /* 單元格樣式 */
+    /* --- 頁尾特殊處理 (Sticky Bottom) --- */
+    #schFoot td {
+        position: sticky;
+        bottom: 0;
+        z-index: 20;
+        background-color: #f1f1f1;
+        border-top: 2px solid #999;
+    }
+    #schFoot td.col-name {
+        z-index: 30; /* 左下角也要最高層級 */
+    }
+
+    /* --- 其他原有樣式保持不變 --- */
     .cell-clickable:hover { background-color: #f9f9f9; cursor: pointer; border: 2px solid #3498db; }
+    .prev-month-cell { background-color: #f0f0f0; color: #aaa; border-right: 1px dashed #ccc; }
+    .prev-month-header { background-color: #e9ecef; color: #7f8c8d; }
     .shift-req-off { background-color: #ffeaa7; color: #d35400; font-weight: bold; }
     .shift-off { background-color: #eee; color: #999; }
-    
-    .score-val.perfect { color: #27ae60; }
-    .score-val.bad { color: #e74c3c; }
+    .footer-cell { font-size: 0.75rem; text-align: left; vertical-align: top; padding: 2px !important; height: 80px; overflow:hidden; }
+    .footer-item { display: flex; justify-content: space-between; margin-bottom: 1px; }
+    .shortage { color: red; font-weight: bold; background: #ffe6e6; border-radius: 2px; padding: 0 2px; }
     
     /* 右鍵選單 */
     .context-menu { background: white; border: 1px solid #ccc; box-shadow: 2px 2px 5px rgba(0,0,0,0.2); border-radius: 4px; padding: 0; min-width: 150px; }
