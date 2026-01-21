@@ -11,26 +11,22 @@
                 <div class="score-badge" style="background:#2ecc71; color:white; padding:5px 15px; border-radius:20px; font-weight:bold; box-shadow:0 2px 5px rgba(46, 204, 113, 0.3); transition:all 0.2s;">
                     <i class="fas fa-star"></i> 評分: <span id="mainScoreDisplay">--</span>
                 </div>
-                <i class="fas fa-info-circle" style="color:#95a5a6; margin-left:8px; font-size:0.9rem;"></i>
             </div>
-
             <span id="schStatus" class="badge"></span>
         </div>
         
-        <div id="toolbarRight" style="display:flex; align-items:center; gap:8px;">
-            </div>
+        <div id="toolbarRight" style="display:flex; align-items:center; gap:10px;"></div>
     </div>
 
     <div style="flex:1; display:flex; overflow:hidden; flex-direction: column;">
         <div id="matrixContainer" style="flex:1; overflow:auto; position:relative; background:#fff;">
-            <table id="scheduleGrid" class="table table-bordered table-sm text-center" style="min-width: 1800px; font-size: 0.9rem;">
-                <thead id="schHead" class="thead-light" style="position:sticky; top:0; z-index:100;"></thead>
+            <table id="scheduleGrid" class="table table-bordered table-sm text-center" style="min-width: 2200px; font-size: 0.9rem;">
+                <thead id="schHead" class="thead-light" style="position:sticky; top:0; z-index:100; box-shadow: 0 2px 5px rgba(0,0,0,0.1);"></thead>
                 <tbody id="schBody"></tbody>
-                <tfoot id="schFoot" style="position:sticky; bottom:0; z-index:90; border-top:2px solid #999;"></tfoot>
+                <tfoot id="schFoot" style="position:sticky; bottom:0; z-index:90; border-top:2px solid #999; background:#f8f9fa;"></tfoot>
             </table>
         </div>
     </div>
-
 </div>
 
 <div id="scoreDetailModal" class="modal">
@@ -39,10 +35,7 @@
             <h3 style="margin:0; color:#2c3e50;"><i class="fas fa-chart-pie"></i> 班表評分詳細結果</h3>
             <span id="modalTotalScore" style="font-size:1.5rem; font-weight:bold; color:#2ecc71;">--</span>
         </div>
-        
-        <div id="scoreDetailContent" style="max-height: 60vh; overflow-y:auto; padding-right:5px;">
-            </div>
-
+        <div id="scoreDetailContent" style="max-height: 60vh; overflow-y:auto; padding-right:5px;"></div>
         <div style="text-align:right; margin-top:20px; padding-top:10px; border-top:1px solid #eee;">
             <button class="btn btn-close" onclick="document.getElementById('scoreDetailModal').classList.remove('show')">關閉</button>
         </div>
@@ -55,25 +48,37 @@
 </div>
 
 <style>
-    /* 表格樣式 */
-    #scheduleGrid th, #scheduleGrid td { vertical-align: middle; }
-    .cell-clickable:hover { background-color: #f0f0f0; cursor: pointer; }
+    /* 表格基礎 */
+    #scheduleGrid th, #scheduleGrid td { vertical-align: middle; padding: 4px; }
     
-    /* 評分按鈕特效 */
-    .score-badge:hover { transform: scale(1.05); filter: brightness(1.1); }
+    /* 上月班表區 (灰色背景) */
+    .prev-month-cell { background-color: #f0f0f0; color: #aaa; border-right: 1px dashed #ccc; }
+    .prev-month-header { background-color: #e9ecef; color: #7f8c8d; border-bottom: 2px solid #bdc3c7; }
+
+    /* 統計欄位 */
+    .stats-header { background-color: #d1ecf1; color: #0c5460; font-size: 0.85rem; width: 50px; }
+    .stats-cell { background-color: #e3f2fd; font-weight: bold; font-size: 0.9rem; color: #2980b9; }
+
+    /* 底部需求統計 */
+    .footer-cell { font-size: 0.75rem; text-align: left; vertical-align: top; padding: 2px !important; height: 80px; }
+    .footer-item { display: flex; justify-content: space-between; margin-bottom: 1px; }
+    .shortage { color: red; font-weight: bold; background: #ffe6e6; border-radius: 2px; padding: 0 2px; }
     
-    /* 評分詳細清單樣式 */
-    .score-cat-row { display:flex; justify-content:space-between; background:#f8f9fa; padding:10px; border-radius:4px; font-weight:bold; margin-top:10px; color:#2c3e50; }
-    .score-sub-row { display:flex; justify-content:space-between; padding:8px 10px 8px 30px; border-bottom:1px solid #f0f0f0; color:#555; font-size:0.95rem; }
-    .score-val { font-family: 'Courier New', monospace; font-weight:bold; }
+    /* 按鈕樣式增強 */
+    .btn-action-lg { padding: 8px 20px; font-size: 1rem; border-radius: 50px; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: transform 0.1s; }
+    .btn-action-lg:active { transform: scale(0.98); }
+
+    /* 單元格樣式 */
+    .cell-clickable:hover { background-color: #f9f9f9; cursor: pointer; border: 2px solid #3498db; }
+    .shift-req-off { background-color: #ffeaa7; color: #d35400; font-weight: bold; }
+    .shift-off { background-color: #eee; color: #999; }
+    
     .score-val.perfect { color: #27ae60; }
     .score-val.bad { color: #e74c3c; }
-
+    
     /* 右鍵選單 */
     .context-menu { background: white; border: 1px solid #ccc; box-shadow: 2px 2px 5px rgba(0,0,0,0.2); border-radius: 4px; padding: 0; min-width: 150px; }
     .context-menu .menu-header { background: #f0f0f0; padding: 5px 10px; font-weight: bold; border-bottom: 1px solid #ddd; }
-    .context-menu ul { list-style: none; margin: 0; padding: 0; }
     .context-menu li { padding: 8px 15px; cursor: pointer; border-bottom: 1px solid #eee; }
     .context-menu li:hover { background-color: #f5f5f5; }
-    .context-menu li:last-child { border-bottom: none; }
 </style>
