@@ -1,5 +1,5 @@
 // js/modules/schedule_rule_manager.js
-// 🔧 最終修正版 - 已修復週日(0)存取問題
+// 🔧 最終完美版 - 徹底修復週日(0)的 讀取 與 儲存 問題
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -76,7 +76,15 @@ const scheduleRuleManager = {
             const r = data.schedulingRules || {};
 
             const setCheck = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val; };
-            const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val || ''; };
+            
+            // [關鍵修正 1] 讀取時：特別處理 0，避免 0 被轉成空字串
+            const setVal = (id, val) => { 
+                const el = document.getElementById(id); 
+                if(el) {
+                    // 如果是 null 或 undefined 轉為空字串，但保留 0
+                    el.value = (val !== null && val !== undefined) ? val : ''; 
+                }
+            };
 
             // Hard Rules
             setCheck('rule_minGap11', r.hard?.minGap11 !== false);
@@ -84,7 +92,7 @@ const scheduleRuleManager = {
             setCheck('rule_protectPregnant', r.hard?.protectPregnant !== false);
             setCheck('rule_twoOffPerFortnight', r.hard?.twoOffPerFortnight !== false);
             
-            // [修正] 使用 ?? 運算子，確保 0 不會被視為 false 而變成預設值
+            // 使用 ?? 確保讀取資料庫的 0 不會被後面的預設值覆蓋
             setVal('rule_offGapMax', r.hard?.offGapMax ?? 12);
             setVal('rule_weekStartDay', r.hard?.weekStartDay ?? 1); 
 
@@ -139,7 +147,7 @@ const scheduleRuleManager = {
         const getCheck = (id) => { const el = document.getElementById(id); return el ? el.checked : false; };
         const getVal = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
         
-        // [修正] 改進 getInt 邏輯：明確檢查 NaN，允許 0 值通過
+        // [關鍵修正 2] 儲存時：使用 isNaN 檢查，允許 0 值通過
         const getInt = (id, def) => { 
             const v = parseInt(getVal(id)); 
             return isNaN(v) ? def : v; 
@@ -154,7 +162,7 @@ const scheduleRuleManager = {
                 protectPregnant: getCheck('rule_protectPregnant'),
                 twoOffPerFortnight: getCheck('rule_twoOffPerFortnight'),
                 offGapMax: getInt('rule_offGapMax', 12),
-                weekStartDay: getInt('rule_weekStartDay', 1) // 現在可以正確儲存 0 了
+                weekStartDay: getInt('rule_weekStartDay', 1) // 0 (週日) 現在可以被正確儲存
             },
             policy: {
                 limitConsecutive: getCheck('rule_limitConsecutive'),
