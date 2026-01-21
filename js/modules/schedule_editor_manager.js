@@ -272,24 +272,25 @@ const scheduleEditorManager = {
         });
     },
 
-    // --- 5. AI 功能 (修復核心) ---
+// 在 schedule_editor_manager.js 中...
+
+    // --- 5. AI 功能 ---
     runAI: async function() {
-        if(!confirm("確定要執行 AI 排班？\n(這會覆蓋目前的排班內容，但會保留預班鎖定)")) return;
+        if(!confirm("即將執行 AI 自動排班...")) return;
         
         this.isLoading = true;
         const btn = document.getElementById('btnRunAI');
-        const originalText = btn ? btn.innerHTML : '';
         if(btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 運算中...'; }
 
         try {
             await new Promise(r => setTimeout(r, 100)); 
 
-            if(typeof ScheduleBatchRunner === 'undefined') throw new Error("找不到 AI 核心 (ScheduleBatchRunner)");
+            if(typeof ScheduleBatchRunner === 'undefined') throw new Error("找不到 AI 核心");
 
-            // [關鍵]：將 dailyNeeds 傳入 AI 規則中
+            // [關鍵] 將 dailyNeeds 放入規則包
             const aiRules = {
                 ...this.unitRules,
-                dailyNeeds: this.data.dailyNeeds || {}, // 這裡一定要傳！
+                dailyNeeds: this.data.dailyNeeds || {}, 
                 shiftCodes: this.shifts.map(s => s.code)
             };
 
@@ -298,7 +299,7 @@ const scheduleEditorManager = {
                 this.data.year,
                 this.data.month,
                 this.lastMonthAssignments, 
-                aiRules // 傳遞修正後的規則
+                aiRules
             );
 
             const results = runner.runAll();
@@ -309,7 +310,7 @@ const scheduleEditorManager = {
                 this.updateRealTimeStats();
                 this.updateScheduleScore();
                 await this.saveDraft(true);
-                alert(`AI 排班完成！\n策略: ${results[0].info.name}\n(若有缺口請檢查人員數量或排班規則)`);
+                alert(`AI 排班完成！策略: ${results[0].info.name}`);
             } else {
                 throw new Error("AI 無法產生有效解");
             }
@@ -319,7 +320,32 @@ const scheduleEditorManager = {
             alert("AI 排班失敗: " + e.message);
         } finally {
             this.isLoading = false;
-            if(btn) { btn.disabled = false; btn.innerHTML = originalText; }
+            if(btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-robot"></i> AI 排班'; }
+        }
+    },
+
+    updateScheduleScore: function() {
+        if(typeof scoringManager === 'undefined') return;
+        
+        // [關鍵] 傳入 dailyNeeds 給評分模組，以便計算缺口率
+        const extraData = {
+            dailyNeeds: this.data.dailyNeeds || {}
+        };
+
+        const scoreData = scoringManager.calculate(
+            this.assignments, 
+            this.data.staffList, 
+            this.data.year, 
+            this.data.month,
+            extraData // 傳入
+        );
+        
+        this.currentScoreData = scoreData;
+        const displayArea = document.getElementById('scoreDisplayArea');
+        const scoreText = document.getElementById('mainScoreDisplay');
+        if(displayArea && scoreText) {
+            displayArea.style.display = 'inline-flex';
+            scoreText.innerText = scoreData.total.toFixed(1);
         }
     },
 
