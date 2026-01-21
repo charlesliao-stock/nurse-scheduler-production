@@ -152,8 +152,8 @@ const matrixManager = {
                 const val = assign[key] || '';
                 bodyHtml += `<td class="cell-clickable" data-uid="${uid}" data-day="${d}">${this.renderCellContent(val)}</td>`;
                 
-                // 計算統計
-                if (val === 'OFF' || val === 'REQ_OFF') {
+                // 計算統計：空白處視為 OFF
+                if (!val || val === 'OFF' || val === 'REQ_OFF') {
                     totalOff++;
                     const date = new Date(year, month-1, d);
                     const w = date.getDay();
@@ -213,7 +213,7 @@ const matrixManager = {
     },
 
     renderCellContent: function(val) {
-        if(!val) return '';
+        if(!val || val === 'OFF') return '<span style="color:#bbb;">OFF</span>';
         if(val === 'REQ_OFF') return '<span class="badge badge-success">預休</span>';
         if(typeof val === 'string' && val.startsWith('!')) return `<span style="color:red; font-size:0.8rem;">!${val.replace('!','')}</span>`;
         return val;

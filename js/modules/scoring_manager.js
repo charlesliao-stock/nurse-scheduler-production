@@ -250,7 +250,8 @@ const scoringManager = {
 
     sumWorkHours: function(assign) {
         if (!assign) return 0;
-        return Object.values(assign).filter(v => v !== 'OFF' && v !== 'REQ_OFF').length * 8;
+        // 過濾掉 OFF, REQ_OFF 以及空白處 (視為 OFF)
+        return Object.values(assign).filter(v => v && v !== 'OFF' && v !== 'REQ_OFF').length * 8;
     },
 
     countShifts: function(assign, codes) {
@@ -266,7 +267,8 @@ const scoringManager = {
             const day = date.getDay();
             if (day === 0 || day === 6) { 
                 const v = assign[`current_${d}`];
-                if (v === 'OFF' || v === 'REQ_OFF') count++;
+                // 空白處視為 OFF
+                if (!v || v === 'OFF' || v === 'REQ_OFF') count++;
             }
         }
         return count;

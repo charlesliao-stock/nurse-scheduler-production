@@ -492,8 +492,8 @@ const scheduleEditorManager = {
                 const dragAttr = isLocked ? '' : 'draggable="true"';
                 bodyHtml += `<td class="cell-clickable ${isLocked?'':'cell-draggable'}" data-uid="${uid}" data-day="${d}" ${dragAttr} oncontextmenu="scheduleEditorManager.handleRightClick(event, '${uid}', '${d}'); return false;">${this.renderCellContent(val)}</td>`;
                 
-                // 計算統計
-                if (val === 'OFF' || val === 'REQ_OFF') {
+                // 計算統計：空白處視為 OFF
+                if (!val || val === 'OFF' || val === 'REQ_OFF') {
                     totalOff++;
                     const date = new Date(year, month-1, d);
                     const w = date.getDay();
@@ -518,8 +518,7 @@ const scheduleEditorManager = {
     },
     
     renderCellContent: function(val) {
-        if (!val) return '';
-        if (val === 'OFF') return '<span style="color:#bbb;">OFF</span>';
+        if (!val || val === 'OFF') return '<span style="color:#bbb;">OFF</span>';
         if (val === 'REQ_OFF') return '<span class="badge badge-success">休</span>';
         return `<span class="badge badge-primary">${val}</span>`;
     },
