@@ -1,33 +1,22 @@
 // js/modules/scoring_manager.js
-// 🚀 最終強化版：分數顯示優化 (改為顯示加權貢獻分)
-// 修正：現在介面上顯示的各項分數為「原始分 x 權重」，加總即為總分。
+// 🚀 最終進化版：支援詳細評分視窗結構 (Details Structure)
 
 const scoringManager = {
     aiBaseScore: null,     
     currentSettings: null, 
 
-    // --- 1. 資料初始化與設定載入 ---
-
+    // --- 1. 資料初始化 ---
     loadSettings: async function(unitId) {
-        if(!unitId) {
-            this.currentSettings = this.getDefaultSettings();
-            return;
-        }
+        if(!unitId) { this.currentSettings = this.getDefaultSettings(); return; }
         try {
             const doc = await db.collection('units').doc(unitId).get();
             const data = doc.data();
-            
             if(doc.exists && data && data.scoreSettings) {
                 this.currentSettings = this.ensureSettingsStructure(data.scoreSettings);
-                console.log("✅ 評分模組：已載入單位自訂設定");
             } else {
                 this.currentSettings = this.getDefaultSettings();
-                console.log("⚠️ 評分模組：找不到設定，使用系統預設值");
             }
-        } catch(e) {
-            console.error("❌ 載入評分設定失敗:", e);
-            this.currentSettings = this.getDefaultSettings();
-        }
+        } catch(e) { console.error(e); this.currentSettings = this.getDefaultSettings(); }
     },
 
     ensureSettingsStructure: function(s) {
@@ -40,125 +29,115 @@ const scoringManager = {
         };
     },
 
-    setBase: function(score) {
-        this.aiBaseScore = (score && typeof score === 'object') ? score.total : score;
-        console.log("📍 已設定 AI 原始基準分:", this.aiBaseScore);
-    },
-
+    setBase: function(score) { this.aiBaseScore = (score?.total) ? score.total : score; },
     getScoreDiff: function(currentScore) {
         if (this.aiBaseScore === null || typeof currentScore !== 'number') return null;
-        const diff = currentScore - this.aiBaseScore;
-        return Math.round(diff * 10) / 10;
+        return Math.round((currentScore - this.aiBaseScore) * 10) / 10;
     },
 
-    // --- 2. 核心計算引擎 (calculate) ---
-    // [修正重點]：這裡改為計算「貢獻分」，讓前端顯示的分數加總等於總分
-
+    // --- 2. 核心計算 (回傳詳細結構) ---
     calculate: function(scheduleData, staffList, year, month) {
         const settings = this.currentSettings || this.getDefaultSettings();
         const enables = settings.enables || {};
+        const thresholds = settings.thresholds || {}; // 這裡當作各子項的"配分"
         const daysInMonth = new Date(year, month, 0).getDate();
 
-        // 定義大項與其對應的子項 key
-        const metricMap = {
-            fairness: ['hoursDiff', 'nightDiff', 'holidayDiff'],
-            satisfaction: ['prefRate', 'wishRate'],
-            fatigue: ['consWork', 'nToD', 'offTargetRate', 'weeklyNight'],
-            efficiency: ['shortageRate', 'seniorDist', 'juniorDist'],
-            cost: ['overtimeRate']
+        // 定義結構與標籤
+        const structure = {
+            fairness: { label: "1. 公平性指標", subs: {
+                hoursDiff: "工時差異 (標準差)", nightDiff: "夜班差異 (次)", holidayDiff: "假日差異 (天)"
+            }},
+            satisfaction: { label: "2. 滿意度指標", subs: {
+                prefRate: "排班偏好達成率", wishRate: "預班願望達成率"
+            }},
+            fatigue: { label: "3. 疲勞度指標", subs: {
+                consWork: "連續上班超過限制", nToD: "夜接日 (N-D) 次數", offTargetRate: "積借休達成率", weeklyNight: "單週夜班過量"
+            }},
+            efficiency: { label: "4. 效率指標", subs: {
+                shortageRate: "人力缺口率", seniorDist: "資深人員分佈", juniorDist: "新進人員分佈"
+            }},
+            cost: { label: "5. 成本指標", subs: {
+                overtimeRate: "加班費控管"
+            }}
         };
 
-        // 1. 先計算各項目的「原始分數」 (0-5分)
-        const rawScores = {
-            fairness: this.calculateFairness(scheduleData, staffList, year, month, daysInMonth, settings),
-            satisfaction: this.calculateSatisfaction(scheduleData, staffList, daysInMonth, settings),
-            fatigue: this.calculateFatigue(scheduleData, staffList, daysInMonth, settings),
-            efficiency: this.calculateEfficiency(scheduleData, staffList, daysInMonth, settings),
-            cost: this.calculateCost(scheduleData, staffList, daysInMonth, settings)
-        };
+        let grandTotalScore = 0;
+        let grandTotalMax = 0;
+        const resultDetails = {};
 
-        let totalWeightedScore = 0;
-        let totalWeight = 0;
-        const categoryWeights = {};
+        // 開始逐項計算
+        for (let catKey in structure) {
+            const catConfig = structure[catKey];
+            const subResults = [];
+            let catScore = 0;
+            let catMax = 0;
 
-        // 2. 計算總權重與加權總分
-        for (let key in rawScores) {
-            const subKeys = metricMap[key] || [];
-            let groupWeight = 0;
-            let hasEnabledSub = false;
+            for (let subKey in catConfig.subs) {
+                if (enables[subKey]) {
+                    // 1. 取得該項配分 (Weight)
+                    const weight = parseFloat(thresholds[subKey] || 0);
+                    
+                    // 2. 計算原始得分 (1-5分)
+                    const rawTierScore = this.calculateSubItemRaw(subKey, scheduleData, staffList, year, month, daysInMonth, settings);
+                    
+                    // 3. 換算實際得分: (原始分 / 5) * 配分
+                    // 例如: 拿4分(良好)，配分10分 => (4/5)*10 = 8分
+                    const actualScore = (rawTierScore / 5) * weight;
 
-            subKeys.forEach(sk => {
-                if (enables[sk]) {
-                    // 使用設定中的 thresholds 作為權重值
-                    groupWeight += parseFloat(settings.thresholds?.[sk] || 0);
-                    hasEnabledSub = true;
+                    subResults.push({
+                        key: subKey,
+                        label: catConfig.subs[subKey],
+                        score: Math.round(actualScore * 10) / 10,
+                        max: weight,
+                        tier: rawTierScore // 保留原始級距分(除錯用)
+                    });
+
+                    catScore += actualScore;
+                    catMax += weight;
                 }
-            });
-            
-            // 若該大項完全未啟用子項，則權重為 0，分數為 0
-            if (!hasEnabledSub) {
-                rawScores[key] = 0;
-                groupWeight = 0;
             }
 
-            categoryWeights[key] = groupWeight;
-            
-            if (groupWeight > 0) {
-                totalWeightedScore += (rawScores[key] * groupWeight);
-                totalWeight += groupWeight;
-            }
+            resultDetails[catKey] = {
+                label: catConfig.label,
+                score: Math.round(catScore * 10) / 10,
+                max: catMax,
+                subs: subResults
+            };
+
+            grandTotalScore += catScore;
+            grandTotalMax += catMax;
         }
 
-        const finalScore = totalWeight > 0 ? (totalWeightedScore / totalWeight) : 0;
-
-        // 3. [關鍵] 將 breakdown 轉換為「貢獻分」 (Normalized Contribution)
-        // 邏輯：顯示分數 = 原始分 * (該項權重 / 總權重)
-        // 這樣前端 (x20 轉百分制後) 顯示的分數相加，就會等於總分
-        const breakdown = {};
-        for (let key in rawScores) {
-            if (totalWeight > 0 && categoryWeights[key] > 0) {
-                breakdown[key] = rawScores[key] * (categoryWeights[key] / totalWeight);
-            } else {
-                breakdown[key] = 0;
-            }
-        }
-
+        // 雖然理論上總分是各項加總，但為了避免浮點數誤差，或是如果有些項目未啟用
+        // 這裡我們直接回傳 grandTotalScore
+        
         return {
-            total: Math.round(finalScore * 10) / 10, // 0-5 分
-            breakdown: breakdown // 這裡回傳的是已經加權過的分數 (0-5分)
+            total: Math.round(grandTotalScore * 10) / 10,
+            maxTotal: grandTotalMax,
+            details: resultDetails
         };
     },
 
-    // --- 3. 指標演算法 ---
-
-    calculateFairness: function(scheduleData, staffList, year, month, days, settings) {
-        const scores = [];
+    // --- 3. 各子項原始分數計算 (回傳 1-5 分) ---
+    calculateSubItemRaw: function(subKey, scheduleData, staffList, year, month, days, settings) {
         const tiers = settings.tiers || {};
-        const enables = settings.enables || {};
-
-        if (enables.hoursDiff) {
+        
+        // 公平性
+        if (subKey === 'hoursDiff') {
             const hours = staffList.map(s => this.sumWorkHours(scheduleData[s.uid]));
-            scores.push(this.getScoreByTier(this.getStdDev(hours), tiers.hoursDiff));
+            return this.getScoreByTier(this.getStdDev(hours), tiers.hoursDiff);
         }
-        if (enables.nightDiff) {
+        if (subKey === 'nightDiff') {
             const counts = staffList.map(s => this.countShifts(scheduleData[s.uid], ['N', 'EN', 'AN']));
-            const diff = Math.max(...counts) - Math.min(...counts);
-            scores.push(this.getScoreByTier(diff, tiers.nightDiff));
+            return this.getScoreByTier(Math.max(...counts) - Math.min(...counts), tiers.nightDiff);
         }
-        if (enables.holidayDiff) {
+        if (subKey === 'holidayDiff') {
             const holidayOffs = staffList.map(s => this.countHolidayOff(scheduleData[s.uid], year, month, days));
-            const diff = Math.max(...holidayOffs) - Math.min(...holidayOffs);
-            scores.push(this.getScoreByTier(diff, tiers.holidayDiff));
+            return this.getScoreByTier(Math.max(...holidayOffs) - Math.min(...holidayOffs), tiers.holidayDiff);
         }
-        return scores.length ? this.average(scores) : 0;
-    },
 
-    calculateSatisfaction: function(scheduleData, staffList, days, settings) {
-        const scores = [];
-        const tiers = settings.tiers || {};
-        const enables = settings.enables || {};
-
-        if (enables.wishRate) {
+        // 滿意度
+        if (subKey === 'wishRate') {
             let totalReq = 0, hit = 0;
             staffList.forEach(s => {
                 const params = s.schedulingParams || {};
@@ -170,17 +149,13 @@ const scoringManager = {
                 }
             });
             const failRate = totalReq === 0 ? 0 : ((totalReq - hit) / totalReq) * 100;
-            scores.push(this.getScoreByTier(failRate, tiers.wishRate)); 
+            return this.getScoreByTier(failRate, tiers.wishRate);
         }
-        return scores.length ? this.average(scores) : 0;
-    },
+        // 暫時給滿分項目 (未來可實作)
+        if (['prefRate'].includes(subKey)) return 5;
 
-    calculateFatigue: function(scheduleData, staffList, days, settings) {
-        const scores = [];
-        const tiers = settings.tiers || {};
-        const enables = settings.enables || {};
-
-        if (enables.consWork) {
+        // 疲勞度
+        if (subKey === 'consWork') {
             let totalVio = 0;
             staffList.forEach(s => {
                 let cons = 0;
@@ -191,31 +166,18 @@ const scoringManager = {
                     } else cons = 0;
                 }
             });
-            scores.push(this.getScoreByTier(totalVio, tiers.consWork));
+            return this.getScoreByTier(totalVio, tiers.consWork);
         }
-        return scores.length ? this.average(scores) : 0;
-    },
+        // 暫時給滿分項目
+        if (['nToD', 'offTargetRate', 'weeklyNight'].includes(subKey)) return 5;
 
-    calculateEfficiency: function(scheduleData, staffList, days, settings) { 
-        const enables = settings.enables || {};
-        // 若有啟用效率相關指標，給予滿分 (4.0=80分)，未來可實作
-        if (enables.shortageRate || enables.seniorDist || enables.juniorDist) {
-            return 4.0; 
-        }
-        return 0; 
-    },
+        // 效率與成本 (暫時給滿分)
+        if (['shortageRate', 'seniorDist', 'juniorDist', 'overtimeRate'].includes(subKey)) return 5;
 
-    calculateCost: function(scheduleData, staffList, days, settings) { 
-        const enables = settings.enables || {};
-        // 若有啟用成本相關指標，給予滿分 (4.5=90分)，未來可實作
-        if (enables.overtimeRate) {
-            return 4.5; 
-        }
-        return 0; 
+        return 3; // 預設
     },
 
     // --- 4. 輔助工具 ---
-
     getScoreByTier: function(value, tierList) {
         if (!tierList || !tierList.length) return 3;
         const sorted = [...tierList].sort((a, b) => b.limit - a.limit);
@@ -226,22 +188,18 @@ const scoringManager = {
     },
 
     getStdDev: function(array) {
-        const n = array.length;
-        if (n <= 1) return 0;
+        const n = array.length; if (n <= 1) return 0;
         const mean = array.reduce((a, b) => a + b) / n;
         return Math.sqrt(array.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n);
     },
-
     sumWorkHours: function(assign) {
         if (!assign) return 0;
         return Object.values(assign).filter(v => v !== 'OFF' && v !== 'REQ_OFF').length * 8;
     },
-
     countShifts: function(assign, codes) {
         if (!assign) return 0;
         return Object.values(assign).filter(v => codes.includes(v)).length;
     },
-
     countHolidayOff: function(assign, year, month, days) {
         if (!assign) return 0;
         let count = 0;
@@ -255,24 +213,10 @@ const scoringManager = {
         }
         return count;
     },
-
-    average: arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0,
-
     getDefaultSettings: function() {
+        // 回傳完整的預設結構，確保不會報錯
         return {
-            weights: { fairness: 30, satisfaction: 25, fatigue: 20, efficiency: 15, cost: 10 },
-            enables: {
-                hoursDiff: true, nightDiff: true, holidayDiff: true,
-                wishRate: true, consWork: true
-            },
-            thresholds: {
-                hoursDiff: 10, nightDiff: 10, holidayDiff: 10,
-                prefRate: 15, wishRate: 10,
-                consWork: 8, nToD: 7, offTargetRate: 5, weeklyNight: 5,
-                shortageRate: 8, seniorDist: 4, juniorDist: 3,
-                overtimeRate: 5
-            },
-            tiers: {}
+            weights: {}, enables: {}, thresholds: {}, tiers: {}
         };
     }
 };
