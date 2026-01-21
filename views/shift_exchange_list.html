@@ -1,10 +1,18 @@
 <div class="page-section active">
     <h2><i class="fas fa-tasks"></i> 換班申請與審核</h2>
     
-    <div class="tab-nav" style="margin-bottom: 20px;">
-        <button class="tab-btn active" onclick="exchangeListManager.load('my')">我的申請</button>
-        <button class="tab-btn" onclick="exchangeListManager.load('incoming')">待我審核 (同事)</button>
-        <button class="tab-btn" id="btnManagerTab" onclick="exchangeListManager.load('manager')" style="display:none;">護理長審核</button>
+    <div class="toolbar" style="margin-bottom: 20px;">
+        <div class="tab-nav">
+            <button class="tab-btn active" onclick="shiftExchangeManager.load('my')">
+                <i class="fas fa-user"></i> 我的申請
+            </button>
+            <button class="tab-btn" onclick="shiftExchangeManager.load('incoming')">
+                <i class="fas fa-inbox"></i> 待我審核 (同事)
+            </button>
+            <button class="tab-btn" id="btnManagerTab" onclick="shiftExchangeManager.load('manager')" style="display:none;">
+                <i class="fas fa-user-shield"></i> 護理長審核
+            </button>
+        </div>
     </div>
 
     <div class="table-container">
@@ -14,36 +22,14 @@
                     <th>日期</th>
                     <th>申請人</th>
                     <th>對象</th>
-                    <th>內容</th>
+                    <th>內容 (申請人 ↔ 對象)</th>
                     <th>事由</th>
                     <th>狀態</th>
                     <th>操作</th>
                 </tr>
             </thead>
-            <tbody id="exchangeBody"></tbody>
+            <tbody id="exchangeBody">
+                </tbody>
         </table>
     </div>
 </div>
-
-<script>
-    // 簡單的 List Manager
-    const exchangeListManager = {
-        init: function() {
-            if(app.userRole === 'unit_manager' || app.userRole === 'system_admin') {
-                document.getElementById('btnManagerTab').style.display = 'inline-block';
-            }
-            this.load('my');
-        },
-        load: async function(type) {
-            // 實作讀取 shift_requests collection
-            // 根據 type 過濾：
-            // my: requesterId == uid
-            // incoming: targetId == uid && status == 'pending_target'
-            // manager: unitId == myUnit && status == 'pending_manager'
-            
-            // (此處省略詳細 Fetch 代碼，概念同上)
-        }
-    };
-    // 初始化
-    exchangeListManager.init();
-</script>
