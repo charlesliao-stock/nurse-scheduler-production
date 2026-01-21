@@ -1,10 +1,10 @@
 // js/modules/scoring_manager.js
-// 🚀 最終強化版：具備結構防呆機制，解決 'efficiency' undefined 報錯
-// 修正：嚴格遵循 score_settings_manager.js 的啟用狀態與權重配分
+// 🚀 最終強化版：分數顯示優化 (改為顯示加權貢獻分)
+// 修正：現在介面上顯示的各項分數為「原始分 x 權重」，加總即為總分。
 
 const scoringManager = {
-    aiBaseScore: null,     // 記錄 AI 剛排完的原始分數
-    currentSettings: null, // 當前單位的評分設定
+    aiBaseScore: null,     
+    currentSettings: null, 
 
     // --- 1. 資料初始化與設定載入 ---
 
@@ -17,7 +17,6 @@ const scoringManager = {
             const doc = await db.collection('units').doc(unitId).get();
             const data = doc.data();
             
-            // 修正點：確保 scoreSettings 及其內部的 weights 存在
             if(doc.exists && data && data.scoreSettings) {
                 this.currentSettings = this.ensureSettingsStructure(data.scoreSettings);
                 console.log("✅ 評分模組：已載入單位自訂設定");
@@ -31,7 +30,6 @@ const scoringManager = {
         }
     },
 
-    // 內部工具：確保設定結構完整
     ensureSettingsStructure: function(s) {
         const d = this.getDefaultSettings();
         return {
@@ -54,6 +52,7 @@ const scoringManager = {
     },
 
     // --- 2. 核心計算引擎 (calculate) ---
+    // [修正重點]：這裡改為計算「貢獻分」，讓前端顯示的分數加總等於總分
 
     calculate: function(scheduleData, staffList, year, month) {
         const settings = this.currentSettings || this.getDefaultSettings();
@@ -69,7 +68,8 @@ const scoringManager = {
             cost: ['overtimeRate']
         };
 
-        const results = {
+        // 1. 先計算各項目的「原始分數」 (0-5分)
+        const rawScores = {
             fairness: this.calculateFairness(scheduleData, staffList, year, month, daysInMonth, settings),
             satisfaction: this.calculateSatisfaction(scheduleData, staffList, daysInMonth, settings),
             fatigue: this.calculateFatigue(scheduleData, staffList, daysInMonth, settings),
@@ -79,36 +79,53 @@ const scoringManager = {
 
         let totalWeightedScore = 0;
         let totalWeight = 0;
+        const categoryWeights = {};
 
-        for (let key in results) {
-            // 檢查該大項是否有任何子項被啟用
+        // 2. 計算總權重與加權總分
+        for (let key in rawScores) {
             const subKeys = metricMap[key] || [];
-            const isAnySubEnabled = subKeys.some(sk => enables[sk] === true);
+            let groupWeight = 0;
+            let hasEnabledSub = false;
 
-            if (isAnySubEnabled) {
-                // 根據啟用的子項權重總和作為該大項的權重
-                let groupWeight = 0;
-                subKeys.forEach(sk => {
-                    if (enables[sk]) {
-                        groupWeight += parseFloat(settings.thresholds?.[sk] || 0);
-                    }
-                });
-
-                if (groupWeight > 0) {
-                    totalWeightedScore += (results[key] * groupWeight);
-                    totalWeight += groupWeight;
+            subKeys.forEach(sk => {
+                if (enables[sk]) {
+                    // 使用設定中的 thresholds 作為權重值
+                    groupWeight += parseFloat(settings.thresholds?.[sk] || 0);
+                    hasEnabledSub = true;
                 }
-            } else {
-                // 如果該大項完全沒啟用，分數設為 0 或 null，避免干擾介面
-                results[key] = 0;
+            });
+            
+            // 若該大項完全未啟用子項，則權重為 0，分數為 0
+            if (!hasEnabledSub) {
+                rawScores[key] = 0;
+                groupWeight = 0;
+            }
+
+            categoryWeights[key] = groupWeight;
+            
+            if (groupWeight > 0) {
+                totalWeightedScore += (rawScores[key] * groupWeight);
+                totalWeight += groupWeight;
             }
         }
 
         const finalScore = totalWeight > 0 ? (totalWeightedScore / totalWeight) : 0;
 
+        // 3. [關鍵] 將 breakdown 轉換為「貢獻分」 (Normalized Contribution)
+        // 邏輯：顯示分數 = 原始分 * (該項權重 / 總權重)
+        // 這樣前端 (x20 轉百分制後) 顯示的分數相加，就會等於總分
+        const breakdown = {};
+        for (let key in rawScores) {
+            if (totalWeight > 0 && categoryWeights[key] > 0) {
+                breakdown[key] = rawScores[key] * (categoryWeights[key] / totalWeight);
+            } else {
+                breakdown[key] = 0;
+            }
+        }
+
         return {
-            total: Math.round(finalScore * 10) / 10,
-            breakdown: results
+            total: Math.round(finalScore * 10) / 10, // 0-5 分
+            breakdown: breakdown // 這裡回傳的是已經加權過的分數 (0-5分)
         };
     },
 
@@ -155,7 +172,6 @@ const scoringManager = {
             const failRate = totalReq === 0 ? 0 : ((totalReq - hit) / totalReq) * 100;
             scores.push(this.getScoreByTier(failRate, tiers.wishRate)); 
         }
-        // prefRate 邏輯可在此擴充
         return scores.length ? this.average(scores) : 0;
     },
 
@@ -177,22 +193,23 @@ const scoringManager = {
             });
             scores.push(this.getScoreByTier(totalVio, tiers.consWork));
         }
-        // nToD, offTargetRate, weeklyNight 邏輯可在此擴充
         return scores.length ? this.average(scores) : 0;
     },
 
     calculateEfficiency: function(scheduleData, staffList, days, settings) { 
         const enables = settings.enables || {};
+        // 若有啟用效率相關指標，給予滿分 (4.0=80分)，未來可實作
         if (enables.shortageRate || enables.seniorDist || enables.juniorDist) {
-            return 4.0; // 暫時回傳預設值，未來可實作具體邏輯
+            return 4.0; 
         }
         return 0; 
     },
 
     calculateCost: function(scheduleData, staffList, days, settings) { 
         const enables = settings.enables || {};
+        // 若有啟用成本相關指標，給予滿分 (4.5=90分)，未來可實作
         if (enables.overtimeRate) {
-            return 4.5; // 暫時回傳預設值，未來可實作具體邏輯
+            return 4.5; 
         }
         return 0; 
     },
@@ -201,13 +218,10 @@ const scoringManager = {
 
     getScoreByTier: function(value, tierList) {
         if (!tierList || !tierList.length) return 3;
-        // 邏輯：找到所有符合 value >= limit 的區間中，limit 最大的那一個
-        // 先按 limit 由大到小排序
         const sorted = [...tierList].sort((a, b) => b.limit - a.limit);
         for (let t of sorted) {
             if (value >= t.limit) return t.score;
         }
-        // 如果連最小的下限都不滿足，則回傳排序後最後一個（通常是下限最小的）區間的分數
         return sorted[sorted.length - 1].score;
     },
 
