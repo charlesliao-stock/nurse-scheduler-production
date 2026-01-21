@@ -99,7 +99,7 @@ const matrixManager = {
             const color = (w===0||w===6) ? 'color:red;' : '';
             h1 += `<th class="cell-narrow" style="${color}">${d}</th>`;
         }
-        h1 += `</tr>`;
+        h1 += `<th colspan="4" style="background:#e8f4fd; font-size:0.8rem;">統計</th></tr>`;
 
         let h2 = `<tr>`;
         const weeks = ['日','一','二','三','四','五','六'];
@@ -116,7 +116,10 @@ const matrixManager = {
             const color = (date.getDay()===0 || date.getDay()===6) ? 'color:red;' : '';
             h2 += `<th class="cell-narrow" style="font-size:0.8rem; ${color}">${w}</th>`;
         }
-        h2 += `</tr>`;
+        h2 += `<th style="width:40px; background:#f0f7ff; font-size:0.75rem;">總OFF</th>
+               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">假OFF</th>
+               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">小夜</th>
+               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">大夜</th></tr>`;
         thead.innerHTML = h1 + h2;
 
         let bodyHtml = '';
@@ -134,15 +137,40 @@ const matrixManager = {
             const lastAssign = this.lastMonthAssignments[uid] || {};
             const lastMonthDays = this.lastMonthDays || 31;
             for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
-                const val = lastAssign[d] || ''; // 正式班表 key 通常是數字
+                const val = lastAssign[`current_${d}`] || lastAssign[d] || ''; 
                 bodyHtml += `<td style="background:#fafafa; color:#999; font-size:0.85rem; text-align:center;">${val}</td>`;
             }
+
+            // 統計變數
+            let totalOff = 0;
+            let holidayOff = 0;
+            let eveningCount = 0;
+            let nightCount = 0;
 
             for(let d=1; d<=daysInMonth; d++) {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
                 bodyHtml += `<td class="cell-clickable" data-uid="${uid}" data-day="${d}">${this.renderCellContent(val)}</td>`;
+                
+                // 計算統計
+                if (val === 'OFF' || val === 'REQ_OFF') {
+                    totalOff++;
+                    const date = new Date(year, month-1, d);
+                    const w = date.getDay();
+                    if (w === 0 || w === 6) holidayOff++;
+                } else if (val === 'E') {
+                    eveningCount++;
+                } else if (val === 'N') {
+                    nightCount++;
+                }
             }
+
+            // [新增] 右側統計欄位
+            bodyHtml += `<td style="background:#f9f9f9; font-weight:bold; text-align:center;">${totalOff}</td>
+                         <td style="background:#f9f9f9; color:red; text-align:center;">${holidayOff}</td>
+                         <td style="background:#f9f9f9; text-align:center;">${eveningCount}</td>
+                         <td style="background:#f9f9f9; text-align:center;">${nightCount}</td>`;
+            
             bodyHtml += `</tr>`;
         });
         tbody.innerHTML = bodyHtml;
@@ -174,6 +202,8 @@ const matrixManager = {
                                 <span class="stat-actual">-</span> / <span class="stat-need" style="font-weight:bold;">${need}</span>
                              </td>`;
             }
+            // 補足右側 4 個統計欄位的空白格
+            footHtml += `<td colspan="4" style="background:#f0f0f0;"></td>`;
             footHtml += `</tr>`;
         });
         tfoot.innerHTML = footHtml;

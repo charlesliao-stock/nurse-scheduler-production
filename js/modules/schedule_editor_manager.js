@@ -14,7 +14,12 @@ const scheduleEditorManager = {
         this.showLoading();
         try {
             await this.loadContext(); 
-            await Promise.all([this.loadShifts(), this.loadUsers(), this.loadUnitRules()]);
+            await Promise.all([
+                this.loadShifts(), 
+                this.loadUsers(), 
+                this.loadUnitRules(),
+                this.loadLastMonthSchedule() // [新增] 載入上月班表
+            ]);
             
             if(typeof scoringManager !== 'undefined') {
                 await scoringManager.loadSettings(this.data.unitId);
@@ -139,8 +144,9 @@ const scheduleEditorManager = {
         let fHtml = '';
         this.shifts.forEach((s, idx) => {
             fHtml += `<tr class="stat-monitor-row">`;
-            if(idx === 0) fHtml += `<td colspan="3" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; background:#f8f9fa;">每日缺額<br>監控</td>`;
-            for(let i=0; i<3; i++) fHtml += `<td style="background:#f0f0f0;"></td>`; 
+            if(idx === 0) fHtml += `<td colspan="3" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; background:#f8f9fa; position:sticky; left:0; z-index:10;">每日缺額<br>監控</td>`;
+            // 補足「包班」與「上月月底 6 天」的空白格
+            for(let i=0; i<7; i++) fHtml += `<td style="background:#f0f0f0;"></td>`; 
 
             for(let d=1; d<=daysInMonth; d++) {
                 const actual = countMap[d][s.code] || 0;
@@ -164,7 +170,9 @@ const scheduleEditorManager = {
                 const display = (need > 0) ? `${actual}/${need}` : (actual > 0 ? actual : '-');
                 fHtml += `<td class="${statusClass}">${display}</td>`;
             }
-            fHtml += `<td colspan="2" style="background:#f0f0f0;">${s.code}</td></tr>`;
+            // 補足右側 4 個統計欄位的空白格
+            fHtml += `<td colspan="4" style="background:#f0f0f0;"></td>`;
+            fHtml += `<td style="background:#f0f0f0; font-weight:bold;">${s.code}</td></tr>`;
         });
         tfoot.innerHTML = fHtml;
     },
@@ -313,6 +321,31 @@ const scheduleEditorManager = {
         const doc = await db.collection('units').doc(this.data.unitId).get();
         this.unitRules = doc.data().schedulingRules || {};
     },
+    // [新增] 載入上月班表資料
+    loadLastMonthSchedule: async function() {
+        const { unitId, year, month } = this.data;
+        let lastYear = year;
+        let lastMonth = month - 1;
+        if (lastMonth === 0) {
+            lastMonth = 12;
+            lastYear--;
+        }
+
+        const snap = await db.collection('schedules')
+            .where('unitId', '==', unitId)
+            .where('year', '==', lastYear)
+            .where('month', '==', lastMonth)
+            .where('status', '==', 'published')
+            .limit(1)
+            .get();
+
+        this.lastMonthAssignments = {};
+        this.lastMonthDays = new Date(lastYear, lastMonth, 0).getDate();
+        if (!snap.empty) {
+            const lastData = snap.docs[0].data();
+            this.lastMonthAssignments = lastData.assignments || {};
+        }
+    },
     renderToolbar: function() {
         const statusBadge = document.getElementById('schStatus'); 
         if(statusBadge) {
@@ -338,26 +371,92 @@ const scheduleEditorManager = {
         const year = this.data.year;
         const month = this.data.month;
         const daysInMonth = new Date(year, month, 0).getDate();
+        const weeks = ['日','一','二','三','四','五','六'];
         
-        let h1 = `<tr><th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110;">職編</th><th rowspan="2" style="width:80px; position:sticky; left:60px; z-index:110;">姓名</th><th rowspan="2">包班</th>`;
-        for(let d=1; d<=daysInMonth; d++) h1 += `<th>${d}</th>`;
-        h1 += `</tr>`;
-        thead.innerHTML = h1 + `<tr>${'<th></th>'.repeat(daysInMonth)}</tr>`;
+        // [修正] 增加上月最後 6 天與右側統計欄位
+        let h1 = `<tr>
+            <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa;">職編</th>
+            <th rowspan="2" style="width:80px; position:sticky; left:60px; z-index:110; background:#f8f9fa;">姓名</th>
+            <th rowspan="2" style="width:50px;">包班</th>
+            <th colspan="6" style="background:#eee; font-size:0.8rem;">上月月底</th>`;
+        
+        for(let d=1; d<=daysInMonth; d++) {
+            const date = new Date(year, month-1, d);
+            const w = date.getDay();
+            const color = (w===0||w===6) ? 'color:red;' : '';
+            h1 += `<th style="${color}">${d}</th>`;
+        }
+        h1 += `<th colspan="4" style="background:#e8f4fd;">統計</th></tr>`;
+
+        let h2 = `<tr>`;
+        // 上月最後 6 天日期
+        const lastMonthDays = this.lastMonthDays || 31;
+        for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
+            h2 += `<th style="background:#f5f5f5; font-size:0.7rem; color:#999;">${d}</th>`;
+        }
+        // 本月星期
+        for(let d=1; d<=daysInMonth; d++) {
+            const date = new Date(year, month-1, d);
+            const w = weeks[date.getDay()];
+            const color = (date.getDay()===0 || date.getDay()===6) ? 'color:red;' : '';
+            h2 += `<th style="font-size:0.8rem; ${color}">${w}</th>`;
+        }
+        h2 += `<th style="width:40px; background:#f0f7ff; font-size:0.75rem;">總OFF</th>
+               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">假OFF</th>
+               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">小夜</th>
+               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">大夜</th></tr>`;
+        
+        thead.innerHTML = h1 + h2;
 
         let bodyHtml = '';
         this.data.staffList.forEach(staff => {
             const uid = staff.uid;
             const ua = this.assignments[uid] || {};
+            const empId = this.usersMap[uid]?.employeeId || '';
+            
             bodyHtml += `<tr data-uid="${uid}">
-                <td style="position:sticky; left:0;">${this.usersMap[uid]?.employeeId||''}</td>
-                <td style="position:sticky; left:60px;">${staff.name}</td>
+                <td style="position:sticky; left:0; background:#fff;">${empId}</td>
+                <td style="position:sticky; left:60px; background:#fff;">${staff.name}</td>
                 <td>${ua.preferences?.bundleShift || '-'}</td>`;
+            
+            // [新增] 渲染上月最後 6 天班表
+            const lastAssign = this.lastMonthAssignments[uid] || {};
+            for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
+                const val = lastAssign[`current_${d}`] || lastAssign[d] || ''; 
+                bodyHtml += `<td style="background:#fafafa; color:#999; font-size:0.85rem;">${val}</td>`;
+            }
+
+            // 統計變數
+            let totalOff = 0;
+            let holidayOff = 0;
+            let eveningCount = 0;
+            let nightCount = 0;
+
             for(let d=1; d<=daysInMonth; d++) {
                 const val = ua[`current_${d}`] || '';
                 const isLocked = (val==='REQ_OFF');
                 const dragAttr = isLocked ? '' : 'draggable="true"';
                 bodyHtml += `<td class="cell-clickable ${isLocked?'':'cell-draggable'}" data-uid="${uid}" data-day="${d}" ${dragAttr} oncontextmenu="scheduleEditorManager.handleRightClick(event, '${uid}', '${d}'); return false;">${this.renderCellContent(val)}</td>`;
+                
+                // 計算統計
+                if (val === 'OFF' || val === 'REQ_OFF') {
+                    totalOff++;
+                    const date = new Date(year, month-1, d);
+                    const w = date.getDay();
+                    if (w === 0 || w === 6) holidayOff++;
+                } else if (val === 'E') {
+                    eveningCount++;
+                } else if (val === 'N') {
+                    nightCount++;
+                }
             }
+
+            // [新增] 右側統計欄位
+            bodyHtml += `<td style="background:#f9f9f9; font-weight:bold;">${totalOff}</td>
+                         <td style="background:#f9f9f9; color:red;">${holidayOff}</td>
+                         <td style="background:#f9f9f9;">${eveningCount}</td>
+                         <td style="background:#f9f9f9;">${nightCount}</td>`;
+            
             bodyHtml += `</tr>`;
         });
         tbody.innerHTML = bodyHtml;
