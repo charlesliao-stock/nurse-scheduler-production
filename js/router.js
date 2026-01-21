@@ -26,7 +26,7 @@ const router = {
         '/admin/schedule_rules': 'schedule_rules'
 
         '/staff/schedule': 'staff_schedule',          // 對應 staff_schedule.html
-        '/staff/exchange_list': 'shift_exchange_list' // 對應 shift_exchange_list.html
+        '/staff/exchange_list': 'shift_exchange_list', // 對應 shift_exchange_list.html
     },
 
     currentView: null,
