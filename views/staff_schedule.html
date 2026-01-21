@@ -1,0 +1,90 @@
+<div class="page-section active">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <h2 style="margin:0;"><i class="fas fa-user-clock"></i> 我的班表與統計</h2>
+    </div>
+    
+    <div class="score-cards-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 20px;">
+        <div class="score-card">
+            <div class="card-body" style="text-align:center;">
+                <h5 style="color:#7f8c8d; margin:0;">上班總數</h5>
+                <h2 id="statTotalShifts" style="color:#2c3e50; margin:10px 0;">0</h2>
+            </div>
+        </div>
+        <div class="score-card">
+            <div class="card-body" style="text-align:center;">
+                <h5 style="color:#7f8c8d; margin:0;">總休假 (Off)</h5>
+                <h2 id="statTotalOff" style="color:#27ae60; margin:10px 0;">0</h2>
+            </div>
+        </div>
+        <div class="score-card">
+            <div class="card-body" style="text-align:center;">
+                <h5 style="color:#7f8c8d; margin:0;">假日休 (Holiday)</h5>
+                <h2 id="statHolidayOff" style="color:#e67e22; margin:10px 0;">0</h2>
+            </div>
+        </div>
+        <div class="score-card">
+            <div class="card-body" style="text-align:center;">
+                <h5 style="color:#7f8c8d; margin:0;">小夜班 (E)</h5>
+                <h2 id="statEvening" style="color:#8e44ad; margin:10px 0;">0</h2>
+            </div>
+        </div>
+        <div class="score-card">
+            <div class="card-body" style="text-align:center;">
+                <h5 style="color:#7f8c8d; margin:0;">大夜班 (N)</h5>
+                <h2 id="statNight" style="color:#c0392b; margin:10px 0;">0</h2>
+            </div>
+        </div>
+    </div>
+
+    <div class="toolbar">
+        <label>選擇月份：</label>
+        <input type="month" id="scheduleMonth" class="form-control" style="width: 200px; display:inline-block;">
+        
+        <label style="margin-left: 15px;">日期區間篩選 (選填)：</label>
+        <input type="date" id="filterStartDate" class="form-control" style="width: 160px; display:inline-block;">
+        <span> ~ </span>
+        <input type="date" id="filterEndDate" class="form-control" style="width: 160px; display:inline-block;">
+        
+        <button class="btn btn-primary" onclick="staffScheduleManager.loadData()">
+            <i class="fas fa-search"></i> 查詢
+        </button>
+    </div>
+
+    <div id="myScheduleContainer" class="table-container">
+        <table id="myScheduleTable">
+            <thead>
+                <tr>
+                    <th style="width:15%">日期</th>
+                    <th style="width:10%">星期</th>
+                    <th style="width:15%">班別</th>
+                    <th style="width:20%">備註</th>
+                    <th style="width:40%">操作</th> </tr>
+            </thead>
+            <tbody id="myScheduleBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<div id="exchangeModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+        <h3><i class="fas fa-exchange-alt"></i> 提出換班申請</h3>
+        <div class="alert-info" id="exchangeInfo"></div>
+        
+        <div class="form-group">
+            <label>選擇互換對象 (同一天班表)</label>
+            <select id="exchangeTargetSelect" class="form-control">
+                <option value="">載入中...</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label>換班事由</label>
+            <textarea id="exchangeReason" class="form-control" rows="3" placeholder="請說明原因..."></textarea>
+        </div>
+
+        <div style="text-align:right; margin-top:20px;">
+            <button class="btn btn-close" onclick="staffScheduleManager.closeExchangeModal()">取消</button>
+            <button class="btn btn-primary" onclick="staffScheduleManager.submitExchange()">送出申請</button>
+        </div>
+    </div>
+</div>
