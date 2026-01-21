@@ -65,26 +65,32 @@ const scheduleEditorManager = {
 
         const html = `
         <div id="scoreDashboard" style="background:#fff; padding:10px 20px; border-bottom:1px solid #ddd; display:flex; align-items:center; gap:20px;">
-            <div style="display:flex; align-items:center; gap:10px;">
+            <div style="display:flex; align-items:center; gap:10px; cursor:pointer;" onclick="scheduleEditorManager.showDetailedScore()">
                 <div style="position:relative; width:50px; height:50px; border-radius:50%; background:#ecf0f1; display:flex; justify-content:center; align-items:center;" id="scoreCircleBg">
                     <div style="width:42px; height:42px; background:#fff; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:2;">
                         <span id="scoreValue" style="font-size:1rem; font-weight:bold; color:#2c3e50;">-</span>
                     </div>
                 </div>
                 <div>
-                    <h4 style="margin:0; font-size:0.9rem;">評分</h4>
+                    <h4 style="margin:0; font-size:0.9rem;">評分 (點擊查看詳情)</h4>
                     <div id="scoreCompareBadge" style="font-size:0.75rem; color:#999; background:#f5f5f5; padding:2px 6px; border-radius:4px;">AI原始</div>
                 </div>
             </div>
-            <div style="flex:1; display:flex; gap:15px; justify-content:flex-end;">
-                ${['效率','疲勞','滿意','公平','成本'].map((l,i)=>`
-                    <div style="text-align:center;">
-                        <div style="font-size:0.75rem; color:#999;">${l}</div>
-                        <div id="scoreVal_${['eff','fat','sat','fai','cos'][i]}" style="font-weight:bold;">-</div>
-                    </div>`).join('')}
-            </div>
         </div>`;
         parent.insertBefore(this.createElementFromHTML(html), container);
+
+        // [新增] 評分詳情彈窗 HTML
+        if(!document.getElementById('scoreDetailModal')) {
+            const modalHtml = `
+            <div id="scoreDetailModal" class="modal" style="display:none; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5);">
+                <div style="background:white; margin:5% auto; padding:20px; border-radius:8px; width:600px; max-height:80vh; overflow-y:auto; position:relative;">
+                    <span onclick="document.getElementById('scoreDetailModal').style.display='none'" style="position:absolute; right:20px; top:10px; font-size:24px; cursor:pointer;">&times;</span>
+                    <h3 style="border-bottom:2px solid #3498db; padding-bottom:10px;">排班評分詳情</h3>
+                    <div id="scoreDetailContent" style="margin-top:20px;"></div>
+                </div>
+            </div>`;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
     },
     createElementFromHTML: function(html) { const d=document.createElement('div'); d.innerHTML=html.trim(); return d.firstChild; },
 
@@ -97,12 +103,6 @@ const scheduleEditorManager = {
         document.getElementById('scoreValue').innerText = score;
         document.getElementById('scoreCircleBg').style.background = `conic-gradient(#3498db 0% ${score}%, #ecf0f1 ${score}% 100%)`;
         
-        ['eff','fat','sat','fai','cos'].forEach(k => {
-            const map = { eff:'efficiency', fat:'fatigue', sat:'satisfaction', fai:'fairness', cos:'cost' };
-            const val = res.breakdown[map[k]];
-            document.getElementById(`scoreVal_${k}`).innerText = (typeof val === 'number') ? (Math.round(val * 20 * 10) / 10) : '-';
-        });
-
         const badge = document.getElementById('scoreCompareBadge');
         if (scoringManager.aiBaseScore === null) {
             scoringManager.setBase(score);
@@ -114,6 +114,63 @@ const scheduleEditorManager = {
             else if (diff < 0) { badge.innerHTML = `▼ ${Math.abs(diff)}%`; badge.style.color='#e74c3c'; badge.style.background='#fdedec'; }
             else { badge.innerHTML = '持平'; badge.style.color='#7f8c8d'; badge.style.background='#f5f5f5'; }
         }
+        this.lastScoreResult = res; // 暫存結果供彈窗使用
+    },
+
+    showDetailedScore: function() {
+        if(!this.lastScoreResult) return;
+        const res = this.lastScoreResult;
+        const settings = scoringManager.currentSettings || scoringManager.getDefaultSettings();
+        const enables = settings.enables || {};
+        const thresholds = settings.thresholds || {};
+        
+        // 取得 score_settings_manager 的 config 來獲取標籤
+        const config = (typeof scoreSettingsManager !== 'undefined') ? scoreSettingsManager.config : {};
+        
+        let html = '';
+        const groups = [
+            { key: 'fairness', label: '1. 公平性' },
+            { key: 'satisfaction', label: '2. 滿意度' },
+            { key: 'fatigue', label: '3. 疲勞度' },
+            { key: 'efficiency', label: '4. 排班效率' },
+            { key: 'cost', label: '5. 成本控制' }
+        ];
+
+        groups.forEach(g => {
+            const groupScore = res.breakdown[g.key] || 0;
+            const subKeys = Object.keys(config[g.key]?.subs || {});
+            const enabledSubs = subKeys.filter(sk => enables[sk]);
+            
+            if(enabledSubs.length === 0) return;
+
+            // 計算該大項的總權重
+            let groupTotalWeight = 0;
+            enabledSubs.forEach(sk => groupTotalWeight += (thresholds[sk] || 0));
+
+            html += `<div style="margin-bottom:20px; border:1px solid #eee; border-radius:8px; padding:15px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <h4 style="margin:0; color:#2c3e50;">${g.label}</h4>
+                    <span style="font-weight:bold; color:#3498db; font-size:1.1rem;">${(groupScore * 20).toFixed(1)} / 100</span>
+                </div>`;
+            
+            enabledSubs.forEach(sk => {
+                const sub = config[g.key].subs[sk];
+                const subScore = res.subBreakdown?.[sk] || 0; // 需要在 scoringManager 補上 subBreakdown
+                const subWeight = thresholds[sk] || 0;
+                
+                html += `<div style="display:flex; justify-content:space-between; font-size:0.9rem; padding:5px 0; border-top:1px dashed #eee;">
+                    <span style="color:#7f8c8d;">${sub.label}</span>
+                    <span>
+                        <span style="font-weight:bold;">${(subScore * 20).toFixed(1)}</span>
+                        <span style="color:#999; font-size:0.8rem;"> (權重: ${subWeight}%)</span>
+                    </span>
+                </div>`;
+            });
+            html += `</div>`;
+        });
+
+        document.getElementById('scoreDetailContent').innerHTML = html;
+        document.getElementById('scoreDetailModal').style.display = 'block';
     },
 
     updateRealTimeStats: function() {

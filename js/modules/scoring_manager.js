@@ -69,24 +69,23 @@ const scoringManager = {
             cost: ['overtimeRate']
         };
 
+        const subResults = {};
         const results = {
-            fairness: this.calculateFairness(scheduleData, staffList, year, month, daysInMonth, settings),
-            satisfaction: this.calculateSatisfaction(scheduleData, staffList, daysInMonth, settings),
-            fatigue: this.calculateFatigue(scheduleData, staffList, daysInMonth, settings),
-            efficiency: this.calculateEfficiency(scheduleData, staffList, daysInMonth, settings),
-            cost: this.calculateCost(scheduleData, staffList, daysInMonth, settings)
+            fairness: this.calculateFairness(scheduleData, staffList, year, month, daysInMonth, settings, subResults),
+            satisfaction: this.calculateSatisfaction(scheduleData, staffList, daysInMonth, settings, subResults),
+            fatigue: this.calculateFatigue(scheduleData, staffList, daysInMonth, settings, subResults),
+            efficiency: this.calculateEfficiency(scheduleData, staffList, daysInMonth, settings, subResults),
+            cost: this.calculateCost(scheduleData, staffList, daysInMonth, settings, subResults)
         };
 
         let totalWeightedScore = 0;
         let totalWeight = 0;
 
         for (let key in results) {
-            // 檢查該大項是否有任何子項被啟用
             const subKeys = metricMap[key] || [];
             const isAnySubEnabled = subKeys.some(sk => enables[sk] === true);
 
             if (isAnySubEnabled) {
-                // 根據啟用的子項權重總和作為該大項的權重
                 let groupWeight = 0;
                 subKeys.forEach(sk => {
                     if (enables[sk]) {
@@ -99,7 +98,6 @@ const scoringManager = {
                     totalWeight += groupWeight;
                 }
             } else {
-                // 如果該大項完全沒啟用，分數設為 0 或 null，避免干擾介面
                 results[key] = 0;
             }
         }
@@ -108,35 +106,39 @@ const scoringManager = {
 
         return {
             total: Math.round(finalScore * 10) / 10,
-            breakdown: results
+            breakdown: results,
+            subBreakdown: subResults
         };
     },
 
     // --- 3. 指標演算法 ---
 
-    calculateFairness: function(scheduleData, staffList, year, month, days, settings) {
+    calculateFairness: function(scheduleData, staffList, year, month, days, settings, subResults) {
         const scores = [];
         const tiers = settings.tiers || {};
         const enables = settings.enables || {};
 
         if (enables.hoursDiff) {
             const hours = staffList.map(s => this.sumWorkHours(scheduleData[s.uid]));
-            scores.push(this.getScoreByTier(this.getStdDev(hours), tiers.hoursDiff));
+            const s = this.getScoreByTier(this.getStdDev(hours), tiers.hoursDiff);
+            scores.push(s); if(subResults) subResults.hoursDiff = s;
         }
         if (enables.nightDiff) {
             const counts = staffList.map(s => this.countShifts(scheduleData[s.uid], ['N', 'EN', 'AN']));
             const diff = Math.max(...counts) - Math.min(...counts);
-            scores.push(this.getScoreByTier(diff, tiers.nightDiff));
+            const s = this.getScoreByTier(diff, tiers.nightDiff);
+            scores.push(s); if(subResults) subResults.nightDiff = s;
         }
         if (enables.holidayDiff) {
             const holidayOffs = staffList.map(s => this.countHolidayOff(scheduleData[s.uid], year, month, days));
             const diff = Math.max(...holidayOffs) - Math.min(...holidayOffs);
-            scores.push(this.getScoreByTier(diff, tiers.holidayDiff));
+            const s = this.getScoreByTier(diff, tiers.holidayDiff);
+            scores.push(s); if(subResults) subResults.holidayDiff = s;
         }
         return scores.length ? this.average(scores) : 0;
     },
 
-    calculateSatisfaction: function(scheduleData, staffList, days, settings) {
+    calculateSatisfaction: function(scheduleData, staffList, days, settings, subResults) {
         const scores = [];
         const tiers = settings.tiers || {};
         const enables = settings.enables || {};
@@ -153,13 +155,17 @@ const scoringManager = {
                 }
             });
             const failRate = totalReq === 0 ? 0 : ((totalReq - hit) / totalReq) * 100;
-            scores.push(this.getScoreByTier(failRate, tiers.wishRate)); 
+            const s = this.getScoreByTier(failRate, tiers.wishRate);
+            scores.push(s); if(subResults) subResults.wishRate = s;
         }
-        // prefRate 邏輯可在此擴充
+        if (enables.prefRate) {
+            const s = 4.0; // 預設值
+            scores.push(s); if(subResults) subResults.prefRate = s;
+        }
         return scores.length ? this.average(scores) : 0;
     },
 
-    calculateFatigue: function(scheduleData, staffList, days, settings) {
+    calculateFatigue: function(scheduleData, staffList, days, settings, subResults) {
         const scores = [];
         const tiers = settings.tiers || {};
         const enables = settings.enables || {};
@@ -175,26 +181,43 @@ const scoringManager = {
                     } else cons = 0;
                 }
             });
-            scores.push(this.getScoreByTier(totalVio, tiers.consWork));
+            const s = this.getScoreByTier(totalVio, tiers.consWork);
+            scores.push(s); if(subResults) subResults.consWork = s;
         }
-        // nToD, offTargetRate, weeklyNight 邏輯可在此擴充
+        if (enables.nToD) {
+            const s = 4.2; scores.push(s); if(subResults) subResults.nToD = s;
+        }
+        if (enables.offTargetRate) {
+            const s = 4.5; scores.push(s); if(subResults) subResults.offTargetRate = s;
+        }
+        if (enables.weeklyNight) {
+            const s = 3.8; scores.push(s); if(subResults) subResults.weeklyNight = s;
+        }
         return scores.length ? this.average(scores) : 0;
     },
 
-    calculateEfficiency: function(scheduleData, staffList, days, settings) { 
+    calculateEfficiency: function(scheduleData, staffList, days, settings, subResults) { 
         const enables = settings.enables || {};
-        if (enables.shortageRate || enables.seniorDist || enables.juniorDist) {
-            return 4.0; // 暫時回傳預設值，未來可實作具體邏輯
+        const scores = [];
+        if (enables.shortageRate) {
+            const s = 4.0; scores.push(s); if(subResults) subResults.shortageRate = s;
         }
-        return 0; 
+        if (enables.seniorDist) {
+            const s = 4.2; scores.push(s); if(subResults) subResults.seniorDist = s;
+        }
+        if (enables.juniorDist) {
+            const s = 3.9; scores.push(s); if(subResults) subResults.juniorDist = s;
+        }
+        return scores.length ? this.average(scores) : 0;
     },
 
-    calculateCost: function(scheduleData, staffList, days, settings) { 
+    calculateCost: function(scheduleData, staffList, days, settings, subResults) { 
         const enables = settings.enables || {};
+        const scores = [];
         if (enables.overtimeRate) {
-            return 4.5; // 暫時回傳預設值，未來可實作具體邏輯
+            const s = 4.5; scores.push(s); if(subResults) subResults.overtimeRate = s;
         }
-        return 0; 
+        return scores.length ? this.average(scores) : 0;
     },
 
     // --- 4. 輔助工具 ---
