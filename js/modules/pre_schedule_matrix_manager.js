@@ -343,11 +343,22 @@ const matrixManager = {
         options.innerHTML = html;
         menu.style.display = 'block';
         
-        let top = e.pageY;
-        let left = e.pageX;
-        if (left + 160 > window.innerWidth) left = window.innerWidth - 170;
-        menu.style.left = `${left}px`;
-        menu.style.top = `${top}px`;
+        const menuWidth = 160;
+        const menuHeight = menu.offsetHeight;
+        
+        let top = e.pageY + 5;
+        let left = e.pageX + 5;
+        
+        if (left + menuWidth > window.innerWidth) {
+            left = window.innerWidth - menuWidth - 10;
+        }
+        
+        if (top + menuHeight > window.innerHeight) {
+            top = window.innerHeight - menuHeight - 10;
+        }
+        
+        menu.style.left = left + 'px';
+        menu.style.top = top + 'px';
     },
 
     setShift: function(uid, key, val) {

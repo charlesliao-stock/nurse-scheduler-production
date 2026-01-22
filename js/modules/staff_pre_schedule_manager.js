@@ -508,12 +508,21 @@ const staffPreScheduleManager = {
         menu.innerHTML = html;
         menu.style.display = 'block';
         
-        let top = e.pageY;
-        let left = e.pageX;
-        if (left + 160 > window.innerWidth) left = window.innerWidth - 170;
-        if (top + menu.offsetHeight > window.innerHeight) top = window.innerHeight - menu.offsetHeight;
-        menu.style.top = `${top}px`;
-        menu.style.left = `${left}px`;
+        const menuWidth = 160;
+        const menuHeight = menu.offsetHeight;
+        
+        let top = e.pageY + 5;
+        let left = e.pageX + 5;
+        
+        if (left + menuWidth > window.innerWidth) {
+            left = window.innerWidth - menuWidth - 10;
+        }
+        if (top + menuHeight > window.innerHeight) {
+            top = window.innerHeight - menuHeight - 10;
+        }
+        
+        menu.style.top = top + 'px';
+        menu.style.left = left + 'px';
     },
 
     menuAction: function(val) {
