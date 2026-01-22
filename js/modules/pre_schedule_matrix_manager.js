@@ -90,7 +90,7 @@ const matrixManager = {
         let h1 = `<tr>
             <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa;">職編</th>
             <th rowspan="2" style="width:80px; position:sticky; left:60px; z-index:110; background:#f8f9fa;">姓名</th>
-            <th rowspan="2" style="width:50px;">設定</th>
+            <th rowspan="2" style="width:50px;">偏好</th>
             <th colspan="6" style="background:#eee; font-size:0.8rem;">上月月底 (參考)</th>`;
         
         for(let d=1; d<=daysInMonth; d++) {
@@ -130,18 +130,21 @@ const matrixManager = {
 
             const prefs = assign.preferences || {};
             let prefDisplay = '';
-            if (prefs.bundleShift) prefDisplay += `<div>包${prefs.bundleShift}</div>`;
-            if (prefs.favShift || prefs.favShift2) {
-                let favs = [];
-                if (prefs.favShift) favs.push(prefs.favShift);
-                if (prefs.favShift2) favs.push(prefs.favShift2);
+            if (prefs.bundleShift) {
+                prefDisplay += `<div style="font-weight:bold; font-size:0.85rem;">包${prefs.bundleShift}</div>`;
+            }
+            let favs = [];
+            if (prefs.favShift) favs.push(prefs.favShift);
+            if (prefs.favShift2) favs.push(prefs.favShift2);
+            if (prefs.favShift3) favs.push(prefs.favShift3);
+            if (favs.length > 0) {
                 prefDisplay += `<div style="font-size:0.75rem; color:#666;">${favs.join('->')}</div>`;
             }
 
             bodyHtml += `<tr data-uid="${uid}">
                 <td style="position:sticky; left:0; background:#fff;">${empId}</td>
                 <td style="position:sticky; left:60px; background:#fff;">${staff.name}</td>
-                <td style="cursor:pointer; text-align:center; line-height:1.2;" onclick="matrixManager.openPrefModal('${uid}','${staff.name}')">
+                <td style="cursor:pointer; text-align:center; line-height:1.3; padding:4px 2px;" onclick="matrixManager.openPrefModal('${uid}','${staff.name}')">
                     ${prefDisplay || '<i class="fas fa-cog" style="color:#ccc;"></i>'}
                 </td>`;
             
@@ -164,8 +167,8 @@ const matrixManager = {
                 const val = assign[key] || '';
                 bodyHtml += `<td class="cell-clickable" data-uid="${uid}" data-day="${d}">${this.renderCellContent(val)}</td>`;
                 
-                // 計算統計：空白處視為 OFF
-                if (!val || val === 'OFF' || val === 'REQ_OFF') {
+                // 改進 5: 計算統計：只計算有設定的預班 (REQ_OFF)
+                if (val === 'REQ_OFF') {
                     totalOff++;
                     const date = new Date(year, month-1, d);
                     const w = date.getDay();
@@ -253,7 +256,7 @@ const matrixManager = {
                 });
             }
             this.renderMatrix();
-        } catch(e) { alert("更新失敗"); }
+        } catch(e) { console.error(e); alert("更新失敗"); }
     },
 
     updateStats: function() {
@@ -355,7 +358,9 @@ const matrixManager = {
         db.collection('pre_schedules').doc(this.docId).update({
             [`assignments.${uid}.${key}`]: val === null ? firebase.firestore.FieldValue.delete() : val
         });
+        // 改進 3: 即時更新畫面
         this.renderMatrix();
+        this.updateStats();
     },
 
     executeSchedule: async function() {
@@ -430,7 +435,11 @@ const matrixManager = {
         // 2. 渲染志願序
         const renderPrefs = () => {
             const currentBundle = bundleSelect.value;
-            const isNightBundle = currentBundle && this.shifts.find(s => s.code === currentBundle)?.startTime === '00:00';
+            const bundleShiftData = currentBundle ? this.shifts.find(s => s.code === currentBundle) : null;
+            const bundleStartTime = bundleShiftData?.startTime;
+            
+            // 改進 6: 改進夜班屏蔽邏輯
+            const isNightBundle = bundleStartTime && (bundleStartTime === '00:00' || bundleStartTime === '22:00');
             
             const prefContainer = document.getElementById('editPrefContainer');
             let prefHtml = `
@@ -439,13 +448,14 @@ const matrixManager = {
                     <select id="editFavShift" class="form-control" style="flex:1;">
                         <option value="">無特別偏好</option>
                         ${this.shifts.filter(s => {
-                            if (isNightBundle && s.startTime !== '00:00' && s.code !== 'OFF') {
-                                // 如果包大夜，屏蔽其他夜班 (這裡邏輯是屏蔽非大夜的班別，或是依需求屏蔽其他夜班)
-                                // 根據需求：屏蔽其他夜班。通常指小夜。
-                                // 這裡簡單判斷：如果包大夜，則志願序只能選大夜或不選
-                                return s.startTime === '00:00';
+                            if (isNightBundle) {
+                                const shiftStartTime = s.startTime;
+                                const isOtherNight = shiftStartTime && (shiftStartTime === '00:00' || shiftStartTime === '22:00');
+                                if (isOtherNight && shiftStartTime !== bundleStartTime) {
+                                    return false;
+                                }
                             }
-                            return true;
+                            return s.code !== 'OFF';
                         }).map(s => `<option value="${s.code}" ${prefs.favShift === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
                     </select>
                 </div>
@@ -454,14 +464,42 @@ const matrixManager = {
                     <select id="editFavShift2" class="form-control" style="flex:1;">
                         <option value="">無特別偏好</option>
                         ${this.shifts.filter(s => {
-                            if (isNightBundle && s.startTime !== '00:00' && s.code !== 'OFF') {
-                                return s.startTime === '00:00';
+                            if (isNightBundle) {
+                                const shiftStartTime = s.startTime;
+                                const isOtherNight = shiftStartTime && (shiftStartTime === '00:00' || shiftStartTime === '22:00');
+                                if (isOtherNight && shiftStartTime !== bundleStartTime) {
+                                    return false;
+                                }
                             }
-                            return true;
+                            return s.code !== 'OFF';
                         }).map(s => `<option value="${s.code}" ${prefs.favShift2 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
                     </select>
                 </div>
             `;
+            
+            // 改進 4: 第三志願支援
+            const allowThreeShifts = this.data.settings?.allowThreeShifts === true;
+            if (allowThreeShifts) {
+                prefHtml += `
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="width:70px; font-size:0.9rem;">第三志願</span>
+                    <select id="editFavShift3" class="form-control" style="flex:1;">
+                        <option value="">無特別偏好</option>
+                        ${this.shifts.filter(s => {
+                            if (isNightBundle) {
+                                const shiftStartTime = s.startTime;
+                                const isOtherNight = shiftStartTime && (shiftStartTime === '00:00' || shiftStartTime === '22:00');
+                                if (isOtherNight && shiftStartTime !== bundleStartTime) {
+                                    return false;
+                                }
+                            }
+                            return s.code !== 'OFF';
+                        }).map(s => `<option value="${s.code}" ${prefs.favShift3 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
+                    </select>
+                </div>
+                `;
+            }
+            
             prefContainer.innerHTML = prefHtml;
         };
 
@@ -482,12 +520,20 @@ const matrixManager = {
         prefs.bundleShift = document.getElementById('editBundleShift').value;
         prefs.favShift = document.getElementById('editFavShift').value;
         prefs.favShift2 = document.getElementById('editFavShift2').value;
+        // 改進 4: 第三志願支援
+        const favShift3Select = document.getElementById('editFavShift3');
+        if (favShift3Select) {
+            prefs.favShift3 = favShift3Select.value;
+        }
 
         try {
             await db.collection('pre_schedules').doc(this.docId).update({
                 [`assignments.${uid}.preferences`]: prefs
             });
             this.closePrefModal();
+            // 改進 3: 即時更新畫面
+            this.renderMatrix();
+            this.updateStats();
             alert("偏好設定已儲存");
         } catch(e) {
             console.error(e);
