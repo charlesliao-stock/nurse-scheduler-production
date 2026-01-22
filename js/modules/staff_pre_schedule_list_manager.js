@@ -46,7 +46,7 @@ const staffPreScheduleListManager = {
             }
 
             tbody.innerHTML = '';
-            const uid = app.currentUser.uid;
+            const uid = app.getUid();
             const today = new Date().toISOString().split('T')[0];
             let count = 0;
 

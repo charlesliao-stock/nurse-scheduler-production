@@ -90,7 +90,7 @@ const staffPreScheduleManager = {
         if (!doc.exists) throw new Error("找不到預班表");
         this.data = doc.data();
         
-        const uid = app.currentUser.uid;
+        const uid = app.getUid();
         this.allAssignments = this.data.assignments || {};
         this.userRequest = (this.allAssignments[uid]) ? JSON.parse(JSON.stringify(this.allAssignments[uid])) : {};
         this.isReadOnly = (this.data.status !== 'open');
@@ -116,7 +116,7 @@ const staffPreScheduleManager = {
     },
 
     loadUserProfile: async function() {
-        const uid = app.currentUser.uid;
+        const uid = app.getUid();
         const doc = await db.collection('users').doc(uid).get();
         this.userData = doc.exists ? doc.data() : { schedulingParams: {} };
     },
@@ -439,7 +439,7 @@ const staffPreScheduleManager = {
     calculateDailyOffCount: function(day) {
         let count = 0;
         const key = `current_${day}`;
-        const myUid = app.currentUser.uid;
+        const myUid = app.getUid();
         Object.keys(this.allAssignments).forEach(uid => {
             if (uid !== myUid && this.allAssignments[uid][key] === 'REQ_OFF') count++;
         });
@@ -450,7 +450,7 @@ const staffPreScheduleManager = {
     getDailyOffNames: function(day) {
         const names = [];
         const key = `current_${day}`;
-        const myUid = app.currentUser.uid;
+        const myUid = app.getUid();
         Object.keys(this.allAssignments).forEach(uid => {
             if (uid !== myUid && this.allAssignments[uid][key] === 'REQ_OFF') {
                 names.push(this.allUsersMap[uid] || '同仁');
@@ -601,7 +601,7 @@ const staffPreScheduleManager = {
                 preferences[id] = sel.value;
             });
 
-            const uid = app.currentUser.uid;
+            const uid = app.getUid();
             const updateKey = `assignments.${uid}`;
             const dataToSave = { 
                 ...this.userRequest, 

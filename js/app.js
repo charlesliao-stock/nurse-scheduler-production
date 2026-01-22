@@ -7,7 +7,10 @@ const app = {
     permissions: [],
     authStateInitialized: false,
     impersonatedRole: null, // 模擬的角色
+    impersonatedUid: null,  // 模擬的使用者 UID
+    impersonatedUnitId: null, // 模擬的單位 ID
     originalRole: null,    // 原始角色 (用於權限檢查)
+    originalUid: null,     // 原始 UID
 
     // --- 1. 系統初始化 ---
     init: function() {
@@ -144,6 +147,7 @@ const app = {
     loadUserContext: async function(uid) {
         try {
             console.log('📂 正在載入使用者資料:', uid);
+            this.originalUid = uid;
             let userDoc = await db.collection('users').doc(uid).get();
             
             if(!userDoc.exists) {
@@ -168,19 +172,29 @@ const app = {
             this.originalRole = this.userRole;
             this.userUnitId = data.unitId;
 
-            // 處理身分模擬
-            const savedImpersonation = localStorage.getItem('impersonatedRole');
+            // 處理身分模擬 (Impersonation 2.0)
+            const savedImpersonation = localStorage.getItem('impersonatedUser');
             if (this.userRole === 'system_admin' && savedImpersonation) {
-                this.impersonatedRole = savedImpersonation;
-                console.log(`🎭 偵測到模擬身分: ${this.impersonatedRole}`);
+                const impData = JSON.parse(savedImpersonation);
+                this.impersonatedUid = impData.uid;
+                this.impersonatedRole = impData.role;
+                this.impersonatedUnitId = impData.unitId;
+                console.log(`🎭 偵測到深度模擬: ${impData.name} (${this.impersonatedRole})`);
+                
+                // 覆蓋當前上下文 (關鍵：讓後續功能如換班申請讀取到模擬的 UID)
+                this.userUnitId = this.impersonatedUnitId;
+                // 注意：我們不直接修改 this.currentUser.uid (那是 Firebase Auth 的唯讀屬性)
+                // 但我們會修改 app.getUid() 讓所有模組統一調用
             }
 
             // 更新 UI 顯示
             const nameEl = document.getElementById('displayUserName');
             const roleEl = document.getElementById('displayUserRole');
-            if(nameEl) nameEl.textContent = data.displayName || '使用者';
             
             const activeRole = this.impersonatedRole || this.userRole;
+            const activeName = this.impersonatedUid ? (JSON.parse(savedImpersonation).name) : (data.displayName || '使用者');
+
+            if(nameEl) nameEl.textContent = activeName;
             if(roleEl) {
                 roleEl.textContent = this.translateRole(activeRole);
                 if (this.impersonatedRole) {
@@ -194,7 +208,7 @@ const app = {
 
             // 管理員專屬工具
             if (this.userRole === 'system_admin') {
-                this.renderImpersonationTool();
+                await this.renderImpersonationTool();
             }
 
             await this.renderMenu();
@@ -248,6 +262,14 @@ const app = {
         return this.permissions.includes(reqPerm);
     },
 
+    getUid: function() {
+        return this.impersonatedUid || (this.currentUser ? this.currentUser.uid : null);
+    },
+
+    getUnitId: function() {
+        return this.userUnitId; // 已經在 loadUserContext 中被模擬值覆蓋
+    },
+
     translateRole: function(role) {
         const map = {
             'system_admin': '系統管理員',
@@ -258,48 +280,54 @@ const app = {
         return map[role] || role;
     },
 
-    // --- 6. 身分模擬工具 ---
-    renderImpersonationTool: function() {
+    // --- 6. 身分模擬工具 (2.0 深度模擬) ---
+    renderImpersonationTool: async function() {
         let tool = document.getElementById('impersonation-tool');
         if (!tool) {
             tool = document.createElement('div');
             tool.id = 'impersonation-tool';
             tool.style.cssText = 'padding: 15px; border-top: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); font-size: 0.85rem; color: white;';
-            
             const sidebar = document.getElementById('sidebar');
-            // 尋找登出按鈕的容器
             const logoutContainer = sidebar?.querySelector('div[style*="padding:20px"]');
-            
-            if (logoutContainer) {
-                sidebar.insertBefore(tool, logoutContainer);
-            } else if (sidebar) {
-                sidebar.appendChild(tool);
-            }
+            if (logoutContainer) sidebar.insertBefore(tool, logoutContainer);
+            else if (sidebar) sidebar.appendChild(tool);
         }
 
-        const roles = [
-            { id: null, name: '原始身分' },
-            { id: 'unit_manager', name: '護理長' },
-            { id: 'unit_scheduler', name: '排班人員' },
-            { id: 'user', name: '護理師' }
-        ];
+        // 取得所有使用者清單 (用於模擬特定人員)
+        let users = [];
+        try {
+            const snap = await db.collection('users').where('isActive', '==', true).limit(50).get();
+            snap.forEach(doc => users.push({ uid: doc.id, ...doc.data() }));
+        } catch (e) { console.error("Fetch users for impersonation failed", e); }
 
-        let html = '<div style="color:rgba(255,255,255,0.7); margin-bottom:8px; font-weight:bold;"><i class="fas fa-user-secret"></i> 身分模擬視角</div>';
-        html += '<select onchange="app.impersonate(this.value)" style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:#2c3e50; color:white; cursor:pointer;">';
-        roles.forEach(r => {
-            const selected = (this.impersonatedRole === r.id || (this.impersonatedRole === null && r.id === null)) ? 'selected' : '';
-            html += `<option value="${r.id || ''}" ${selected} style="background:#2c3e50;">${r.name}</option>`;
+        let html = '<div style="color:rgba(255,255,255,0.7); margin-bottom:8px; font-weight:bold;"><i class="fas fa-user-secret"></i> 深度身分模擬</div>';
+        
+        // 人員選擇
+        html += '<select onchange="app.impersonateUser(this.value)" style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:#2c3e50; color:white; cursor:pointer; margin-bottom:5px;">';
+        html += `<option value="">--- 選擇模擬對象 ---</option>`;
+        users.forEach(u => {
+            const selected = this.impersonatedUid === u.uid ? 'selected' : '';
+            const unitName = u.unitId ? `[${u.unitId.slice(-4)}]` : '[無單位]';
+            html += `<option value='${JSON.stringify({uid:u.uid, name:u.displayName||u.name, role:u.role, unitId:u.unitId})}' ${selected} style="background:#2c3e50;">${u.displayName || u.name} ${unitName}</option>`;
         });
         html += '</select>';
+
+        // 快速恢復按鈕
+        if (this.impersonatedUid) {
+            html += `<button onclick="app.clearImpersonation()" style="width:100%; padding:4px; background:#e74c3c; color:white; border:none; border-radius:4px; font-size:0.75rem; cursor:pointer;">恢復原始身分</button>`;
+        }
+
         tool.innerHTML = html;
     },
 
-    impersonate: function(roleId) {
-        if (!roleId || roleId === '') {
-            localStorage.removeItem('impersonatedRole');
-        } else {
-            localStorage.setItem('impersonatedRole', roleId);
-        }
+    impersonateUser: function(jsonStr) {
+        if (!jsonStr) return;
+        localStorage.setItem('impersonatedUser', jsonStr);
+        window.location.reload();
+    },
+
+    clearImpersonation: function() {
+        localStorage.removeItem('impersonatedUser');
         window.location.reload();
     }
 };

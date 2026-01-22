@@ -33,7 +33,7 @@ const shiftExchangeManager = {
 
         try {
             let query = db.collection('shift_requests');
-            const uid = app.currentUser.uid;
+            const uid = app.getUid();
 
             // 根據頁籤篩選資料
             if (type === 'my') {
@@ -85,7 +85,7 @@ const shiftExchangeManager = {
 
         // 操作按鈕邏輯
         let actions = '';
-        const uid = app.currentUser.uid;
+        const uid = app.getUid();
 
         if (this.currentTab === 'incoming' && data.status === 'pending_target') {
             actions = `

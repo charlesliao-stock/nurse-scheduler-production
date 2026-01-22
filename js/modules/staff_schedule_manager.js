@@ -8,7 +8,7 @@ const staffScheduleManager = {
     
     init: async function() {
         if (!app.currentUser) { alert("請先登入"); return; }
-        this.uid = app.currentUser.uid;
+        this.uid = app.getUid();
         
         // 預設本月
         const now = new Date();
@@ -227,7 +227,7 @@ const staffScheduleManager = {
                 month: this.currentSchedule.month,
                 day: this.exchangeData.day,
                 requesterId: this.uid,
-                requesterName: app.currentUser.displayName || '我',
+                requesterName: document.getElementById('displayUserName')?.textContent || '我',
                 requesterShift: this.exchangeData.myShift,
                 targetId: targetUid,
                 targetName: targetName,
