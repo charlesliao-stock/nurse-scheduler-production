@@ -280,7 +280,7 @@ const app = {
         return map[role] || role;
     },
 
-    // --- 6. 身分模擬工具 (2.0 深度模擬) ---
+    // --- 6. 身分模擬工具 (3.0 聯動選單) ---
     renderImpersonationTool: async function() {
         let tool = document.getElementById('impersonation-tool');
         if (!tool) {
@@ -293,31 +293,66 @@ const app = {
             else if (sidebar) sidebar.appendChild(tool);
         }
 
-        // 取得所有使用者清單 (用於模擬特定人員)
-        let users = [];
+        // 1. 取得所有單位
+        let units = [];
         try {
-            const snap = await db.collection('users').where('isActive', '==', true).limit(50).get();
-            snap.forEach(doc => users.push({ uid: doc.id, ...doc.data() }));
-        } catch (e) { console.error("Fetch users for impersonation failed", e); }
+            const unitSnap = await db.collection('units').get();
+            unitSnap.forEach(doc => units.push({ id: doc.id, ...doc.data() }));
+        } catch (e) { console.error("Fetch units failed", e); }
+
+        // 2. 取得所有使用者 (快取在 app 物件中供聯動使用)
+        if (!this._allUsersForImp) {
+            this._allUsersForImp = [];
+            try {
+                const userSnap = await db.collection('users').where('isActive', '==', true).get();
+                userSnap.forEach(doc => this._allUsersForImp.push({ uid: doc.id, ...doc.data() }));
+            } catch (e) { console.error("Fetch users failed", e); }
+        }
 
         let html = '<div style="color:rgba(255,255,255,0.7); margin-bottom:8px; font-weight:bold;"><i class="fas fa-user-secret"></i> 深度身分模擬</div>';
         
-        // 人員選擇
-        html += '<select onchange="app.impersonateUser(this.value)" style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:#2c3e50; color:white; cursor:pointer; margin-bottom:5px;">';
-        html += `<option value="">--- 選擇模擬對象 ---</option>`;
-        users.forEach(u => {
-            const selected = this.impersonatedUid === u.uid ? 'selected' : '';
-            const unitName = u.unitId ? `[${u.unitId.slice(-4)}]` : '[無單位]';
-            html += `<option value='${JSON.stringify({uid:u.uid, name:u.displayName||u.name, role:u.role, unitId:u.unitId})}' ${selected} style="background:#2c3e50;">${u.displayName || u.name} ${unitName}</option>`;
+        // 單位選擇器
+        html += '<select id="impUnitSelect" onchange="app.updateImpUserList(this.value)" style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:#2c3e50; color:white; cursor:pointer; margin-bottom:5px;">';
+        html += '<option value="">--- 選擇單位 ---</option>';
+        units.forEach(u => {
+            const selected = (this.impersonatedUnitId === u.id) ? 'selected' : '';
+            html += `<option value="${u.id}" ${selected} style="background:#2c3e50;">${u.name}</option>`;
         });
+        html += '</select>';
+
+        // 人員選擇器 (初始為空或根據當前模擬單位過濾)
+        html += '<select id="impUserSelect" onchange="app.impersonateUser(this.value)" style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:#2c3e50; color:white; cursor:pointer; margin-bottom:5px;">';
+        html += '<option value="">--- 選擇人員 ---</option>';
         html += '</select>';
 
         // 快速恢復按鈕
         if (this.impersonatedUid) {
-            html += `<button onclick="app.clearImpersonation()" style="width:100%; padding:4px; background:#e74c3c; color:white; border:none; border-radius:4px; font-size:0.75rem; cursor:pointer;">恢復原始身分</button>`;
+            html += `<button onclick="app.clearImpersonation()" style="width:100%; padding:4px; background:#e74c3c; color:white; border:none; border-radius:4px; font-size:0.75rem; cursor:pointer; margin-top:5px;">恢復原始身分</button>`;
         }
 
         tool.innerHTML = html;
+
+        // 如果已有模擬單位，初始化人員選單
+        if (this.impersonatedUnitId || document.getElementById('impUnitSelect').value) {
+            this.updateImpUserList(this.impersonatedUnitId || document.getElementById('impUnitSelect').value);
+        }
+    },
+
+    updateImpUserList: function(unitId) {
+        const userSelect = document.getElementById('impUserSelect');
+        if (!userSelect) return;
+
+        userSelect.innerHTML = '<option value="">--- 選擇人員 ---</option>';
+        
+        const filteredUsers = unitId 
+            ? this._allUsersForImp.filter(u => u.unitId === unitId)
+            : this._allUsersForImp;
+
+        filteredUsers.forEach(u => {
+            const selected = this.impersonatedUid === u.uid ? 'selected' : '';
+            const roleName = this.translateRole(u.role);
+            userSelect.innerHTML += `<option value='${JSON.stringify({uid:u.uid, name:u.displayName||u.name, role:u.role, unitId:u.unitId})}' ${selected} style="background:#2c3e50;">${u.displayName || u.name} (${roleName})</option>`;
+        });
     },
 
     impersonateUser: function(jsonStr) {
