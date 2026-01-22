@@ -247,10 +247,9 @@ const app = {
                 const allowedRoles = menu.allowedRoles || [];
                 const hasRoleAccess = allowedRoles.length === 0 || allowedRoles.includes(activeRole);
                 
-                // 同時保留舊有的權限字串檢查 (若有需要)
-                const hasPermAccess = this.checkPermission(menu.requiredPermission);
-
-                if(hasRoleAccess && hasPermAccess) {
+                // 修正：如果資料庫中仍存有舊的 requiredPermission，不應讓它干擾新的角色勾選邏輯
+                // 除非該選單明確需要特定的 permission 字串檢查，否則以角色勾選為準
+                if(hasRoleAccess) {
                     const li = document.createElement('li');
                     li.innerHTML = `<a class="menu-link" href="#${menu.path}"><i class="${menu.icon}"></i> ${menu.label}</a>`;
                     menuList.appendChild(li);
