@@ -200,6 +200,45 @@ const staffPreScheduleManager = {
     renderSidebar: function() {
         const bundleSelect = document.getElementById('inputBundleShift');
         const bundleGroup = document.getElementById('bundleGroup');
+        const prefContainer = document.getElementById('prefContainer');
+        
+        const renderPrefs = () => {
+            if (!prefContainer) return;
+            const preferences = this.userRequest.preferences || {};
+            const currentBundle = bundleSelect ? bundleSelect.value : '';
+            const isNightBundle = currentBundle && this.shifts.find(s => s.code === currentBundle)?.startTime === '00:00';
+            
+            let html = '';
+            const pref1 = preferences.favShift || '';
+            html += `
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="flex-shrink:0; width:60px;">第一志願</span>
+                    <select id="pref_favShift" class="pref-select form-control" ${this.isReadOnly ? 'disabled' : ''}>
+                        <option value="">無特別偏好</option>
+                        ${this.shifts.filter(s => {
+                            if (isNightBundle && s.startTime !== '00:00' && s.code !== 'OFF') return s.startTime === '00:00';
+                            return true;
+                        }).map(s => `<option value="${s.code}" ${pref1===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
+                    </select>
+                </div>
+            `;
+
+            const pref2 = preferences.favShift2 || '';
+            html += `
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="flex-shrink:0; width:60px;">第二志願</span>
+                    <select id="pref_favShift2" class="pref-select form-control" ${this.isReadOnly ? 'disabled' : ''}>
+                        <option value="">無特別偏好</option>
+                        ${this.shifts.filter(s => {
+                            if (isNightBundle && s.startTime !== '00:00' && s.code !== 'OFF') return s.startTime === '00:00';
+                            return true;
+                        }).map(s => `<option value="${s.code}" ${pref2===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
+                    </select>
+                </div>
+            `;
+            prefContainer.innerHTML = html;
+        };
+
         if (bundleSelect) {
             const canBundle = this.userData?.schedulingParams?.canBundleShifts === true;
             if (canBundle) {
@@ -211,40 +250,13 @@ const staffPreScheduleManager = {
                 bundleSelect.disabled = this.isReadOnly;
                 if (this.userRequest.preferences?.bundleShift) bundleSelect.value = this.userRequest.preferences.bundleShift;
                 if(bundleGroup) bundleGroup.style.display = 'block';
+                bundleSelect.onchange = renderPrefs;
             } else {
                 if(bundleGroup) bundleGroup.style.display = 'none';
             }
         }
 
-        const prefContainer = document.getElementById('prefContainer');
-        if (prefContainer) {
-            const preferences = this.userRequest.preferences || {};
-            let html = '';
-            
-            const pref1 = preferences.favShift || '';
-            html += `
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <span style="flex-shrink:0; width:60px;">第一志願</span>
-                    <select id="pref_favShift" class="pref-select form-control" ${this.isReadOnly ? 'disabled' : ''}>
-                        <option value="">無特別偏好</option>
-                        ${this.shifts.map(s => `<option value="${s.code}" ${pref1===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
-                    </select>
-                </div>
-            `;
-
-            const pref2 = preferences.favShift2 || '';
-            html += `
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <span style="flex-shrink:0; width:60px;">第二志願</span>
-                    <select id="pref_favShift2" class="pref-select form-control" ${this.isReadOnly ? 'disabled' : ''}>
-                        <option value="">無特別偏好</option>
-                        ${this.shifts.map(s => `<option value="${s.code}" ${pref2===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
-                    </select>
-                </div>
-            `;
-
-            prefContainer.innerHTML = html;
-        }
+        renderPrefs();
     },
 
     updateSidebarStats: function() {

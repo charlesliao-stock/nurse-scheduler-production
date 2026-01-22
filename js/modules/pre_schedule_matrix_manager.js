@@ -128,10 +128,22 @@ const matrixManager = {
             const assign = this.localAssignments[uid] || {};
             const empId = this.usersMap[uid]?.employeeId || staff.empId;
 
+            const prefs = assign.preferences || {};
+            let prefDisplay = '';
+            if (prefs.bundleShift) prefDisplay += `<div>包${prefs.bundleShift}</div>`;
+            if (prefs.favShift || prefs.favShift2) {
+                let favs = [];
+                if (prefs.favShift) favs.push(prefs.favShift);
+                if (prefs.favShift2) favs.push(prefs.favShift2);
+                prefDisplay += `<div style="font-size:0.75rem; color:#666;">${favs.join('->')}</div>`;
+            }
+
             bodyHtml += `<tr data-uid="${uid}">
                 <td style="position:sticky; left:0; background:#fff;">${empId}</td>
                 <td style="position:sticky; left:60px; background:#fff;">${staff.name}</td>
-                <td><button class="btn btn-sm" onclick="matrixManager.openPrefModal('${uid}','${staff.name}')"><i class="fas fa-cog"></i></button></td>`;
+                <td style="cursor:pointer; text-align:center; line-height:1.2;" onclick="matrixManager.openPrefModal('${uid}','${staff.name}')">
+                    ${prefDisplay || '<i class="fas fa-cog" style="color:#ccc;"></i>'}
+                </td>`;
             
             // [新增] 渲染上月最後 6 天班表
             const lastAssign = this.lastMonthAssignments[uid] || {};
@@ -213,7 +225,7 @@ const matrixManager = {
     },
 
     renderCellContent: function(val) {
-        if(!val || val === 'OFF') return '<span style="color:#bbb;">OFF</span>';
+        if(!val || val === 'OFF') return '';
         if(val === 'REQ_OFF') return '<span class="badge badge-success">預休</span>';
         if(typeof val === 'string' && val.startsWith('!')) return `<span style="color:red; font-size:0.8rem;">!${val.replace('!','')}</span>`;
         return val;
@@ -292,34 +304,42 @@ const matrixManager = {
         const menu = document.getElementById('customContextMenu');
         const options = document.getElementById('contextMenuOptions');
         
-        // [修正] 根據 HTML 結構，應該更新 contextMenuOptions
-        let html = `<ul style="list-style:none; padding:0; margin:0;">
-            <li style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee;" 
-                onclick="matrixManager.setShift('${uid}','current_${day}','REQ_OFF')">
-                <i class="fas fa-bed" style="color:#27ae60; width:20px;"></i> 設為預休
-            </li>`;
+        let html = `
+            <div style="padding:8px 12px; font-weight:bold; background:#f0f0f0; border-bottom:1px solid #ddd;">
+                ${this.data.month}月${day}日
+            </div>
+            <ul style="list-style:none; padding:0; margin:0;">
+                <li style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee;" 
+                    onclick="matrixManager.setShift('${uid}','current_${day}','REQ_OFF')">
+                    <i class="fas fa-bed" style="color:#27ae60; width:20px;"></i> 排休 (OFF)
+                </li>`;
         
+        html += `<li style="padding:5px 12px; font-size:0.8rem; color:#999; background:#fafafa;">指定班別</li>`;
         this.shifts.forEach(s => {
-            html += `<li style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee;" 
+            html += `<li style="padding:8px 12px; cursor:pointer;" 
                         onclick="matrixManager.setShift('${uid}','current_${day}','${s.code}')">
-                        <span style="font-weight:bold; color:${s.color || '#333'}; width:20px; display:inline-block;">${s.code}</span> 指定班別
-                     </li>`;
-            html += `<li style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee; color:#e74c3c;" 
-                        onclick="matrixManager.setShift('${uid}','current_${day}','!${s.code}')">
-                        <i class="fas fa-ban" style="width:20px;"></i> 避開 ${s.code}
+                        <span style="font-weight:bold; color:${s.color || '#333'}; width:20px; display:inline-block;">${s.code}</span> - ${s.name}
                      </li>`;
         });
 
-        html += `<li style="padding:8px 12px; cursor:pointer; color:#95a5a6;" 
+        html += `<li style="padding:5px 12px; font-size:0.8rem; color:#999; background:#fafafa;">希望避開</li>`;
+        this.shifts.forEach(s => {
+            html += `<li style="padding:8px 12px; cursor:pointer; color:#e74c3c;" 
+                        onclick="matrixManager.setShift('${uid}','current_${day}','!${s.code}')">
+                        <i class="fas fa-ban" style="width:20px;"></i> 勿排 ${s.code}
+                     </li>`;
+        });
+
+        html += `<li style="border-top:1px solid #eee;"></li>
+                 <li style="padding:8px 12px; cursor:pointer; color:#95a5a6;" 
                     onclick="matrixManager.setShift('${uid}','current_${day}',null)">
-                    <i class="fas fa-eraser" style="width:20px;"></i> 清除
+                    <i class="fas fa-eraser" style="width:20px;"></i> 清除設定
                  </li>
         </ul>`;
         
         options.innerHTML = html;
         menu.style.display = 'block';
         
-        // 防止選單超出視窗
         let top = e.pageY;
         let left = e.pageX;
         if (left + 160 > window.innerWidth) left = window.innerWidth - 170;
@@ -408,24 +428,45 @@ const matrixManager = {
         bundleSelect.innerHTML = bundleHtml;
 
         // 2. 渲染志願序
-        const prefContainer = document.getElementById('editPrefContainer');
-        let prefHtml = `
-            <div style="display:flex; align-items:center; gap:10px;">
-                <span style="width:70px; font-size:0.9rem;">第一志願</span>
-                <select id="editFavShift" class="form-control" style="flex:1;">
-                    <option value="">無特別偏好</option>
-                    ${this.shifts.map(s => `<option value="${s.code}" ${prefs.favShift === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
-                </select>
-            </div>
-            <div style="display:flex; align-items:center; gap:10px;">
-                <span style="width:70px; font-size:0.9rem;">第二志願</span>
-                <select id="editFavShift2" class="form-control" style="flex:1;">
-                    <option value="">無特別偏好</option>
-                    ${this.shifts.map(s => `<option value="${s.code}" ${prefs.favShift2 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
-                </select>
-            </div>
-        `;
-        prefContainer.innerHTML = prefHtml;
+        const renderPrefs = () => {
+            const currentBundle = bundleSelect.value;
+            const isNightBundle = currentBundle && this.shifts.find(s => s.code === currentBundle)?.startTime === '00:00';
+            
+            const prefContainer = document.getElementById('editPrefContainer');
+            let prefHtml = `
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="width:70px; font-size:0.9rem;">第一志願</span>
+                    <select id="editFavShift" class="form-control" style="flex:1;">
+                        <option value="">無特別偏好</option>
+                        ${this.shifts.filter(s => {
+                            if (isNightBundle && s.startTime !== '00:00' && s.code !== 'OFF') {
+                                // 如果包大夜，屏蔽其他夜班 (這裡邏輯是屏蔽非大夜的班別，或是依需求屏蔽其他夜班)
+                                // 根據需求：屏蔽其他夜班。通常指小夜。
+                                // 這裡簡單判斷：如果包大夜，則志願序只能選大夜或不選
+                                return s.startTime === '00:00';
+                            }
+                            return true;
+                        }).map(s => `<option value="${s.code}" ${prefs.favShift === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
+                    </select>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="width:70px; font-size:0.9rem;">第二志願</span>
+                    <select id="editFavShift2" class="form-control" style="flex:1;">
+                        <option value="">無特別偏好</option>
+                        ${this.shifts.filter(s => {
+                            if (isNightBundle && s.startTime !== '00:00' && s.code !== 'OFF') {
+                                return s.startTime === '00:00';
+                            }
+                            return true;
+                        }).map(s => `<option value="${s.code}" ${prefs.favShift2 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
+                    </select>
+                </div>
+            `;
+            prefContainer.innerHTML = prefHtml;
+        };
+
+        bundleSelect.onchange = renderPrefs;
+        renderPrefs();
 
         document.getElementById('prefModal').classList.add('show');
     },
