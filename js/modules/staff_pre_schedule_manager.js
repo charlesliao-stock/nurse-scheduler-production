@@ -372,12 +372,20 @@ const staffPreScheduleManager = {
             const isWeekend = (dateObj.getDay() === 0 || dateObj.getDay() === 6);
             if(isWeekend) div.classList.add('weekend');
 
+            // 先判斷個人預班
+            const key = `current_${d}`;
+            const myVal = this.userRequest[key];
+            let isMySelection = false;
+            
             // 統計計算
             const offCount = this.calculateDailyOffCount(d);
             const limit = this.getDailyQuota(d);
             const isFull = (limit > 0 && offCount >= limit);
             
-            if (limit > 0) {
+            if (myVal) {
+                isMySelection = true;
+                div.classList.add('my-selection');
+            } else if (limit > 0) {
                 if (isFull) div.classList.add('quota-full');      
                 else div.classList.add('quota-available');        
             }
@@ -391,9 +399,6 @@ const staffPreScheduleManager = {
             div.title = tooltipText;
 
             // 內容顯示
-            const key = `current_${d}`;
-            const myVal = this.userRequest[key];
-            
             let content = '';
             if (myVal) {
                 if (myVal === 'REQ_OFF') {
