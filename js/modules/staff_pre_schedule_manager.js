@@ -205,8 +205,6 @@ const staffPreScheduleManager = {
         const renderPrefs = () => {
             if (!prefContainer) return;
             const preferences = this.userRequest.preferences || {};
-            const currentBundle = bundleSelect ? bundleSelect.value : '';
-            const isNightBundle = currentBundle && this.shifts.find(s => s.code === currentBundle)?.startTime === '00:00';
             
             let html = '';
             const pref1 = preferences.favShift || '';
@@ -215,10 +213,7 @@ const staffPreScheduleManager = {
                     <span style="flex-shrink:0; width:60px;">第一志願</span>
                     <select id="pref_favShift" class="pref-select form-control" ${this.isReadOnly ? 'disabled' : ''}>
                         <option value="">無特別偏好</option>
-                        ${this.shifts.filter(s => {
-                            if (isNightBundle && s.startTime !== '00:00' && s.code !== 'OFF') return s.startTime === '00:00';
-                            return true;
-                        }).map(s => `<option value="${s.code}" ${pref1===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
+                        ${this.shifts.filter(s => s.code !== 'OFF').map(s => `<option value="${s.code}" ${pref1===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
                     </select>
                 </div>
             `;
@@ -229,13 +224,25 @@ const staffPreScheduleManager = {
                     <span style="flex-shrink:0; width:60px;">第二志願</span>
                     <select id="pref_favShift2" class="pref-select form-control" ${this.isReadOnly ? 'disabled' : ''}>
                         <option value="">無特別偏好</option>
-                        ${this.shifts.filter(s => {
-                            if (isNightBundle && s.startTime !== '00:00' && s.code !== 'OFF') return s.startTime === '00:00';
-                            return true;
-                        }).map(s => `<option value="${s.code}" ${pref2===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
+                        ${this.shifts.filter(s => s.code !== 'OFF').map(s => `<option value="${s.code}" ${pref2===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
                     </select>
                 </div>
             `;
+            
+            const allowThreeShifts = this.data.settings?.allowThreeShifts === true;
+            if (allowThreeShifts) {
+                const pref3 = preferences.favShift3 || '';
+                html += `
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="flex-shrink:0; width:60px;">第三志願</span>
+                    <select id="pref_favShift3" class="pref-select form-control" ${this.isReadOnly ? 'disabled' : ''}>
+                        <option value="">無特別偏好</option>
+                        ${this.shifts.filter(s => s.code !== 'OFF').map(s => `<option value="${s.code}" ${pref3===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
+                    </select>
+                </div>
+                `;
+            }
+            
             prefContainer.innerHTML = html;
         };
 
