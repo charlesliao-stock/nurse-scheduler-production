@@ -308,36 +308,36 @@ const matrixManager = {
         const options = document.getElementById('contextMenuOptions');
         
         let html = `
-            <div style="padding:8px 12px; font-weight:bold; background:#f0f0f0; border-bottom:1px solid #ddd;">
+            <div class="menu-header" style="padding:8px 12px; font-weight:bold; background:#f0f0f0; border-bottom:1px solid #ddd;">
                 ${this.data.month}月${day}日
             </div>
             <ul style="list-style:none; padding:0; margin:0;">
-                <li style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee;" 
-                    onclick="matrixManager.setShift('${uid}','current_${day}','REQ_OFF')">
-                    <i class="fas fa-bed" style="color:#27ae60; width:20px;"></i> 排休 (OFF)
-                </li>`;
+                <li onclick="matrixManager.setShift('${uid}','current_${day}','REQ_OFF')" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee;">
+                    <i class="fas fa-bed" style="width:20px; color:#27ae60;"></i> 排休 (OFF)
+                </li>
+        `;
         
         html += `<li style="padding:5px 12px; font-size:0.8rem; color:#999; background:#fafafa;">指定班別</li>`;
         this.shifts.forEach(s => {
-            html += `<li style="padding:8px 12px; cursor:pointer;" 
-                        onclick="matrixManager.setShift('${uid}','current_${day}','${s.code}')">
-                        <span style="font-weight:bold; color:${s.color || '#333'}; width:20px; display:inline-block;">${s.code}</span> - ${s.name}
-                     </li>`;
+            html += `
+                <li onclick="matrixManager.setShift('${uid}','current_${day}','${s.code}')" style="padding:8px 12px; cursor:pointer;">
+                    <span style="font-weight:bold; color:${s.color || '#333'};">${s.code}</span> - ${s.name}
+                </li>`;
         });
 
         html += `<li style="padding:5px 12px; font-size:0.8rem; color:#999; background:#fafafa;">希望避開</li>`;
         this.shifts.forEach(s => {
-            html += `<li style="padding:8px 12px; cursor:pointer; color:#e74c3c;" 
-                        onclick="matrixManager.setShift('${uid}','current_${day}','!${s.code}')">
-                        <i class="fas fa-ban" style="width:20px;"></i> 勿排 ${s.code}
-                     </li>`;
+            html += `
+                <li onclick="matrixManager.setShift('${uid}','current_${day}','!${s.code}')" style="padding:8px 12px; cursor:pointer; color:#c0392b;">
+                    <i class="fas fa-ban" style="width:20px;"></i> 勿排 ${s.code}
+                </li>`;
         });
 
-        html += `<li style="border-top:1px solid #eee;"></li>
-                 <li style="padding:8px 12px; cursor:pointer; color:#95a5a6;" 
-                    onclick="matrixManager.setShift('${uid}','current_${day}',null)">
-                    <i class="fas fa-eraser" style="width:20px;"></i> 清除設定
-                 </li>
+        html += `
+            <li style="border-top:1px solid #eee;"></li>
+            <li onclick="matrixManager.setShift('${uid}','current_${day}',null)" style="padding:8px 12px; cursor:pointer; color:#7f8c8d;">
+                <i class="fas fa-eraser" style="width:20px;"></i> 清除設定
+            </li>
         </ul>`;
         
         options.innerHTML = html;
