@@ -36,7 +36,9 @@ const staffManager = {
         this.unitCache = {}; 
 
         let query = db.collection('units');
-        if(app.userRole === 'unit_manager' && app.userUnitId) {
+        // 權限過濾：單位護理長與排班人員只能看到自己單位
+        const activeRole = app.impersonatedRole || app.userRole;
+        if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && app.userUnitId) {
             query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
         }
 
@@ -84,7 +86,9 @@ const staffManager = {
         this.isLoading = true;
 
         let query = db.collection('users').where('isActive', '==', true);
-        if(app.userRole === 'unit_manager' && app.userUnitId) {
+        // 權限過濾：單位護理長與排班人員只能看到自己單位的人員
+        const activeRole = app.impersonatedRole || app.userRole;
+        if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && app.userUnitId) {
             query = query.where('unitId', '==', app.userUnitId);
         }
 

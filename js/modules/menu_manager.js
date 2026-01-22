@@ -118,13 +118,19 @@ const menuManager = {
                 '<span class="badge" style="background:#27ae60;">啟用</span>' : 
                 '<span class="badge" style="background:#95a5a6;">停用</span>';
 
+            const roles = m.allowedRoles || [];
+            const roleLabels = roles.map(r => {
+                const map = { 'system_admin': '管', 'unit_manager': '長', 'unit_scheduler': '排', 'user': '師' };
+                return `<span class="badge" style="background:#3498db; margin-right:2px; padding:2px 4px;">${map[r] || r}</span>`;
+            }).join('') || '<span style="color:#ccc;">無限制</span>';
+
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td><strong>${m.order}</strong></td>
                 <td style="text-align:center; font-size:1.2rem;"><i class="${m.icon}"></i></td>
                 <td>${m.label}</td>
                 <td><code style="font-size:0.85rem; background:#f8f9fa; padding:2px 6px; border-radius:3px;">${m.path}</code></td>
-                <td><span style="font-size:0.85rem; background:#eee; padding:2px 5px; border-radius:3px;">${m.requiredPermission || '無限制'}</span></td>
+                <td>${roleLabels}</td>
                 <td>${statusBadge}</td>
                 <td>
                     <button class="btn btn-edit" onclick="menuManager.openModal('${m.id}')">編輯</button>
@@ -163,7 +169,13 @@ const menuManager = {
             document.getElementById('inputMenuOrder').value = m.order;
             document.getElementById('inputMenuPath').value = m.path;
             document.getElementById('inputMenuIcon').value = m.icon;
-            document.getElementById('inputMenuPerm').value = m.requiredPermission || '';
+            
+            // 設定勾選框
+            const allowedRoles = m.allowedRoles || [];
+            document.querySelectorAll('input[name="allowedRoles"]').forEach(cb => {
+                cb.checked = allowedRoles.includes(cb.value);
+            });
+
             document.getElementById('checkMenuActive').checked = m.isActive !== false; // 預設 true
             this.previewIcon();
             
@@ -173,7 +185,10 @@ const menuManager = {
             document.getElementById('inputMenuOrder').value = this.allMenus.length + 1;
             document.getElementById('inputMenuPath').value = '';
             document.getElementById('inputMenuIcon').value = 'fas fa-circle';
-            document.getElementById('inputMenuPerm').value = '';
+            
+            // 清除勾選框
+            document.querySelectorAll('input[name="allowedRoles"]').forEach(cb => cb.checked = false);
+
             document.getElementById('checkMenuActive').checked = true;
             this.previewIcon();
         }
@@ -199,7 +214,13 @@ const menuManager = {
         const order = parseInt(document.getElementById('inputMenuOrder').value);
         const path = document.getElementById('inputMenuPath').value.trim();
         const icon = document.getElementById('inputMenuIcon').value.trim();
-        const perm = document.getElementById('inputMenuPerm').value.trim();
+        
+        // 取得勾選的角色
+        const allowedRoles = [];
+        document.querySelectorAll('input[name="allowedRoles"]:checked').forEach(cb => {
+            allowedRoles.push(cb.value);
+        });
+
         const isActive = document.getElementById('checkMenuActive').checked;
 
         // 驗證
@@ -231,7 +252,7 @@ const menuManager = {
             order: order,
             path: path,
             icon: icon || 'fas fa-circle',
-            requiredPermission: perm,
+            allowedRoles: allowedRoles,
             isActive: isActive,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };

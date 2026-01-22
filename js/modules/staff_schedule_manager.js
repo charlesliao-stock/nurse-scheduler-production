@@ -33,22 +33,30 @@ const staffScheduleManager = {
         tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">載入中...</td></tr>';
 
         try {
-            // 讀取已發布的班表
+            // 讀取已發布的班表 (跨單位查詢)
             const snap = await db.collection('schedules')
                 .where('year', '==', year)
                 .where('month', '==', month)
-                .where('status', '==', 'published') // 只能查已發布
-                .limit(1)
+                .where('status', '==', 'published')
                 .get();
 
-            if (snap.empty) {
+            // 過濾出與我相關的班表 (主單位或我是參與者)
+            const mySchedules = snap.docs.filter(doc => {
+                const d = doc.data();
+                const isMyUnit = (d.unitId === app.userUnitId);
+                const isParticipant = (d.staffList || []).some(s => s.uid === this.uid);
+                return isMyUnit || isParticipant;
+            });
+
+            if (mySchedules.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px;">本月尚無已發布的班表</td></tr>';
                 this.resetStats();
                 return;
             }
 
-            const doc = snap.docs[0];
-            this.currentSchedule = { id: doc.id, ...doc.data() };
+            // 優先取主單位的班表，若無則取第一份支援單位的班表
+            const targetDoc = mySchedules.find(doc => doc.data().unitId === app.userUnitId) || mySchedules[0];
+            this.currentSchedule = { id: targetDoc.id, ...targetDoc.data() };
             this.currentAssignments = this.currentSchedule.assignments || {};
             
             this.renderTable(year, month);

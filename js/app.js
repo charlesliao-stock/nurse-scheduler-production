@@ -235,16 +235,29 @@ const app = {
             const snapshot = await db.collection('system_menus').where('isActive', '==', true).orderBy('order').get();
             menuList.innerHTML = '';
             let menuCount = 0;
+            
+            const activeRole = this.impersonatedRole || this.userRole;
+
             snapshot.forEach(doc => {
                 const menu = doc.data();
-                if(this.checkPermission(menu.requiredPermission)) {
+                
+                // 權限檢查邏輯：
+                // 1. 如果 allowedRoles 為空或不存在，則所有人可見
+                // 2. 如果有設定 allowedRoles，則檢查當前角色是否在清單中
+                const allowedRoles = menu.allowedRoles || [];
+                const hasRoleAccess = allowedRoles.length === 0 || allowedRoles.includes(activeRole);
+                
+                // 同時保留舊有的權限字串檢查 (若有需要)
+                const hasPermAccess = this.checkPermission(menu.requiredPermission);
+
+                if(hasRoleAccess && hasPermAccess) {
                     const li = document.createElement('li');
                     li.innerHTML = `<a class="menu-link" href="#${menu.path}"><i class="${menu.icon}"></i> ${menu.label}</a>`;
                     menuList.appendChild(li);
                     menuCount++;
                 }
             });
-            console.log(`✅ 載入 ${menuCount} 個選單項目`);
+            console.log(`✅ 載入 ${menuCount} 個選單項目 (角色: ${activeRole})`);
         } catch (e) {
             console.error("Menu Render Error:", e);
             menuList.innerHTML = '<li style="padding:10px; text-align:center; color:red;">選單載入失敗</li>';

@@ -54,14 +54,16 @@ const staffPreScheduleListManager = {
                 const d = doc.data();
                 const staffList = d.staffList || [];
                 
-                // [關鍵] 過濾：只有我是參與者才顯示
-                // 這裡實現了 "鎖定自己相關" + "支援單位也能看到"
+                // [關鍵] 雙重過濾邏輯：
+                // 1. 我是參與者 (包含支援人員)
                 const isParticipant = staffList.some(u => u.uid === uid);
+                // 2. 這是我的主單位預班表
+                const isMyUnit = (d.unitId === app.userUnitId);
                 
-                // 系統管理員可以看到全部 (方便測試)，或只看自己
+                // 系統管理員可以看到全部 (方便測試)
                 const isSystemAdmin = (app.userRole === 'system_admin');
 
-                if (isParticipant || isSystemAdmin) {
+                if (isParticipant || isMyUnit || isSystemAdmin) {
                     count++;
                     const unitName = this.unitsMap[d.unitId] || d.unitId;
                     const s = d.settings || {};

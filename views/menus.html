@@ -73,10 +73,23 @@
         </div>
 
         <div class="form-row">
-            <div class="form-group">
-                <label>權限需求 (選填)</label>
-                <input type="text" id="inputMenuPerm" placeholder="例如: system_admin">
-                <small style="color:#666;">留空則所有人可見</small>
+            <div class="form-group" style="flex: 2;">
+                <label>權限角色 (勾選)</label>
+                <div id="roleCheckboxes" style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 5px; background: #f8f9fa; padding: 10px; border-radius: 4px; border: 1px solid #ddd;">
+                    <label style="display:inline-flex; align-items:center; cursor:pointer; font-size: 0.85rem;">
+                        <input type="checkbox" name="allowedRoles" value="system_admin" style="width:auto; margin-right:5px;"> 系統管理員
+                    </label>
+                    <label style="display:inline-flex; align-items:center; cursor:pointer; font-size: 0.85rem;">
+                        <input type="checkbox" name="allowedRoles" value="unit_manager" style="width:auto; margin-right:5px;"> 單位護理長
+                    </label>
+                    <label style="display:inline-flex; align-items:center; cursor:pointer; font-size: 0.85rem;">
+                        <input type="checkbox" name="allowedRoles" value="unit_scheduler" style="width:auto; margin-right:5px;"> 排班人員
+                    </label>
+                    <label style="display:inline-flex; align-items:center; cursor:pointer; font-size: 0.85rem;">
+                        <input type="checkbox" name="allowedRoles" value="user" style="width:auto; margin-right:5px;"> 護理師
+                    </label>
+                </div>
+                <small style="color:#666;">不勾選則所有人可見</small>
             </div>
             <div class="form-group">
                 <label>啟用狀態</label>
