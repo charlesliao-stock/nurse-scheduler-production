@@ -199,24 +199,44 @@ class BaseScheduler {
         return maxSeq >= longDays;
     }
 
+    getShiftCategory(shiftCode) {
+        if (!shiftCode || shiftCode === 'OFF' || shiftCode === 'REQ_OFF') return null;
+        const def = this.shiftTimes[shiftCode];
+        if (!def) return shiftCode; // 找不到定義則回傳原代碼
+
+        const start = def.start; // 0-24 的浮點數
+        // 00:00 - 08:00 -> 大夜 (Category 0)
+        // 08:00 - 16:00 -> 白班 (Category 8)
+        // 16:00 - 24:00 -> 小夜 (Category 16)
+        if (start >= 0 && start < 8) return 'CAT_0';
+        if (start >= 8 && start < 16) return 'CAT_8';
+        return 'CAT_16';
+    }
+
     checkFixedWeekDiversity(uid, dateStr, newShift) {
         const date = new Date(dateStr);
         const dayOfWeek = date.getDay(); 
         const diff = (dayOfWeek < this.rule_weekStartDay) ? (7 - this.rule_weekStartDay + dayOfWeek) : (dayOfWeek - this.rule_weekStartDay);
         const weekStart = new Date(date);
         weekStart.setDate(date.getDate() - diff);
-        const shifts = new Set();
-        shifts.add(newShift);
+        
+        const categories = new Set();
+        const newCat = this.getShiftCategory(newShift);
+        if (newCat) categories.add(newCat);
+
         for (let i = 0; i < 7; i++) {
             const checkDate = new Date(weekStart);
             checkDate.setDate(weekStart.getDate() + i);
-            if (checkDate > date) break; 
+            // 檢查整週 (一~日)，包含未來已排定的班表
             const checkStr = this.getDateStrFromDate(checkDate);
             if (checkStr === dateStr) continue;
+            
             const shift = this.getShiftByDate(checkStr, uid);
-            if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') shifts.add(shift);
+            const cat = this.getShiftCategory(shift);
+            if (cat) categories.add(cat);
         }
-        return shifts.size <= 3;
+        // 嚴格遵守：一週內不能超過 2 種班別 (即最多 2 種)
+        return categories.size <= 2;
     }
 
     checkRestPeriod(prevShift, currShift) {

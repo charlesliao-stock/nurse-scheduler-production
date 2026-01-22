@@ -6,6 +6,8 @@ const app = {
     userUnitId: null,
     permissions: [],
     authStateInitialized: false,
+    impersonatedRole: null, // 模擬的角色
+    originalRole: null,    // 原始角色 (用於權限檢查)
 
     // --- 1. 系統初始化 ---
     init: function() {
@@ -35,9 +37,7 @@ const app = {
                     }
                 } catch(error) {
                     console.error("Auth State Error:", error);
-                    // 顯示錯誤訊息給使用者
                     alert(`初始化失敗: ${error.message}\n請聯繫系統管理員或重新登入。`);
-                    // 發生錯誤時強制登出,避免卡在錯誤狀態
                     if (user) auth.signOut();
                 }
             });
@@ -98,7 +98,6 @@ const app = {
         }
     },
 
-    // --- 3. 登出 ---
     logout: function() {
         if(confirm("確定要登出嗎?")) {
             auth.signOut().catch((error) => {
@@ -113,6 +112,9 @@ const app = {
         this.userRole = null;
         this.userUnitId = null;
         this.permissions = [];
+        this.impersonatedRole = null;
+        this.originalRole = null;
+        localStorage.removeItem('impersonatedRole');
         
         const emailInput = document.getElementById('loginEmail');
         const passInput = document.getElementById('loginPassword');
@@ -121,13 +123,10 @@ const app = {
         if(passInput) passInput.value = '';
         if(errorMsg) errorMsg.textContent = '';
         
-        // [關鍵修正] 加入安全檢查,防止 router.reset 不存在時報錯
         if(typeof router !== 'undefined') {
             if (typeof router.reset === 'function') {
                 router.reset();
             } else {
-                console.warn("router.reset is not defined. Skipping router reset.");
-                // 手動重置基本狀態
                 if (router.currentView) router.currentView = null;
                 if (router.isLoading) router.isLoading = false;
             }
@@ -136,96 +135,78 @@ const app = {
         document.getElementById('login-view').style.display = 'flex';
         document.getElementById('app-view').style.display = 'none';
         
-        // 只有當 hash 不為空時才清除,避免無窮迴圈
         if (window.location.hash) {
             history.pushState("", document.title, window.location.pathname + window.location.search);
         }
     },
 
-    // --- 4. 載入使用者 [關鍵改善] ---
+    // --- 4. 載入使用者 ---
     loadUserContext: async function(uid) {
         try {
             console.log('📂 正在載入使用者資料:', uid);
+            let userDoc = await db.collection('users').doc(uid).get();
             
-            const userDoc = await db.collection('users').doc(uid).get();
-            
-            // 如果使用者文件不存在,建立預設文件
             if(!userDoc.exists) {
                 console.warn('⚠️ 使用者文件不存在,正在建立預設文件');
-                
-                // 建立基本使用者文件
                 await db.collection('users').doc(uid).set({
                     email: this.currentUser.email,
-                    displayName: this.currentUser.email.split('@')[0], // 使用 email 前綴作為預設名稱
-                    role: 'user', // 預設角色
-                    unitId: null, // 需要管理員後續設定
+                    displayName: this.currentUser.email.split('@')[0],
+                    role: 'user',
+                    unitId: null,
                     isActive: true,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     lastLogin: firebase.firestore.FieldValue.serverTimestamp()
                 });
-                
-                console.log('✅ 已建立新使用者文件');
-                
-                // 重新讀取剛建立的文件
-                const newUserDoc = await db.collection('users').doc(uid).get();
-                const data = newUserDoc.data();
-                
-                this.userRole = data.role || 'user';
-                this.userUnitId = data.unitId;
-                
-                const nameEl = document.getElementById('displayUserName');
-                const roleEl = document.getElementById('displayUserRole');
-                if(nameEl) nameEl.textContent = data.displayName || '使用者';
-                if(roleEl) roleEl.textContent = this.translateRole(this.userRole);
-                
-                // 載入角色權限
-                const roleDoc = await db.collection('system_roles').doc(this.userRole).get();
-                this.permissions = roleDoc.exists ? (roleDoc.data().permissions || []) : [];
-                
-                console.log(`👤 新使用者已建立: ${data.displayName} | 角色: ${this.userRole}`);
-                await this.renderMenu();
-                return;
+                userDoc = await db.collection('users').doc(uid).get();
             }
             
-            // 正常流程:使用者文件已存在
             const data = userDoc.data();
-            
-            // 檢查帳號是否被停用
-            if(data.isActive === false) {
-                throw new Error("此帳號已被停用,請聯繫系統管理員");
-            }
+            if(data.isActive === false) throw new Error("此帳號已被停用,請聯繫系統管理員");
 
+            // 設定基本資訊
             this.userRole = data.role || 'user'; 
+            this.originalRole = this.userRole;
             this.userUnitId = data.unitId;
 
+            // 處理身分模擬
+            const savedImpersonation = localStorage.getItem('impersonatedRole');
+            if (this.userRole === 'system_admin' && savedImpersonation) {
+                this.impersonatedRole = savedImpersonation;
+                console.log(`🎭 偵測到模擬身分: ${this.impersonatedRole}`);
+            }
+
+            // 更新 UI 顯示
             const nameEl = document.getElementById('displayUserName');
             const roleEl = document.getElementById('displayUserRole');
             if(nameEl) nameEl.textContent = data.displayName || '使用者';
-            if(roleEl) roleEl.textContent = this.translateRole(this.userRole);
+            
+            const activeRole = this.impersonatedRole || this.userRole;
+            if(roleEl) {
+                roleEl.textContent = this.translateRole(activeRole);
+                if (this.impersonatedRole) {
+                    roleEl.innerHTML += ' <span style="font-size:0.7rem; color:#e74c3c;">(模擬)</span>';
+                }
+            }
 
-            // 更新最後登入時間
+            // 載入權限
+            const roleDoc = await db.collection('system_roles').doc(activeRole).get();
+            this.permissions = roleDoc.exists ? (roleDoc.data().permissions || []) : [];
+
+            // 管理員專屬工具
+            if (this.userRole === 'system_admin') {
+                this.renderImpersonationTool();
+            }
+
+            await this.renderMenu();
+            
+            // 非同步更新最後登入時間
             db.collection('users').doc(uid).update({
                 lastLogin: firebase.firestore.FieldValue.serverTimestamp()
             }).catch(err => console.warn('更新登入時間失敗:', err));
 
-            // 載入角色權限
-            const roleDoc = await db.collection('system_roles').doc(this.userRole).get();
-            this.permissions = roleDoc.exists ? (roleDoc.data().permissions || []) : [];
-
-            console.log(`👤 使用者: ${data.displayName} | 角色: ${this.userRole} | 單位: ${this.userUnitId || '未設定'}`);
-            await this.renderMenu();
-
         } catch (error) {
             console.error("❌ Load Context Error:", error);
-            
-            // 提供更友善的錯誤訊息
-            if (error.code === 'permission-denied') {
-                throw new Error("權限不足,無法讀取使用者資料。請檢查 Firestore 安全規則。");
-            } else if (error.message.includes('停用')) {
-                throw error; // 直接拋出帳號停用的錯誤
-            } else {
-                throw new Error(`載入使用者資料失敗: ${error.message}`);
-            }
+            throw error;
         }
     },
 
@@ -233,21 +214,12 @@ const app = {
     renderMenu: async function() {
         const menuList = document.getElementById('dynamicMenu');
         if(!menuList) return;
-
-        menuList.innerHTML = '<li style="padding:10px; text-align:center; color:#999;">載入選單中...</li>';
+        
+        menuList.innerHTML = '<li style="padding:10px; text-align:center;"><i class="fas fa-spinner fa-spin"></i></li>';
 
         try {
-            const snapshot = await db.collection('system_menus')
-                .where('isActive', '==', true)
-                .orderBy('order')
-                .get();
-
+            const snapshot = await db.collection('system_menus').where('isActive', '==', true).orderBy('order').get();
             menuList.innerHTML = '';
-            if(snapshot.empty) {
-                menuList.innerHTML = '<li style="padding:10px; text-align:center; color:#999;">無可用選單</li>';
-                return;
-            }
-
             let menuCount = 0;
             snapshot.forEach(doc => {
                 const menu = doc.data();
@@ -284,10 +256,54 @@ const app = {
             'user': '護理師'
         };
         return map[role] || role;
+    },
+
+    // --- 6. 身分模擬工具 ---
+    renderImpersonationTool: function() {
+        let tool = document.getElementById('impersonation-tool');
+        if (!tool) {
+            tool = document.createElement('div');
+            tool.id = 'impersonation-tool';
+            tool.style.cssText = 'padding: 15px; border-top: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); font-size: 0.85rem; color: white;';
+            
+            const sidebar = document.getElementById('sidebar');
+            // 尋找登出按鈕的容器
+            const logoutContainer = sidebar?.querySelector('div[style*="padding:20px"]');
+            
+            if (logoutContainer) {
+                sidebar.insertBefore(tool, logoutContainer);
+            } else if (sidebar) {
+                sidebar.appendChild(tool);
+            }
+        }
+
+        const roles = [
+            { id: null, name: '原始身分' },
+            { id: 'unit_manager', name: '護理長' },
+            { id: 'unit_scheduler', name: '排班人員' },
+            { id: 'user', name: '護理師' }
+        ];
+
+        let html = '<div style="color:rgba(255,255,255,0.7); margin-bottom:8px; font-weight:bold;"><i class="fas fa-user-secret"></i> 身分模擬視角</div>';
+        html += '<select onchange="app.impersonate(this.value)" style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:#2c3e50; color:white; cursor:pointer;">';
+        roles.forEach(r => {
+            const selected = (this.impersonatedRole === r.id || (this.impersonatedRole === null && r.id === null)) ? 'selected' : '';
+            html += `<option value="${r.id || ''}" ${selected} style="background:#2c3e50;">${r.name}</option>`;
+        });
+        html += '</select>';
+        tool.innerHTML = html;
+    },
+
+    impersonate: function(roleId) {
+        if (!roleId || roleId === '') {
+            localStorage.removeItem('impersonatedRole');
+        } else {
+            localStorage.setItem('impersonatedRole', roleId);
+        }
+        window.location.reload();
     }
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log("📄 DOM Content Loaded");
     app.init();
 });

@@ -9,8 +9,8 @@ const menuManager = {
     init: async function() {
         console.log("Menu Manager Loaded.");
         
-        // 權限保護：只有系統管理員能進來
-        if (app.userRole !== 'system_admin') {
+        // 權限保護：只有系統管理員能進來 (檢查原始身分)
+        if (app.originalRole !== 'system_admin') {
             document.getElementById('content-area').innerHTML = `
                 <div class="empty-state">
                     <i class="fas fa-shield-alt"></i>

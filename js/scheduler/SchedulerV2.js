@@ -120,6 +120,13 @@ class SchedulerV2 extends BaseScheduler {
 
     calculateCandidateScore(staff, dateStr, shiftCode) {
         let score = 0;
+
+        // 志願序權重 (嚴格遵守志願順序)
+        const prefs = staff.prefs?.[dateStr] || {};
+        if (prefs.favShift === shiftCode) score += 5000;
+        else if (prefs.favShift2 === shiftCode) score += 3000;
+        else if (prefs.favShift3 === shiftCode) score += 1000;
+
         if (this.rules.groupLimits && staff.group) {
             const minLimit = this.rules.groupLimits[staff.group]?.[shiftCode]?.min;
             if (minLimit) {
