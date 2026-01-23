@@ -1,4 +1,5 @@
 // js/modules/dashboard_manager.js
+// 🔧 完整修正版：支援模擬身分的即時數據統計
 
 const dashboardManager = {
     items: [],
@@ -14,9 +15,12 @@ const dashboardManager = {
         await this.renderDashboard();
     },
 
+    // 1. 載入儀表板項目設定
     loadItems: async function() {
         try {
-            const activeRole = app.impersonatedRole || app.userRole;
+            // [修正] 取得當前模擬或真實的角色
+            const activeRole = app.getRole(); 
+
             const snapshot = await db.collection('system_dashboard_items')
                 .where('isActive', '==', true)
                 .orderBy('order')
@@ -26,6 +30,7 @@ const dashboardManager = {
                 .map(doc => ({ id: doc.id, ...doc.data() }))
                 .filter(item => {
                     const roles = item.allowedRoles || [];
+                    // 如果沒有設定權限，預設所有人可見；否則檢查是否包含當前角色
                     return roles.length === 0 || roles.includes(activeRole);
                 });
         } catch (e) {
@@ -33,157 +38,161 @@ const dashboardManager = {
         }
     },
 
+    // 2. 渲染儀表板
     renderDashboard: async function() {
         const container = document.getElementById('dashboard-container');
         if(!container) return;
         
         if(this.items.length === 0) {
-            container.innerHTML = '<div style="padding:40px; text-align:center; color:#999;">目前沒有可顯示的儀表板項目，請聯繫管理員設定。</div>';
+            container.innerHTML = '<div style="padding:40px; text-align:center; color:#999;">目前沒有可顯示的儀表板項目。</div>';
             return;
         }
 
-        container.innerHTML = '<div id="dashboard-grid" style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 30px;"></div>';
-        const grid = document.getElementById('dashboard-grid');
+        container.innerHTML = '';
+        container.style.display = 'grid';
+        container.style.gridTemplateColumns = 'repeat(auto-fill, minmax(280px, 1fr))';
+        container.style.gap = '20px';
+        container.style.padding = '20px';
 
-        // 先渲染卡片骨架
         this.items.forEach(item => {
             const card = document.createElement('div');
-            card.className = 'card dashboard-card';
-            card.style.cssText = `flex: 1; min-width: 250px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 5px solid ${item.color || '#3498db'}; cursor: pointer; transition: transform 0.2s;`;
-            card.onclick = () => { if(item.path) location.hash = item.path; };
-            card.onmouseover = () => card.style.transform = 'translateY(-5px)';
-            card.onmouseout = () => card.style.transform = 'translateY(0)';
-            
-            card.innerHTML = `
-                <div style="font-size: 0.9rem; color: #7f8c8d; font-weight: bold;"><i class="${item.icon || 'fas fa-cube'}"></i> ${item.label}</div>
-                <div style="font-size: 2rem; font-weight: bold; color: #2c3e50; margin: 10px 0;" id="val_${item.id}">...</div>
-                <div style="font-size: 0.8rem; color: ${item.color || '#3498db'};">查看詳情 <i class="fas fa-arrow-right"></i></div>
+            card.className = 'dashboard-card';
+            card.style.cssText = `
+                background: white; 
+                padding: 20px; 
+                border-radius: 8px; 
+                box-shadow: 0 2px 8px rgba(0,0,0,0.05); 
+                display: flex; 
+                align-items: center; 
+                transition: transform 0.2s;
+                cursor: pointer;
             `;
-            grid.appendChild(card);
-        });
+            card.innerHTML = `
+                <div style="background:${item.color || '#3498db'}; width:50px; height:50px; border-radius:12px; display:flex; align-items:center; justify-content:center; margin-right:15px; flex-shrink:0;">
+                    <i class="${item.icon || 'fas fa-star'}" style="color:white; font-size:1.5rem;"></i>
+                </div>
+                <div style="flex:1;">
+                    <div style="font-size:0.9rem; color:#7f8c8d; margin-bottom:5px;">${item.label}</div>
+                    <div class="widget-value" style="font-size:1.4rem; font-weight:bold; color:#2c3e50;">
+                        <i class="fas fa-spinner fa-spin" style="font-size:1rem; color:#ccc;"></i>
+                    </div>
+                </div>
+                <i class="fas fa-chevron-right" style="color:#ddd;"></i>
+            `;
+            
+            // 點擊跳轉
+            card.onclick = () => {
+                if(item.path) window.location.hash = item.path;
+            };
+            
+            // 滑鼠特效
+            card.onmouseenter = () => card.style.transform = 'translateY(-3px)';
+            card.onmouseleave = () => card.style.transform = 'translateY(0)';
 
-        // 非同步加載數據
-        this.items.forEach(item => {
-            this.fetchDataForSource(item.dataSource, `val_${item.id}`);
+            container.appendChild(card);
+            
+            // 異步讀取數據
+            this.updateWidgetData(item, card);
         });
     },
 
-    fetchDataForSource: async function(source, elementId) {
-        const el = document.getElementById(elementId);
-        if(!el) return;
-
+    // 3. 更新數據 (核心邏輯修正)
+    updateWidgetData: async function(item, element) {
         try {
-            let value = '-';
-            const unitId = app.getUnitId();
-            const uid = app.getUid();
-            const now = new Date();
-            const year = now.getFullYear();
-            const month = now.getMonth() + 1;
-
-            switch(source) {
-                // --- 一般使用者 ---
-                case 'my_schedule_status':
-                    const schSnap = await db.collection('schedules')
-                        .where('year', '==', year)
-                        .where('month', '==', month)
-                        .where('unitId', '==', app.userUnitId)
-                        .where('status', '==', 'published')
-                        .get();
-                    value = schSnap.empty ? '未發布' : '已發布';
+            let value = '前往';
+            
+            // [修正] 取得當前身分的關鍵 ID (支援模擬)
+            const activeUnitId = app.getUnitId();
+            const activeUid = app.getUid();
+            
+            // 根據 dataSource 執行對應查詢
+            switch(item.dataSource) {
+                case 'unit_staff_count':
+                    // 單位總人數
+                    if (activeUnitId) {
+                        const snap = await db.collection('users')
+                            .where('unitId', '==', activeUnitId)
+                            .where('isActive', '==', true)
+                            .get();
+                        value = snap.size + " 人";
+                    } else {
+                        value = "N/A";
+                    }
                     break;
-                
+
                 case 'my_pending_exchanges':
-                    const exchSnap = await db.collection('shift_requests')
-                        .where('targetId', '==', uid)
-                        .where('status', '==', 'pending_target')
-                        .get();
-                    value = exchSnap.size;
+                    // 待我審核的換班 (Target是我)
+                    if (activeUid) {
+                        const snap = await db.collection('shift_requests')
+                            .where('targetId', '==', activeUid)
+                            .where('status', '==', 'pending_target')
+                            .get();
+                        // 若有待辦事項，顯示紅色強調
+                        value = snap.size > 0 
+                            ? `<span style="color:#e74c3c;">${snap.size} 筆待審</span>` 
+                            : "無";
+                    }
+                    break;
+
+                case 'unit_pending_exchanges':
+                     // 單位管理者：待審核換班 (Manager審核階段)
+                     if (activeUnitId) {
+                        const snap = await db.collection('shift_requests')
+                            .where('unitId', '==', activeUnitId)
+                            .where('status', '==', 'pending_manager')
+                            .get();
+                        value = snap.size > 0 
+                            ? `<span style="color:#e74c3c;">${snap.size} 筆待審</span>` 
+                            : "無";
+                     }
+                     break;
+                
+                case 'my_schedule_status':
+                    // 顯示本月班表狀態 (需計算當前月份)
+                    if (activeUnitId) {
+                        const now = new Date();
+                        const year = now.getFullYear();
+                        const month = now.getMonth() + 1;
+                        const snap = await db.collection('schedules')
+                            .where('unitId', '==', activeUnitId)
+                            .where('year', '==', year)
+                            .where('month', '==', month)
+                            .limit(1)
+                            .get();
+                        
+                        if (!snap.empty) {
+                            const status = snap.docs[0].data().status;
+                            value = status === 'published' ? '<span style="color:#27ae60;">已發布</span>' : '草稿';
+                        } else {
+                            value = '未建立';
+                        }
+                    }
                     break;
 
                 case 'my_active_pre_schedule':
-                    const preSnap = await db.collection('pre_schedules')
-                        .where('status', '==', 'open')
-                        .get();
-                    // 前端過濾參與者
-                    const myPres = preSnap.docs.filter(doc => {
-                        const d = doc.data();
-                        return (d.unitId === app.userUnitId) || (d.staffList || []).some(s => s.uid === uid);
-                    });
-                    value = myPres.length;
-                    break;
-
-                // --- 單位管理者 ---
-                case 'unit_staff_count':
-                    const staffSnap = await db.collection('users')
-                        .where('unitId', '==', unitId)
-                        .where('isActive', '==', true)
-                        .get();
-                    value = staffSnap.size;
-                    break;
-
-                case 'unit_pending_approvals':
-                    const appvSnap = await db.collection('shift_requests')
-                        .where('unitId', '==', unitId)
-                        .where('status', '==', 'pending_manager')
-                        .get();
-                    value = appvSnap.size;
-                    break;
-
-                // --- 系統管理者 ---
-                case 'sys_total_staff_count':
-                    const allStaffSnap = await db.collection('users').where('isActive', '==', true).get();
-                    value = allStaffSnap.size;
-                    break;
-
-                case 'sys_total_unit_count':
-                    const unitSnap = await db.collection('units').get();
-                    value = unitSnap.size;
-                    break;
-
-                case 'sys_total_schedules':
-                    const allSchSnap = await db.collection('schedules').get();
-                    value = allSchSnap.size;
-                    break;
-
-                case 'sys_avg_vacancy_rate':
-                case 'sys_avg_adjustment_rate':
-                case 'sys_avg_exchange_rate':
-                case 'sys_score_min':
-                case 'sys_score_max':
-                case 'sys_score_avg':
-                    // 這些指標需要從已發布的班表中聚合
-                    const statsSnap = await db.collection('schedules').where('status', '==', 'published').get();
-                    if(statsSnap.empty) { value = '0%'; break; }
-                    
-                    let total = 0, count = 0, min = 100, max = 0;
-                    statsSnap.forEach(doc => {
-                        const d = doc.data();
-                        let val = 0;
-                        if(source === 'sys_avg_vacancy_rate') val = d.vacancyRate || 0;
-                        else if(source === 'sys_avg_adjustment_rate') val = d.adjustmentRate || 0;
-                        else if(source === 'sys_avg_exchange_rate') val = d.exchangeRate || 0;
-                        else if(source.startsWith('sys_score')) val = d.currentScore || 0;
-                        
-                        total += val;
-                        count++;
-                        if(val < min) min = val;
-                        if(val > max) max = val;
-                    });
-                    
-                    if(source === 'sys_score_min') value = min.toFixed(1);
-                    else if(source === 'sys_score_max') value = max.toFixed(1);
-                    else if(source === 'sys_score_avg') value = (total/count).toFixed(1);
-                    else value = (total/count).toFixed(1) + '%';
-                    break;
+                     // 進行中的預班
+                     if (activeUnitId) {
+                        const snap = await db.collection('pre_schedules')
+                            .where('unitId', '==', activeUnitId)
+                            .where('status', '==', 'open')
+                            .get();
+                         value = snap.size > 0 ? "開放中" : "無";
+                     }
+                     break;
 
                 default:
-                    value = 'N/A';
+                    // 若無特定數據源，顯示預設文字
+                    value = '查看';
             }
             
-            el.textContent = value;
-        } catch (e) {
-            console.error(`Fetch data error for ${source}:`, e);
-            el.textContent = 'ERR';
+            // 更新畫面
+            const valueEl = element.querySelector('.widget-value');
+            if(valueEl) valueEl.innerHTML = value;
+
+        } catch(e) {
+            console.error(`Widget Update Error (${item.dataSource}):`, e);
+            const valueEl = element.querySelector('.widget-value');
+            if(valueEl) valueEl.innerText = "Err";
         }
     }
 };
