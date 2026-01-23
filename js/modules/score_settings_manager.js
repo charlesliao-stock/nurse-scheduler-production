@@ -1,4 +1,6 @@
 // js/modules/score_settings_manager.js
+// 🔧 修正版：支援模擬身分、修復函式呼叫錯誤
+
 const scoreSettingsManager = {
     currentUnitId: null,
     allSettings: {}, 
@@ -54,7 +56,8 @@ const scoreSettingsManager = {
         });
     },
 
-loadUnitDropdown: async function() {
+    // 🔄 修正後的 loadUnitDropdown：支援模擬身分
+    loadUnitDropdown: async function() {
         const select = document.getElementById('scoreUnitSelect');
         if(!select) return;
 
@@ -62,7 +65,7 @@ loadUnitDropdown: async function() {
         try {
             let query = db.collection('units');
             
-            // [修正] 支援模擬身分：優先使用模擬的角色與單位ID
+            // [修正] 優先使用模擬的角色與單位ID
             const activeRole = app.impersonatedRole || app.userRole;
             const activeUnitId = app.impersonatedUnitId || app.userUnitId;
 
@@ -73,27 +76,24 @@ loadUnitDropdown: async function() {
                 }
             }
 
-            const snapshot = await query.get();
+            const snap = await query.get();
             select.innerHTML = '<option value="">請選擇單位</option>';
-            
-            snapshot.forEach(doc => {
-                const option = document.createElement('option');
-                option.value = doc.id;
-                option.textContent = doc.data().name;
-                select.appendChild(option);
+            snap.forEach(doc => {
+                const opt = document.createElement('option');
+                opt.value = doc.id; opt.textContent = doc.data().name;
+                select.appendChild(opt);
             });
             
-            // 如果只有一個單位 (例如單位管理者)，自動選取並載入資料
-            if(snapshot.size === 1) {
+            // 自動選取與載入 (修正函式呼叫)
+            if(snap.size === 1) {
                 select.selectedIndex = 1;
                 this.currentUnitId = select.value;
-                this.loadSettings(this.currentUnitId);
+                this.loadData(); // <--- 確保呼叫正確的 loadData
             }
 
-            // 綁定變更事件
             select.onchange = () => {
                 this.currentUnitId = select.value;
-                this.loadSettings(this.currentUnitId);
+                this.loadData();
             };
 
         } catch(e) { 
@@ -176,7 +176,7 @@ loadUnitDropdown: async function() {
     renderTierRows: function() {
         const tbody = document.getElementById('gradingTableBody');
         tbody.innerHTML = '';
-        // 渲染時按 limit 由小到大排序，符合使用者 0, 1, 2, 3, 4 的直覺
+        // 渲染時按 limit 由小到大排序
         this.tempTiers.sort((a, b) => a.limit - b.limit);
         this.tempTiers.forEach((t, i) => {
             tbody.innerHTML += `
