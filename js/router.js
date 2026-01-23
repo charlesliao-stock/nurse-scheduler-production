@@ -27,7 +27,10 @@ const router = {
         
         // --- [新增] 員工個人功能 ---
         '/staff/schedule': 'staff_schedule',          // 對應 staff_schedule.html
-        '/staff/exchange_list': 'shift_exchange_list' // 對應 shift_exchange_list.html
+        '/staff/exchange_list': 'shift_exchange_list', // 對應 shift_exchange_list.html
+        
+        // --- 系統統計 ---
+        '/admin/system_statistics': 'system_statistics' // 對應 system_statistics.html
     },
 
     currentView: null,
@@ -104,6 +107,10 @@ const router = {
             else if (viewName === 'shift_exchange_list') {
                 // 換班申請列表 (若有獨立 Manager 則在此初始化，目前共用 shiftExchangeManager)
                 if(typeof shiftExchangeManager !== 'undefined') shiftExchangeManager.init();
+            }
+            else if (viewName === 'system_statistics') {
+                // 系統統計
+                if(typeof systemStatisticsManager !== 'undefined') systemStatisticsManager.init();
             }
 
         } catch (e) {
