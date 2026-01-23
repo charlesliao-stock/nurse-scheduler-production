@@ -23,7 +23,7 @@ const shiftManager = {
         await this.fetchData();
     },
 
-    loadUnits: async function() {
+loadUnits: async function() {
         const filterSelect = document.getElementById('filterShiftUnit');
         const modalSelect = document.getElementById('inputShiftUnit');
         if(!filterSelect || !modalSelect) return;
@@ -34,28 +34,40 @@ const shiftManager = {
 
         try {
             let query = db.collection('units');
-            if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
-                if(app.userUnitId) query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
+
+            // [修正] 支援模擬身分
+            const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+
+            if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
+                if(activeUnitId) query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
             }
             const snapshot = await query.get();
+            
             snapshot.forEach(doc => {
-                const u = doc.data();
-                this.unitList.push({ id: doc.id, name: u.name });
-                const option = `<option value="${doc.id}">${u.name}</option>`;
-                filterSelect.innerHTML += option;
-                modalSelect.innerHTML += option;
+                const u = { id: doc.id, name: doc.data().name };
+                this.unitList.push(u);
+                
+                // Filter Select
+                const opt1 = document.createElement('option');
+                opt1.value = u.id;
+                opt1.textContent = u.name;
+                filterSelect.appendChild(opt1);
+
+                // Modal Select
+                const opt2 = document.createElement('option');
+                opt2.value = u.id;
+                opt2.textContent = u.name;
+                modalSelect.appendChild(opt2);
             });
 
-            if (this.unitList.length === 1) {
-                filterSelect.value = this.unitList[0].id;
-                modalSelect.value = this.unitList[0].id;
-                modalSelect.disabled = true;
+            if(this.unitList.length === 1) {
+                filterSelect.selectedIndex = 1;
                 this.renderTable();
-            } else {
-                modalSelect.disabled = false;
             }
             filterSelect.onchange = () => this.renderTable();
-        } catch (e) { console.error(e); }
+
+        } catch(e) { console.error(e); }
     },
 
     fetchData: async function() {
