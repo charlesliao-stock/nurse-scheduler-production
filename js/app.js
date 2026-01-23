@@ -340,11 +340,14 @@ const app = {
     }
 };
 
+// js/app.js 最底部
+
 // 啟動應用
 document.addEventListener('DOMContentLoaded', () => {
-    if(typeof config !== 'undefined') {
+    // 只要 Firebase 有載入成功，就啟動 App
+    if(typeof firebase !== 'undefined') {
         app.init();
     } else {
-        console.error("Config not loaded!");
+        console.error("Firebase SDK 未載入，無法啟動 App");
     }
 });
