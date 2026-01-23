@@ -1,16 +1,21 @@
 // js/app.js
+// 🔧 完整修正版：新增 Helper Methods 與模擬狀態持久化
 
 const app = {
     currentUser: null,
     userRole: null,
     userUnitId: null,
-    permissions: [],
+    
+    // 模擬狀態
+    impersonatedRole: null, 
+    impersonatedUid: null,  
+    impersonatedUnitId: null, 
+    
+    // 原始狀態 (用於還原)
+    originalRole: null,    
+    originalUid: null,     
+    
     authStateInitialized: false,
-    impersonatedRole: null, // 模擬的角色
-    impersonatedUid: null,  // 模擬的使用者 UID
-    impersonatedUnitId: null, // 模擬的單位 ID
-    originalRole: null,    // 原始角色 (用於權限檢查)
-    originalUid: null,     // 原始 UID
 
     // --- 1. 系統初始化 ---
     init: function() {
@@ -27,6 +32,9 @@ const app = {
                         this.currentUser = user;
                         await this.loadUserContext(user.uid);
                         
+                        // [新增] 檢查並還原模擬狀態
+                        this.restoreImpersonation();
+
                         document.getElementById('login-view').style.display = 'none';
                         document.getElementById('app-view').style.display = 'flex';
                         
@@ -38,316 +46,116 @@ const app = {
                         console.log("❌ User logged out");
                         this.handleLogout();
                     }
-                } catch(error) {
-                    console.error("Auth State Error:", error);
-                    alert(`初始化失敗: ${error.message}\n請聯繫系統管理員或重新登入。`);
-                    if (user) auth.signOut();
+                } catch (e) {
+                    console.error("Auth State Change Error:", e);
                 }
             });
         }
     },
 
-    setupGlobalErrorHandling: function() {
-        window.addEventListener('error', (event) => { console.error("全域錯誤:", event.error); });
-        window.addEventListener('unhandledrejection', (event) => { console.error("未處理的 Promise 錯誤:", event.reason); });
-    },
-
-    setupEventListeners: function() {
-        window.addEventListener('hashchange', () => {
-            const path = window.location.hash.slice(1);
-            if (path && typeof router !== 'undefined') router.load(path);
-        });
-        window.addEventListener('popstate', () => {
-            const path = window.location.hash.slice(1);
-            if (path && typeof router !== 'undefined') router.load(path);
-        });
-    },
-
-    // --- 2. 登入 ---
-    login: async function() {
-        const email = document.getElementById('loginEmail')?.value.trim();
-        const pass = document.getElementById('loginPassword')?.value;
-        const errorMsg = document.getElementById('loginError');
-        
-        if(!errorMsg) return;
-        if(!email || !pass) { 
-            errorMsg.textContent = "請輸入帳號與密碼"; 
-            errorMsg.style.color = "red";
-            return; 
-        }
-
-        const loginBtn = event.target;
-        loginBtn.disabled = true;
-        loginBtn.textContent = "登入中...";
-        errorMsg.textContent = "";
-
-        try {
-            await auth.signInWithEmailAndPassword(email, pass);
-        } catch (e) {
-            console.error("Login Error:", e);
-            let errorMessage = "登入失敗";
-            if(e.code === 'auth/user-not-found') errorMessage = "帳號不存在";
-            else if(e.code === 'auth/wrong-password') errorMessage = "密碼錯誤";
-            else if(e.code === 'auth/invalid-email') errorMessage = "電子郵件格式不正確";
-            else if(e.code === 'auth/user-disabled') errorMessage = "此帳號已被停用";
-            else if(e.code === 'auth/too-many-requests') errorMessage = "嘗試次數過多,請稍後再試";
-            else if(e.code === 'auth/invalid-credential') errorMessage = "帳號或密碼錯誤";
-            
-            errorMsg.textContent = errorMessage;
-            errorMsg.style.color = "red";
-        } finally {
-            loginBtn.disabled = false;
-            loginBtn.textContent = "登入";
-        }
-    },
-
-    logout: function() {
-        if(confirm("確定要登出嗎?")) {
-            auth.signOut().catch((error) => {
-                console.error("Logout Error:", error);
-                alert("登出失敗: " + error.message);
-            });
-        }
-    },
-
-    handleLogout: function() {
-        this.currentUser = null;
-        this.userRole = null;
-        this.userUnitId = null;
-        this.permissions = [];
-        this.impersonatedRole = null;
-        this.originalRole = null;
-        localStorage.removeItem('impersonatedRole');
-        
-        const emailInput = document.getElementById('loginEmail');
-        const passInput = document.getElementById('loginPassword');
-        const errorMsg = document.getElementById('loginError');
-        if(emailInput) emailInput.value = '';
-        if(passInput) passInput.value = '';
-        if(errorMsg) errorMsg.textContent = '';
-        
-        if(typeof router !== 'undefined') {
-            if (typeof router.reset === 'function') {
-                router.reset();
-            } else {
-                if (router.currentView) router.currentView = null;
-                if (router.isLoading) router.isLoading = false;
-            }
-        }
-        
-        document.getElementById('login-view').style.display = 'flex';
-        document.getElementById('app-view').style.display = 'none';
-        
-        if (window.location.hash) {
-            history.pushState("", document.title, window.location.pathname + window.location.search);
-        }
-    },
-
-    // --- 4. 載入使用者 ---
+    // --- 2. 載入使用者情境 ---
     loadUserContext: async function(uid) {
         try {
-            console.log('📂 正在載入使用者資料:', uid);
-            this.originalUid = uid;
-            let userDoc = await db.collection('users').doc(uid).get();
-            
-            if(!userDoc.exists) {
-                console.warn('⚠️ 使用者文件不存在,正在建立預設文件');
-                await db.collection('users').doc(uid).set({
-                    email: this.currentUser.email,
-                    displayName: this.currentUser.email.split('@')[0],
-                    role: 'user',
-                    unitId: null,
-                    isActive: true,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    lastLogin: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                userDoc = await db.collection('users').doc(uid).get();
-            }
-            
-            const data = userDoc.data();
-            if(data.isActive === false) throw new Error("此帳號已被停用,請聯繫系統管理員");
-
-            // 設定基本資訊
-            this.userRole = data.role || 'user'; 
-            this.originalRole = this.userRole;
-            this.userUnitId = data.unitId;
-
-            // 處理身分模擬 (Impersonation 2.0)
-            const savedImpersonation = localStorage.getItem('impersonatedUser');
-            if (this.userRole === 'system_admin' && savedImpersonation) {
-                const impData = JSON.parse(savedImpersonation);
-                this.impersonatedUid = impData.uid;
-                this.impersonatedRole = impData.role;
-                this.impersonatedUnitId = impData.unitId;
-                console.log(`🎭 偵測到深度模擬: ${impData.name} (${this.impersonatedRole})`);
+            const doc = await db.collection('users').doc(uid).get();
+            if (doc.exists) {
+                const data = doc.data();
+                this.userRole = data.role || 'user';
+                this.userUnitId = data.unitId || null;
                 
-                // 覆蓋當前上下文 (關鍵：讓後續功能如換班申請讀取到模擬的 UID)
-                this.userUnitId = this.impersonatedUnitId;
-                // 注意：我們不直接修改 this.currentUser.uid (那是 Firebase Auth 的唯讀屬性)
-                // 但我們會修改 app.getUid() 讓所有模組統一調用
-            }
+                // 保存原始資料，作為還原基準
+                this.originalRole = this.userRole;
+                this.originalUid = uid;
 
-            // 更新 UI 顯示
-            const nameEl = document.getElementById('displayUserName');
-            const roleEl = document.getElementById('displayUserRole');
-            
-            const activeRole = this.impersonatedRole || this.userRole;
-            const activeName = this.impersonatedUid ? (JSON.parse(savedImpersonation).name) : (data.displayName || '使用者');
-
-            if(nameEl) nameEl.textContent = activeName;
-            if(roleEl) {
-                roleEl.textContent = this.translateRole(activeRole);
-                if (this.impersonatedRole) {
-                    roleEl.innerHTML += ' <span style="font-size:0.7rem; color:#e74c3c;">(模擬)</span>';
+                this.updateUIByRole();
+                this.renderMenu();
+                
+                // 只有系統管理員才顯示模擬工具列
+                if (this.originalRole === 'system_admin') {
+                    this.renderAdminToolbar();
                 }
+            } else {
+                console.warn("User document not found.");
+                this.userRole = 'guest';
             }
-
-            // 載入權限
-            const roleDoc = await db.collection('system_roles').doc(activeRole).get();
-            this.permissions = roleDoc.exists ? (roleDoc.data().permissions || []) : [];
-
-            // 管理員專屬工具
-            if (this.userRole === 'system_admin') {
-                await this.renderImpersonationTool();
-            }
-
-            await this.renderMenu();
-            
-            // 非同步更新最後登入時間
-            db.collection('users').doc(uid).update({
-                lastLogin: firebase.firestore.FieldValue.serverTimestamp()
-            }).catch(err => console.warn('更新登入時間失敗:', err));
-
-        } catch (error) {
-            console.error("❌ Load Context Error:", error);
-            throw error;
-        }
-    },
-
-    // --- 5. 選單 ---
-    renderMenu: async function() {
-        const menuList = document.getElementById('dynamicMenu');
-        if(!menuList) return;
-        
-        menuList.innerHTML = '<li style="padding:10px; text-align:center;"><i class="fas fa-spinner fa-spin"></i></li>';
-
-        try {
-            const snapshot = await db.collection('system_menus').where('isActive', '==', true).orderBy('order').get();
-            menuList.innerHTML = '';
-            let menuCount = 0;
-            
-            const activeRole = this.impersonatedRole || this.userRole;
-
-            snapshot.forEach(doc => {
-                const menu = doc.data();
-                
-                // 權限檢查邏輯：
-                // 1. 如果 allowedRoles 為空或不存在，則所有人可見
-                // 2. 如果有設定 allowedRoles，則檢查當前角色是否在清單中
-                const allowedRoles = menu.allowedRoles || [];
-                const hasRoleAccess = allowedRoles.length === 0 || allowedRoles.includes(activeRole);
-                
-                // 修正：如果資料庫中仍存有舊的 requiredPermission，不應讓它干擾新的角色勾選邏輯
-                // 除非該選單明確需要特定的 permission 字串檢查，否則以角色勾選為準
-                if(hasRoleAccess) {
-                    const li = document.createElement('li');
-                    li.innerHTML = `<a class="menu-link" href="#${menu.path}"><i class="${menu.icon}"></i> ${menu.label}</a>`;
-                    menuList.appendChild(li);
-                    menuCount++;
-                }
-            });
-            console.log(`✅ 載入 ${menuCount} 個選單項目 (角色: ${activeRole})`);
         } catch (e) {
-            console.error("Menu Render Error:", e);
-            menuList.innerHTML = '<li style="padding:10px; text-align:center; color:red;">選單載入失敗</li>';
+            console.error("Load Context Error:", e);
         }
     },
 
-    toggleSidebar: function() {
-        const sidebar = document.getElementById('sidebar');
-        if(sidebar) sidebar.classList.toggle('collapsed');
-    },
-
-    checkPermission: function(reqPerm) {
-        if(this.permissions.includes('*')) return true;
-        if(!reqPerm) return true;
-        return this.permissions.includes(reqPerm);
-    },
-
+    // --- 3. [新增] 核心 Helper Methods (支援模擬) ---
+    // 取得當前視角的 UID
     getUid: function() {
         return this.impersonatedUid || (this.currentUser ? this.currentUser.uid : null);
     },
 
+    // 取得當前視角的 Unit ID
     getUnitId: function() {
-        return this.userUnitId; // 已經在 loadUserContext 中被模擬值覆蓋
+        return this.impersonatedUnitId || this.userUnitId;
     },
 
-    translateRole: function(role) {
-        const map = {
-            'system_admin': '系統管理員',
-            'unit_manager': '單位護理長',
-            'unit_scheduler': '排班人員',
-            'user': '護理師'
-        };
-        return map[role] || role;
+    // 取得當前視角的角色
+    getRole: function() {
+        return this.impersonatedRole || this.userRole;
     },
 
-    // --- 6. 身分模擬工具 (3.0 聯動選單) ---
-    renderImpersonationTool: async function() {
-        let tool = document.getElementById('impersonation-tool');
-        if (!tool) {
-            tool = document.createElement('div');
-            tool.id = 'impersonation-tool';
-            tool.style.cssText = 'padding: 15px; border-top: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); font-size: 0.85rem; color: white;';
-            const sidebar = document.getElementById('sidebar');
-            const logoutContainer = sidebar?.querySelector('div[style*="padding:20px"]');
-            if (logoutContainer) sidebar.insertBefore(tool, logoutContainer);
-            else if (sidebar) sidebar.appendChild(tool);
-        }
-
-        // 1. 取得所有單位
-        let units = [];
-        try {
-            const unitSnap = await db.collection('units').get();
-            unitSnap.forEach(doc => units.push({ id: doc.id, ...doc.data() }));
-        } catch (e) { console.error("Fetch units failed", e); }
-
-        // 2. 取得所有使用者 (快取在 app 物件中供聯動使用)
-        if (!this._allUsersForImp) {
-            this._allUsersForImp = [];
-            try {
-                const userSnap = await db.collection('users').where('isActive', '==', true).get();
-                userSnap.forEach(doc => this._allUsersForImp.push({ uid: doc.id, ...doc.data() }));
-            } catch (e) { console.error("Fetch users failed", e); }
-        }
-
-        let html = '<div style="color:rgba(255,255,255,0.7); margin-bottom:8px; font-weight:bold;"><i class="fas fa-user-secret"></i> 深度身分模擬</div>';
+    // --- 4. 模擬使用者功能 ---
+    renderAdminToolbar: function() {
+        const tool = document.getElementById('admin-impersonation-tool');
+        if (!tool) return; // index.html 需預留此 div
         
-        // 單位選擇器
-        html += '<select id="impUnitSelect" onchange="app.updateImpUserList(this.value)" style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:#2c3e50; color:white; cursor:pointer; margin-bottom:5px;">';
-        html += '<option value="">--- 選擇單位 ---</option>';
-        units.forEach(u => {
-            const selected = (this.impersonatedUnitId === u.id) ? 'selected' : '';
-            html += `<option value="${u.id}" ${selected} style="background:#2c3e50;">${u.name}</option>`;
+        tool.style.display = 'block';
+        tool.style.position = 'fixed';
+        tool.style.bottom = '10px';
+        tool.style.right = '10px';
+        tool.style.background = 'rgba(44, 62, 80, 0.9)';
+        tool.style.padding = '10px';
+        tool.style.borderRadius = '8px';
+        tool.style.zIndex = '9999';
+        tool.style.color = 'white';
+        tool.style.boxShadow = '0 0 10px rgba(0,0,0,0.3)';
+
+        // 如果正在模擬，顯示「還原」按鈕
+        if (this.impersonatedRole) {
+            tool.innerHTML = `
+                <div style="font-size:0.9rem; margin-bottom:5px;">
+                    <i class="fas fa-user-secret"></i> 模擬中: ${this.impersonatedUid}<br>
+                    角色: ${this.impersonatedRole}
+                </div>
+                <button class="btn btn-sm btn-danger" onclick="app.clearImpersonation()" style="width:100%;">
+                    恢復原始身分
+                </button>
+            `;
+        } else {
+            // 選擇單位與人員進行模擬
+            tool.innerHTML = `
+                <div style="font-size:0.9rem; margin-bottom:5px;"><i class="fas fa-tools"></i> 管理員工具</div>
+                <select id="impUnitSelect" onchange="app.updateImpUserList(this.value)" style="width:100%; margin-bottom:5px; padding:4px; font-size:0.8rem; background:#34495e; color:white; border:none;">
+                    <option value="">載入單位...</option>
+                </select>
+                <select id="impUserSelect" onchange="app.impersonateUser(this.value)" style="width:100%; padding:4px; font-size:0.8rem; background:#34495e; color:white; border:none;">
+                    <option value="">請先選單位</option>
+                </select>
+            `;
+            this.loadImpUnits();
+        }
+    },
+
+    loadImpUnits: async function() {
+        const sel = document.getElementById('impUnitSelect');
+        if(!sel) return;
+        
+        // 取得所有單位與人員 (簡單快取)
+        if(!this._allUnitsForImp) {
+            const uSnap = await db.collection('units').get();
+            this._allUnitsForImp = uSnap.docs.map(d => ({id:d.id, name:d.data().name}));
+            const userSnap = await db.collection('users').get();
+            this._allUsersForImp = userSnap.docs.map(d => ({uid:d.id, ...d.data()}));
+        }
+
+        sel.innerHTML = '<option value="">--- 選擇單位 ---</option>';
+        this._allUnitsForImp.forEach(u => {
+            sel.innerHTML += `<option value="${u.id}">${u.name}</option>`;
         });
-        html += '</select>';
-
-        // 人員選擇器 (初始為空或根據當前模擬單位過濾)
-        html += '<select id="impUserSelect" onchange="app.impersonateUser(this.value)" style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:#2c3e50; color:white; cursor:pointer; margin-bottom:5px;">';
-        html += '<option value="">--- 選擇人員 ---</option>';
-        html += '</select>';
-
-        // 快速恢復按鈕
-        if (this.impersonatedUid) {
-            html += `<button onclick="app.clearImpersonation()" style="width:100%; padding:4px; background:#e74c3c; color:white; border:none; border-radius:4px; font-size:0.75rem; cursor:pointer; margin-top:5px;">恢復原始身分</button>`;
-        }
-
-        tool.innerHTML = html;
-
-        // 如果已有模擬單位，初始化人員選單
-        if (this.impersonatedUnitId || document.getElementById('impUnitSelect').value) {
-            this.updateImpUserList(this.impersonatedUnitId || document.getElementById('impUnitSelect').value);
-        }
     },
 
     updateImpUserList: function(unitId) {
@@ -361,24 +169,182 @@ const app = {
             : this._allUsersForImp;
 
         filteredUsers.forEach(u => {
-            const selected = this.impersonatedUid === u.uid ? 'selected' : '';
             const roleName = this.translateRole(u.role);
-            userSelect.innerHTML += `<option value='${JSON.stringify({uid:u.uid, name:u.displayName||u.name, role:u.role, unitId:u.unitId})}' ${selected} style="background:#2c3e50;">${u.displayName || u.name} (${roleName})</option>`;
+            // 存入完整的模擬資訊
+            const val = JSON.stringify({
+                uid: u.uid, 
+                name: u.displayName || u.name, 
+                role: u.role, 
+                unitId: u.unitId
+            });
+            userSelect.innerHTML += `<option value='${val}'>${u.displayName || u.name} (${roleName})</option>`;
         });
     },
 
+    // 執行模擬
     impersonateUser: function(jsonStr) {
         if (!jsonStr) return;
+        // 存入 localStorage 以便重整後持續
         localStorage.setItem('impersonatedUser', jsonStr);
         window.location.reload();
     },
 
+    // [新增] 還原模擬狀態 (Init 時呼叫)
+    restoreImpersonation: function() {
+        const stored = localStorage.getItem('impersonatedUser');
+        if (stored) {
+            try {
+                const data = JSON.parse(stored);
+                this.impersonatedUid = data.uid;
+                this.impersonatedRole = data.role;
+                this.impersonatedUnitId = data.unitId;
+                
+                console.log("🕵️‍♂️ 進入模擬模式:", data.name);
+                
+                // 強制覆蓋 UI 顯示 (選單等)
+                this.updateUIByRole(); 
+                this.renderMenu();
+                this.renderAdminToolbar(); // 更新工具列狀態
+            } catch (e) {
+                console.error("Restore Impersonation Failed:", e);
+                localStorage.removeItem('impersonatedUser');
+            }
+        }
+    },
+
+    // 清除模擬
     clearImpersonation: function() {
         localStorage.removeItem('impersonatedUser');
         window.location.reload();
+    },
+
+    // --- 5. UI 更新 ---
+    updateUIByRole: function() {
+        const role = this.getRole(); // 使用 Helper
+        document.body.setAttribute('data-role', role);
+        
+        const displayRole = role === 'system_admin' ? '系統管理員' : 
+                          role === 'unit_manager' ? '單位護理長' :
+                          role === 'unit_scheduler' ? '排班人員' : '護理師';
+                          
+        const userName = (this.impersonatedUid ? '[模] ' : '') + 
+                         (this.currentUser ? (this.currentUser.displayName || this.currentUser.email) : '訪客');
+
+        const profileEl = document.getElementById('user-profile-info');
+        if(profileEl) {
+            profileEl.innerHTML = `
+                <div style="font-weight:bold;">${userName}</div>
+                <div style="font-size:0.8rem; opacity:0.8;">${displayRole}</div>
+            `;
+        }
+    },
+
+    // 渲染選單
+    renderMenu: async function() {
+        const menuContainer = document.getElementById('sidebar-menu');
+        if (!menuContainer) return;
+        
+        menuContainer.innerHTML = ''; 
+        const activeRole = this.getRole();
+
+        try {
+            const snapshot = await db.collection('system_menus')
+                .where('isActive', '==', true)
+                .orderBy('order')
+                .get();
+
+            snapshot.forEach(doc => {
+                const item = doc.data();
+                // 權限過濾
+                if (!item.allowedRoles || item.allowedRoles.length === 0 || item.allowedRoles.includes(activeRole)) {
+                    const li = document.createElement('li');
+                    li.innerHTML = `
+                        <a href="#${item.path}" class="menu-item" onclick="app.setActiveMenu(this)">
+                            <i class="${item.icon}" style="width:20px; text-align:center;"></i>
+                            <span style="margin-left:10px;">${item.label}</span>
+                        </a>
+                    `;
+                    menuContainer.appendChild(li);
+                }
+            });
+
+            // 高亮當前選單
+            const currentHash = window.location.hash.slice(1);
+            const links = document.querySelectorAll('.menu-item');
+            links.forEach(l => {
+                if(l.getAttribute('href') === '#' + currentHash) l.classList.add('active');
+            });
+
+        } catch(e) {
+            console.error("Render Menu Error:", e);
+        }
+    },
+
+    setActiveMenu: function(el) {
+        document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
+        el.classList.add('active');
+    },
+
+    handleLogout: function() {
+        this.currentUser = null;
+        this.userRole = null;
+        this.clearImpersonation(); // 登出時一併清除模擬
+        document.getElementById('app-view').style.display = 'none';
+        document.getElementById('login-view').style.display = 'flex';
+        window.location.hash = '';
+    },
+
+    login: async function() {
+        const email = document.getElementById('loginEmail').value;
+        const pwd = document.getElementById('loginPassword').value;
+        const errEl = document.getElementById('loginError');
+        errEl.innerText = '';
+
+        try {
+            await auth.signInWithEmailAndPassword(email, pwd);
+        } catch (error) {
+            errEl.innerText = "登入失敗: " + error.message;
+        }
+    },
+
+    logout: function() {
+        auth.signOut();
+    },
+
+    setupGlobalErrorHandling: function() {
+        window.onerror = function(msg, url, line) {
+            console.error(`Global Error: ${msg} (${url}:${line})`);
+        };
+    },
+    
+    setupEventListeners: function() {
+        window.addEventListener('hashchange', () => {
+            const hash = window.location.hash.slice(1);
+            if(typeof router !== 'undefined') router.load(hash);
+            
+            // 更新選單高亮
+            document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
+            const activeLink = document.querySelector(`.menu-item[href="#${hash}"]`);
+            if(activeLink) activeLink.classList.add('active');
+        });
+    },
+
+    translateRole: function(role) {
+        const map = {
+            'system_admin': '系統管理員',
+            'unit_manager': '單位護理長',
+            'unit_scheduler': '排班人員',
+            'user': '護理師'
+        };
+        return map[role] || role;
     }
 };
 
+// 啟動應用
 document.addEventListener('DOMContentLoaded', () => {
-    app.init();
+    if(typeof config !== 'undefined') {
+        app.init();
+    } else {
+        console.error("Config not loaded!");
+    }
 });
