@@ -8,14 +8,19 @@ const scheduleListManager = {
         await this.loadUnitDropdown();
     },
 
-    loadUnitDropdown: async function() {
+loadUnitDropdown: async function() {
         const select = document.getElementById('filterScheduleUnit');
         if(!select) return;
         select.innerHTML = '<option value="">載入中...</option>';
         try {
             let query = db.collection('units');
-            if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
-                if(app.userUnitId) query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
+
+            // [修正] 支援模擬身分
+            const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+
+            if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
+                if(activeUnitId) query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
             }
             const snapshot = await query.get();
             select.innerHTML = '<option value="">請選擇單位</option>';
