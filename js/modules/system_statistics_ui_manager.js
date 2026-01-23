@@ -471,8 +471,127 @@ const systemStatisticsManager = {
     
     // 圖表呈現
     displayChartView: function() {
-        // 這裡需要整合圖表庫（如 Chart.js 或 Recharts）
-        console.log('圖表呈現功能待實現');
+        if (!this.currentStatistics) return;
+        
+        // 使用 Recharts 繪製圖表
+        this.drawScoreChart();
+        this.drawVacancyChart();
+        this.drawAdjustmentChart();
+    },
+    
+    // 繪製班表評分趨勢圖
+    drawScoreChart: function() {
+        const stats = this.currentStatistics;
+        const chartContainer = document.getElementById('scoreChart');
+        
+        // 使用簡單的 SVG 繪製
+        const data = [
+            { name: '原始評分', value: stats.originalScore },
+            { name: '調整後評分', value: stats.currentScore }
+        ];
+        
+        const maxValue = Math.max(...data.map(d => d.value), 100);
+        const width = chartContainer.offsetWidth || 800;
+        const height = 400;
+        const barWidth = width / (data.length * 2);
+        const padding = 50;
+        
+        let svg = `<svg width="${width}" height="${height}" style="border: 1px solid #ddd;">`;
+        
+        // Y軸
+        svg += `<line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="#333" stroke-width="2"/>`;
+        // X軸
+        svg += `<line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#333" stroke-width="2"/>`;
+        
+        // 繪製柱子
+        data.forEach((d, i) => {
+            const x = padding + (i + 1) * barWidth;
+            const barHeight = (d.value / maxValue) * (height - 2 * padding);
+            const y = height - padding - barHeight;
+            
+            const color = i === 0 ? '#3498db' : '#27ae60';
+            svg += `<rect x="${x}" y="${y}" width="${barWidth * 0.8}" height="${barHeight}" fill="${color}" />`;
+            svg += `<text x="${x + barWidth * 0.4}" y="${height - padding + 25}" text-anchor="middle" font-size="14">${d.name}</text>`;
+            svg += `<text x="${x + barWidth * 0.4}" y="${y - 10}" text-anchor="middle" font-size="14" font-weight="bold">${d.value}</text>`;
+        });
+        
+        svg += '</svg>';
+        chartContainer.innerHTML = svg;
+    },
+    
+    // 繪製缺班率趨勢圖
+    drawVacancyChart: function() {
+        const stats = this.currentStatistics;
+        const chartContainer = document.getElementById('vacancyChart');
+        
+        const data = Object.keys(stats.vacancyStats.byShift).map(shift => ({
+            name: shift,
+            value: stats.vacancyStats.byShift[shift].rate
+        }));
+        
+        const maxValue = Math.max(...data.map(d => d.value), 10);
+        const width = chartContainer.offsetWidth || 800;
+        const height = 400;
+        const barWidth = width / (data.length * 2);
+        const padding = 50;
+        
+        let svg = `<svg width="${width}" height="${height}" style="border: 1px solid #ddd;">`;
+        
+        // Y軸
+        svg += `<line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="#333" stroke-width="2"/>`;
+        // X軸
+        svg += `<line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#333" stroke-width="2"/>`;
+        
+        // 繪製柱子
+        data.forEach((d, i) => {
+            const x = padding + (i + 1) * barWidth;
+            const barHeight = (d.value / maxValue) * (height - 2 * padding);
+            const y = height - padding - barHeight;
+            
+            const color = d.value > 10 ? '#e74c3c' : d.value > 5 ? '#f39c12' : '#27ae60';
+            svg += `<rect x="${x}" y="${y}" width="${barWidth * 0.8}" height="${barHeight}" fill="${color}" />`;
+            svg += `<text x="${x + barWidth * 0.4}" y="${height - padding + 25}" text-anchor="middle" font-size="14">${d.name}</text>`;
+            svg += `<text x="${x + barWidth * 0.4}" y="${y - 10}" text-anchor="middle" font-size="14" font-weight="bold">${d.value}%</text>`;
+        });
+        
+        svg += '</svg>';
+        chartContainer.innerHTML = svg;
+    },
+    
+    // 繪製修正率趨勢圖
+    drawAdjustmentChart: function() {
+        const stats = this.currentStatistics;
+        const chartContainer = document.getElementById('adjustmentChart');
+        
+        const data = [
+            { name: '修正率', value: stats.adjustmentStats.adjustmentRate }
+        ];
+        
+        const maxValue = 20;
+        const width = chartContainer.offsetWidth || 800;
+        const height = 400;
+        const barWidth = width / 4;
+        const padding = 50;
+        
+        let svg = `<svg width="${width}" height="${height}" style="border: 1px solid #ddd;">`;
+        
+        // Y軸
+        svg += `<line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="#333" stroke-width="2"/>`;
+        // X軸
+        svg += `<line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#333" stroke-width="2"/>`;
+        
+        // 繪製柱子
+        const x = padding + barWidth;
+        const barHeight = (data[0].value / maxValue) * (height - 2 * padding);
+        const y = height - padding - barHeight;
+        
+        const color = data[0].value > 15 ? '#e74c3c' : data[0].value > 10 ? '#f39c12' : '#27ae60';
+        svg += `<rect x="${x}" y="${y}" width="${barWidth * 0.8}" height="${barHeight}" fill="${color}" />`;
+        svg += `<text x="${x + barWidth * 0.4}" y="${height - padding + 25}" text-anchor="middle" font-size="14">${data[0].name}</text>`;
+        svg += `<text x="${x + barWidth * 0.4}" y="${y - 10}" text-anchor="middle" font-size="14" font-weight="bold">${data[0].value}%</text>`;
+        
+        svg += '</svg>';
+        chartContainer.innerHTML = svg;
     },
     
     // 查看詳情
@@ -481,4 +600,38 @@ const systemStatisticsManager = {
             this.displayAnalysisReport(this.currentReport);
         }
     }
+};
+
+// 新增 CSV 導出功能
+systemStatisticsManager.exportToCSV = function() {
+    if (!this.currentStatistics) {
+        alert('沒有統計資料可以導出');
+        return;
+    }
+    
+    const stats = this.currentStatistics;
+    const lines = [
+        '統計項目,數值',
+        '統計時間,' + stats.period,
+        '排班次數,' + stats.schedulingAttempts,
+        '排班時間(秒),' + stats.schedulingTime.toFixed(2),
+        '原始評分,' + stats.originalScore,
+        '調整後評分,' + stats.currentScore,
+        '評分變化,' + stats.scoreImprovement,
+        '整體缺班率(%),' + stats.vacancyStats.overall,
+        '修正次數,' + stats.adjustmentStats.totalAdjustments,
+        '修正率(%),' + stats.adjustmentStats.adjustmentRate,
+        '換班次數,' + stats.exchangeStats.totalExchanges
+    ];
+    
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', '統計_' + stats.period + '.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 };
