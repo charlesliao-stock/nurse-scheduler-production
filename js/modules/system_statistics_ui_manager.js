@@ -1,5 +1,5 @@
-// 系統統計 UI 管理模組
-// 負責系統統計頁面的 UI 邏輯和交互
+// js/modules/system_statistics_ui_manager.js
+// 🔧 修正版：支援模擬身分、移除多餘括號
 
 const systemStatisticsManager = {
     currentStatistics: null,
@@ -14,14 +14,15 @@ const systemStatisticsManager = {
         const today = new Date();
         const year = today.getFullYear();
         const month = String(today.getMonth() + 1).padStart(2, '0');
-        document.getElementById('statisticsMonth').value = `${year}-${month}`;
+        const monthInput = document.getElementById('statisticsMonth');
+        if(monthInput) monthInput.value = `${year}-${month}`;
         
         // 載入單位列表
         await this.loadUnits();
     },
     
-    // --- 2. 載入單位列表 ---
-loadUnits: async function() {
+    // --- 2. 載入單位列表 (修正版) ---
+    loadUnits: async function() {
         try {
             let query = db.collection('units');
             
@@ -37,6 +38,7 @@ loadUnits: async function() {
 
             const snapshot = await query.get();
             const unitSelect = document.getElementById('unitFilter');
+            if(!unitSelect) return;
             
             // 清空舊選項 (保留 "全部" 選項)
             unitSelect.innerHTML = '<option value="">全部</option>';
@@ -59,7 +61,7 @@ loadUnits: async function() {
         } catch (e) {
             console.error('載入單位失敗:', e);
         }
-    },,
+    },
     
     // --- 3. 切換查詢模式 ---
     toggleQueryMode: function() {
@@ -180,7 +182,7 @@ loadUnits: async function() {
         return statistics;
     },
     
-    // 聚合統計資料 (複製自 system_statistics_manager.js)
+    // 聚合統計資料
     aggregateStatistics: async function(scheduleData, staffList, exchanges, year, month) {
         try {
             const vacancyStats = this.calculateVacancyRate(scheduleData, staffList, year, month);
@@ -623,39 +625,39 @@ loadUnits: async function() {
         if (this.currentReport) {
             this.displayAnalysisReport(this.currentReport);
         }
-    }
-};
+    },
 
-// 新增 CSV 導出功能
-systemStatisticsManager.exportToCSV = function() {
-    if (!this.currentStatistics) {
-        alert('沒有統計資料可以導出');
-        return;
+    // CSV 導出功能
+    exportToCSV: function() {
+        if (!this.currentStatistics) {
+            alert('沒有統計資料可以導出');
+            return;
+        }
+        
+        const stats = this.currentStatistics;
+        const lines = [
+            '統計項目,數值',
+            '統計時間,' + stats.period,
+            '排班次數,' + stats.schedulingAttempts,
+            '排班時間(秒),' + stats.schedulingTime.toFixed(2),
+            '原始評分,' + stats.originalScore,
+            '調整後評分,' + stats.currentScore,
+            '評分變化,' + stats.scoreImprovement,
+            '整體缺班率(%),' + stats.vacancyStats.overall,
+            '修正次數,' + stats.adjustmentStats.totalAdjustments,
+            '修正率(%),' + stats.adjustmentStats.adjustmentRate,
+            '換班次數,' + stats.exchangeStats.totalExchanges
+        ];
+        
+        const csv = lines.join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', '統計_' + stats.period + '.csv');
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     }
-    
-    const stats = this.currentStatistics;
-    const lines = [
-        '統計項目,數值',
-        '統計時間,' + stats.period,
-        '排班次數,' + stats.schedulingAttempts,
-        '排班時間(秒),' + stats.schedulingTime.toFixed(2),
-        '原始評分,' + stats.originalScore,
-        '調整後評分,' + stats.currentScore,
-        '評分變化,' + stats.scoreImprovement,
-        '整體缺班率(%),' + stats.vacancyStats.overall,
-        '修正次數,' + stats.adjustmentStats.totalAdjustments,
-        '修正率(%),' + stats.adjustmentStats.adjustmentRate,
-        '換班次數,' + stats.exchangeStats.totalExchanges
-    ];
-    
-    const csv = lines.join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', '統計_' + stats.period + '.csv');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
 };
