@@ -363,9 +363,60 @@ const staffManager = {
         reader.readAsText(file);
     },
 
-    // --- 8. 重置密碼 (模擬) ---
-    resetPassword: function(uid) {
-        // 實務上應呼叫 Firebase Admin SDK，此處僅示範
-        alert("已發送重置密碼郵件至使用者信箱 (模擬功能)");
+// --- 8. 重置密碼 (實作版) ---
+    resetPassword: async function(uid) {
+        // 1. 從本地快取中查找使用者資料
+        const user = this.allData.find(u => u.uid === uid);
+        
+        if (!user) {
+            alert("系統錯誤：找不到該使用者資料 (UID 失效)。");
+            return;
+        }
+
+        // 2. 檢查使用者狀態
+        // 如果使用者還沒 "isRegistered" (未開通)，代表他在 Firebase Auth 還沒有帳號，無法重置
+        if (!user.isRegistered) {
+            alert(`無法重置：\n${user.displayName} 尚未完成「帳號開通」。\n\n請通知該同仁使用登入頁面的「帳號開通」功能來設定初始密碼。`);
+            return;
+        }
+
+        if (!user.email) {
+            alert("無法重置：該使用者資料中沒有 Email，無法寄送重置信。");
+            return;
+        }
+
+        // 3. 顯示確認對話框
+        const confirmMsg = `您確定要發送「密碼重置信」給 ${user.displayName} 嗎？\n\n` +
+                           `Email: ${user.email}\n\n` +
+                           `系統將發送一封電子郵件，使用者點擊信中連結即可重新設定密碼。`;
+
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        // 4. 呼叫 Firebase Auth 發送重置信
+        try {
+            // 設定信件語言為繁體中文 (依專案設定而定，也可強制指定)
+            auth.languageCode = 'zh-TW'; 
+            
+            await auth.sendPasswordResetEmail(user.email);
+            
+            alert(`✅ 發送成功！\n\n重置信已寄至 ${user.email}。\n請通知 ${user.displayName} 收信並設定新密碼。`);
+            
+        } catch (e) {
+            console.error("Reset Password Error:", e);
+            let msg = e.message;
+            
+            // 常見錯誤代碼轉換
+            if (e.code === 'auth/user-not-found') {
+                msg = "找不到此 Email 對應的帳號 (可能使用者已被刪除或尚未在 Auth 註冊)。";
+            } else if (e.code === 'auth/invalid-email') {
+                msg = "使用者的 Email 格式不正確。";
+            } else if (e.code === 'auth/too-many-requests') {
+                msg = "請求過於頻繁，請稍後再試。";
+            }
+
+            alert("❌ 發送失敗: " + msg);
+        }
     }
 };
