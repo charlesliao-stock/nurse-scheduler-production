@@ -54,24 +54,52 @@ const scoreSettingsManager = {
         });
     },
 
-    loadUnitDropdown: async function() {
+loadUnitDropdown: async function() {
         const select = document.getElementById('scoreUnitSelect');
         if(!select) return;
+
         select.innerHTML = '<option value="">載入中...</option>';
         try {
             let query = db.collection('units');
-            if (app.userRole !== 'system_admin' && app.userUnitId) {
-                query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
+            
+            // [修正] 支援模擬身分：優先使用模擬的角色與單位ID
+            const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+
+            // 如果是單位管理者或排班人員，鎖定只能看自己的單位
+            if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
+                if(activeUnitId) {
+                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
+                }
             }
-            const snap = await query.get();
+
+            const snapshot = await query.get();
             select.innerHTML = '<option value="">請選擇單位</option>';
-            snap.forEach(doc => {
-                const opt = document.createElement('option');
-                opt.value = doc.id; opt.textContent = doc.data().name;
-                select.appendChild(opt);
+            
+            snapshot.forEach(doc => {
+                const option = document.createElement('option');
+                option.value = doc.id;
+                option.textContent = doc.data().name;
+                select.appendChild(option);
             });
-            select.onchange = () => this.loadData();
-        } catch(e) { console.error("Load Units Error:", e); }
+            
+            // 如果只有一個單位 (例如單位管理者)，自動選取並載入資料
+            if(snapshot.size === 1) {
+                select.selectedIndex = 1;
+                this.currentUnitId = select.value;
+                this.loadSettings(this.currentUnitId);
+            }
+
+            // 綁定變更事件
+            select.onchange = () => {
+                this.currentUnitId = select.value;
+                this.loadSettings(this.currentUnitId);
+            };
+
+        } catch(e) { 
+            console.error("載入單位失敗:", e); 
+            select.innerHTML = '<option value="">載入失敗</option>';
+        }
     },
 
     loadData: async function() {
