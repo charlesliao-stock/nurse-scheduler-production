@@ -21,10 +21,25 @@ const systemStatisticsManager = {
     },
     
     // --- 2. 載入單位列表 ---
-    loadUnits: async function() {
+loadUnits: async function() {
         try {
-            const snapshot = await db.collection('units').get();
+            let query = db.collection('units');
+            
+            // [修正] 支援模擬身分
+            const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+
+            if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
+                if (activeUnitId) {
+                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
+                }
+            }
+
+            const snapshot = await query.get();
             const unitSelect = document.getElementById('unitFilter');
+            
+            // 清空舊選項 (保留 "全部" 選項)
+            unitSelect.innerHTML = '<option value="">全部</option>';
             
             snapshot.forEach(doc => {
                 const option = document.createElement('option');
@@ -32,10 +47,19 @@ const systemStatisticsManager = {
                 option.textContent = doc.data().name || doc.id;
                 unitSelect.appendChild(option);
             });
+            
+            // 若為單位管理者，自動選取並鎖定
+            if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
+                if (snapshot.size === 1) {
+                    unitSelect.value = snapshot.docs[0].id;
+                    unitSelect.disabled = true; // 禁止切換
+                }
+            }
+            
         } catch (e) {
             console.error('載入單位失敗:', e);
         }
-    },
+    },,
     
     // --- 3. 切換查詢模式 ---
     toggleQueryMode: function() {
