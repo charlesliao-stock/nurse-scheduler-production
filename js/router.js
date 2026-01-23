@@ -12,6 +12,7 @@ const router = {
         '/admin/shifts': 'shifts',             
         '/admin/groups': 'groups',             
         '/admin/menus': 'menus',               
+        '/admin/dashboard_items': 'dashboard_items',               
         
         // --- 預班階段 ---
         '/admin/pre_schedules': 'pre_schedules',         
@@ -71,9 +72,12 @@ const router = {
             else if (viewName === 'units' && typeof unitManager !== 'undefined') unitManager.init();
             else if (viewName === 'shifts' && typeof shiftManager !== 'undefined') shiftManager.init();
             else if (viewName === 'groups' && typeof groupManager !== 'undefined') groupManager.init();
-            else if (viewName === 'menus' && typeof menuManager !== 'undefined') menuManager.init();
-            
-            else if (viewName === 'pre_schedules') { 
+  else if (viewName === 'menus') {
+                if(typeof menuManager !== 'undefined') menuManager.init();
+            }
+            else if (viewName === 'dashboard_items') {
+                if(typeof dashboardItemManager !== 'undefined') dashboardItemManager.init();
+            }   else if (viewName === 'pre_schedules') { 
                 if(typeof preScheduleManager !== 'undefined') preScheduleManager.init(); 
             }
             else if (viewName === 'pre_schedule_matrix') { 
