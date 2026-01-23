@@ -1,5 +1,5 @@
 // js/scheduler/BaseScheduler.js
-// 🔧 最終修正版：強化跨月連續上班檢查與資料防呆
+// 🔧 最終修正版：時間軸間隔計算 + 預假保護 + 軟硬規則分離
 
 class BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -23,7 +23,10 @@ class BaseScheduler {
     parseRules() {
         const r = this.rules;
         
-        this.rule_minGap11 = r.hard?.minGap11 !== false;
+        // [修正] 讀取自訂的最小休息時數，預設 11 小時
+        this.rule_minGapHours = parseFloat(r.hard?.minGapHours) || 11;
+        this.rule_minGap11 = r.hard?.minGap11 !== false; // 開關
+
         this.rule_maxDiversity3 = r.hard?.maxDiversity3 !== false;
         this.rule_protectPregnant = r.hard?.protectPregnant !== false;
         this.rule_twoOffPerFortnight = r.hard?.twoOffPerFortnight !== false;
@@ -38,17 +41,11 @@ class BaseScheduler {
         this.rule_longVacationWorkLimit = r.policy?.longVacationWorkLimit || 7;
         this.rule_noNightAfterOff = r.policy?.noNightAfterOff !== false;
         
-        // 權重
+        // 權重 (Must vs Try)
         let prioritizeBundle = r.policy?.prioritizeBundle || 'must';
         let prioritizePref = r.policy?.prioritizePref || 'must';
         let prioritizePreReq = r.policy?.prioritizePreReq || 'must'; 
         let prioritizeAvoid = r.policy?.prioritizeAvoid || 'must';
-
-        // 只有當管理者開啟救火時，權重才降級
-        if (this.rule_enableRelaxation) {
-            prioritizeBundle = 'try'; prioritizePref = 'try'; 
-            prioritizePreReq = 'try'; prioritizeAvoid = 'try';
-        }
 
         this.rule_strictBundle = (prioritizeBundle === 'must');
         this.rule_strictPref = (prioritizePref === 'must');
@@ -100,6 +97,31 @@ class BaseScheduler {
         });
     }
 
+    // [修正] 清除班表時，嚴格保護 REQ_OFF
+    clearDayAssignments(day) {
+        const dateStr = this.getDateStr(day);
+        const shifts = this.schedule[dateStr];
+        
+        if (!shifts) return;
+
+        Object.keys(shifts).forEach(code => {
+            // 系統產生的 OFF 不用清
+            if (code === 'OFF') return;
+            
+            // [絕對保護] 預假 REQ_OFF 不可清
+            if (code === 'REQ_OFF') return;
+
+            [...shifts[code]].forEach(uid => {
+                // 雙重檢查：如果原本就是預假，還原為 REQ_OFF
+                if (this.isPreRequestOff(uid, dateStr)) {
+                    this.updateShift(dateStr, uid, code, 'REQ_OFF');
+                } else {
+                    this.updateShift(dateStr, uid, code, 'OFF');
+                }
+            });
+        });
+    }
+
     updateShift(dateStr, uid, oldShift, newShift) {
         if (oldShift === newShift) return;
         if (oldShift && this.schedule[dateStr][oldShift]) {
@@ -123,18 +145,29 @@ class BaseScheduler {
     }
 
     // --- 核心驗證 ---
-    isValidAssignment(staff, dateStr, shiftCode, isRelaxMode = false) {
+    isValidAssignment(staff, dateStr, shiftCode) {
+        // 如果是 OFF，只檢查休假間隔
         if (shiftCode === 'OFF') {
             if (!this.checkOffGap(staff, dateStr)) return false; 
             return true;
         }
 
+        // [預假檢查] 如果該日已鎖定為 REQ_OFF，則除了填入 REQ_OFF 外，其他一律禁止
+        if (this.isPreRequestOff(staff.id, dateStr) && shiftCode !== 'REQ_OFF') {
+            return false;
+        }
+
+        // 1. 孕婦保護
         if (this.rule_protectPregnant && !this.checkSpecialStatus(staff, shiftCode)) return false;
         
+        // 2. 休息時間 (N-D 檢查) - 使用時間軸計算
         const prevShift = this.getYesterdayShift(staff.id, dateStr);
         if (this.rule_minGap11 && !this.checkRestPeriod(prevShift, shiftCode)) return false;
+        
+        // 3. 週班別多樣性
         if (this.rule_maxDiversity3 && !this.checkFixedWeekDiversity(staff.id, dateStr, shiftCode)) return false;
 
+        // 4. 包班限制
         const bundleShift = staff.packageType || (staff.prefs && staff.prefs.bundleShift);
         if (bundleShift) {
             const targetShiftDef = this.shiftTimes[bundleShift];
@@ -143,23 +176,21 @@ class BaseScheduler {
             }
         }
 
+        // 5. 排斥班別 (!D) - [修正] 區分 Must 與 Try
         const params = staff.schedulingParams || {};
-        if (params[dateStr] === '!' + shiftCode && this.rule_strictAvoid) return false; 
+        if (params[dateStr] === '!' + shiftCode) {
+            // 如果是嚴格模式 (Must)，則直接回傳 false (違規)
+            // 如果是盡量模式 (Try)，則回傳 true (放行)，由 Score 計算扣分
+            if (this.rule_strictAvoid) return false; 
+        }
         
+        // 6. 指定班別 (PreReq)
         const reqShift = params[dateStr];
         if (reqShift && reqShift !== 'REQ_OFF' && !reqShift.startsWith('!')) {
             if (reqShift !== shiftCode && this.rule_strictPreReq) return false;
         }
 
-        const prefs = staff.prefs?.[dateStr] || {};
-        if (Object.values(prefs).length > 0 && !Object.values(prefs).includes(shiftCode)) {
-            if (this.rule_strictPref) return false;
-        }
-
-        // 救火模式 (如果管理者開啟且參數為 true，允許放寬軟性規則)
-        if (isRelaxMode && this.rule_enableRelaxation) return true;
-
-        // 連續上班限制
+        // 7. 連續上班限制
         if (this.rule_limitConsecutive) {
             const currentCons = this.getConsecutiveWorkDays(staff.id, dateStr);
             let limit = this.rule_maxConsDays;
@@ -172,9 +203,11 @@ class BaseScheduler {
             if (currentCons >= limit) return false;
         }
 
+        // 8. 避免休假後接大夜 (可選政策)
         if (this.rule_noNightAfterOff) {
             if (!bundleShift) {
                 const isPrevReqOff = this.isPreRequestOff(staff.id, dateStr, -1);
+                // 這裡的 isNightShift 也應該基於時間，而不是代號
                 if (isPrevReqOff && this.isNightShift(shiftCode)) return false;
             }
         }
@@ -202,12 +235,10 @@ class BaseScheduler {
     getShiftCategory(shiftCode) {
         if (!shiftCode || shiftCode === 'OFF' || shiftCode === 'REQ_OFF') return null;
         const def = this.shiftTimes[shiftCode];
-        if (!def) return shiftCode; // 找不到定義則回傳原代碼
+        if (!def) return shiftCode; 
 
-        const start = def.start; // 0-24 的浮點數
-        // 00:00 - 08:00 -> 大夜 (Category 0)
-        // 08:00 - 16:00 -> 白班 (Category 8)
-        // 16:00 - 24:00 -> 小夜 (Category 16)
+        const start = def.start; 
+        // 簡單分類：0-8(大夜), 8-16(白班), 16-24(小夜)
         if (start >= 0 && start < 8) return 'CAT_0';
         if (start >= 8 && start < 16) return 'CAT_8';
         return 'CAT_16';
@@ -227,7 +258,6 @@ class BaseScheduler {
         for (let i = 0; i < 7; i++) {
             const checkDate = new Date(weekStart);
             checkDate.setDate(weekStart.getDate() + i);
-            // 檢查整週 (一~日)，包含未來已排定的班表
             const checkStr = this.getDateStrFromDate(checkDate);
             if (checkStr === dateStr) continue;
             
@@ -235,20 +265,41 @@ class BaseScheduler {
             const cat = this.getShiftCategory(shift);
             if (cat) categories.add(cat);
         }
-        // 嚴格遵守：一週內不能超過 2 種班別 (即最多 2 種)
         return categories.size <= 2;
     }
 
+    /**
+     * [修正] 休息時間檢查 (Check Rest Period)
+     * 完全使用時間軸計算，不依賴班別代碼
+     */
     checkRestPeriod(prevShift, currShift) {
+        // 如果前後有任一班是休息 (OFF/REQ_OFF)，則休息時間無限大，必定合法
         if (!prevShift || prevShift === 'OFF' || prevShift === 'REQ_OFF') return true;
         if (!currShift || currShift === 'OFF' || currShift === 'REQ_OFF') return true;
+        
         const prev = this.shiftTimes[prevShift];
         const curr = this.shiftTimes[currShift];
+        
+        // 防呆：若找不到班別定義，預設通過 (避免卡死)
         if (!prev || !curr) return true; 
+
+        // 計算昨天的結束時間 (相對於昨天 00:00 的小時數)
+        // 例如：08:00-16:00 -> end=16
+        // 例如：16:00-24:00 -> end=24
+        // 例如：00:00-08:00 -> end=8
+        // 特別處理跨日：若 end <= start (例如 20:00-04:00)，則 end += 24
         let prevEndTimeAbs = prev.end;
         if (prev.end <= prev.start) prevEndTimeAbs += 24; 
+
+        // 計算今天的開始時間 (相對於昨天 00:00 的小時數，所以 +24)
+        // 例如：今天 08:00 上班 -> 24 + 8 = 32
         let currStartTimeAbs = curr.start + 24;
-        return (currStartTimeAbs - prevEndTimeAbs) >= 11;
+
+        // 計算間隔
+        const gap = currStartTimeAbs - prevEndTimeAbs;
+
+        // 比對規則設定的最小間隔小時數 (預設 11)
+        return gap >= this.rule_minGapHours;
     }
 
     getYesterdayShift(uid, dateStr) {
@@ -273,9 +324,6 @@ class BaseScheduler {
     getDateStr(d) { return `${this.year}-${String(this.month).padStart(2, '0')}-${String(d).padStart(2, '0')}`; }
     getDateStrFromDate(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
 
-    /**
-     * [修正] 檢查連續上班天數 (含跨月安全檢查)
-     */
     getConsecutiveWorkDays(uid, dateStr) {
         const targetDate = new Date(dateStr);
         let count = 0;
@@ -284,16 +332,13 @@ class BaseScheduler {
             checkDate.setDate(checkDate.getDate() - i);
             let shift = null;
             
-            // 判斷是否跨到上個月
             if (checkDate.getMonth() + 1 !== this.month) {
                 const d = checkDate.getDate();
-                // [安全檢查] 確保 lastMonthData[uid] 存在
                 if (this.lastMonthData && this.lastMonthData[uid]) {
-                    // 支援兩種格式: { last_31: 'N' } 或 { lastShift: 'N' (僅最後一天) }
                     shift = this.lastMonthData[uid][`last_${d}`] || 
                             (i === 1 ? this.lastMonthData[uid].lastShift : 'OFF');
                 } else {
-                    shift = 'OFF'; // 資料缺失視為休息，避免卡死
+                    shift = 'OFF'; 
                 }
             } else {
                 shift = this.getShiftByDate(this.getDateStrFromDate(checkDate), uid);
@@ -318,7 +363,13 @@ class BaseScheduler {
         if (limitList.length > 0) return limitList.includes(shiftCode);
         const time = this.shiftTimes[shiftCode];
         if (!time) return false;
-        return time.start >= 22 || time.start <= 5 || (time.end <= 8 && time.end > 0);
+        // 根據時間判斷：跨越午夜(start > end) 或 開始時間 >= 22 或 結束時間 <= 8
+        const s = time.start;
+        const e = time.end;
+        // 跨日判斷 (例如 23:00 - 07:00) -> s=23, e=7
+        if (e < s) return true;
+        // 傳統夜班定義 (22:00 後開始，或 08:00 前結束且非全天OFF)
+        return s >= 22 || s <= 5 || (e <= 8 && e > 0);
     }
 
     checkSpecialStatus(staff, shiftCode) {
