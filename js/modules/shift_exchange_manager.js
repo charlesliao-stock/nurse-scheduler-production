@@ -105,11 +105,26 @@ const shiftExchangeManager = {
         // 顯示內容： A (ShiftA) <-> B (ShiftB)
         const content = `${data.requesterName} (${data.requesterShift}) ↔ ${data.targetName} (${data.targetShift})`;
 
+        const reasonCategoryMap = {
+            'unit_staffing_adjustment': '單位人力調整',
+            'public_holiday': '公假',
+            'sick_leave': '病假',
+            'bereavement': '喪假',
+            'support': '支援',
+            'personal_factors': '個人因素',
+            'other': '其他'
+        };
+        
+        const reasonCategory = reasonCategoryMap[data.reasonCategory] || data.reasonCategory || '-';
+        const otherReason = data.otherReason ? `(${data.otherReason})` : '';
+        const reasonDisplay = reasonCategory === '其他' ? `其他 ${otherReason}` : reasonCategory;
+
         tr.innerHTML = `
             <td>${dateStr}</td>
             <td>${data.requesterName}</td>
             <td>${data.targetName}</td>
             <td>${content}</td>
+            <td>${reasonDisplay}</td>
             <td>${data.reason || ''}</td>
             <td>${statusMap[data.status] || data.status}</td>
             <td>${actions}</td>

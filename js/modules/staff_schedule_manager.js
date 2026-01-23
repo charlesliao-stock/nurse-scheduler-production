@@ -210,6 +210,10 @@ const staffScheduleManager = {
     closeExchangeModal: function() {
         document.getElementById('exchangeModal').classList.remove('show');
         this.exchangeData = null;
+        const reasonCat = document.getElementById('exchangeReasonCategory');
+        if (reasonCat) reasonCat.value = '';
+        const otherGroup = document.getElementById('otherReasonGroup');
+        if (otherGroup) otherGroup.style.display = 'none';
     },
 
     // --- 功能 2.1 & 2.2: 提交與驗證 ---
@@ -218,10 +222,14 @@ const staffScheduleManager = {
         const targetUid = targetSelect.value;
         const targetName = targetSelect.options[targetSelect.selectedIndex].text.split(' ')[0];
         const targetShift = targetSelect.options[targetSelect.selectedIndex].getAttribute('data-shift');
+        const reasonCategory = document.getElementById('exchangeReasonCategory').value;
+        const otherReasonText = document.getElementById('otherReasonText').value;
         const reason = document.getElementById('exchangeReason').value;
 
         if (!targetUid) { alert("請選擇交換對象"); return; }
-        if (!reason) { alert("請填寫換班事由"); return; }
+        if (!reasonCategory) { alert("請選擇換班事由分類"); return; }
+        if (reasonCategory === 'other' && !otherReasonText) { alert("請填寫其他原因說明"); return; }
+        if (!reason) { alert("請填寫換班原因說明"); return; }
 
         // 2.1 系統執行排班原則驗證
         const isValid = await shiftExchangeManager.validateSwap(
@@ -238,7 +246,7 @@ const staffScheduleManager = {
 
         // 2.2 建立申請單
         try {
-            await db.collection('shift_requests').add({
+            const requestData = {
                 unitId: this.currentSchedule.unitId,
                 scheduleId: this.currentSchedule.id,
                 year: this.currentSchedule.year,
@@ -250,10 +258,14 @@ const staffScheduleManager = {
                 targetId: targetUid,
                 targetName: targetName,
                 targetShift: targetShift,
+                reasonCategory: reasonCategory,
+                otherReason: reasonCategory === 'other' ? otherReasonText : null,
                 reason: reason,
-                status: 'pending_target', // 狀態：等待對方同意
+                status: 'pending_target',
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
+            };
+            
+            await db.collection('shift_requests').add(requestData);
 
             alert("✅ 申請已送出！\n請通知對方進行確認。");
             this.closeExchangeModal();
