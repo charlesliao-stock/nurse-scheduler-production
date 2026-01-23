@@ -121,7 +121,7 @@ const staffScheduleManager = {
         const myAssign = this.currentAssignments[this.uid] || {};
         const daysInMonth = new Date(year, month, 0).getDate();
         
-        let totalShifts = 0, totalOff = 0, holidayOff = 0, evening = 0, night = 0;
+        let totalShifts = 0, totalOff = 0, holidayOff = 0, evening = 0, night = 0, exchangeCount = 0;
 
         for (let d = 1; d <= daysInMonth; d++) {
             const code = myAssign[`current_${d}`];
@@ -137,15 +137,25 @@ const staffScheduleManager = {
             }
         }
 
+        // 改進 2: 計算換班數
+        if (this.currentSchedule && this.currentSchedule.exchanges) {
+            const exchanges = this.currentSchedule.exchanges || [];
+            exchangeCount = exchanges.filter(ex => 
+                (ex.requester === this.uid || ex.target === this.uid) && 
+                ex.status === 'approved'
+            ).length;
+        }
+
         document.getElementById('statTotalShifts').innerText = totalShifts;
         document.getElementById('statTotalOff').innerText = totalOff;
         document.getElementById('statHolidayOff').innerText = holidayOff;
         document.getElementById('statEvening').innerText = evening;
         document.getElementById('statNight').innerText = night;
+        document.getElementById('statExchangeCount').innerText = exchangeCount;
     },
 
     resetStats: function() {
-        ['statTotalShifts','statTotalOff','statHolidayOff','statEvening','statNight'].forEach(id => {
+        ['statTotalShifts','statTotalOff','statHolidayOff','statEvening','statNight','statExchangeCount'].forEach(id => {
             document.getElementById(id).innerText = '0';
         });
     },

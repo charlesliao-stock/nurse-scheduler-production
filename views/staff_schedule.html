@@ -3,6 +3,21 @@
         <h2 style="margin:0;"><i class="fas fa-user-clock"></i> 我的班表與統計</h2>
     </div>
     
+    <!-- 改進 1: 將選擇月份、區間移到卡片上方 -->
+    <div class="toolbar" style="margin-bottom: 20px;">
+        <label>選擇月份：</label>
+        <input type="month" id="scheduleMonth" class="form-control" style="width: 200px; display:inline-block;">
+        
+        <label style="margin-left: 15px;">日期區間篩選 (選填)：</label>
+        <input type="date" id="filterStartDate" class="form-control" style="width: 160px; display:inline-block;">
+        <span> ~ </span>
+        <input type="date" id="filterEndDate" class="form-control" style="width: 160px; display:inline-block;">
+        
+        <button class="btn btn-primary" onclick="staffScheduleManager.loadData()">
+            <i class="fas fa-search"></i> 查詢
+        </button>
+    </div>
+    
     <div class="score-cards-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 20px;">
         <div class="score-card">
             <div class="card-body" style="text-align:center;">
@@ -34,20 +49,13 @@
                 <h2 id="statNight" style="color:#c0392b; margin:10px 0;">0</h2>
             </div>
         </div>
-    </div>
-
-    <div class="toolbar">
-        <label>選擇月份：</label>
-        <input type="month" id="scheduleMonth" class="form-control" style="width: 200px; display:inline-block;">
-        
-        <label style="margin-left: 15px;">日期區間篩選 (選填)：</label>
-        <input type="date" id="filterStartDate" class="form-control" style="width: 160px; display:inline-block;">
-        <span> ~ </span>
-        <input type="date" id="filterEndDate" class="form-control" style="width: 160px; display:inline-block;">
-        
-        <button class="btn btn-primary" onclick="staffScheduleManager.loadData()">
-            <i class="fas fa-search"></i> 查詢
-        </button>
+        <!-- 改進 2: 新增換班數卡片 -->
+        <div class="score-card">
+            <div class="card-body" style="text-align:center;">
+                <h5 style="color:#7f8c8d; margin:0;">換班數</h5>
+                <h2 id="statExchangeCount" style="color:#3498db; margin:10px 0;">0</h2>
+            </div>
+        </div>
     </div>
 
     <div id="myScheduleContainer" class="table-container">
