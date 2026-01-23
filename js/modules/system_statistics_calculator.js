@@ -1,7 +1,7 @@
 // 系統統計管理模組
 // 負責計算和管理排班系統的各項統計指標
 
-const systemStatisticsManager = {
+const systemStatisticsCalculator = {
     currentStatistics: null,
     
     // --- 1. 缺班率計算 ---

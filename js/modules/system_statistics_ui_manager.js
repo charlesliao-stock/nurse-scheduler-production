@@ -118,7 +118,7 @@ const systemStatisticsManager = {
             const exchanges = exchangeSnapshot.docs.map(doc => doc.data());
             
             // 計算統計資料
-            const statistics = await systemStatisticsManager.calculateStatistics(
+            const statistics = await this.calculateStatistics(
                 scheduleData,
                 exchanges
             );
@@ -144,8 +144,8 @@ const systemStatisticsManager = {
         const month = scheduleData.month || new Date().getMonth() + 1;
         const staffList = scheduleData.staffList || [];
         
-        // 使用 systemStatisticsManager 計算統計
-        const statistics = await systemStatisticsManager.aggregateStatistics(
+        // 使用 systemStatisticsCalculator 計算統計
+        const statistics = await systemStatisticsCalculator.aggregateStatistics(
             scheduleData,
             staffList,
             exchanges,
