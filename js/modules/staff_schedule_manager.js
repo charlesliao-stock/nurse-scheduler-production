@@ -11,7 +11,6 @@ const staffScheduleManager = {
         this.uid = app.getUid();
         this.unitId = app.getUnitId();
         
-        // 預設本月
         const now = new Date();
         const monthStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
         const monthInput = document.getElementById('scheduleMonth');
@@ -36,10 +35,9 @@ const staffScheduleManager = {
         const wrapper = document.getElementById('horizontalScheduleWrapper');
         const noData = document.getElementById('noDataMessage');
         
-        console.log(`🔍 Loading schedule for ${year}/${month}, UID: '${this.uid}', Unit: ${this.unitId}`);
+        console.log(`🔍 Loading schedule for ${year}/${month}, UID: '${this.uid}'`);
         
         try {
-            // 讀取已發布的班表
             const snap = await db.collection('schedules')
                 .where('year', '==', year)
                 .where('month', '==', month)
@@ -48,17 +46,15 @@ const staffScheduleManager = {
 
             console.log(`📂 Found ${snap.size} published schedules.`);
 
-            // 過濾出與我相關的班表 (含模糊比對)
             const mySchedules = snap.docs.filter(doc => {
                 const d = doc.data();
                 const isMyUnit = (d.unitId === this.unitId);
                 const isParticipant = (d.staffList || []).some(s => s.uid === this.uid);
-                
-                // 模糊比對 assignments key
                 const assignments = d.assignments || {};
-                const hasMyAssign = Object.keys(assignments).some(k => k.trim() === this.uid.trim());
-                
-                return isMyUnit || isParticipant || hasMyAssign;
+                const hasAssign = Object.keys(assignments).some(k => k.trim() === this.uid.trim());
+                const hasMatrixRecord = this.checkMatrixForUid(d.schedule || {}, this.uid);
+
+                return isMyUnit || isParticipant || hasAssign || hasMatrixRecord;
             });
 
             if (mySchedules.length === 0) {
@@ -72,38 +68,36 @@ const staffScheduleManager = {
             if(wrapper) wrapper.style.display = 'block';
             if(noData) noData.style.display = 'none';
 
-            // 優先取有資料的班表
-            let targetDoc = mySchedules.find(doc => {
-                const assigns = doc.data().assignments || {};
-                return Object.keys(assigns).some(k => k.trim() === this.uid.trim());
-            });
-
-            if (!targetDoc) {
-                targetDoc = mySchedules.find(doc => doc.data().unitId === this.unitId) || mySchedules[0];
-            }
+            // 優先取矩陣裡有資料的
+            let targetDoc = mySchedules.find(doc => this.checkMatrixForUid(doc.data().schedule || {}, this.uid));
+            if (!targetDoc) targetDoc = mySchedules.find(doc => doc.data().unitId === this.unitId) || mySchedules[0];
             
             console.log(`✅ Selected target: ${targetDoc.id} (Unit: ${targetDoc.data().unitId})`);
             
             this.currentSchedule = { id: targetDoc.id, ...targetDoc.data() };
             this.currentAssignments = this.currentSchedule.assignments || {};
             
-            // 模糊比對與資料映射
+            // 🔥 矩陣提取模式：如果 assignments 裡沒資料，從矩陣撈
             let myData = this.currentAssignments[this.uid];
-            if (!myData) {
-                const fuzzyKey = Object.keys(this.currentAssignments).find(k => k.trim() === this.uid.trim());
-                if (fuzzyKey) {
-                    console.log(`🔧 Mapping data from '${fuzzyKey}' to '${this.uid}'`);
-                    this.currentAssignments[this.uid] = this.currentAssignments[fuzzyKey];
-                    myData = this.currentAssignments[this.uid];
+            const hasValidShifts = myData && Object.keys(myData).some(k => k.startsWith('current_') || k.startsWith('20'));
+
+            if (!hasValidShifts) {
+                console.warn("⚠️ Assignments empty/broken. Switching to Matrix Extraction Mode...");
+                // 檢查是否真的有矩陣資料
+                console.log("🔥 Document Data Keys:", Object.keys(this.currentSchedule));
+                if (this.currentSchedule.schedule) {
+                    // 顯示第一天資料來除錯
+                    const firstDayKey = Object.keys(this.currentSchedule.schedule)[0];
+                    console.log(`🔥 Matrix Sample (${firstDayKey}):`, this.currentSchedule.schedule[firstDayKey]);
+                } else {
+                    console.error("🔥 'schedule' field is missing in the document!");
                 }
+
+                myData = this.extractShiftsFromMatrix(this.currentSchedule.schedule, this.uid);
+                this.currentAssignments[this.uid] = myData; 
             }
 
-            // 🛠️ Debug: 印出資料庫裡的真實 Keys，確認格式
-            if (myData) {
-                console.log("🛠️ Database Keys Sample:", Object.keys(myData).slice(0, 5));
-            } else {
-                console.warn("⚠️ No assignment data found for this UID inside the schedule.");
-            }
+            console.log("🛠️ Effective Data Keys:", Object.keys(myData || {}));
             
             this.renderHorizontalTable(year, month);
             this.calculateStats(year, month);
@@ -114,15 +108,36 @@ const staffScheduleManager = {
         }
     },
 
-    // --- 核心：橫式班表渲染 (萬能鑰匙版) ---
+    checkMatrixForUid: function(matrix, uid) {
+        if (!matrix) return false;
+        return Object.values(matrix).some(dayShifts => {
+            return Object.values(dayShifts).some(uids => Array.isArray(uids) && uids.includes(uid));
+        });
+    },
+
+    extractShiftsFromMatrix: function(matrix, uid) {
+        if (!matrix) return {};
+        const result = {};
+        Object.entries(matrix).forEach(([dateStr, dayShifts]) => {
+            Object.entries(dayShifts).forEach(([shiftCode, uids]) => {
+                if (Array.isArray(uids) && uids.includes(uid)) {
+                    result[dateStr] = shiftCode;
+                    const dayPart = parseInt(dateStr.split('-')[2]);
+                    if (!isNaN(dayPart)) result[`current_${dayPart}`] = shiftCode;
+                }
+            });
+        });
+        result.preferences = {}; 
+        console.log(`🔧 Extracted ${Object.keys(result).length} shifts from matrix for ${uid}`);
+        return result;
+    },
+
     renderHorizontalTable: function(year, month) {
         const rowWeekday = document.getElementById('row-weekday');
         const rowDate = document.getElementById('row-date');
         const rowShift = document.getElementById('row-shift');
-        
         if(!rowWeekday || !rowDate || !rowShift) return;
 
-        // 清除舊資料
         while(rowWeekday.cells.length > 1) rowWeekday.deleteCell(1);
         while(rowDate.cells.length > 1) rowDate.deleteCell(1);
         while(rowShift.cells.length > 1) rowShift.deleteCell(1);
@@ -137,10 +152,6 @@ const staffScheduleManager = {
             const dayOfWeek = dateObj.getDay(); 
             const weekStr = ['日','一','二','三','四','五','六'][dayOfWeek];
             
-            // ⚠️ 萬能讀取邏輯：嘗試所有可能的 Key 格式
-            // 1. current_1 (不補零)
-            // 2. current_01 (補零)
-            // 3. YYYY-MM-DD (日期字串)
             let shiftCode = myAssign[`current_${d}`];
             if (!shiftCode) shiftCode = myAssign[`current_${String(d).padStart(2, '0')}`];
             if (!shiftCode) {
@@ -148,10 +159,8 @@ const staffScheduleManager = {
                 shiftCode = myAssign[dateKey];
             }
             
-            // 如果都沒找到，預設 OFF
             shiftCode = shiftCode || 'OFF';
             
-            // 1. 星期列
             const tdW = document.createElement('td');
             tdW.textContent = weekStr;
             tdW.className = 'weekday-cell';
@@ -160,13 +169,11 @@ const staffScheduleManager = {
             else tdW.classList.add('weekday-normal');
             rowWeekday.appendChild(tdW);
 
-            // 2. 日期列
             const tdD = document.createElement('td');
             tdD.textContent = String(d).padStart(2, '0');
             tdD.className = 'date-cell';
             rowDate.appendChild(tdD);
 
-            // 3. 班別列
             const tdS = document.createElement('td');
             tdS.className = 'shift-cell';
             
@@ -177,14 +184,12 @@ const staffScheduleManager = {
             if (shiftCode === 'N') shiftBox.classList.add('shift-n');
             if (shiftCode === 'OFF') shiftBox.classList.add('shift-off');
 
-            // 點擊換班
             if (dateObj > today) {
                 shiftBox.onclick = () => this.openExchangeModal(d, shiftCode);
             } else {
                 shiftBox.style.cursor = 'default';
                 shiftBox.style.opacity = '0.8';
             }
-            
             tdS.appendChild(shiftBox);
             rowShift.appendChild(tdS);
         }
@@ -193,18 +198,15 @@ const staffScheduleManager = {
     calculateStats: function(year, month) {
         const myAssign = this.currentAssignments[this.uid] || {};
         const daysInMonth = new Date(year, month, 0).getDate();
-        
         let totalShifts = 0, totalOff = 0, holidayOff = 0, evening = 0, night = 0, exchangeCount = 0;
 
         for (let d = 1; d <= daysInMonth; d++) {
-            // ⚠️ 統計也要用萬能邏輯
             let code = myAssign[`current_${d}`];
             if (!code) code = myAssign[`current_${String(d).padStart(2, '0')}`];
             if (!code) {
                 const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                 code = myAssign[dateKey];
             }
-            
             if (!code || code === 'OFF' || code === 'REQ_OFF') {
                 totalOff++;
                 const date = new Date(year, month-1, d);
@@ -218,17 +220,10 @@ const staffScheduleManager = {
 
         if (this.currentSchedule && this.currentSchedule.exchanges) {
             const exchanges = this.currentSchedule.exchanges || [];
-            exchangeCount = exchanges.filter(ex => 
-                (ex.requester === this.uid || ex.target === this.uid) && 
-                ex.status === 'approved'
-            ).length;
+            exchangeCount = exchanges.filter(ex => (ex.requester === this.uid || ex.target === this.uid) && ex.status === 'approved').length;
         }
 
-        const safeSet = (id, val) => {
-            const el = document.getElementById(id);
-            if(el) el.innerText = val;
-        };
-
+        const safeSet = (id, val) => { const el = document.getElementById(id); if(el) el.innerText = val; };
         safeSet('statTotalShifts', totalShifts);
         safeSet('statTotalOff', totalOff);
         safeSet('statHolidayOff', holidayOff);
@@ -244,40 +239,22 @@ const staffScheduleManager = {
         });
     },
 
-    // --- 換班邏輯 ---
     exchangeData: null,
-
     openExchangeModal: function(day, myShift) {
         this.exchangeData = { day, myShift };
         const dateStr = `${this.currentSchedule.year}/${this.currentSchedule.month}/${day}`;
-        
         const infoEl = document.getElementById('exchangeInfo');
-        if(infoEl) {
-            infoEl.innerHTML = `
-                <strong>申請日期：</strong> ${dateStr} <br>
-                <strong>您的班別：</strong> <span class="badge badge-warning">${myShift}</span>
-            `;
-        }
-        
+        if(infoEl) infoEl.innerHTML = `<strong>申請日期：</strong> ${dateStr} <br><strong>您的班別：</strong> <span class="badge badge-warning">${myShift}</span>`;
         const select = document.getElementById('exchangeTargetSelect');
         if(!select) return;
         select.innerHTML = '<option value="">載入中...</option>';
-        
         const staffList = this.currentSchedule.staffList || [];
         const options = [];
-
         staffList.forEach(staff => {
             if (staff.uid.trim() === this.uid.trim()) return;
-
-            // 模糊取得對方班表
             let targetAssign = this.currentAssignments[staff.uid];
-            if (!targetAssign) {
-                const fuzzyKey = Object.keys(this.currentAssignments).find(k => k.trim() === staff.uid.trim());
-                if (fuzzyKey) targetAssign = this.currentAssignments[fuzzyKey];
-            }
+            if (!targetAssign || Object.keys(targetAssign).length < 2) targetAssign = this.extractShiftsFromMatrix(this.currentSchedule.schedule, staff.uid);
             targetAssign = targetAssign || {};
-
-            // ⚠️ 對方班表也要用萬能邏輯
             let targetShift = targetAssign[`current_${day}`];
             if (!targetShift) targetShift = targetAssign[`current_${String(day).padStart(2, '0')}`];
             if (!targetShift) {
@@ -285,20 +262,10 @@ const staffScheduleManager = {
                 targetShift = targetAssign[dateKey];
             }
             targetShift = targetShift || 'OFF';
-            
-            if (targetShift !== myShift) {
-                options.push(`<option value="${staff.uid}" data-shift="${targetShift}">
-                    ${staff.name} (班別: ${targetShift})
-                </option>`);
-            }
+            if (targetShift !== myShift) options.push(`<option value="${staff.uid}" data-shift="${targetShift}">${staff.name} (班別: ${targetShift})</option>`);
         });
-
-        if (options.length === 0) {
-            select.innerHTML = '<option value="">無可交換對象</option>';
-        } else {
-            select.innerHTML = '<option value="">請選擇對象</option>' + options.join('');
-        }
-
+        if (options.length === 0) select.innerHTML = '<option value="">無可交換對象</option>';
+        else select.innerHTML = '<option value="">請選擇對象</option>' + options.join('');
         const modal = document.getElementById('exchangeModal');
         if(modal) modal.classList.add('show');
     },
@@ -316,19 +283,17 @@ const staffScheduleManager = {
     },
 
     submitExchange: async function() {
+        // ... (保持原有的換班提交邏輯)
         const targetSelect = document.getElementById('exchangeTargetSelect');
         const targetUid = targetSelect.value;
         if (!targetUid) { alert("請選擇交換對象"); return; }
-
         const targetName = targetSelect.options[targetSelect.selectedIndex].text.split(' ')[0];
         const targetShift = targetSelect.options[targetSelect.selectedIndex].getAttribute('data-shift');
         const reasonCategory = document.getElementById('exchangeReasonCategory').value;
         const otherReasonText = document.getElementById('otherReasonText').value;
         const reason = document.getElementById('exchangeReason').value;
-
         if (!reasonCategory) { alert("請選擇換班事由分類"); return; }
         if (reasonCategory === 'other' && !otherReasonText) { alert("請填寫其他原因說明"); return; }
-
         try {
             const requestData = {
                 unitId: this.currentSchedule.unitId,
@@ -348,13 +313,9 @@ const staffScheduleManager = {
                 status: 'pending_target',
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             };
-            
             await db.collection('shift_requests').add(requestData);
             alert("✅ 申請已送出！\n請通知對方進行確認。");
             this.closeExchangeModal();
-        } catch(e) {
-            console.error(e);
-            alert("申請失敗: " + e.message);
-        }
+        } catch(e) { console.error(e); alert("申請失敗: " + e.message); }
     }
 };
