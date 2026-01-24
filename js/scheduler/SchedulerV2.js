@@ -1,5 +1,5 @@
 // js/scheduler/SchedulerV2.js
-// 🚀 最終旗艦版：水位監控 + 策略回溯 + 分段平衡 + 強力權重控制
+// 🚀 最終旗艦修正版 (Fixed): 補回遺失的 applyPreSchedules，確保預班能正確載入
 
 class SchedulerV2 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -13,7 +13,7 @@ class SchedulerV2 extends BaseScheduler {
         console.log(`🚀 SchedulerV2 Flagship Mode Start.`);
         
         // 1. 初始化
-        this.applyPreSchedules();
+        this.applyPreSchedules(); // [修復] 這裡不會再報錯了
         this.calculateProjectedStats(); 
 
         // 2. 計算分段平衡檢查點 (Segmentation)
@@ -58,6 +58,25 @@ class SchedulerV2 extends BaseScheduler {
         this.postProcessBalancing(this.daysInMonth);
 
         return this.formatResult();
+    }
+
+    // --- [修復核心] 補回遺失的預班處理函式 ---
+    applyPreSchedules() {
+        this.staffList.forEach(staff => {
+            const params = staff.schedulingParams || {};
+            for (let d = 1; d <= this.daysInMonth; d++) {
+                const dateStr = this.getDateStr(d);
+                const req = params[dateStr];
+                // 處理預假 (REQ_OFF)
+                if (req === 'REQ_OFF') {
+                    this.updateShift(dateStr, staff.id, 'OFF', 'REQ_OFF');
+                }
+                // 處理指定班 (如預排 D, N 等，且非 ! 開頭的排斥班)
+                else if (req && req !== 'OFF' && !req.startsWith('!')) {
+                    this.updateShift(dateStr, staff.id, 'OFF', req);
+                }
+            }
+        });
     }
 
     // --- [核心邏輯 A] 水位監控與預判 ---
@@ -128,8 +147,6 @@ class SchedulerV2 extends BaseScheduler {
 
             // 決策樹：
             // 1. 欠班組 (Debt > -0.5)：優先排班。
-            //    但若設為「Must Satisfy」且非志願，scoreInfo.totalScore 會極低，排序會被壓到最後，
-            //    除非真的沒人，否則不會選到他。
             if (debt > -0.5) {
                 shouldAssign = true; 
             } 
@@ -193,12 +210,7 @@ class SchedulerV2 extends BaseScheduler {
             const pastDateStr = this.getDateStr(d);
             const currentDateStr = this.getDateStr(currentDay);
 
-            // 尋找策略：
-            // 找一個人 A，他今天放假(OFF)但不能上 targetShift (例如卡連6)，
-            // 如果我們把他 2 天前的班拿掉(改成OFF)，他今天是不是就能上了？
-            // 或是找一個人 B，他今天上別的班，把他換過來？(較複雜，暫不實作)
-
-            // 這裡實作最有效的策略：釋放連續上班壓力
+            // 策略：釋放連續上班壓力
             // 找出今天 OFF 但被卡連續上班的人
             const candidates = this.staffList.filter(s => 
                 this.getShiftByDate(currentDateStr, s.id) === 'OFF' &&
@@ -301,7 +313,7 @@ class SchedulerV2 extends BaseScheduler {
         return { totalScore: score, isPreferred: isPreferred };
     }
 
-    // --- 輔助函式 (包含長假例外、平衡等) ---
+    // --- 輔助函式 ---
 
     getTotalShiftsUpTo(uid, dayLimit) {
         let count = 0;
