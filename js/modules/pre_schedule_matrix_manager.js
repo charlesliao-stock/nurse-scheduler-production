@@ -1,9 +1,10 @@
 // js/modules/pre_schedule_matrix_manager.js
-// 🔧 完整版：底部點擊調整 + 執行排班資料傳遞
+// 🔧 完整修正版：支援上個月最後 6 天右鍵編輯與歷史修正
 
 const matrixManager = {
     docId: null, data: null, shifts: [], localAssignments: {}, usersMap: {}, isLoading: false,
-    
+    historyCorrections: {}, // [新增] 儲存歷史修正
+
     init: async function(id) { 
         if(!id) { alert("ID遺失"); return; }
         this.docId = id; 
@@ -38,9 +39,9 @@ const matrixManager = {
         const doc = await db.collection('pre_schedules').doc(this.docId).get();
         this.data = doc.data();
         this.localAssignments = this.data.assignments || {};
+        this.historyCorrections = this.data.historyCorrections || {}; // [新增] 載入歷史修正
         if(!this.data.specificNeeds) this.data.specificNeeds = {};
         
-        // [新增] 載入上月班表資料
         await this.loadLastMonthSchedule();
     },
 
@@ -86,12 +87,12 @@ const matrixManager = {
         const month = this.data.month;
         const daysInMonth = new Date(year, month, 0).getDate();
         
-        // [修正] 增加上月最後 6 天的欄位
+        // 表頭第一列
         let h1 = `<tr>
             <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa;">職編</th>
             <th rowspan="2" style="width:80px; position:sticky; left:60px; z-index:110; background:#f8f9fa;">姓名</th>
             <th rowspan="2" style="width:50px;">偏好</th>
-            <th colspan="6" style="background:#eee; font-size:0.8rem;">上月月底 (參考)</th>`;
+            <th colspan="6" style="background:#eee; font-size:0.8rem;">上月月底 (可修)</th>`; // 標示可修
         
         for(let d=1; d<=daysInMonth; d++) {
             const date = new Date(year, month-1, d);
@@ -101,13 +102,13 @@ const matrixManager = {
         }
         h1 += `<th colspan="4" style="background:#e8f4fd; font-size:0.8rem;">統計</th></tr>`;
 
+        // 表頭第二列
         let h2 = `<tr>`;
         const weeks = ['日','一','二','三','四','五','六'];
         
-        // 上月最後 6 天
         const lastMonthDays = this.lastMonthDays || 31;
         for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
-            h2 += `<th class="cell-narrow" style="background:#f5f5f5; font-size:0.7rem; color:#999;">${d}</th>`;
+            h2 += `<th class="cell-narrow" style="background:#f5f5f5; font-size:0.7rem; color:#666;">${d}</th>`;
         }
 
         for(let d=1; d<=daysInMonth; d++) {
@@ -122,6 +123,7 @@ const matrixManager = {
                <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">大夜</th></tr>`;
         thead.innerHTML = h1 + h2;
 
+        // 表格內容
         let bodyHtml = '';
         this.data.staffList.forEach(staff => {
             const uid = staff.uid;
@@ -148,12 +150,28 @@ const matrixManager = {
                     ${prefDisplay || '<i class="fas fa-cog" style="color:#ccc;"></i>'}
                 </td>`;
             
-            // [新增] 渲染上月最後 6 天班表
+            // [修正] 渲染上月最後 6 天班表 (支援編輯與歷史修正)
             const lastAssign = this.lastMonthAssignments[uid] || {};
-            const lastMonthDays = this.lastMonthDays || 31;
             for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
-                const val = lastAssign[`current_${d}`] || lastAssign[d] || ''; 
-                bodyHtml += `<td style="background:#fafafa; color:#999; font-size:0.85rem; text-align:center;">${val}</td>`;
+                const historyKey = `last_${d}`;
+                // 優先讀取 historyCorrections，若無則讀取原始資料
+                const originalVal = lastAssign[`current_${d}`] || lastAssign[d] || '';
+                const correctedVal = this.historyCorrections[uid]?.[historyKey];
+                
+                const displayVal = (correctedVal !== undefined) ? correctedVal : originalVal;
+                
+                // 若有修正，顯示黃色背景
+                const bgStyle = (correctedVal !== undefined) 
+                    ? 'background:#fff3cd; color:#333; font-weight:bold;' 
+                    : 'background:#fafafa; color:#999;';
+
+                bodyHtml += `<td class="cell-clickable prev-month-cell" 
+                                 data-uid="${uid}" 
+                                 data-day="${d}" 
+                                 data-type="history"
+                                 style="${bgStyle} font-size:0.85rem; text-align:center; cursor:pointer;">
+                                 ${displayVal}
+                             </td>`;
             }
 
             // 統計變數
@@ -165,9 +183,9 @@ const matrixManager = {
             for(let d=1; d<=daysInMonth; d++) {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
-                bodyHtml += `<td class="cell-clickable" data-uid="${uid}" data-day="${d}">${this.renderCellContent(val)}</td>`;
+                // 本月格子
+                bodyHtml += `<td class="cell-clickable" data-uid="${uid}" data-day="${d}" data-type="current">${this.renderCellContent(val)}</td>`;
                 
-                // 改進 5: 計算統計：只計算有設定的預班 (REQ_OFF)
                 if (val === 'REQ_OFF') {
                     totalOff++;
                     const date = new Date(year, month-1, d);
@@ -180,7 +198,6 @@ const matrixManager = {
                 }
             }
 
-            // [新增] 右側統計欄位
             bodyHtml += `<td style="background:#f9f9f9; font-weight:bold; text-align:center;">${totalOff}</td>
                          <td style="background:#f9f9f9; color:red; text-align:center;">${holidayOff}</td>
                          <td style="background:#f9f9f9; text-align:center;">${eveningCount}</td>
@@ -190,6 +207,7 @@ const matrixManager = {
         });
         tbody.innerHTML = bodyHtml;
 
+        // 表尾統計 (保持不變)
         let footHtml = '';
         this.shifts.forEach((s, idx) => {
             footHtml += `<tr>`;
@@ -217,7 +235,6 @@ const matrixManager = {
                                 <span class="stat-actual">-</span> / <span class="stat-need" style="font-weight:bold;">${need}</span>
                              </td>`;
             }
-            // 補足右側 4 個統計欄位的空白格
             footHtml += `<td colspan="4" style="background:#f0f0f0;"></td>`;
             footHtml += `</tr>`;
         });
@@ -295,47 +312,68 @@ const matrixManager = {
     bindCellEvents: function() {
         const cells = document.querySelectorAll('.cell-clickable');
         cells.forEach(cell => {
+            // 右鍵
             cell.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
-                this.handleRightClick(e, cell.dataset.uid, cell.dataset.day);
+                // 傳入 type (history or current)
+                this.handleRightClick(e, cell.dataset.uid, cell.dataset.day, cell.dataset.type);
+            });
+            
+            // 左鍵
+            cell.addEventListener('click', (e) => {
+                // [修正] 左鍵點擊歷史區塊 -> 設為 OFF
+                if (cell.dataset.type === 'history') {
+                    this.setHistoryShift(cell.dataset.uid, cell.dataset.day, 'OFF');
+                }
             });
         });
         document.addEventListener('click', () => { document.getElementById('customContextMenu').style.display='none'; });
     },
 
-    handleRightClick: function(e, uid, day) {
+    handleRightClick: function(e, uid, day, type) {
         const menu = document.getElementById('customContextMenu');
         const options = document.getElementById('contextMenuOptions');
         
+        // 判斷是否為歷史模式
+        const isHistory = (type === 'history');
+        const funcName = isHistory ? 'matrixManager.setHistoryShift' : 'matrixManager.setShift';
+        const dateDisplay = isHistory ? `(上月) ${day}日` : `${this.data.month}月${day}日`;
+        // 歷史資料存的 key 是 last_XX，但 setHistoryShift 函式會自己組，這裡傳 day 即可
+        const targetKey = isHistory ? day : `current_${day}`; 
+
         let html = `
             <div class="menu-header" style="padding:8px 12px; font-weight:bold; background:#f0f0f0; border-bottom:1px solid #ddd;">
-                ${this.data.month}月${day}日
+                ${dateDisplay}
             </div>
             <ul style="list-style:none; padding:0; margin:0;">
-                <li onclick="matrixManager.setShift('${uid}','current_${day}','REQ_OFF')" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee;">
-                    <i class="fas fa-bed" style="width:20px; color:#27ae60;"></i> 排休 (OFF)
+                <li onclick="${funcName}('${uid}','${targetKey}','${isHistory ? 'OFF' : 'REQ_OFF'}')" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee;">
+                    <i class="fas fa-bed" style="width:20px; color:#27ae60;"></i> ${isHistory ? 'OFF (休)' : '排休 (OFF)'}
                 </li>
         `;
         
         html += `<li style="padding:5px 12px; font-size:0.8rem; color:#999; background:#fafafa;">指定班別</li>`;
         this.shifts.forEach(s => {
+            // 歷史區塊不顯示顏色，避免混淆，或顯示但淡化
             html += `
-                <li onclick="matrixManager.setShift('${uid}','current_${day}','${s.code}')" style="padding:8px 12px; cursor:pointer;">
+                <li onclick="${funcName}('${uid}','${targetKey}','${s.code}')" style="padding:8px 12px; cursor:pointer;">
                     <span style="font-weight:bold; color:${s.color || '#333'};">${s.code}</span> - ${s.name}
                 </li>`;
         });
 
-        html += `<li style="padding:5px 12px; font-size:0.8rem; color:#999; background:#fafafa;">希望避開</li>`;
-        this.shifts.forEach(s => {
-            html += `
-                <li onclick="matrixManager.setShift('${uid}','current_${day}','!${s.code}')" style="padding:8px 12px; cursor:pointer; color:#c0392b;">
-                    <i class="fas fa-ban" style="width:20px;"></i> 勿排 ${s.code}
-                </li>`;
-        });
+        // 僅當前月份顯示「勿排」
+        if (!isHistory) {
+            html += `<li style="padding:5px 12px; font-size:0.8rem; color:#999; background:#fafafa;">希望避開</li>`;
+            this.shifts.forEach(s => {
+                html += `
+                    <li onclick="${funcName}('${uid}','${targetKey}','!${s.code}')" style="padding:8px 12px; cursor:pointer; color:#c0392b;">
+                        <i class="fas fa-ban" style="width:20px;"></i> 勿排 ${s.code}
+                    </li>`;
+            });
+        }
 
         html += `
             <li style="border-top:1px solid #eee;"></li>
-            <li onclick="matrixManager.setShift('${uid}','current_${day}',null)" style="padding:8px 12px; cursor:pointer; color:#7f8c8d;">
+            <li onclick="${funcName}('${uid}','${targetKey}',null)" style="padding:8px 12px; cursor:pointer; color:#7f8c8d;">
                 <i class="fas fa-eraser" style="width:20px;"></i> 清除設定
             </li>
         </ul>`;
@@ -343,19 +381,14 @@ const matrixManager = {
         options.innerHTML = html;
         menu.style.display = 'block';
         
+        // 選單定位
         const menuWidth = 160;
         const menuHeight = menu.offsetHeight;
-        
         let top = e.pageY + 5;
         let left = e.pageX + 5;
         
-        if (left + menuWidth > window.innerWidth) {
-            left = window.innerWidth - menuWidth - 10;
-        }
-        
-        if (top + menuHeight > window.innerHeight) {
-            top = window.innerHeight - menuHeight - 10;
-        }
+        if (left + menuWidth > window.innerWidth) left = window.innerWidth - menuWidth - 10;
+        if (top + menuHeight > window.innerHeight) top = window.innerHeight - menuHeight - 10;
         
         menu.style.left = left + 'px';
         menu.style.top = top + 'px';
@@ -369,9 +402,23 @@ const matrixManager = {
         db.collection('pre_schedules').doc(this.docId).update({
             [`assignments.${uid}.${key}`]: val === null ? firebase.firestore.FieldValue.delete() : val
         });
-        // 改進 3: 即時更新畫面
         this.renderMatrix();
         this.updateStats();
+    },
+
+    // [新增] 設定歷史修正
+    setHistoryShift: function(uid, day, val) {
+        const key = `last_${day}`;
+        if (!this.historyCorrections[uid]) this.historyCorrections[uid] = {};
+        
+        if (val === null) delete this.historyCorrections[uid][key];
+        else this.historyCorrections[uid][key] = val;
+
+        // 即時更新 Firestore
+        db.collection('pre_schedules').doc(this.docId).update({
+            [`historyCorrections.${uid}.${key}`]: val === null ? firebase.firestore.FieldValue.delete() : val
+        });
+        this.renderMatrix();
     },
 
     executeSchedule: async function() {
@@ -385,18 +432,25 @@ const matrixManager = {
                 });
             }
 
-            // [修正] 整理上月班表資料，格式化為 BaseScheduler 預期的格式
+            // [修正] 整理上月班表資料 (包含歷史修正)
             const lastMonthData = {};
             Object.keys(this.lastMonthAssignments).forEach(uid => {
                 const userAssign = this.lastMonthAssignments[uid];
                 const lastDay = this.lastMonthDays || 31;
+                
+                // 最後一天，優先讀取修正
+                const lastDayCorrected = this.historyCorrections[uid]?.[`last_${lastDay}`];
                 lastMonthData[uid] = {
-                    lastShift: userAssign[lastDay] || 'OFF'
+                    lastShift: (lastDayCorrected !== undefined) ? lastDayCorrected : (userAssign[`current_${lastDay}`] || userAssign[lastDay] || 'OFF')
                 };
-                // 帶入最後 6 天班表
+                
+                // 帶入最後 6 天
                 for (let i = 0; i < 6; i++) {
                     const d = lastDay - i;
-                    lastMonthData[uid][`last_${d}`] = userAssign[d] || 'OFF';
+                    const originalVal = userAssign[`current_${d}`] || userAssign[d] || 'OFF';
+                    const correctedVal = this.historyCorrections[uid]?.[`last_${d}`];
+                    
+                    lastMonthData[uid][`last_${d}`] = (correctedVal !== undefined) ? correctedVal : originalVal;
                 }
             });
 
@@ -405,10 +459,10 @@ const matrixManager = {
                 sourceId: this.docId, status: 'draft',
                 staffList: this.data.staffList || [],
                 assignments: initialAssignments,
-                lastMonthData: lastMonthData, // [新增] 帶入上月班表
+                lastMonthData: lastMonthData, // 傳遞修正後的上月資料
                 dailyNeeds: this.data.dailyNeeds || {},
                 specificNeeds: this.data.specificNeeds || {}, 
-                groupLimits: this.data.groupLimits || {}, // 帶入組別限制
+                groupLimits: this.data.groupLimits || {},
                 settings: this.data.settings || {},
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -433,7 +487,6 @@ const matrixManager = {
         const assign = this.localAssignments[uid] || {};
         const prefs = assign.preferences || {};
         
-        // 1. 渲染包班選項
         const bundleSelect = document.getElementById('editBundleShift');
         let bundleHtml = '<option value="">無 (不包班)</option>';
         this.shifts.forEach(s => {
@@ -443,13 +496,11 @@ const matrixManager = {
         });
         bundleSelect.innerHTML = bundleHtml;
 
-        // 2. 渲染志願序
         const renderPrefs = () => {
             const currentBundle = bundleSelect.value;
             const bundleShiftData = currentBundle ? this.shifts.find(s => s.code === currentBundle) : null;
             const bundleStartTime = bundleShiftData?.startTime;
             
-            // 改進 6: 改進夜班屏蔽邏輯
             const isNightBundle = bundleStartTime && (bundleStartTime === '00:00' || bundleStartTime === '22:00');
             
             const prefContainer = document.getElementById('editPrefContainer');
@@ -462,9 +513,7 @@ const matrixManager = {
                             if (isNightBundle) {
                                 const shiftStartTime = s.startTime;
                                 const isOtherNight = shiftStartTime && (shiftStartTime === '00:00' || shiftStartTime === '22:00');
-                                if (isOtherNight && shiftStartTime !== bundleStartTime) {
-                                    return false;
-                                }
+                                if (isOtherNight && shiftStartTime !== bundleStartTime) return false;
                             }
                             return s.code !== 'OFF';
                         }).map(s => `<option value="${s.code}" ${prefs.favShift === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
@@ -478,9 +527,7 @@ const matrixManager = {
                             if (isNightBundle) {
                                 const shiftStartTime = s.startTime;
                                 const isOtherNight = shiftStartTime && (shiftStartTime === '00:00' || shiftStartTime === '22:00');
-                                if (isOtherNight && shiftStartTime !== bundleStartTime) {
-                                    return false;
-                                }
+                                if (isOtherNight && shiftStartTime !== bundleStartTime) return false;
                             }
                             return s.code !== 'OFF';
                         }).map(s => `<option value="${s.code}" ${prefs.favShift2 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
@@ -488,7 +535,6 @@ const matrixManager = {
                 </div>
             `;
             
-            // 改進 4: 第三志願支援
             const allowThreeShifts = this.data.settings?.allowThreeShifts === true;
             if (allowThreeShifts) {
                 prefHtml += `
@@ -500,9 +546,7 @@ const matrixManager = {
                             if (isNightBundle) {
                                 const shiftStartTime = s.startTime;
                                 const isOtherNight = shiftStartTime && (shiftStartTime === '00:00' || shiftStartTime === '22:00');
-                                if (isOtherNight && shiftStartTime !== bundleStartTime) {
-                                    return false;
-                                }
+                                if (isOtherNight && shiftStartTime !== bundleStartTime) return false;
                             }
                             return s.code !== 'OFF';
                         }).map(s => `<option value="${s.code}" ${prefs.favShift3 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
@@ -510,7 +554,6 @@ const matrixManager = {
                 </div>
                 `;
             }
-            
             prefContainer.innerHTML = prefHtml;
         };
 
@@ -531,18 +574,14 @@ const matrixManager = {
         prefs.bundleShift = document.getElementById('editBundleShift').value;
         prefs.favShift = document.getElementById('editFavShift').value;
         prefs.favShift2 = document.getElementById('editFavShift2').value;
-        // 改進 4: 第三志願支援
         const favShift3Select = document.getElementById('editFavShift3');
-        if (favShift3Select) {
-            prefs.favShift3 = favShift3Select.value;
-        }
+        if (favShift3Select) prefs.favShift3 = favShift3Select.value;
 
         try {
             await db.collection('pre_schedules').doc(this.docId).update({
                 [`assignments.${uid}.preferences`]: prefs
             });
             this.closePrefModal();
-            // 改進 3: 即時更新畫面
             this.renderMatrix();
             this.updateStats();
             alert("偏好設定已儲存");
