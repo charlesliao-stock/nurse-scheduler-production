@@ -1,5 +1,5 @@
 // js/scheduler/SchedulerV2.js
-// 🚀 最終邏輯強化版 (Fix): 修復 ReferenceError，完整實作所有邏輯，無任何簡化
+// 🚀 最終生產版 (Production Ready): 完整實作所有邏輯，無簡化，修復變數錯誤
 
 class SchedulerV2 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -9,7 +9,7 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     run() {
-        console.log(`🚀 SchedulerV2 Stats-First Mode Start.`);
+        console.log(`🚀 SchedulerV2 Production Mode Start.`);
         
         // 1. 初始化 & 預判統計 (統計優先的核心)
         this.applyPreSchedules();
@@ -29,7 +29,7 @@ class SchedulerV2 extends BaseScheduler {
         for (let d = 1; d <= this.daysInMonth; d++) {
             const dailyNeeds = this.getDailyNeeds(d);
             
-            // [亂數 1] 隨機打亂班別填寫順序，避免總是先填 N 再填 D
+            // [亂數] 隨機打亂班別填寫順序，避免總是先填 N 再填 D
             const shiftOrder = this.shiftCodes.filter(c => c !== 'OFF' && c !== 'REQ_OFF');
             this.shuffleArray(shiftOrder); 
 
@@ -107,12 +107,13 @@ class SchedulerV2 extends BaseScheduler {
             return currentShift === 'OFF'; 
         });
 
-        // [關鍵] 排序與選人
+        // [關鍵] 排序與選人 (包含統計優先與亂數)
         candidates = this.sortCandidates(candidates, dateStr, shiftCode);
 
         for (const staff of candidates) {
             if (gap <= 0) break;
 
+            // 檢查合法性 (含長假例外)
             const isValid = this.isValidAssignment(staff, dateStr, shiftCode);
             const isGroupValid = this.checkGroupMaxLimit(day, staff, shiftCode);
 
@@ -147,7 +148,7 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     sortCandidates(staffList, dateStr, shiftCode) {
-        // [亂數 2] 先隨機洗牌，解決「同分時總是選同一人」的問題
+        // [亂數] 先隨機洗牌，解決「同分時總是選同一人」的問題
         this.shuffleArray(staffList);
 
         return staffList.sort((a, b) => {
@@ -196,7 +197,7 @@ class SchedulerV2 extends BaseScheduler {
         return score;
     }
 
-    // [核心邏輯] 覆寫合法性檢查，加入「長假放寬」且完整檢查其他規則
+    // [修正] isValidAssignment: 完整實作長假例外判斷與休息檢查
     isValidAssignment(staff, dateStr, shiftCode) {
         // 1. 呼叫 super 檢查所有基礎規則 (包含間隔、連續上班等)
         const baseValid = super.isValidAssignment(staff, dateStr, shiftCode);
@@ -209,34 +210,34 @@ class SchedulerV2 extends BaseScheduler {
         const normalLimit = this.rules.policy?.maxConsDays || 6;
         
         // 只有當連續天數超過一般限制時，我們才考慮介入
+        // 如果 consDays + 1 <= normalLimit 但 baseValid 是 false，代表是其他原因(如間隔)被擋，不能放行
         if (consDays + 1 > normalLimit) {
             // 檢查是否為長假人員
             if (this.staffStats[staff.id]?.isLongVacationer) {
                 const longVacLimit = this.rules.policy?.longVacationWorkLimit || 7;
+                
                 // 如果在放寬限制內 (例如允許連 7 或 8)
                 if (consDays + 1 <= longVacLimit) {
                     
-                    // [重要修復] 這裡不能簡化，必須完整檢查「間隔時間 (Rest Period)」
-                    // 因為 super 回傳 false 可能是因為連續上班，也可能是因為休息不足
-                    // 我們放寬了連續上班，但絕對不能放寬休息時間
+                    // [重要] 必須手動再次驗證「休息時間 (Rest Period)」
+                    // 因為我們繞過了 super 的檢查，必須確保沒有違反法規間隔
                     
-                    const currentDay = new Date(dateStr).getDate();
-                    if (currentDay > 1) {
+                    const currentDayIndex = new Date(dateStr).getDate();
+                    let prevShift = 'OFF';
+
+                    if (currentDayIndex > 1) {
                          // 計算前一天的日期字串
-                         const prevDateStr = this.getDateStr(currentDay - 1);
-                         const prevShift = this.getShiftByDate(prevDateStr, staff.id);
-                         
-                         // 呼叫 BaseScheduler 的 checkRestPeriod 進行嚴格檢查
-                         // 如果休息時間不足 (如 E 接 D)，這裡會回傳 false，直接擋下
-                         if (!this.checkRestPeriod(prevShift, shiftCode)) {
-                             return false;
-                         }
-                    } else if (currentDay === 1) {
-                        // 如果是 1 號，檢查上個月最後一天 (lastMonthData)
-                        const lastMonthShift = this.lastMonthData?.[staff.id]?.lastShift || 'OFF';
-                        if (!this.checkRestPeriod(lastMonthShift, shiftCode)) {
-                            return false;
-                        }
+                         const prevDateStr = this.getDateStr(currentDayIndex - 1);
+                         prevShift = this.getShiftByDate(prevDateStr, staff.id);
+                    } else if (currentDayIndex === 1) {
+                        // 如果是 1 號，檢查上個月最後一天
+                        prevShift = this.lastMonthData?.[staff.id]?.lastShift || 'OFF';
+                    }
+
+                    // 呼叫 BaseScheduler 的 checkRestPeriod 進行嚴格檢查
+                    // 如果休息時間不足 (如 E 接 D)，這裡會回傳 false，直接擋下
+                    if (!this.checkRestPeriod(prevShift, shiftCode)) {
+                        return false; 
                     }
                     
                     // 如果程式執行到這裡，代表：
@@ -248,7 +249,7 @@ class SchedulerV2 extends BaseScheduler {
             }
         }
 
-        // 其他情況 (如超過長假極限、非長假人員、或其他規則違反) 一律回傳 false
+        // 其他情況一律回傳 false
         return false;
     }
 
@@ -266,7 +267,7 @@ class SchedulerV2 extends BaseScheduler {
             !this.isPreRequestOff(s.id, prevDateStr) 
         );
 
-        // [亂數 3] 解衝突時也隨機選人
+        // [亂數] 解衝突時也隨機選人
         this.shuffleArray(swapCandidates);
 
         for (const candidate of swapCandidates) {
@@ -280,6 +281,7 @@ class SchedulerV2 extends BaseScheduler {
     }
     
     postProcessBalancing(limitDay) {
+        // 增加平衡輪數
         const rounds = (this.rules.fairness?.balanceRounds || 100) * 2; 
         const isFairNight = this.rules.fairness?.fairNight !== false; 
         const isFairOff = this.rules.fairness?.fairOff !== false;     
@@ -307,10 +309,12 @@ class SchedulerV2 extends BaseScheduler {
             const maxPerson = stats[0];
             const minPerson = stats[stats.length - 1];
 
+            // 嚴格模式：只要差距超過 1 就繼續平衡
             if (maxPerson.count - minPerson.count <= 1) break; 
 
             let swapped = false;
-            // [亂數 4] 隨機遍歷日期
+            
+            // [亂數] 隨機遍歷日期，避免總是從月初開始換班
             const days = Array.from({length: limitDay}, (_, i) => i + 1);
             this.shuffleArray(days);
 
@@ -323,6 +327,7 @@ class SchedulerV2 extends BaseScheduler {
 
                 if (targetShift !== 'OFF') {
                     if (shiftMax !== targetShift || shiftMin === targetShift) continue;
+                    
                     if (!this.isValidAssignment(minPerson.obj, dateStr, targetShift)) continue;
                     if (!this.isValidAssignment(maxPerson.obj, dateStr, shiftMin)) continue;
 
@@ -332,6 +337,7 @@ class SchedulerV2 extends BaseScheduler {
                 } 
                 else {
                     if (shiftMax !== 'OFF' || shiftMin === 'OFF') continue;
+
                     if (!this.isValidAssignment(maxPerson.obj, dateStr, shiftMin)) continue;
 
                     this.updateShift(dateStr, maxPerson.id, 'OFF', shiftMin);
