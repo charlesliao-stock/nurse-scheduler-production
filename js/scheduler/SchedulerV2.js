@@ -1,5 +1,5 @@
 // js/scheduler/SchedulerV2.js
-// 🚀 最終修復版：修正總工作配額過低問題 + 完整功能整合
+// 🚀 最終完整版：暴力平衡 + 雙軌制配額 + 自動產生Assignments (修復員工端全OFF問題)
 
 class SchedulerV2 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -17,12 +17,12 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     run() {
-        console.log(`🚀 SchedulerV2 Quota Fixed Mode Start.`);
+        console.log(`🚀 SchedulerV2 Full Brute-Force Mode Start.`);
         
-        // 1. 預處理
+        // 1. 預處理 (載入預休)
         this.applyPreSchedules();
         
-        // 2. 初始化並計算配額 (已修正：確保總配額足夠)
+        // 2. 初始化並計算配額
         this.calculateFixedQuota(); 
         this.classifyStaffByBundle();
         
@@ -62,30 +62,26 @@ class SchedulerV2 extends BaseScheduler {
         }
 
         console.log(`⚖️ 執行最終全月暴力平衡...`);
-        this.postProcessBalancing(this.daysInMonth, true); 
+        this.postProcessBalancing(this.daysInMonth, true); // true = 啟用強力模式
 
         return this.formatResult();
     }
 
     // ============================================================
-    // 🔧 核心 1：配額計算 (修正：總配額 vs 目標配額)
+    // 🔧 核心 1：配額計算
     // ============================================================
     calculateFixedQuota() {
-        // 1. 計算全月總需求班數 (Total Shifts Needed)
-        let grandTotalShifts = 0;
+        // 1. 計算全月總需求班數
         let totalNeedsByShift = {};
-        
         for (let d = 1; d <= this.daysInMonth; d++) {
             const needs = this.getDailyNeeds(d);
             Object.entries(needs).forEach(([shift, count]) => {
                 if (!totalNeedsByShift[shift]) totalNeedsByShift[shift] = 0;
                 totalNeedsByShift[shift] += count;
-                grandTotalShifts += count;
             });
         }
         
-        // 2. 初始化並計算總可用人天 (Total Man-Days)
-        let grandTotalAvailable = 0;
+        // 2. 初始化員工統計
         this.staffList.forEach(staff => {
             let reqOffCount = 0;
             const params = staff.schedulingParams || {};
@@ -93,37 +89,20 @@ class SchedulerV2 extends BaseScheduler {
                 if (params[this.getDateStr(d)] === 'REQ_OFF') reqOffCount++;
             }
             const availableDays = this.daysInMonth - reqOffCount;
-            grandTotalAvailable += availableDays;
 
             this.staffStats[staff.id] = {
                 reqOffCount: reqOffCount,
                 availableDays: availableDays,
-                workQuota: 0,       // 總工作配額 (例如 20 天)
+                workQuota: 0,
                 workedShifts: 0,
                 isLongVacationer: false,
                 initialRandom: Math.random(),
-                targetShift: null,  // 包班目標 (例如 'N')
-                targetQuota: 0      // 包班配額 (例如 15 天)
+                targetShift: null,  
+                targetQuota: 0      
             };
         });
 
-        // 3. 計算全域平均工作率 (Global Work Ratio)
-        // 例如：全月需 600 班，所有人可用 800 天，Ratio = 0.75
-        const globalWorkRatio = grandTotalAvailable > 0 ? (grandTotalShifts / grandTotalAvailable) : 0;
-
-        // 4. 初步分配「總工作配額」 (Base Work Quota)
-        this.staffList.forEach(staff => {
-            const stats = this.staffStats[staff.id];
-            // 每個人的基本責任額 = 可用天數 * 工作率
-            stats.workQuota = Math.ceil(stats.availableDays * globalWorkRatio);
-            
-            // 標記長假/封頂 (如果可用天數極少，少於平均值很多)
-            if (stats.availableDays < (this.daysInMonth * 0.5)) { 
-                stats.isLongVacationer = true; 
-            }
-        });
-
-        // 5. 處理包班需求 (設定 targetQuota)
+        // 3. 識別包班人員
         const bundleStaffByShift = {};
         this.staffList.forEach(staff => {
             const bundleShift = staff.packageType || staff.prefs?.bundleShift;
@@ -134,48 +113,96 @@ class SchedulerV2 extends BaseScheduler {
             }
         });
         
+        // 4. 分配包班配額
         Object.entries(bundleStaffByShift).forEach(([shift, staffs]) => {
             const totalNeed = totalNeedsByShift[shift] || 0;
-            const totalAvailable = staffs.reduce((sum, s) => 
-                sum + this.staffStats[s.id].availableDays, 0
-            );
+            const totalAvailable = staffs.reduce((sum, s) => sum + this.staffStats[s.id].availableDays, 0);
             
             staffs.forEach(staff => {
                 const stats = this.staffStats[staff.id];
-                // 依可用天數比例分配該班別的需求
                 const ratio = totalAvailable > 0 ? (stats.availableDays / totalAvailable) : 0;
                 stats.targetQuota = Math.floor(totalNeed * ratio);
                 
-                // ⚠️ [關鍵修正]：總配額不能低於包班配額
-                // 如果他包 N 要上 15 天，但依平均只分到 12 天，那就要提升總配額到 15 天
-                if (stats.workQuota < stats.targetQuota) {
+                const avgQuota = totalNeed / staffs.length;
+                if (stats.availableDays <= avgQuota) {
+                    stats.workQuota = stats.availableDays;
+                    stats.targetQuota = stats.availableDays;
+                    stats.isLongVacationer = true;
+                } else {
                     stats.workQuota = stats.targetQuota;
-                    stats.isLongVacationer = true; // 壓力滿載，視為長假模式
                 }
+                stats.workQuota = Math.max(stats.workQuota, stats.targetQuota);
             });
             
-            // 處理包班餘數 (略，為保持簡潔)
-        });
-
-        // 6. 二次檢查 (確保總配額合理)
-        // 為了避免大家「狂休假」，這裡確保每個人至少要達到一定的工作量
-        this.staffList.forEach(s => {
-            const stats = this.staffStats[s.id];
-            // 如果預休 >= 5 天，強制標記為長假模式，放寬連班限制
-            if (stats.reqOffCount >= 5) {
-                stats.isLongVacationer = true;
+            // 處理餘數
+            const allocated = staffs.reduce((sum, s) => sum + this.staffStats[s.id].targetQuota, 0);
+            const remainder = totalNeed - allocated;
+            
+            if (remainder > 0) {
+                const sorted = [...staffs].sort((a, b) => this.staffStats[b.id].availableDays - this.staffStats[a.id].availableDays);
+                for (let i = 0; i < remainder && i < sorted.length; i++) {
+                    const stats = this.staffStats[sorted[i].id];
+                    if (!stats.isLongVacationer) {
+                        stats.targetQuota++;
+                        stats.workQuota = Math.max(stats.workQuota + 1, stats.targetQuota);
+                    }
+                }
             }
         });
+
+        // 5. 計算剩餘需求並分配給非包班人員
+        let remainingShifts = 0;
+        Object.entries(totalNeedsByShift).forEach(([shift, total]) => {
+            const bundleStaffs = bundleStaffByShift[shift] || [];
+            const bundleAllocated = bundleStaffs.reduce((sum, s) => sum + this.staffStats[s.id].targetQuota, 0);
+            remainingShifts += Math.max(0, total - bundleAllocated);
+        });
         
-        console.log("📊 配額計算完成 (範例):");
-        this.staffList.slice(0, 3).forEach(s => {
-            const st = this.staffStats[s.id];
-            console.log(`- ${s.name}: 預休${st.reqOffCount}, 總配額${st.workQuota}, 包班${st.targetShift || '無'}(${st.targetQuota})`);
+        const nonBundleStaff = this.staffList.filter(s => {
+            const bundleShift = s.packageType || s.prefs?.bundleShift;
+            return !bundleShift;
+        });
+        
+        if (nonBundleStaff.length > 0) {
+            let staffToAssign = [...nonBundleStaff];
+            for(let iter = 0; iter < 5; iter++) {
+                if (staffToAssign.length === 0) break;
+                const avgQuota = Math.ceil(remainingShifts / staffToAssign.length);
+                let nextRoundStaff = [];
+                
+                staffToAssign.forEach(staff => {
+                    const stats = this.staffStats[staff.id];
+                    if (stats.availableDays <= avgQuota) {
+                        stats.workQuota = stats.availableDays;
+                        remainingShifts -= stats.availableDays;
+                        stats.isLongVacationer = true;
+                    } else {
+                        stats.workQuota = avgQuota;
+                        nextRoundStaff.push(staff);
+                    }
+                });
+                
+                if (nextRoundStaff.length === staffToAssign.length) {
+                    const finalAvg = Math.floor(remainingShifts / nextRoundStaff.length);
+                    const remainder = remainingShifts % nextRoundStaff.length;
+                    nextRoundStaff.forEach((s, idx) => {
+                        this.staffStats[s.id].workQuota = finalAvg + (idx < remainder ? 1 : 0);
+                    });
+                    break;
+                }
+                staffToAssign = nextRoundStaff;
+            }
+        }
+        
+        this.staffList.forEach(s => {
+            if (this.staffStats[s.id].reqOffCount >= 5) {
+                this.staffStats[s.id].isLongVacationer = true;
+            }
         });
     }
 
     // ============================================================
-    // 2. 每日壓力計算
+    // 🔧 核心 2：每日壓力計算
     // ============================================================
     calculateDailyWorkPressure(currentDay) {
         this.staffList.forEach(s => {
@@ -189,14 +216,12 @@ class SchedulerV2 extends BaseScheduler {
                 if (params[this.getDateStr(d)] !== 'REQ_OFF') remainingAvailableDays++;
             }
 
-            // 總壓力
             const basePressure = remainingAvailableDays > 0 ? 
                 (remainingQuota / remainingAvailableDays) : 999;
             
             stats.workedShifts = workedShifts;
             stats.workPressure = basePressure;
             
-            // 目標班別壓力 (包班)
             if (stats.targetShift) {
                 const workedTarget = this.countSpecificShiftsUpTo(
                     s.id, currentDay - 1, stats.targetShift
@@ -209,7 +234,6 @@ class SchedulerV2 extends BaseScheduler {
                 stats.targetShiftPressure = targetPressure;
                 stats.workedTargetShifts = workedTarget;
                 
-                // 智慧加壓：如果目標班別落後，提升總壓力
                 const targetRatio = stats.targetQuota > 0 ? (workedTarget / stats.targetQuota) : 0;
                 const totalRatio = stats.workQuota > 0 ? (workedShifts / stats.workQuota) : 0;
                 
@@ -224,7 +248,7 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     // ============================================================
-    // 3. 填班機制 (三階段)
+    // 🔧 核心 3：填班機制
     // ============================================================
     fillShiftNeeds(day, shiftCode, neededCount) {
         const dateStr = this.getDateStr(day);
@@ -285,7 +309,6 @@ class SchedulerV2 extends BaseScheduler {
                 if (stats.targetShift && stats.targetShift !== shiftCode) {
                     const ratio = stats.targetQuota > 0 ? (stats.workedTargetShifts / stats.targetQuota) : 0;
                     const totalRatio = stats.workQuota > 0 ? (stats.workedShifts / stats.workQuota) : 0;
-                    // 只在目標班別進度超前時才幫忙
                     return ratio > totalRatio + 0.05;
                 }
                 return true;
@@ -312,14 +335,12 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     // ============================================================
-    // 4. 強力平衡機制
+    // 🔧 核心 4：強力平衡與輔助函式
     // ============================================================
     postProcessBalancing(limitDay, isFinal = false) {
         const rounds = isFinal ? 500 : 50; 
-        
         const isFairOff = this.rules.fairness?.fairOff !== false;
         if (isFairOff) this.forceBalanceGlobalOffs(limitDay, rounds);
-        
         const isFairNight = this.rules.fairness?.fairNight !== false;
         if (isFairNight) this.balanceNightShiftsByGroup(limitDay, rounds);
     }
@@ -364,7 +385,7 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     balanceNightShiftsByGroup(limitDay, rounds) {
-        const nightShifts = this.shiftCodes.filter(code => (this.isNightShift ? this.isNightShift(code) : ['N','E'].includes(code)));
+        const nightShifts = this.shiftCodes.filter(code => (super.isNightShift ? super.isNightShift(code) : ['N','E'].includes(code)));
         const groups = new Map();
         
         this.staffList.forEach(staff => {
@@ -468,10 +489,6 @@ class SchedulerV2 extends BaseScheduler {
         }
     }
 
-    // ============================================================
-    // 🔧 輔助函式
-    // ============================================================
-    
     applyPreSchedules() {
         this.staffList.forEach(staff => {
             const params = staff.schedulingParams || {};
@@ -491,7 +508,6 @@ class SchedulerV2 extends BaseScheduler {
     checkSwapValidity(day, staff, currentShift, newShift, looseMode = false) {
         const dateStr = this.getDateStr(day);
         if (!this.isValidAssignment(staff, dateStr, newShift)) return false;
-        
         const scoreInfo = this.calculateScoreInfo(staff, dateStr, newShift);
         if (looseMode) {
             const params = staff.schedulingParams || {};
@@ -814,7 +830,9 @@ class SchedulerV2 extends BaseScheduler {
         return array;
     }
 
+    // ⚠️ 關鍵修正：FormatResult 自動產生 Assignments 欄位
     formatResult() { 
+        // 1. 建立標準矩陣 (給後台看)
         const res = {}; 
         for(let d = 1; d <= this.daysInMonth; d++){ 
             const ds = this.getDateStr(d); 
@@ -825,6 +843,33 @@ class SchedulerV2 extends BaseScheduler {
                 if(ids.length > 0) res[ds][code] = ids; 
             }); 
         } 
+        
+        // 2. 建立 Assignments 物件 (給前台看)
+        // 這是您之前缺少的關鍵資料
+        const assignments = {};
+        
+        // 初始化每位員工
+        this.staffList.forEach(staff => {
+            assignments[staff.id] = { 
+                preferences: staff.prefs || {} 
+            };
+        });
+        
+        // 填入每日班表
+        for (let d = 1; d <= this.daysInMonth; d++) {
+            const dateStr = this.getDateStr(d);
+            // 遍歷所有員工，找出他們當天的班別
+            this.staffList.forEach(staff => {
+                const shift = this.getShiftByDate(dateStr, staff.id);
+                // 寫入 assignments，使用 current_d 格式
+                assignments[staff.id][`current_${d}`] = shift;
+            });
+        }
+        
+        // 3. 將 assignments 併入回傳結果
+        // 這樣 manager 存檔時，就會連同 assignments 一起存進去
+        res.assignments = assignments;
+        
         return res; 
     }
 }
