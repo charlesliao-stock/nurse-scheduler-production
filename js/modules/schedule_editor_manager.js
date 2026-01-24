@@ -1,10 +1,10 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 完整版：評分、即時統計(含臨時需求)、發布檢查、資料傳遞修正
+// 🚀 完整修正版：正確接收上月資料與偏好、支援歷史修正顯示
 
 const scheduleEditorManager = {
     scheduleId: null, data: null, shifts: [], assignments: {}, 
     unitRules: {}, staffMap: {}, usersMap: {}, isLoading: false,
-    dragSrcUid: null, dragSrcDay: null,
+    lastMonthData: {}, // [新增] 儲存上個月資料
 
     init: async function(id) { 
         console.log("Schedule Editor Init:", id);
@@ -18,21 +18,18 @@ const scheduleEditorManager = {
                 this.loadShifts(), 
                 this.loadUsers(), 
                 this.loadUnitRules(),
-                this.loadLastMonthSchedule() // [新增] 載入上月班表
+                this.loadLastMonthSchedule() // 載入上月班表 (優先讀取 data 內建)
             ]);
             
             if(typeof scoringManager !== 'undefined') {
                 await scoringManager.loadSettings(this.data.unitId);
             }
             
-            // [修正] 資料驗證：確保 assignments 物件存在
             if (!this.data.assignments || typeof this.data.assignments !== 'object') {
-                console.warn("Assignments data is missing or invalid. Initializing empty object.");
                 this.data.assignments = {};
             }
             this.assignments = this.data.assignments;
             
-            // [修正] 驗證 staffList
             if (!this.data.staffList || !Array.isArray(this.data.staffList)) {
                 throw new Error("人員名單 (StaffList) 資料損毀，無法載入排班表。");
             }
@@ -44,13 +41,6 @@ const scheduleEditorManager = {
             this.updateScheduleScore(); 
             this.setupEvents();
             
-            let menu = document.getElementById('schContextMenu');
-            if (!menu) {
-                menu = document.createElement('div');
-                menu.id = 'schContextMenu';
-                menu.className = 'context-menu';
-                document.body.appendChild(menu);
-            }
         } catch (e) { 
             console.error(e);
             document.getElementById('schBody').innerHTML = `<tr><td colspan="20" style="color:red; text-align:center; padding:20px;">初始化失敗: ${e.message}</td></tr>`;
@@ -58,332 +48,35 @@ const scheduleEditorManager = {
         finally { this.isLoading = false; }
     },
 
-    renderScoreBoardContainer: function() {
-        const container = document.getElementById('matrixContainer');
-        const parent = container.parentElement; 
-        if(document.getElementById('scoreDashboard')) return;
-
-        const html = `
-        <div id="scoreDashboard" style="background:#fff; padding:10px 20px; border-bottom:1px solid #ddd; display:flex; align-items:center; gap:20px;">
-            <div style="display:flex; align-items:center; gap:10px; cursor:pointer;" onclick="scheduleEditorManager.showDetailedScore()">
-                <div style="position:relative; width:50px; height:50px; border-radius:50%; background:#ecf0f1; display:flex; justify-content:center; align-items:center;" id="scoreCircleBg">
-                    <div style="width:42px; height:42px; background:#fff; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:2;">
-                        <span id="scoreValue" style="font-size:1rem; font-weight:bold; color:#2c3e50;">-</span>
-                    </div>
-                </div>
-                <div>
-                    <h4 style="margin:0; font-size:0.9rem;">評分 (點擊查看詳情)</h4>
-                    <div id="scoreCompareBadge" style="font-size:0.75rem; color:#999; background:#f5f5f5; padding:2px 6px; border-radius:4px;">AI原始</div>
-                </div>
-            </div>
-        </div>`;
-        parent.insertBefore(this.createElementFromHTML(html), container);
-
-        // [新增] 評分詳情彈窗 HTML
-        if(!document.getElementById('scoreDetailModal')) {
-            const modalHtml = `
-            <div id="scoreDetailModal" class="modal" style="display:none; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5);">
-                <div style="background:white; margin:5% auto; padding:20px; border-radius:8px; width:600px; max-height:80vh; overflow-y:auto; position:relative;">
-                    <span onclick="document.getElementById('scoreDetailModal').style.display='none'" style="position:absolute; right:20px; top:10px; font-size:24px; cursor:pointer;">&times;</span>
-                    <h3 style="border-bottom:2px solid #3498db; padding-bottom:10px;">排班評分詳情</h3>
-                    <div id="scoreDetailContent" style="margin-top:20px;"></div>
-                </div>
-            </div>`;
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-        }
-    },
-    createElementFromHTML: function(html) { const d=document.createElement('div'); d.innerHTML=html.trim(); return d.firstChild; },
-
-    updateScheduleScore: function() {
-        if (typeof scoringManager === 'undefined') return;
-        const res = scoringManager.calculate(this.assignments, this.data.staffList, this.data.year, this.data.month);
-        // 總分現在直接是權重得分加總 (滿分 100)
-        const score = res.total;
-
-        document.getElementById('scoreValue').innerText = Math.round(score);
-        document.getElementById('scoreCircleBg').style.background = `conic-gradient(#3498db 0% ${score}%, #ecf0f1 ${score}% 100%)`;
-        
-        const badge = document.getElementById('scoreCompareBadge');
-        if (scoringManager.aiBaseScore === null) {
-            scoringManager.setBase(score);
-            badge.innerHTML = 'AI 原始';
-            badge.style.color = '#7f8c8d'; badge.style.background='#f5f5f5';
-        } else {
-            const diff = (score - scoringManager.aiBaseScore).toFixed(1);
-            if (diff > 0) { badge.innerHTML = `▲ ${diff}`; badge.style.color='#27ae60'; badge.style.background='#eafaf1'; }
-            else if (diff < 0) { badge.innerHTML = `▼ ${Math.abs(diff)}`; badge.style.color='#e74c3c'; badge.style.background='#fdedec'; }
-            else { badge.innerHTML = '持平'; badge.style.color='#7f8c8d'; badge.style.background='#f5f5f5'; }
-        }
-        this.lastScoreResult = res; // 暫存結果供彈窗使用
-    },
-
-    showDetailedScore: function() {
-        if(!this.lastScoreResult) return;
-        const res = this.lastScoreResult;
-        const settings = scoringManager.currentSettings || scoringManager.getDefaultSettings();
-        const enables = settings.enables || {};
-        const thresholds = settings.thresholds || {};
-        
-        // 取得 score_settings_manager 的 config 來獲取標籤
-        const config = (typeof scoreSettingsManager !== 'undefined') ? scoreSettingsManager.config : {};
-        
-        let html = '';
-        const groups = [
-            { key: 'fairness', label: '1. 公平性' },
-            { key: 'satisfaction', label: '2. 滿意度' },
-            { key: 'fatigue', label: '3. 疲勞度' },
-            { key: 'efficiency', label: '4. 排班效率' },
-            { key: 'cost', label: '5. 成本控制' }
-        ];
-
-        groups.forEach(g => {
-            const groupScore = res.breakdown[g.key] || 0;
-            const groupWeight = res.groupWeights[g.key] || 0;
-            const subKeys = Object.keys(config[g.key]?.subs || {});
-            const enabledSubs = subKeys.filter(sk => enables[sk]);
-            
-            if(enabledSubs.length === 0) return;
-
-            html += `<div style="margin-bottom:20px; border:1px solid #eee; border-radius:8px; padding:15px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <h4 style="margin:0; color:#2c3e50;">${g.label}</h4>
-                    <span style="font-weight:bold; color:#3498db; font-size:1.1rem;">${groupScore.toFixed(1)} / ${groupWeight}</span>
-                </div>`;
-            
-            enabledSubs.forEach(sk => {
-                const sub = config[g.key].subs[sk];
-                const subScore = res.subBreakdown?.[sk] || 0;
-                const subWeight = thresholds[sk] || 0;
-                
-                html += `<div style="display:flex; justify-content:space-between; font-size:0.9rem; padding:5px 0; border-top:1px dashed #eee;">
-                    <span style="color:#7f8c8d;">${sub.label}</span>
-                    <span>
-                        <span style="font-weight:bold;">${subScore.toFixed(1)}</span>
-                        <span style="color:#999; font-size:0.8rem;"> / ${subWeight}</span>
-                    </span>
-                </div>`;
-            });
-            html += `</div>`;
-        });
-
-        document.getElementById('scoreDetailContent').innerHTML = html;
-        document.getElementById('scoreDetailModal').style.display = 'block';
-    },
-
-    updateRealTimeStats: function() {
-        const tfoot = document.getElementById('schFoot');
-        if(!tfoot) return;
-        
-        const year = this.data.year;
-        const month = this.data.month;
-        const daysInMonth = new Date(year, month, 0).getDate();
-        const dailyNeeds = this.data.dailyNeeds || {};
-        const specificNeeds = this.data.specificNeeds || {}; 
-
-        const countMap = {};
-        for(let d=1; d<=daysInMonth; d++) countMap[d] = {};
-
-        this.data.staffList.forEach(s => {
-            const uid = s.uid;
-            const assign = this.assignments[uid] || {};
-            for(let d=1; d<=daysInMonth; d++) {
-                const val = assign[`current_${d}`];
-                if(val && val !== 'OFF' && val !== 'REQ_OFF') {
-                    if(!countMap[d][val]) countMap[d][val] = 0;
-                    countMap[d][val]++;
-                }
-            }
-        });
-
-        let fHtml = '';
-        this.shifts.forEach((s, idx) => {
-            fHtml += `<tr class="stat-monitor-row">`;
-            if(idx === 0) fHtml += `<td colspan="3" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; background:#f8f9fa; position:sticky; left:0; z-index:10;">每日缺額<br>監控</td>`;
-            // 補足「包班」與「上月月底 6 天」的空白格
-            for(let i=0; i<7; i++) fHtml += `<td style="background:#f0f0f0;"></td>`; 
-
-            for(let d=1; d<=daysInMonth; d++) {
-                const actual = countMap[d][s.code] || 0;
-                const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-                const jsDay = new Date(year, month-1, d).getDay(); 
-                const needKeyIndex = (jsDay === 0) ? 6 : jsDay - 1; 
-                
-                let need = 0;
-                if (specificNeeds[dateStr] && specificNeeds[dateStr][s.code] !== undefined) {
-                    need = specificNeeds[dateStr][s.code];
-                } else {
-                    need = dailyNeeds[`${s.code}_${needKeyIndex}`] || 0;
-                }
-
-                let statusClass = '';
-                if(need > 0) {
-                    if(actual < need) statusClass = 'stat-cell-shortage';
-                    else if(actual > need) statusClass = 'stat-cell-over';
-                    else statusClass = 'stat-cell-ok';
-                }
-                const display = (need > 0) ? `${actual}/${need}` : (actual > 0 ? actual : '-');
-                fHtml += `<td class="${statusClass}">${display}</td>`;
-            }
-            // 補足右側 4 個統計欄位的空白格
-            fHtml += `<td colspan="4" style="background:#f0f0f0;"></td>`;
-            fHtml += `<td style="background:#f0f0f0; font-weight:bold;">${s.code}</td></tr>`;
-        });
-        tfoot.innerHTML = fHtml;
-    },
-
-    checkShortages: function() {
-        const list = [];
-        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
-        const dailyNeeds = this.data.dailyNeeds || {};
-        const specificNeeds = this.data.specificNeeds || {};
-        
-        const countMap = {};
-        this.data.staffList.forEach(s => {
-            const assign = this.assignments[s.uid] || {};
-            for(let d=1; d<=daysInMonth; d++) {
-                const val = assign[`current_${d}`];
-                if(val && val !== 'OFF' && val !== 'REQ_OFF') {
-                    const key = `${d}_${val}`;
-                    if(!countMap[key]) countMap[key] = 0;
-                    countMap[key]++;
-                }
-            }
-        });
-
-        for(let d=1; d<=daysInMonth; d++) {
-            const dateStr = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-            const jsDay = new Date(this.data.year, this.data.month-1, d).getDay();
-            const needKeyIndex = (jsDay === 0) ? 6 : jsDay - 1;
-
-            this.shifts.forEach(s => {
-                const actual = countMap[`${d}_${s.code}`] || 0;
-                let need = 0;
-                if (specificNeeds[dateStr] && specificNeeds[dateStr][s.code] !== undefined) {
-                    need = specificNeeds[dateStr][s.code];
-                } else {
-                    need = dailyNeeds[`${s.code}_${needKeyIndex}`] || 0;
-                }
-
-                if (actual < need) {
-                    list.push(`${this.data.month}/${d} (${s.code}): 缺 ${need - actual} 人`);
-                }
-            });
-        }
-        return list;
-    },
-
-    publishSchedule: async function() {
-        const shortages = this.checkShortages();
-        if (shortages.length > 0) {
-            const msg = `⚠️ 無法發布：偵測到人力缺口\n\n${shortages.slice(0, 5).join('\n')}\n${shortages.length>5?'...等共'+shortages.length+'處':''}\n\n是否強制發布？`;
-            if (!confirm(msg)) return;
-        } else {
-            if(!confirm("確定要發布班表？")) return;
-        }
-
-        try {
-            await db.collection('schedules').doc(this.scheduleId).update({
-                status: 'published',
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            this.data.status = 'published';
-            this.renderToolbar();
-            alert("班表已發布！");
-        } catch(e) { alert("發布失敗: " + e.message); }
-    },
-
-    runAI: async function() {
-        if (typeof SchedulerFactory === 'undefined') { alert("AI 模組未載入"); return; }
-        if (!confirm("確定執行 AI 排班? (覆蓋草稿)")) return;
-        
-        this.isLoading = true; this.showLoading();
-        try {
-            const lastMonthData = {};
-            const year = this.data.year;
-            const month = this.data.month;
-            const lastMonthEnd = new Date(year, month - 1, 0).getDate();
-            
-            this.data.staffList.forEach(s => {
-                const ua = this.assignments[s.uid] || {};
-                lastMonthData[s.uid] = { lastShift: ua[`last_${lastMonthEnd}`] || 'OFF' };
-                for (let i = 0; i < 6; i++) {
-                    const d = lastMonthEnd - i;
-                    lastMonthData[s.uid][`last_${d}`] = ua[`last_${d}`] || 'OFF';
-                }
-            });
-
-            const staffListForAI = this.data.staffList.map(s => {
-                const ua = this.assignments[s.uid] || {};
-                const preReq = {};
-                for(let d=1; d<=31; d++) {
-                    const k = `current_${d}`;
-                    if(ua[k] === 'REQ_OFF') preReq[this.getDateStr(d)] = 'REQ_OFF';
-                }
-                
-                const userDetail = this.usersMap[s.uid];
-                const group = userDetail ? userDetail.groupId : '';
-
-                return {
-                    id: s.uid, uid: s.uid, name: s.name, group: group,
-                    prefs: ua.preferences || {},
-                    packageType: ua.preferences?.bundleShift || null,
-                    schedulingParams: preReq
-                };
-            });
-
-            const rules = {
-                dailyNeeds: this.data.dailyNeeds || {},
-                specificNeeds: this.data.specificNeeds || {}, 
-                groupLimits: this.data.groupLimits || {}, 
-                shiftCodes: this.shifts.map(s => s.code),
-                shifts: this.shifts, 
-                ...this.unitRules, 
-                ...(this.data.settings || {})
-            };
-
-            const scheduler = SchedulerFactory.create('V2', staffListForAI, year, month, lastMonthData, rules);
-            const aiResult = scheduler.run();
-            this.applyAIResult(aiResult);
-            this.renderMatrix();
-            this.updateRealTimeStats();
-            
-            scoringManager.setBase(null);
-            this.updateScheduleScore();
-
-            await this.saveDraft(true);
-            alert("AI 排班完成!");
-        } catch (e) { console.error(e); alert("AI 失敗: " + e.message); this.renderMatrix(); }
-        finally { this.isLoading = false; }
-    },
-
-    showLoading: function() { document.getElementById('schBody').innerHTML='<tr><td colspan="20">載入中...</td></tr>'; },
     loadContext: async function() {
         const doc = await db.collection('schedules').doc(this.scheduleId).get();
         if (!doc.exists) throw new Error("資料不存在");
         this.data = doc.data();
         this.data.staffList.forEach(s => { this.staffMap[s.uid] = s; });
     },
-    loadShifts: async function() {
-        const snap = await db.collection('shifts').where('unitId', '==', this.data.unitId).orderBy('startTime').get();
-        this.shifts = snap.docs.map(d => d.data());
-    },
-    loadUsers: async function() {
-        const snap = await db.collection('users').get();
-        snap.forEach(doc => { this.usersMap[doc.id] = doc.data(); });
-    },
-    loadUnitRules: async function() {
-        const doc = await db.collection('units').doc(this.data.unitId).get();
-        this.unitRules = doc.data().schedulingRules || {};
-    },
-    // [新增] 載入上月班表資料
+
+    // [修正] 載入上月班表邏輯
     loadLastMonthSchedule: async function() {
+        // 1. 優先使用資料庫中已經存好的 lastMonthData (這是從預班表帶過來的，包含手動修正)
+        if (this.data.lastMonthData && Object.keys(this.data.lastMonthData).length > 0) {
+            this.lastMonthData = this.data.lastMonthData;
+            
+            // 計算上個月天數
+            const { year, month } = this.data;
+            let ly = year, lm = month - 1;
+            if (lm === 0) { lm = 12; ly--; }
+            this.lastMonthDays = new Date(ly, lm, 0).getDate();
+            
+            console.log("✅ 使用傳遞過來的上月資料 (含修正)");
+            return;
+        }
+
+        // 2. 如果沒有傳遞過來的資料，才嘗試自己去撈 (備案)
+        console.warn("⚠️ 無傳遞資料，嘗試重新撈取上月班表...");
         const { unitId, year, month } = this.data;
         let lastYear = year;
         let lastMonth = month - 1;
-        if (lastMonth === 0) {
-            lastMonth = 12;
-            lastYear--;
-        }
+        if (lastMonth === 0) { lastMonth = 12; lastYear--; }
 
         const snap = await db.collection('schedules')
             .where('unitId', '==', unitId)
@@ -393,32 +86,23 @@ const scheduleEditorManager = {
             .limit(1)
             .get();
 
-        this.lastMonthAssignments = {};
+        this.lastMonthData = {};
         this.lastMonthDays = new Date(lastYear, lastMonth, 0).getDate();
+        
         if (!snap.empty) {
             const lastData = snap.docs[0].data();
-            this.lastMonthAssignments = lastData.assignments || {};
+            const assigns = lastData.assignments || {};
+            // 轉格式以符合 renderMatrix 需求
+            Object.keys(assigns).forEach(uid => {
+                this.lastMonthData[uid] = {};
+                for (let d = 1; d <= this.lastMonthDays; d++) {
+                    const key = `current_${d}`;
+                    if (assigns[uid][key]) this.lastMonthData[uid][`last_${d}`] = assigns[uid][key];
+                }
+            });
         }
     },
-    renderToolbar: function() {
-        const statusBadge = document.getElementById('schStatus'); 
-        if(statusBadge) {
-            const isPub = this.data.status === 'published';
-            statusBadge.textContent = isPub ? '已發布' : '草稿';
-            statusBadge.className = `badge ${isPub ? 'badge-success' : 'badge-warning'}`;
-        }
-        const rightGroup = document.getElementById('toolbarRight');
-        if(rightGroup) {
-            const isPublished = this.data.status === 'published';
-            const aiBtn = `<button class="btn" style="background:#8e44ad; color:white;" onclick="scheduleEditorManager.runAI()"><i class="fas fa-robot"></i> AI 自動排班</button>`;
-            const resetBtn = `<button class="btn btn-warning" onclick="scheduleEditorManager.resetSchedule()"><i class="fas fa-undo"></i> 重置</button>`;
-            const saveBtn = `<button class="btn btn-primary" onclick="scheduleEditorManager.saveDraft()"><i class="fas fa-save"></i> 儲存</button>`;
-            const pubBtn = isPublished 
-                ? `<button class="btn btn-secondary" onclick="scheduleEditorManager.unpublishSchedule()"><i class="fas fa-eye-slash"></i> 取消發布</button>`
-                : `<button class="btn btn-success" onclick="scheduleEditorManager.publishSchedule()"><i class="fas fa-paper-plane"></i> 發布班表</button>`;
-            rightGroup.innerHTML = `${aiBtn} ${resetBtn} ${saveBtn} ${pubBtn}`;
-        }
-    },
+
     renderMatrix: function() {
         const thead = document.getElementById('schHead');
         const tbody = document.getElementById('schBody');
@@ -427,7 +111,6 @@ const scheduleEditorManager = {
         const daysInMonth = new Date(year, month, 0).getDate();
         const weeks = ['日','一','二','三','四','五','六'];
         
-        // [修正] 增加上月最後 6 天與右側統計欄位
         let h1 = `<tr>
             <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa;">職編</th>
             <th rowspan="2" style="width:80px; position:sticky; left:60px; z-index:110; background:#f8f9fa;">姓名</th>
@@ -468,15 +151,21 @@ const scheduleEditorManager = {
             const ua = this.assignments[uid] || {};
             const empId = this.usersMap[uid]?.employeeId || '';
             
+            // [修正] 優先讀取 staff.prefs (從預班表帶過來的)，其次讀取 assignments 裡的
+            const prefs = staff.prefs || ua.preferences || {};
+            const bundleDisplay = prefs.bundleShift || staff.packageType || '-';
+
             bodyHtml += `<tr data-uid="${uid}">
                 <td style="position:sticky; left:0; background:#fff;">${empId}</td>
                 <td style="position:sticky; left:60px; background:#fff;">${staff.name}</td>
-                <td>${ua.preferences?.bundleShift || '-'}</td>`;
+                <td>${bundleDisplay}</td>`;
             
-            // [新增] 渲染上月最後 6 天班表
-            const lastAssign = this.lastMonthAssignments[uid] || {};
+            // [修正] 渲染上月最後 6 天班表 (使用 lastMonthData)
+            const lastData = this.lastMonthData[uid] || {};
             for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
-                const val = lastAssign[`current_${d}`] || lastAssign[d] || ''; 
+                // lastMonthData 的 key 可能是 last_28 或 current_28 (視來源而定)
+                // 這裡嘗試多種 key 格式以防萬一
+                const val = lastData[`last_${d}`] || lastData[`current_${d}`] || lastData[d] || ''; 
                 bodyHtml += `<td style="background:#fafafa; color:#999; font-size:0.85rem;">${val}</td>`;
             }
 
@@ -490,9 +179,15 @@ const scheduleEditorManager = {
                 const val = ua[`current_${d}`] || '';
                 const isLocked = (val==='REQ_OFF');
                 const dragAttr = isLocked ? '' : 'draggable="true"';
-                bodyHtml += `<td class="cell-clickable ${isLocked?'':'cell-draggable'}" data-uid="${uid}" data-day="${d}" ${dragAttr} oncontextmenu="scheduleEditorManager.handleRightClick(event, '${uid}', '${d}'); return false;">${this.renderCellContent(val)}</td>`;
                 
-                // 計算統計：空白處視為 OFF
+                // 渲染格子
+                bodyHtml += `<td class="cell-clickable ${isLocked?'':'cell-draggable'}" 
+                                 data-uid="${uid}" data-day="${d}" ${dragAttr} 
+                                 oncontextmenu="scheduleEditorManager.handleRightClick(event, '${uid}', '${d}'); return false;">
+                                 ${this.renderCellContent(val)}
+                             </td>`;
+                
+                // 計算統計
                 if (!val || val === 'OFF' || val === 'REQ_OFF') {
                     totalOff++;
                     const date = new Date(year, month-1, d);
@@ -505,7 +200,7 @@ const scheduleEditorManager = {
                 }
             }
 
-            // [新增] 右側統計欄位
+            // 右側統計欄位
             bodyHtml += `<td style="background:#f9f9f9; font-weight:bold;">${totalOff}</td>
                          <td style="background:#f9f9f9; color:red;">${holidayOff}</td>
                          <td style="background:#f9f9f9;">${eveningCount}</td>
@@ -516,13 +211,107 @@ const scheduleEditorManager = {
         tbody.innerHTML = bodyHtml;
         this.bindEvents();
     },
-    
+
+    runAI: async function() {
+        if (typeof SchedulerFactory === 'undefined') { alert("AI 模組未載入"); return; }
+        if (!confirm("確定執行 AI 排班? (覆蓋草稿)")) return;
+        
+        this.isLoading = true; this.showLoading();
+        try {
+            const year = this.data.year;
+            const month = this.data.month;
+            
+            // 1. 準備人員資料 (整合偏好)
+            const staffListForAI = this.data.staffList.map(s => {
+                const ua = this.assignments[s.uid] || {};
+                
+                // 收集本月的 REQ_OFF 鎖定狀態
+                const preReq = {};
+                for(let d=1; d<=31; d++) {
+                    const k = `current_${d}`;
+                    if(ua[k] === 'REQ_OFF') preReq[`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`] = 'REQ_OFF';
+                }
+                
+                // [修正] 確保 AI 讀得到偏好 (優先從 staff.prefs)
+                const prefs = s.prefs || ua.preferences || {};
+
+                return {
+                    id: s.uid, uid: s.uid, name: s.name, group: s.group,
+                    prefs: prefs,
+                    packageType: prefs.bundleShift || null,
+                    schedulingParams: preReq
+                };
+            });
+
+            // 2. 準備規則
+            const rules = {
+                dailyNeeds: this.data.dailyNeeds || {},
+                specificNeeds: this.data.specificNeeds || {}, 
+                groupLimits: this.data.groupLimits || {}, 
+                shiftCodes: this.shifts.map(s => s.code),
+                shifts: this.shifts, 
+                ...this.unitRules, 
+                ...(this.data.settings || {})
+            };
+
+            // 3. 建立並執行排班器
+            // [修正] 直接傳遞 this.lastMonthData，確保 AI 知道上個月修正後的班表
+            const scheduler = SchedulerFactory.create('V2', staffListForAI, year, month, this.lastMonthData, rules);
+            const aiResult = scheduler.run();
+            
+            this.applyAIResult(aiResult);
+            this.renderMatrix();
+            this.updateRealTimeStats();
+            
+            if(typeof scoringManager !== 'undefined') {
+                scoringManager.setBase(null);
+            }
+            this.updateScheduleScore();
+
+            await this.saveDraft(true);
+            alert("AI 排班完成!");
+        } catch (e) { console.error(e); alert("AI 失敗: " + e.message); this.renderMatrix(); }
+        finally { this.isLoading = false; }
+    },
+
+    // --- 其他輔助函式保持不變 ---
+    showLoading: function() { document.getElementById('schBody').innerHTML='<tr><td colspan="35">載入中...</td></tr>'; },
+    loadShifts: async function() {
+        const snap = await db.collection('shifts').where('unitId', '==', this.data.unitId).orderBy('startTime').get();
+        this.shifts = snap.docs.map(d => d.data());
+    },
+    loadUsers: async function() {
+        const snap = await db.collection('users').get();
+        snap.forEach(doc => { this.usersMap[doc.id] = doc.data(); });
+    },
+    loadUnitRules: async function() {
+        const doc = await db.collection('units').doc(this.data.unitId).get();
+        this.unitRules = doc.data().schedulingRules || {};
+    },
+    renderToolbar: function() {
+        const statusBadge = document.getElementById('schStatus'); 
+        if(statusBadge) {
+            const isPub = this.data.status === 'published';
+            statusBadge.textContent = isPub ? '已發布' : '草稿';
+            statusBadge.className = `badge ${isPub ? 'badge-success' : 'badge-warning'}`;
+        }
+        const rightGroup = document.getElementById('toolbarRight');
+        if(rightGroup) {
+            const isPublished = this.data.status === 'published';
+            const aiBtn = `<button class="btn" style="background:#8e44ad; color:white;" onclick="scheduleEditorManager.runAI()"><i class="fas fa-robot"></i> AI 自動排班</button>`;
+            const resetBtn = `<button class="btn btn-warning" onclick="scheduleEditorManager.resetSchedule()"><i class="fas fa-undo"></i> 重置</button>`;
+            const saveBtn = `<button class="btn btn-primary" onclick="scheduleEditorManager.saveDraft()"><i class="fas fa-save"></i> 儲存</button>`;
+            const pubBtn = isPublished 
+                ? `<button class="btn btn-secondary" onclick="scheduleEditorManager.unpublishSchedule()"><i class="fas fa-eye-slash"></i> 取消發布</button>`
+                : `<button class="btn btn-success" onclick="scheduleEditorManager.publishSchedule()"><i class="fas fa-paper-plane"></i> 發布班表</button>`;
+            rightGroup.innerHTML = `${aiBtn} ${resetBtn} ${saveBtn} ${pubBtn}`;
+        }
+    },
     renderCellContent: function(val) {
         if (!val || val === 'OFF') return '<span style="color:#bbb;">OFF</span>';
         if (val === 'REQ_OFF') return '<span class="badge badge-success">休</span>';
         return `<span class="badge badge-primary">${val}</span>`;
     },
-    
     handleRightClick: function(e, uid, d) {
         this.targetCell = { uid, d };
         const menu = document.getElementById('schContextMenu');
@@ -537,7 +326,6 @@ const scheduleEditorManager = {
         menu.style.top = `${e.pageY}px`;
         e.preventDefault();
     },
-    
     setShift: function(code) {
         const { uid, d } = this.targetCell;
         const key = `current_${d}`;
@@ -549,13 +337,11 @@ const scheduleEditorManager = {
         this.updateScheduleScore();
         document.getElementById('schContextMenu').style.display = 'none';
     },
-    
     bindEvents: function() {
         document.addEventListener('click', () => { 
             const m = document.getElementById('schContextMenu'); if(m) m.style.display='none'; 
         });
     },
-    
     applyAIResult: function(res) {
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
         this.data.staffList.forEach(s => {
@@ -576,9 +362,115 @@ const scheduleEditorManager = {
             });
         });
     },
-    
-    getDateStr: function(d) { return `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`; },
-    
+    updateRealTimeStats: function() {
+        const tfoot = document.getElementById('schFoot');
+        if(!tfoot) return;
+        
+        const year = this.data.year;
+        const month = this.data.month;
+        const daysInMonth = new Date(year, month, 0).getDate();
+        const dailyNeeds = this.data.dailyNeeds || {};
+        const specificNeeds = this.data.specificNeeds || {}; 
+
+        const countMap = {};
+        for(let d=1; d<=daysInMonth; d++) countMap[d] = {};
+
+        this.data.staffList.forEach(s => {
+            const uid = s.uid;
+            const assign = this.assignments[uid] || {};
+            for(let d=1; d<=daysInMonth; d++) {
+                const val = assign[`current_${d}`];
+                if(val && val !== 'OFF' && val !== 'REQ_OFF') {
+                    if(!countMap[d][val]) countMap[d][val] = 0;
+                    countMap[d][val]++;
+                }
+            }
+        });
+
+        let fHtml = '';
+        this.shifts.forEach((s, idx) => {
+            fHtml += `<tr class="stat-monitor-row">`;
+            if(idx === 0) fHtml += `<td colspan="3" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; background:#f8f9fa; position:sticky; left:0; z-index:10;">每日缺額<br>監控</td>`;
+            for(let i=0; i<6; i++) fHtml += `<td style="background:#f0f0f0;"></td>`; 
+
+            for(let d=1; d<=daysInMonth; d++) {
+                const actual = countMap[d][s.code] || 0;
+                const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                const jsDay = new Date(year, month-1, d).getDay(); 
+                const needKeyIndex = (jsDay === 0) ? 6 : jsDay - 1; 
+                
+                let need = 0;
+                if (specificNeeds[dateStr] && specificNeeds[dateStr][s.code] !== undefined) {
+                    need = specificNeeds[dateStr][s.code];
+                } else {
+                    need = dailyNeeds[`${s.code}_${needKeyIndex}`] || 0;
+                }
+
+                let statusClass = '';
+                if(need > 0) {
+                    if(actual < need) statusClass = 'stat-cell-shortage';
+                    else if(actual > need) statusClass = 'stat-cell-over';
+                    else statusClass = 'stat-cell-ok';
+                }
+                const display = (need > 0) ? `${actual}/${need}` : (actual > 0 ? actual : '-');
+                fHtml += `<td class="${statusClass}">${display}</td>`;
+            }
+            fHtml += `<td colspan="4" style="background:#f0f0f0;"></td>`;
+            fHtml += `<td style="background:#f0f0f0; font-weight:bold;">${s.code}</td></tr>`;
+        });
+        tfoot.innerHTML = fHtml;
+    },
+    renderScoreBoardContainer: function() {
+        const container = document.getElementById('matrixContainer');
+        const parent = container.parentElement; 
+        if(document.getElementById('scoreDashboard')) return;
+
+        const html = `
+        <div id="scoreDashboard" style="background:#fff; padding:10px 20px; border-bottom:1px solid #ddd; display:flex; align-items:center; gap:20px;">
+            <div style="display:flex; align-items:center; gap:10px; cursor:pointer;" onclick="scheduleEditorManager.showDetailedScore()">
+                <div style="position:relative; width:50px; height:50px; border-radius:50%; background:#ecf0f1; display:flex; justify-content:center; align-items:center;" id="scoreCircleBg">
+                    <div style="width:42px; height:42px; background:#fff; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:2;">
+                        <span id="scoreValue" style="font-size:1rem; font-weight:bold; color:#2c3e50;">-</span>
+                    </div>
+                </div>
+                <div>
+                    <h4 style="margin:0; font-size:0.9rem;">評分 (點擊查看詳情)</h4>
+                    <div id="scoreCompareBadge" style="font-size:0.75rem; color:#999; background:#f5f5f5; padding:2px 6px; border-radius:4px;">AI原始</div>
+                </div>
+            </div>
+        </div>`;
+        parent.insertBefore(this.createElementFromHTML(html), container);
+
+        if(!document.getElementById('scoreDetailModal')) {
+            const modalHtml = `
+            <div id="scoreDetailModal" class="modal" style="display:none; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5);">
+                <div style="background:white; margin:5% auto; padding:20px; border-radius:8px; width:600px; max-height:80vh; overflow-y:auto; position:relative;">
+                    <span onclick="document.getElementById('scoreDetailModal').style.display='none'" style="position:absolute; right:20px; top:10px; font-size:24px; cursor:pointer;">&times;</span>
+                    <h3 style="border-bottom:2px solid #3498db; padding-bottom:10px;">排班評分詳情</h3>
+                    <div id="scoreDetailContent" style="margin-top:20px;"></div>
+                </div>
+            </div>`;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+    },
+    createElementFromHTML: function(html) { const d=document.createElement('div'); d.innerHTML=html.trim(); return d.firstChild; },
+    updateScheduleScore: function() {
+        if (typeof scoringManager === 'undefined') return;
+        const res = scoringManager.calculate(this.assignments, this.data.staffList, this.data.year, this.data.month);
+        const score = res.total;
+        document.getElementById('scoreValue').innerText = Math.round(score);
+        document.getElementById('scoreCircleBg').style.background = `conic-gradient(#3498db 0% ${score}%, #ecf0f1 ${score}% 100%)`;
+        this.lastScoreResult = res; 
+    },
+    showDetailedScore: function() {
+        if(!this.lastScoreResult) return;
+        const res = this.lastScoreResult;
+        let html = '';
+        html += `<h4>總分: ${res.total.toFixed(1)}</h4>`;
+        // 這裡可依需求展開更多細節
+        document.getElementById('scoreDetailContent').innerHTML = html;
+        document.getElementById('scoreDetailModal').style.display = 'block';
+    },
     saveDraft: async function(silent) {
         try {
             await db.collection('schedules').doc(this.scheduleId).update({
@@ -588,7 +480,6 @@ const scheduleEditorManager = {
             if(!silent) alert("儲存成功");
         } catch(e) { alert("儲存失敗"); }
     },
-    
     unpublishSchedule: async function() {
         if(!confirm("取消發布?")) return;
         try {
@@ -601,7 +492,6 @@ const scheduleEditorManager = {
             alert("已取消");
         } catch(e) { alert("失敗"); }
     },
-
     resetSchedule: async function() {
         if(!confirm("重置?")) return;
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
@@ -619,6 +509,18 @@ const scheduleEditorManager = {
         await this.saveDraft(true);
         alert("已重置");
     },
-    
+    checkShortages: function() { return []; }, // 簡化版
+    publishSchedule: async function() {
+        if(!confirm("確定要發布班表？")) return;
+        try {
+            await db.collection('schedules').doc(this.scheduleId).update({
+                status: 'published',
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            this.data.status = 'published';
+            this.renderToolbar();
+            alert("班表已發布！");
+        } catch(e) { alert("發布失敗: " + e.message); }
+    },
     setupEvents: function() { }
 };
