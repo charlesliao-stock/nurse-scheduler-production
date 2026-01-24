@@ -1,9 +1,9 @@
 // js/modules/pre_schedule_matrix_manager.js
-// 🔧 完整修正版：支援上個月最後 6 天右鍵編輯與歷史修正
+// 🔧 完整版：嚴格上月讀取 + 完整資料傳遞 (含偏好注入)
 
 const matrixManager = {
     docId: null, data: null, shifts: [], localAssignments: {}, usersMap: {}, isLoading: false,
-    historyCorrections: {}, // [新增] 儲存歷史修正
+    historyCorrections: {}, // 儲存歷史修正
 
     init: async function(id) { 
         if(!id) { alert("ID遺失"); return; }
@@ -39,12 +39,13 @@ const matrixManager = {
         const doc = await db.collection('pre_schedules').doc(this.docId).get();
         this.data = doc.data();
         this.localAssignments = this.data.assignments || {};
-        this.historyCorrections = this.data.historyCorrections || {}; // [新增] 載入歷史修正
+        this.historyCorrections = this.data.historyCorrections || {}; 
         if(!this.data.specificNeeds) this.data.specificNeeds = {};
         
         await this.loadLastMonthSchedule();
     },
 
+    // [修正] 嚴格讀取「已發布」的上月班表
     loadLastMonthSchedule: async function() {
         const { unitId, year, month } = this.data;
         let lastYear = year;
@@ -58,7 +59,7 @@ const matrixManager = {
             .where('unitId', '==', unitId)
             .where('year', '==', lastYear)
             .where('month', '==', lastMonth)
-            .where('status', '==', 'published')
+            .where('status', '==', 'published') // 嚴格限制：只讀已發布
             .limit(1)
             .get();
 
@@ -67,6 +68,10 @@ const matrixManager = {
             const lastData = snap.docs[0].data();
             this.lastMonthAssignments = lastData.assignments || {};
             this.lastMonthDays = new Date(lastYear, lastMonth, 0).getDate();
+            console.log(`✅ 已載入上個月 (${lastYear}-${lastMonth}) 已發布班表`);
+        } else {
+            console.warn(`⚠️ 找不到上個月 (${lastYear}-${lastMonth}) 的已發布班表，將留白供手動輸入。`);
+            this.lastMonthDays = new Date(lastYear, lastMonth, 0).getDate(); // 仍需知道上個月有幾天
         }
     },
 
@@ -87,12 +92,11 @@ const matrixManager = {
         const month = this.data.month;
         const daysInMonth = new Date(year, month, 0).getDate();
         
-        // 表頭第一列
         let h1 = `<tr>
             <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa;">職編</th>
             <th rowspan="2" style="width:80px; position:sticky; left:60px; z-index:110; background:#f8f9fa;">姓名</th>
             <th rowspan="2" style="width:50px;">偏好</th>
-            <th colspan="6" style="background:#eee; font-size:0.8rem;">上月月底 (可修)</th>`; // 標示可修
+            <th colspan="6" style="background:#eee; font-size:0.8rem;">上月月底 (可修)</th>`;
         
         for(let d=1; d<=daysInMonth; d++) {
             const date = new Date(year, month-1, d);
@@ -102,7 +106,6 @@ const matrixManager = {
         }
         h1 += `<th colspan="4" style="background:#e8f4fd; font-size:0.8rem;">統計</th></tr>`;
 
-        // 表頭第二列
         let h2 = `<tr>`;
         const weeks = ['日','一','二','三','四','五','六'];
         
@@ -123,7 +126,6 @@ const matrixManager = {
                <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">大夜</th></tr>`;
         thead.innerHTML = h1 + h2;
 
-        // 表格內容
         let bodyHtml = '';
         this.data.staffList.forEach(staff => {
             const uid = staff.uid;
@@ -132,16 +134,13 @@ const matrixManager = {
 
             const prefs = assign.preferences || {};
             let prefDisplay = '';
-            if (prefs.bundleShift) {
-                prefDisplay += `<div style="font-weight:bold; font-size:0.85rem;">包${prefs.bundleShift}</div>`;
-            }
+            if (prefs.bundleShift) prefDisplay += `<div style="font-weight:bold; font-size:0.85rem;">包${prefs.bundleShift}</div>`;
+            
             let favs = [];
             if (prefs.favShift) favs.push(prefs.favShift);
             if (prefs.favShift2) favs.push(prefs.favShift2);
             if (prefs.favShift3) favs.push(prefs.favShift3);
-            if (favs.length > 0) {
-                prefDisplay += `<div style="font-size:0.75rem; color:#666;">${favs.join('->')}</div>`;
-            }
+            if (favs.length > 0) prefDisplay += `<div style="font-size:0.75rem; color:#666;">${favs.join('->')}</div>`;
 
             bodyHtml += `<tr data-uid="${uid}">
                 <td style="position:sticky; left:0; background:#fff;">${empId}</td>
@@ -150,17 +149,16 @@ const matrixManager = {
                     ${prefDisplay || '<i class="fas fa-cog" style="color:#ccc;"></i>'}
                 </td>`;
             
-            // [修正] 渲染上月最後 6 天班表 (支援編輯與歷史修正)
+            // 渲染上月最後 6 天 (優先讀取歷史修正 -> 其次讀取原始資料)
             const lastAssign = this.lastMonthAssignments[uid] || {};
             for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
                 const historyKey = `last_${d}`;
-                // 優先讀取 historyCorrections，若無則讀取原始資料
                 const originalVal = lastAssign[`current_${d}`] || lastAssign[d] || '';
                 const correctedVal = this.historyCorrections[uid]?.[historyKey];
                 
+                // 如果原始資料不存在(未發布)，且無修正，則留白
                 const displayVal = (correctedVal !== undefined) ? correctedVal : originalVal;
                 
-                // 若有修正，顯示黃色背景
                 const bgStyle = (correctedVal !== undefined) 
                     ? 'background:#fff3cd; color:#333; font-weight:bold;' 
                     : 'background:#fafafa; color:#999;';
@@ -174,7 +172,6 @@ const matrixManager = {
                              </td>`;
             }
 
-            // 統計變數
             let totalOff = 0;
             let holidayOff = 0;
             let eveningCount = 0;
@@ -183,7 +180,6 @@ const matrixManager = {
             for(let d=1; d<=daysInMonth; d++) {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
-                // 本月格子
                 bodyHtml += `<td class="cell-clickable" data-uid="${uid}" data-day="${d}" data-type="current">${this.renderCellContent(val)}</td>`;
                 
                 if (val === 'REQ_OFF') {
@@ -191,11 +187,8 @@ const matrixManager = {
                     const date = new Date(year, month-1, d);
                     const w = date.getDay();
                     if (w === 0 || w === 6) holidayOff++;
-                } else if (val === 'E') {
-                    eveningCount++;
-                } else if (val === 'N') {
-                    nightCount++;
-                }
+                } else if (val === 'E') eveningCount++;
+                else if (val === 'N') nightCount++;
             }
 
             bodyHtml += `<td style="background:#f9f9f9; font-weight:bold; text-align:center;">${totalOff}</td>
@@ -207,7 +200,6 @@ const matrixManager = {
         });
         tbody.innerHTML = bodyHtml;
 
-        // 表尾統計 (保持不變)
         let footHtml = '';
         this.shifts.forEach((s, idx) => {
             footHtml += `<tr>`;
@@ -229,7 +221,6 @@ const matrixManager = {
                 }
 
                 const style = isTemp ? 'background:#fff3cd; border:2px solid #f39c12;' : '';
-                
                 footHtml += `<td id="stat_cell_${s.code}_${d}" style="cursor:pointer; ${style}" 
                                 onclick="matrixManager.handleNeedClick('${dateStr}', '${s.code}', ${need})">
                                 <span class="stat-actual">-</span> / <span class="stat-need" style="font-weight:bold;">${need}</span>
@@ -265,12 +256,9 @@ const matrixManager = {
                 specificNeeds: this.data.specificNeeds,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            
             const schSnap = await db.collection('schedules').where('sourceId', '==', this.docId).get();
             if (!schSnap.empty) {
-                await db.collection('schedules').doc(schSnap.docs[0].id).update({
-                    specificNeeds: this.data.specificNeeds
-                });
+                await db.collection('schedules').doc(schSnap.docs[0].id).update({ specificNeeds: this.data.specificNeeds });
             }
             this.renderMatrix();
         } catch(e) { console.error(e); alert("更新失敗"); }
@@ -312,16 +300,11 @@ const matrixManager = {
     bindCellEvents: function() {
         const cells = document.querySelectorAll('.cell-clickable');
         cells.forEach(cell => {
-            // 右鍵
             cell.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
-                // 傳入 type (history or current)
                 this.handleRightClick(e, cell.dataset.uid, cell.dataset.day, cell.dataset.type);
             });
-            
-            // 左鍵
             cell.addEventListener('click', (e) => {
-                // [修正] 左鍵點擊歷史區塊 -> 設為 OFF
                 if (cell.dataset.type === 'history') {
                     this.setHistoryShift(cell.dataset.uid, cell.dataset.day, 'OFF');
                 }
@@ -334,11 +317,9 @@ const matrixManager = {
         const menu = document.getElementById('customContextMenu');
         const options = document.getElementById('contextMenuOptions');
         
-        // 判斷是否為歷史模式
         const isHistory = (type === 'history');
         const funcName = isHistory ? 'matrixManager.setHistoryShift' : 'matrixManager.setShift';
         const dateDisplay = isHistory ? `(上月) ${day}日` : `${this.data.month}月${day}日`;
-        // 歷史資料存的 key 是 last_XX，但 setHistoryShift 函式會自己組，這裡傳 day 即可
         const targetKey = isHistory ? day : `current_${day}`; 
 
         let html = `
@@ -353,14 +334,12 @@ const matrixManager = {
         
         html += `<li style="padding:5px 12px; font-size:0.8rem; color:#999; background:#fafafa;">指定班別</li>`;
         this.shifts.forEach(s => {
-            // 歷史區塊不顯示顏色，避免混淆，或顯示但淡化
             html += `
                 <li onclick="${funcName}('${uid}','${targetKey}','${s.code}')" style="padding:8px 12px; cursor:pointer;">
                     <span style="font-weight:bold; color:${s.color || '#333'};">${s.code}</span> - ${s.name}
                 </li>`;
         });
 
-        // 僅當前月份顯示「勿排」
         if (!isHistory) {
             html += `<li style="padding:5px 12px; font-size:0.8rem; color:#999; background:#fafafa;">希望避開</li>`;
             this.shifts.forEach(s => {
@@ -381,15 +360,12 @@ const matrixManager = {
         options.innerHTML = html;
         menu.style.display = 'block';
         
-        // 選單定位
         const menuWidth = 160;
         const menuHeight = menu.offsetHeight;
         let top = e.pageY + 5;
         let left = e.pageX + 5;
-        
         if (left + menuWidth > window.innerWidth) left = window.innerWidth - menuWidth - 10;
         if (top + menuHeight > window.innerHeight) top = window.innerHeight - menuHeight - 10;
-        
         menu.style.left = left + 'px';
         menu.style.top = top + 'px';
     },
@@ -406,21 +382,19 @@ const matrixManager = {
         this.updateStats();
     },
 
-    // [新增] 設定歷史修正
     setHistoryShift: function(uid, day, val) {
         const key = `last_${day}`;
         if (!this.historyCorrections[uid]) this.historyCorrections[uid] = {};
-        
         if (val === null) delete this.historyCorrections[uid][key];
         else this.historyCorrections[uid][key] = val;
 
-        // 即時更新 Firestore
         db.collection('pre_schedules').doc(this.docId).update({
             [`historyCorrections.${uid}.${key}`]: val === null ? firebase.firestore.FieldValue.delete() : val
         });
         this.renderMatrix();
     },
 
+    // [修正] 執行排班：複製資料 (人員、偏好、上月資料、本月預班)
     executeSchedule: async function() {
         if(!confirm("確定執行排班? 將鎖定預班並建立正式草稿。")) return;
         this.isLoading = true; this.showLoading();
@@ -432,16 +406,25 @@ const matrixManager = {
                 });
             }
 
-            // [修正] 整理上月班表資料 (包含歷史修正)
+            // 1. 處理上月資料 (Published + History Correction)
             const lastMonthData = {};
-            Object.keys(this.lastMonthAssignments).forEach(uid => {
-                const userAssign = this.lastMonthAssignments[uid];
+            // 取得所有相關人員 ID (本月有的人 + 上個月有的人)
+            const allUids = new Set([
+                ...Object.keys(this.localAssignments), 
+                ...Object.keys(this.lastMonthAssignments || {}),
+                ...Object.keys(this.historyCorrections || {})
+            ]);
+
+            allUids.forEach(uid => {
+                const userAssign = this.lastMonthAssignments[uid] || {};
                 const lastDay = this.lastMonthDays || 31;
                 
-                // 最後一天，優先讀取修正
+                // 優先讀取手動修正，其次讀取原始資料，若皆無則為 OFF
                 const lastDayCorrected = this.historyCorrections[uid]?.[`last_${lastDay}`];
+                const lastDayOriginal = userAssign[`current_${lastDay}`] || userAssign[lastDay] || 'OFF';
+
                 lastMonthData[uid] = {
-                    lastShift: (lastDayCorrected !== undefined) ? lastDayCorrected : (userAssign[`current_${lastDay}`] || userAssign[lastDay] || 'OFF')
+                    lastShift: (lastDayCorrected !== undefined) ? lastDayCorrected : lastDayOriginal
                 };
                 
                 // 帶入最後 6 天
@@ -449,17 +432,30 @@ const matrixManager = {
                     const d = lastDay - i;
                     const originalVal = userAssign[`current_${d}`] || userAssign[d] || 'OFF';
                     const correctedVal = this.historyCorrections[uid]?.[`last_${d}`];
-                    
                     lastMonthData[uid][`last_${d}`] = (correctedVal !== undefined) ? correctedVal : originalVal;
                 }
+            });
+
+            // 2. [關鍵] 將偏好設定注入 staffList，讓 SchedulerV2 讀取
+            const staffListForSchedule = (this.data.staffList || []).map(staff => {
+                const uid = staff.uid || staff.id;
+                const assign = this.localAssignments[uid] || {};
+                const prefs = assign.preferences || {};
+                
+                // 注入偏好到 staff 物件
+                return {
+                    ...staff,
+                    prefs: prefs, 
+                    schedulingParams: assign // 將整包 assignments 也放進去備查
+                };
             });
 
             const scheduleData = {
                 unitId: this.data.unitId, year: this.data.year, month: this.data.month,
                 sourceId: this.docId, status: 'draft',
-                staffList: this.data.staffList || [],
+                staffList: staffListForSchedule, // 更新後的人員名單 (含偏好)
                 assignments: initialAssignments,
-                lastMonthData: lastMonthData, // 傳遞修正後的上月資料
+                lastMonthData: lastMonthData,    // 完整上個月資料
                 dailyNeeds: this.data.dailyNeeds || {},
                 specificNeeds: this.data.specificNeeds || {}, 
                 groupLimits: this.data.groupLimits || {},
