@@ -1,11 +1,18 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 最終修正版：強制產生並寫入 schedule (矩陣) 與 assignments (個人)
+// 🚀 最終完整版：修復存檔邏輯 (同步寫入 schedule 與 assignments) + 完整 UI 功能
 
 const scheduleEditorManager = {
-    scheduleId: null, data: null, shifts: [], assignments: {}, 
-    unitRules: {}, staffMap: {}, usersMap: {}, isLoading: false,
-    lastMonthData: {}, lastMonthDays: 31,
-    lastScoreResult: null,
+    scheduleId: null, 
+    data: null, 
+    shifts: [], 
+    assignments: {}, 
+    unitRules: {}, 
+    staffMap: {}, 
+    usersMap: {}, 
+    isLoading: false,
+    lastMonthData: {}, 
+    lastMonthDays: 31,
+    lastScoreResult: null, // 用於儲存評分結果
 
     init: async function(id) { 
         console.log("Schedule Editor Init:", id);
@@ -22,13 +29,19 @@ const scheduleEditorManager = {
                 this.loadLastMonthSchedule()
             ]);
             
-            if(typeof scoringManager !== 'undefined') await scoringManager.loadSettings(this.data.unitId);
+            if(typeof scoringManager !== 'undefined') {
+                await scoringManager.loadSettings(this.data.unitId);
+            }
             
-            // 資料結構防呆初始化
-            if (!this.data.assignments || typeof this.data.assignments !== 'object') this.data.assignments = {};
+            // 資料結構防呆
+            if (!this.data.assignments || typeof this.data.assignments !== 'object') {
+                this.data.assignments = {};
+            }
             this.assignments = this.data.assignments;
             
-            if (!this.data.staffList || !Array.isArray(this.data.staffList)) throw new Error("人員名單損毀");
+            if (!this.data.staffList || !Array.isArray(this.data.staffList)) {
+                throw new Error("人員名單 (StaffList) 資料損毀，無法載入排班表。");
+            }
 
             this.renderToolbar(); 
             this.renderScoreBoardContainer(); 
@@ -39,7 +52,8 @@ const scheduleEditorManager = {
             this.initContextMenu();
         } catch (e) { 
             console.error(e);
-            document.getElementById('schBody').innerHTML = `<tr><td colspan="20" style="color:red; text-align:center;">初始化失敗: ${e.message}</td></tr>`;
+            const body = document.getElementById('schBody');
+            if (body) body.innerHTML = `<tr><td colspan="20" style="color:red; text-align:center; padding:20px;">初始化失敗: ${e.message}</td></tr>`;
         }
         finally { this.isLoading = false; }
     },
@@ -112,38 +126,53 @@ const scheduleEditorManager = {
             const color = (w===0||w===6) ? 'color:red;' : '';
             h1 += `<th style="${color}">${d}</th>`;
         }
-        h1 += `<th colspan="4" style="background:#e8f4fd;">統計</th></tr><tr>`;
+        h1 += `<th colspan="4" style="background:#e8f4fd;">統計</th></tr>`;
 
+        let h2 = `<tr>`;
         const lastDays = this.lastMonthDays || 31;
-        for(let d = lastDays - 5; d <= lastDays; d++) h1 += `<th style="background:#f5f5f5; font-size:0.7rem; color:#999;">${d}</th>`;
+        for(let d = lastDays - 5; d <= lastDays; d++) {
+            h2 += `<th style="background:#f5f5f5; font-size:0.7rem; color:#999;">${d}</th>`;
+        }
         
         for(let d=1; d<=daysInMonth; d++) {
             const date = new Date(year, month-1, d);
             const w = weeks[date.getDay()];
             const color = (date.getDay()===0 || date.getDay()===6) ? 'color:red;' : '';
-            h1 += `<th style="font-size:0.8rem; ${color}">${w}</th>`;
+            h2 += `<th style="font-size:0.8rem; ${color}">${w}</th>`;
         }
-        h1 += `<th style="font-size:0.75rem;">OFF</th><th style="font-size:0.75rem;">假</th><th style="font-size:0.75rem;">E</th><th style="font-size:0.75rem;">N</th></tr>`;
-        thead.innerHTML = h1;
+        h2 += `<th style="width:40px; background:#f0f7ff; font-size:0.75rem;">總OFF</th>
+               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">假OFF</th>
+               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">E</th>
+               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">N</th></tr>`;
+        
+        thead.innerHTML = h1 + h2;
 
         let bodyHtml = '';
         this.data.staffList.forEach(staff => {
             const uid = staff.uid;
             const ua = this.assignments[uid] || {};
             const empId = this.usersMap[uid]?.employeeId || '';
+            
             const prefs = staff.prefs || ua.preferences || {};
             let prefDisplay = '';
             
-            if (prefs.bundleShift || staff.packageType) prefDisplay += `<b>包${prefs.bundleShift || staff.packageType}</b>`;
+            if (prefs.bundleShift || staff.packageType) {
+                prefDisplay += `<div style="font-weight:bold; font-size:0.85rem;">包${prefs.bundleShift || staff.packageType}</div>`;
+            }
+            
             let favs = [];
             if (prefs.favShift) favs.push(prefs.favShift);
             if (prefs.favShift2) favs.push(prefs.favShift2);
-            if (favs.length > 0) prefDisplay += `<div style="font-size:0.75rem; color:#666;">${favs.join('→')}</div>`;
+            if (favs.length > 0) {
+                prefDisplay += `<div style="font-size:0.75rem; color:#666;">${favs.join('→')}</div>`;
+            } else if (!prefDisplay) {
+                prefDisplay = '-';
+            }
 
             bodyHtml += `<tr data-uid="${uid}">
                 <td style="position:sticky; left:0; background:#fff;">${empId}</td>
                 <td style="position:sticky; left:60px; background:#fff;">${staff.name}</td>
-                <td style="text-align:center;">${prefDisplay || '-'}</td>`;
+                <td style="text-align:center;">${prefDisplay}</td>`;
             
             const lastData = this.lastMonthData[uid] || {};
             for(let d = lastDays - 5; d <= lastDays; d++) {
@@ -151,21 +180,31 @@ const scheduleEditorManager = {
                 bodyHtml += `<td style="background:#fafafa; color:#999; font-size:0.85rem;">${val}</td>`;
             }
 
-            let totalOff=0, holidayOff=0, evening=0, night=0;
+            let totalOff = 0, holidayOff = 0, eveningCount = 0, nightCount = 0;
+
             for(let d=1; d<=daysInMonth; d++) {
                 const val = ua[`current_${d}`] || '';
                 const isLocked = (val==='REQ_OFF');
-                bodyHtml += `<td class="cell-clickable ${isLocked?'':'cell-draggable'}" data-uid="${uid}" data-day="${d}" 
+                
+                bodyHtml += `<td class="cell-clickable ${isLocked?'':'cell-draggable'}" 
+                                 data-uid="${uid}" data-day="${d}" ${isLocked?'':'draggable="true"'} 
                                  oncontextmenu="scheduleEditorManager.handleRightClick(event, '${uid}', '${d}'); return false;">
                                  ${this.renderCellContent(val, uid, d)}
                              </td>`;
+                
                 if (!val || val === 'OFF' || val === 'REQ_OFF') {
                     totalOff++;
-                    const w = new Date(year, month-1, d).getDay();
+                    const date = new Date(year, month-1, d);
+                    const w = date.getDay();
                     if (w === 0 || w === 6) holidayOff++;
-                } else if (val === 'E') evening++; else if (val === 'N') night++;
+                } else if (val === 'E') eveningCount++;
+                else if (val === 'N') nightCount++;
             }
-            bodyHtml += `<td>${totalOff}</td><td style="color:red;">${holidayOff}</td><td>${evening}</td><td>${night}</td></tr>`;
+
+            bodyHtml += `<td style="background:#f9f9f9; font-weight:bold;">${totalOff}</td>
+                         <td style="background:#f9f9f9; color:red;">${holidayOff}</td>
+                         <td style="background:#f9f9f9;">${eveningCount}</td>
+                         <td style="background:#f9f9f9;">${nightCount}</td></tr>`;
         });
         tbody.innerHTML = bodyHtml;
         this.bindEvents();
@@ -208,13 +247,15 @@ const scheduleEditorManager = {
             const aiResult = scheduler.run();
             
             this.applyAIResult(aiResult);
+            
             this.renderMatrix();
             this.updateRealTimeStats();
             if(typeof scoringManager !== 'undefined') scoringManager.setBase(null);
             this.updateScheduleScore();
 
-            // AI 跑完自動存檔 (含矩陣)
+            // 🔥 自動存檔 (確保 assignments 和 schedule 都有存入)
             await this.saveDraft(true);
+            
             alert("AI 排班完成!");
         } catch (e) { console.error(e); alert("AI 失敗: " + e.message); this.renderMatrix(); }
         finally { this.isLoading = false; }
@@ -225,12 +266,10 @@ const scheduleEditorManager = {
         if (res.assignments) {
             Object.keys(res.assignments).forEach(uid => {
                 if(!this.assignments[uid]) this.assignments[uid] = {};
-                // 保留舊的 preferences，合併新的排班
                 this.assignments[uid] = { ...this.assignments[uid], ...res.assignments[uid] };
             });
-        } 
-        // 舊格式 (res 就是矩陣)，也支援
-        else {
+        } else {
+            // 舊格式 (res 就是矩陣)，也支援
             const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
             this.data.staffList.forEach(s => {
                 const uid = s.uid;
@@ -256,13 +295,11 @@ const scheduleEditorManager = {
         }
     },
 
-    // 🔥 關鍵修正：存檔時自動產生 schedule 矩陣欄位
+    // 🔥 關鍵修正：產生矩陣並存檔
     saveDraft: async function(silent) {
         try {
-            // 1. 產生矩陣 (確保資料庫有 schedule 欄位)
             const scheduleMatrix = this.generateMatrixFromAssignments();
             
-            // 2. 寫入資料庫
             await db.collection('schedules').doc(this.scheduleId).update({
                 assignments: this.assignments, // 個人班表
                 schedule: scheduleMatrix,      // 全院總表 (給前台備援用)
@@ -274,7 +311,7 @@ const scheduleEditorManager = {
         } catch(e) { console.error("儲存失敗", e); if(!silent) alert("儲存失敗"); }
     },
 
-    // 從 assignments 反推矩陣 (確保同步)
+    // 反向生成矩陣
     generateMatrixFromAssignments: function() {
         const matrix = {};
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
@@ -287,10 +324,8 @@ const scheduleEditorManager = {
                 const uid = s.uid;
                 if (this.assignments[uid]) {
                     const shift = this.assignments[uid][`current_${d}`];
-                    // 排除 OFF 和 REQ_OFF (矩陣通常只存上班，縮減體積)
-                    // 但為了前台顯示完整，我們可以考慮全存，或者前台自己補 OFF
-                    // 這裡我們存非空的班別
-                    if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
+                    // 這裡不排除 OFF/REQ_OFF，全存以保證完整性
+                    if (shift) {
                         if (!matrix[dateKey][shift]) matrix[dateKey][shift] = [];
                         matrix[dateKey][shift].push(uid);
                     }
@@ -310,7 +345,7 @@ const scheduleEditorManager = {
         }
 
         try {
-            // 🔥 發布前強制執行一次完整存檔 (包含矩陣)
+            // 發布前強制存檔，確保資料結構正確
             await this.saveDraft(true);
             
             await db.collection('schedules').doc(this.scheduleId).update({
@@ -323,7 +358,6 @@ const scheduleEditorManager = {
         } catch(e) { alert("發布失敗: " + e.message); }
     },
     
-    // ... 其餘輔助函式 (checkShortages, renderToolbar, etc.) 保持不變 ...
     checkShortages: function() {
         const list = [];
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
@@ -366,18 +400,22 @@ const scheduleEditorManager = {
     },
     
     showLoading: function() { document.getElementById('schBody').innerHTML='<tr><td colspan="35">載入中...</td></tr>'; },
+    
     loadShifts: async function() {
         const snap = await db.collection('shifts').where('unitId', '==', this.data.unitId).orderBy('startTime').get();
         this.shifts = snap.docs.map(d => d.data());
     },
+    
     loadUsers: async function() {
         const snap = await db.collection('users').get();
         snap.forEach(doc => { this.usersMap[doc.id] = doc.data(); });
     },
+    
     loadUnitRules: async function() {
         const doc = await db.collection('units').doc(this.data.unitId).get();
         this.unitRules = doc.data().schedulingRules || {};
     },
+    
     renderToolbar: function() {
         const statusBadge = document.getElementById('schStatus'); 
         if(statusBadge) {
@@ -397,6 +435,7 @@ const scheduleEditorManager = {
             rightGroup.innerHTML = `${aiBtn} ${resetBtn} ${saveBtn} ${pubBtn}`;
         }
     },
+    
     renderCellContent: function(val, uid, d) {
         const isAdjusted = this.data.adjustments && this.data.adjustments[uid] && this.data.adjustments[uid][d];
         const style = isAdjusted ? 'background-color: #ffeaa7; border: 1px solid #fdcb6e; color: #d35400;' : '';
@@ -405,11 +444,14 @@ const scheduleEditorManager = {
         if (isAdjusted) return `<span class="badge" style="${style}">${val}</span>`;
         return `<span class="badge badge-primary">${val}</span>`;
     },
+    
     handleRightClick: function(e, uid, d) {
         this.targetCell = { uid, d };
         const menu = document.getElementById('schContextMenu');
         let html = `<ul><li class="menu-header">設定 ${d} 日</li>`;
-        this.shifts.forEach(s => { html += `<li onclick="scheduleEditorManager.setShift('${s.code}')">${s.code}</li>`; });
+        this.shifts.forEach(s => {
+            html += `<li onclick="scheduleEditorManager.setShift('${s.code}')">${s.code}</li>`;
+        });
         html += `<li onclick="scheduleEditorManager.setShift('OFF')">OFF</li><li onclick="scheduleEditorManager.setShift(null)">清除</li></ul>`;
         menu.innerHTML = html;
         menu.style.display = 'block';
@@ -417,6 +459,7 @@ const scheduleEditorManager = {
         menu.style.top = `${e.pageY}px`;
         e.preventDefault();
     },
+    
     setShift: function(code) {
         const { uid, d } = this.targetCell;
         const key = `current_${d}`;
@@ -440,9 +483,11 @@ const scheduleEditorManager = {
         this.updateScheduleScore();
         document.getElementById('schContextMenu').style.display = 'none';
     },
+    
     bindEvents: function() {
         document.addEventListener('click', () => { const m = document.getElementById('schContextMenu'); if(m) m.style.display='none'; });
     },
+    
     updateRealTimeStats: function() {
         const tfoot = document.getElementById('schFoot');
         if(!tfoot) return;
@@ -491,10 +536,13 @@ const scheduleEditorManager = {
         });
         tfoot.innerHTML = fHtml;
     },
+    
     renderScoreBoardContainer: function() {
         const container = document.getElementById('matrixContainer');
+        if (!container) return;
         const parent = container.parentElement; 
         if(document.getElementById('scoreDashboard')) return;
+        
         const html = `
         <div id="scoreDashboard" style="background:#fff; padding:10px 20px; border-bottom:1px solid #ddd; display:flex; align-items:center; gap:20px;">
             <div style="display:flex; align-items:center; gap:10px; cursor:pointer;" onclick="scheduleEditorManager.showDetailedScore()">
@@ -510,6 +558,7 @@ const scheduleEditorManager = {
             </div>
         </div>`;
         parent.insertBefore(this.createElementFromHTML(html), container);
+        
         if(!document.getElementById('scoreDetailModal')) {
             const modalHtml = `
             <div id="scoreDetailModal" class="modal" style="display:none; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5);">
@@ -522,7 +571,9 @@ const scheduleEditorManager = {
             document.body.insertAdjacentHTML('beforeend', modalHtml);
         }
     },
+    
     createElementFromHTML: function(html) { const d=document.createElement('div'); d.innerHTML=html.trim(); return d.firstChild; },
+    
     updateScheduleScore: function() {
         if (typeof scoringManager === 'undefined') return;
         const res = scoringManager.calculate(this.assignments, this.data.staffList, this.data.year, this.data.month);
@@ -531,6 +582,7 @@ const scheduleEditorManager = {
         document.getElementById('scoreCircleBg').style.background = `conic-gradient(#3498db 0% ${score}%, #ecf0f1 ${score}% 100%)`;
         this.lastScoreResult = res; 
     },
+    
     showDetailedScore: function() {
         if(!this.lastScoreResult) return;
         const res = this.lastScoreResult;
@@ -539,6 +591,7 @@ const scheduleEditorManager = {
         document.getElementById('scoreDetailContent').innerHTML = html;
         document.getElementById('scoreDetailModal').style.display = 'block';
     },
+    
     unpublishSchedule: async function() {
         if(!confirm("取消發布?")) return;
         try {
@@ -551,6 +604,7 @@ const scheduleEditorManager = {
             alert("已取消");
         } catch(e) { alert("失敗"); }
     },
+    
     resetSchedule: async function() {
         if(!confirm("重置?")) return;
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
@@ -568,5 +622,6 @@ const scheduleEditorManager = {
         await this.saveDraft(true);
         alert("已重置");
     },
+    
     setupEvents: function() { }
 };
