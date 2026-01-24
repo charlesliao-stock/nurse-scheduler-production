@@ -1,10 +1,11 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 絕對完整版：嚴格禁止簡化核心邏輯 (移除多餘初始化)
+// 🚀 完整修正版：修正排班表介面，顯示完整排班偏好 (包班 + 志願序)
 
 const scheduleEditorManager = {
     scheduleId: null, data: null, shifts: [], assignments: {}, 
     unitRules: {}, staffMap: {}, usersMap: {}, isLoading: false,
     lastMonthData: {}, // 儲存上個月完整資料 (含修正)
+    lastMonthDays: 31, // 預設值，載入後會更新
 
     init: async function(id) { 
         console.log("Schedule Editor Init:", id);
@@ -18,7 +19,7 @@ const scheduleEditorManager = {
                 this.loadShifts(), 
                 this.loadUsers(), 
                 this.loadUnitRules(),
-                this.loadLastMonthSchedule() // 載入並計算上月天數
+                this.loadLastMonthSchedule() // 載入上月班表
             ]);
             
             if(typeof scoringManager !== 'undefined') {
@@ -64,14 +65,14 @@ const scheduleEditorManager = {
         this.data.staffList.forEach(s => { this.staffMap[s.uid] = s; });
     },
 
-    // [核心] 載入上月班表：優先使用傳遞過來的資料
+    // 載入上月班表：優先使用傳遞過來的資料
     loadLastMonthSchedule: async function() {
         const { year, month } = this.data;
         
         // 計算上個月天數
         let ly = year, lm = month - 1;
         if (lm === 0) { lm = 12; ly--; }
-        this.lastMonthDays = new Date(ly, lm, 0).getDate(); // 在此處動態設定
+        this.lastMonthDays = new Date(ly, lm, 0).getDate();
 
         // 1. 優先使用資料庫中已經存好的 lastMonthData (從預班表帶過來的)
         if (this.data.lastMonthData && Object.keys(this.data.lastMonthData).length > 0) {
@@ -116,8 +117,7 @@ const scheduleEditorManager = {
         let h1 = `<tr>
             <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa;">職編</th>
             <th rowspan="2" style="width:80px; position:sticky; left:60px; z-index:110; background:#f8f9fa;">姓名</th>
-            <th rowspan="2" style="width:50px;">包班</th>
-            <th colspan="6" style="background:#eee; font-size:0.8rem;">上月月底</th>`;
+            <th rowspan="2" style="width:60px;">偏好</th> <th colspan="6" style="background:#eee; font-size:0.8rem;">上月月底</th>`;
         
         for(let d=1; d<=daysInMonth; d++) {
             const date = new Date(year, month-1, d);
@@ -129,7 +129,7 @@ const scheduleEditorManager = {
 
         let h2 = `<tr>`;
         // 上月最後 6 天
-        const lastDays = this.lastMonthDays || 31; // 防呆預設，正常情況下 loadLastMonthSchedule 已設定
+        const lastDays = this.lastMonthDays || 31;
         for(let d = lastDays - 5; d <= lastDays; d++) {
             h2 += `<th style="background:#f5f5f5; font-size:0.7rem; color:#999;">${d}</th>`;
         }
@@ -153,14 +153,31 @@ const scheduleEditorManager = {
             const ua = this.assignments[uid] || {};
             const empId = this.usersMap[uid]?.employeeId || '';
             
-            // 優先讀取 staff.prefs (從預班表帶過來的)，其次讀取 assignments 裡的
+            // [修正] 讀取偏好並組合顯示字串
             const prefs = staff.prefs || ua.preferences || {};
-            const bundleDisplay = prefs.bundleShift || staff.packageType || '-';
+            let prefDisplay = '';
+            
+            // 1. 顯示包班
+            if (prefs.bundleShift || staff.packageType) {
+                prefDisplay += `<div style="font-weight:bold; font-size:0.85rem;">包${prefs.bundleShift || staff.packageType}</div>`;
+            }
+            
+            // 2. 顯示志願序 (Fav1 -> Fav2)
+            let favs = [];
+            if (prefs.favShift) favs.push(prefs.favShift);
+            if (prefs.favShift2) favs.push(prefs.favShift2);
+            if (prefs.favShift3) favs.push(prefs.favShift3);
+            
+            if (favs.length > 0) {
+                prefDisplay += `<div style="font-size:0.75rem; color:#666; line-height:1.2;">${favs.join('→')}</div>`;
+            } else if (!prefDisplay) {
+                prefDisplay = '-';
+            }
 
             bodyHtml += `<tr data-uid="${uid}">
                 <td style="position:sticky; left:0; background:#fff;">${empId}</td>
                 <td style="position:sticky; left:60px; background:#fff;">${staff.name}</td>
-                <td>${bundleDisplay}</td>`;
+                <td style="text-align:center;">${prefDisplay}</td>`;
             
             // 渲染上月最後 6 天
             const lastData = this.lastMonthData[uid] || {};
@@ -272,7 +289,7 @@ const scheduleEditorManager = {
         finally { this.isLoading = false; }
     },
 
-    // [核心修正] 缺額檢查 (完整保留)
+    // 缺額檢查 (完整保留)
     checkShortages: function() {
         const list = [];
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
@@ -318,7 +335,6 @@ const scheduleEditorManager = {
     },
 
     publishSchedule: async function() {
-        // [關鍵] 發布前必須檢查缺額
         const shortages = this.checkShortages();
         if (shortages.length > 0) {
             const msg = `⚠️ 無法發布：偵測到人力缺口\n\n${shortages.slice(0, 5).join('\n')}\n${shortages.length>5?'...等共'+shortages.length+'處':''}\n\n是否強制發布？`;
