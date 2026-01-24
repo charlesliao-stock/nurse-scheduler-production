@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 完整修正版：包含完整缺額檢查、上月資料修正顯示、AI 資料傳遞優化
+// 🚀 絕對完整版：嚴格禁止簡化核心邏輯 (移除多餘初始化)
 
 const scheduleEditorManager = {
     scheduleId: null, data: null, shifts: [], assignments: {}, 
@@ -18,14 +18,14 @@ const scheduleEditorManager = {
                 this.loadShifts(), 
                 this.loadUsers(), 
                 this.loadUnitRules(),
-                this.loadLastMonthSchedule() // 載入上月班表
+                this.loadLastMonthSchedule() // 載入並計算上月天數
             ]);
             
             if(typeof scoringManager !== 'undefined') {
                 await scoringManager.loadSettings(this.data.unitId);
             }
             
-            // 資料結構防呆驗證
+            // 資料結構防呆
             if (!this.data.assignments || typeof this.data.assignments !== 'object') {
                 this.data.assignments = {};
             }
@@ -42,7 +42,7 @@ const scheduleEditorManager = {
             this.updateScheduleScore(); 
             this.setupEvents();
             
-            // 初始化右鍵選單 DOM
+            // 初始化右鍵選單
             let menu = document.getElementById('schContextMenu');
             if (!menu) {
                 menu = document.createElement('div');
@@ -64,40 +64,33 @@ const scheduleEditorManager = {
         this.data.staffList.forEach(s => { this.staffMap[s.uid] = s; });
     },
 
-    // 載入上月班表邏輯
+    // [核心] 載入上月班表：優先使用傳遞過來的資料
     loadLastMonthSchedule: async function() {
-        // 1. 優先使用資料庫中已經存好的 lastMonthData (這是從預班表帶過來的，包含手動修正)
+        const { year, month } = this.data;
+        
+        // 計算上個月天數
+        let ly = year, lm = month - 1;
+        if (lm === 0) { lm = 12; ly--; }
+        this.lastMonthDays = new Date(ly, lm, 0).getDate(); // 在此處動態設定
+
+        // 1. 優先使用資料庫中已經存好的 lastMonthData (從預班表帶過來的)
         if (this.data.lastMonthData && Object.keys(this.data.lastMonthData).length > 0) {
             this.lastMonthData = this.data.lastMonthData;
-            
-            // 計算上個月天數
-            const { year, month } = this.data;
-            let ly = year, lm = month - 1;
-            if (lm === 0) { lm = 12; ly--; }
-            this.lastMonthDays = new Date(ly, lm, 0).getDate();
-            
             console.log("✅ 使用傳遞過來的上月資料 (含修正)");
             return;
         }
 
-        // 2. 如果沒有傳遞過來的資料，才嘗試自己去撈 (備案)
-        console.warn("⚠️ 無傳遞資料，嘗試重新撈取上月班表...");
-        const { unitId, year, month } = this.data;
-        let lastYear = year;
-        let lastMonth = month - 1;
-        if (lastMonth === 0) { lastMonth = 12; lastYear--; }
-
+        // 2. 備案：自己去撈已發布的班表
+        console.warn("⚠️ 無傳遞資料，嘗試重新撈取上月已發布班表...");
         const snap = await db.collection('schedules')
-            .where('unitId', '==', unitId)
-            .where('year', '==', lastYear)
-            .where('month', '==', lastMonth)
+            .where('unitId', '==', this.data.unitId)
+            .where('year', '==', ly)
+            .where('month', '==', lm)
             .where('status', '==', 'published')
             .limit(1)
             .get();
 
         this.lastMonthData = {};
-        this.lastMonthDays = new Date(lastYear, lastMonth, 0).getDate();
-        
         if (!snap.empty) {
             const lastData = snap.docs[0].data();
             const assigns = lastData.assignments || {};
@@ -135,12 +128,12 @@ const scheduleEditorManager = {
         h1 += `<th colspan="4" style="background:#e8f4fd;">統計</th></tr>`;
 
         let h2 = `<tr>`;
-        // 上月最後 6 天日期
-        const lastMonthDays = this.lastMonthDays || 31;
-        for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
+        // 上月最後 6 天
+        const lastDays = this.lastMonthDays || 31; // 防呆預設，正常情況下 loadLastMonthSchedule 已設定
+        for(let d = lastDays - 5; d <= lastDays; d++) {
             h2 += `<th style="background:#f5f5f5; font-size:0.7rem; color:#999;">${d}</th>`;
         }
-        // 本月星期
+        // 本月
         for(let d=1; d<=daysInMonth; d++) {
             const date = new Date(year, month-1, d);
             const w = weeks[date.getDay()];
@@ -169,15 +162,15 @@ const scheduleEditorManager = {
                 <td style="position:sticky; left:60px; background:#fff;">${staff.name}</td>
                 <td>${bundleDisplay}</td>`;
             
-            // 渲染上月最後 6 天班表 (使用 lastMonthData)
+            // 渲染上月最後 6 天
             const lastData = this.lastMonthData[uid] || {};
-            for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
-                // lastMonthData 的 key 可能是 last_28 或 current_28 (視來源而定)
+            for(let d = lastDays - 5; d <= lastDays; d++) {
+                // 相容 last_XX 與 current_XX 格式
                 const val = lastData[`last_${d}`] || lastData[`current_${d}`] || lastData[d] || ''; 
                 bodyHtml += `<td style="background:#fafafa; color:#999; font-size:0.85rem;">${val}</td>`;
             }
 
-            // 統計變數
+            // 統計
             let totalOff = 0;
             let holidayOff = 0;
             let eveningCount = 0;
@@ -188,14 +181,12 @@ const scheduleEditorManager = {
                 const isLocked = (val==='REQ_OFF');
                 const dragAttr = isLocked ? '' : 'draggable="true"';
                 
-                // 渲染格子
                 bodyHtml += `<td class="cell-clickable ${isLocked?'':'cell-draggable'}" 
                                  data-uid="${uid}" data-day="${d}" ${dragAttr} 
                                  oncontextmenu="scheduleEditorManager.handleRightClick(event, '${uid}', '${d}'); return false;">
                                  ${this.renderCellContent(val)}
                              </td>`;
                 
-                // 計算統計
                 if (!val || val === 'OFF' || val === 'REQ_OFF') {
                     totalOff++;
                     const date = new Date(year, month-1, d);
@@ -208,7 +199,7 @@ const scheduleEditorManager = {
                 }
             }
 
-            // 右側統計欄位
+            // 右側統計
             bodyHtml += `<td style="background:#f9f9f9; font-weight:bold;">${totalOff}</td>
                          <td style="background:#f9f9f9; color:red;">${holidayOff}</td>
                          <td style="background:#f9f9f9;">${eveningCount}</td>
@@ -229,11 +220,11 @@ const scheduleEditorManager = {
             const year = this.data.year;
             const month = this.data.month;
             
-            // 1. 準備人員資料 (整合偏好)
+            // 1. 準備人員資料
             const staffListForAI = this.data.staffList.map(s => {
                 const ua = this.assignments[s.uid] || {};
                 
-                // 收集本月的 REQ_OFF 鎖定狀態
+                // 鎖定 REQ_OFF
                 const preReq = {};
                 for(let d=1; d<=31; d++) {
                     const k = `current_${d}`;
@@ -262,7 +253,7 @@ const scheduleEditorManager = {
                 ...(this.data.settings || {})
             };
 
-            // 3. 執行排班 (直接傳遞 this.lastMonthData)
+            // 3. 執行排班 (傳入 this.lastMonthData)
             const scheduler = SchedulerFactory.create('V2', staffListForAI, year, month, this.lastMonthData, rules);
             const aiResult = scheduler.run();
             
@@ -281,7 +272,7 @@ const scheduleEditorManager = {
         finally { this.isLoading = false; }
     },
 
-    // 檢查缺額 (完整版)
+    // [核心修正] 缺額檢查 (完整保留)
     checkShortages: function() {
         const list = [];
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
@@ -327,6 +318,7 @@ const scheduleEditorManager = {
     },
 
     publishSchedule: async function() {
+        // [關鍵] 發布前必須檢查缺額
         const shortages = this.checkShortages();
         if (shortages.length > 0) {
             const msg = `⚠️ 無法發布：偵測到人力缺口\n\n${shortages.slice(0, 5).join('\n')}\n${shortages.length>5?'...等共'+shortages.length+'處':''}\n\n是否強制發布？`;
@@ -346,7 +338,7 @@ const scheduleEditorManager = {
         } catch(e) { alert("發布失敗: " + e.message); }
     },
 
-    // --- 以下為輔助函式 (保持不變) ---
+    // --- 輔助函式 ---
     showLoading: function() { document.getElementById('schBody').innerHTML='<tr><td colspan="35">載入中...</td></tr>'; },
     loadShifts: async function() {
         const snap = await db.collection('shifts').where('unitId', '==', this.data.unitId).orderBy('startTime').get();
