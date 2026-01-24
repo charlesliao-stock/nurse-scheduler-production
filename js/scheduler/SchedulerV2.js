@@ -1,5 +1,5 @@
 // js/scheduler/SchedulerV2.js
-// 🚀 最終邏輯閉環版：總量管制 + 封頂例外放寬連班 + 絕對平均
+// 🚀 最終完全體：包班/非包班雙軌制 + 精細化平衡 + 多階段填補 + 智慧壓力計算
 
 class SchedulerV2 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -11,20 +11,21 @@ class SchedulerV2 extends BaseScheduler {
         this.tolerance = this.rules.fairness?.fairOffVar || 2; 
         this.minCons = this.rules.pattern?.minConsecutive || 2;
         
+        // 分組清單
         this.bundleStaff = [];
         this.nonBundleStaff = [];
     }
 
     run() {
-        console.log(`🚀 SchedulerV2 Final Logic Mode Start.`);
+        console.log(`🚀 SchedulerV2 Ultimate Fix Mode Start.`);
         
         this.applyPreSchedules();
         
-        // 1. 計算配額並標記「封頂/長假人員」
+        // 1. 初始化並計算配額 (區分包班/非包班)
         this.calculateFixedQuota(); 
-        
         this.classifyStaffByBundle();
         
+        // 設定分段平衡點
         const segments = Math.max(3, this.rules.aiParams?.balancingSegments || 3);
         const interval = Math.floor(this.daysInMonth / segments);
         for (let i = 1; i < segments; i++) {
@@ -34,14 +35,17 @@ class SchedulerV2 extends BaseScheduler {
         // --- 主迴圈 ---
         for (let d = 1; d <= this.daysInMonth; d++) {
             
-            // 2. 每日更新壓力
+            // 2. 每日更新壓力 (含目標班別壓力)
             this.calculateDailyWorkPressure(d);
 
             const dailyNeeds = this.getDailyNeeds(d);
+            
+            // 隨機班別順序，但通常 N 班需要先處理以確保包班優先權
             const shiftOrder = this.shiftCodes.filter(c => c !== 'OFF' && c !== 'REQ_OFF');
-            this.shuffleArray(shiftOrder); 
+            // 將 N 班移到最前，確保包夜班的人先被滿足
+            shiftOrder.sort((a, b) => (a === 'N' ? -1 : 1));
 
-            // 3. 填班
+            // 3. 多階段填班
             for (const shiftCode of shiftOrder) {
                 const count = dailyNeeds[shiftCode] || 0;
                 if (count > 0) {
@@ -49,9 +53,10 @@ class SchedulerV2 extends BaseScheduler {
                 }
             }
 
-            // 4. 資源再分配
+            // 4. 資源再分配 (搶班機制)
             this.optimizeDailyAllocation(d);
 
+            // 5. 分段平衡
             if (this.checkpoints.includes(d)) {
                 this.postProcessBalancing(d);
             }
@@ -63,15 +68,21 @@ class SchedulerV2 extends BaseScheduler {
         return this.formatResult();
     }
 
-    // 🔧 核心修正：計算配額並標記長假人員
+    // ============================================================
+    // 🔧 核心 1：配額計算 (區分包班與非包班)
+    // ============================================================
     calculateFixedQuota() {
-        let totalRequiredShifts = 0;
-        
+        // 1. 計算每日各班別總需求
+        let totalNeedsByShift = {};
         for (let d = 1; d <= this.daysInMonth; d++) {
             const needs = this.getDailyNeeds(d);
-            Object.values(needs).forEach(count => totalRequiredShifts += count);
+            Object.entries(needs).forEach(([shift, count]) => {
+                if (!totalNeedsByShift[shift]) totalNeedsByShift[shift] = 0;
+                totalNeedsByShift[shift] += count;
+            });
         }
-
+        
+        // 2. 初始化員工統計
         this.staffList.forEach(staff => {
             let reqOffCount = 0;
             const params = staff.schedulingParams || {};
@@ -83,54 +94,125 @@ class SchedulerV2 extends BaseScheduler {
             this.staffStats[staff.id] = {
                 reqOffCount: reqOffCount,
                 availableDays: availableDays,
-                workQuota: 0, 
+                workQuota: 0,
                 workedShifts: 0,
-                isLongVacationer: false, // 預設為否
-                initialRandom: Math.random()
+                isLongVacationer: false,
+                initialRandom: Math.random(),
+                targetShift: null,  // 目標班別
+                targetQuota: 0      // 該班別配額
             };
         });
 
-        // 平均分配
-        let remainingShifts = totalRequiredShifts;
-        let staffToAssign = [...this.staffList]; 
+        // 3. 先分配包班人員的配額
+        const bundleStaffByShift = {};
+        this.staffList.forEach(staff => {
+            const bundleShift = staff.packageType || staff.prefs?.bundleShift;
+            if (bundleShift) {
+                if (!bundleStaffByShift[bundleShift]) {
+                    bundleStaffByShift[bundleShift] = [];
+                }
+                bundleStaffByShift[bundleShift].push(staff);
+                this.staffStats[staff.id].targetShift = bundleShift;
+            }
+        });
         
-        for(let iter=0; iter<5; iter++) {
-            if (staffToAssign.length === 0) break;
+        // 為每個包班群組分配配額
+        Object.entries(bundleStaffByShift).forEach(([shift, staffs]) => {
+            const totalNeed = totalNeedsByShift[shift] || 0;
+            const totalAvailable = staffs.reduce((sum, s) => 
+                sum + this.staffStats[s.id].availableDays, 0
+            );
             
-            const avgQuota = Math.ceil(remainingShifts / staffToAssign.length);
-            let nextRoundStaff = [];
-            
-            staffToAssign.forEach(staff => {
+            staffs.forEach(staff => {
                 const stats = this.staffStats[staff.id];
+                const ratio = stats.availableDays / totalAvailable;
+                stats.targetQuota = Math.floor(totalNeed * ratio);
                 
-                // [關鍵] 封頂檢查：如果可工作天數 <= 平均配額
+                // 小頂例外檢查 (Availability Capped)
+                // 如果能上的天數 < 平均應上天數，視為封頂/長假
+                const avgQuota = totalNeed / staffs.length;
                 if (stats.availableDays <= avgQuota) {
-                    // 1. 設定為全上
                     stats.workQuota = stats.availableDays;
-                    remainingShifts -= stats.availableDays;
-                    
-                    // 2. [新增] 標記為長假人員 (因為他已經滿載了，需要放寬連班限制)
+                    stats.targetQuota = stats.availableDays; // 包班者通常全上該班
                     stats.isLongVacationer = true;
-                    // console.log(`🏖️ ${staff.name} 觸發封頂例外 (可用${stats.availableDays} <= 配額${avgQuota})，標記為長假模式`);
-                
                 } else {
-                    stats.workQuota = avgQuota;
-                    nextRoundStaff.push(staff);
+                    stats.workQuota = stats.targetQuota; // 暫定總配額 = 目標配額
                 }
             });
             
-            if (nextRoundStaff.length === staffToAssign.length) {
-                const finalAvg = Math.floor(remainingShifts / nextRoundStaff.length);
-                const remainder = remainingShifts % nextRoundStaff.length;
-                nextRoundStaff.forEach((s, idx) => {
-                    this.staffStats[s.id].workQuota = finalAvg + (idx < remainder ? 1 : 0);
-                });
-                break;
+            // 處理餘數 (分配給可用天數多的人)
+            const allocated = staffs.reduce((sum, s) => 
+                sum + this.staffStats[s.id].targetQuota, 0
+            );
+            const remainder = totalNeed - allocated;
+            
+            if (remainder > 0) {
+                const sorted = [...staffs].sort((a, b) => 
+                    this.staffStats[b.id].availableDays - this.staffStats[a.id].availableDays
+                );
+                for (let i = 0; i < remainder && i < sorted.length; i++) {
+                    const stats = this.staffStats[sorted[i].id];
+                    if (!stats.isLongVacationer) {
+                        stats.targetQuota++;
+                        stats.workQuota++;
+                    }
+                }
             }
-            staffToAssign = nextRoundStaff;
+        });
+
+        // 4. 計算剩餘需求（扣除包班已分配）
+        let remainingShifts = 0;
+        Object.entries(totalNeedsByShift).forEach(([shift, total]) => {
+            const bundleStaffs = bundleStaffByShift[shift] || [];
+            const bundleAllocated = bundleStaffs.reduce((sum, s) => 
+                sum + this.staffStats[s.id].targetQuota, 0
+            );
+            remainingShifts += Math.max(0, total - bundleAllocated);
+        });
+        
+        // 5. 將剩餘需求平均分配給非包班人員
+        const nonBundleStaff = this.staffList.filter(s => {
+            const bundleShift = s.packageType || s.prefs?.bundleShift;
+            return !bundleShift;
+        });
+        
+        if (nonBundleStaff.length > 0) {
+            let staffToAssign = [...nonBundleStaff];
+            
+            for(let iter = 0; iter < 5; iter++) {
+                if (staffToAssign.length === 0) break;
+                
+                const avgQuota = Math.ceil(remainingShifts / staffToAssign.length);
+                let nextRoundStaff = [];
+                let roundAllocated = 0;
+                
+                staffToAssign.forEach(staff => {
+                    const stats = this.staffStats[staff.id];
+                    
+                    if (stats.availableDays <= avgQuota) {
+                        stats.workQuota = stats.availableDays;
+                        remainingShifts -= stats.availableDays;
+                        stats.isLongVacationer = true;
+                    } else {
+                        stats.workQuota = avgQuota; // 暫存，下一輪可能覆蓋
+                        nextRoundStaff.push(staff);
+                    }
+                });
+                
+                // 如果這輪沒人封頂，直接平分剩餘
+                if (nextRoundStaff.length === staffToAssign.length) {
+                    const finalAvg = Math.floor(remainingShifts / nextRoundStaff.length);
+                    const remainder = remainingShifts % nextRoundStaff.length;
+                    nextRoundStaff.forEach((s, idx) => {
+                        this.staffStats[s.id].workQuota = finalAvg + (idx < remainder ? 1 : 0);
+                    });
+                    break;
+                }
+                staffToAssign = nextRoundStaff;
+            }
         }
         
-        // 二次檢查：如果預休本身就很多 (例如 > 5天)，即使沒封頂，也視為長假人員，以防萬一
+        // 6. 二次檢查：預休很多也視為長假人員
         this.staffList.forEach(s => {
             if (this.staffStats[s.id].reqOffCount >= 5) {
                 this.staffStats[s.id].isLongVacationer = true;
@@ -138,14 +220,18 @@ class SchedulerV2 extends BaseScheduler {
         });
     }
 
+    // ============================================================
+    // 🔧 核心 2：每日壓力計算 (含目標班別壓力)
+    // ============================================================
     calculateDailyWorkPressure(currentDay) {
-        const remainingTotalDays = this.daysInMonth - currentDay + 1;
+        // const remainingTotalDays = this.daysInMonth - currentDay + 1; // 未使用
 
         this.staffList.forEach(s => {
             const stats = this.staffStats[s.id];
             const workedShifts = this.getTotalShiftsUpTo(s.id, currentDay - 1);
             const remainingQuota = stats.workQuota - workedShifts;
             
+            // 計算剩餘可工作天數
             let remainingAvailableDays = 0;
             const params = s.schedulingParams || {};
             for(let d = currentDay; d <= this.daysInMonth; d++) {
@@ -154,20 +240,45 @@ class SchedulerV2 extends BaseScheduler {
                 }
             }
 
-            const pressure = remainingAvailableDays > 0 ? (remainingQuota / remainingAvailableDays) : 999;
+            // 基本工作壓力
+            const basePressure = remainingAvailableDays > 0 ? 
+                (remainingQuota / remainingAvailableDays) : 999;
+            
             stats.workedShifts = workedShifts;
-            stats.workPressure = pressure;
+            stats.workPressure = basePressure;
+            
+            // 如果是包班人員，額外計算該班別的壓力
+            if (stats.targetShift) {
+                const workedTarget = this.countSpecificShiftsUpTo(
+                    s.id, currentDay - 1, stats.targetShift
+                );
+                const remainingTarget = stats.targetQuota - workedTarget;
+                
+                const targetPressure = remainingAvailableDays > 0 ? 
+                    (remainingTarget / remainingAvailableDays) : 999;
+                
+                stats.targetShiftPressure = targetPressure;
+                stats.workedTargetShifts = workedTarget;
+                
+                // 如果目標班別進度落後總進度，提高整體壓力 (強迫搶班)
+                const targetRatio = stats.targetQuota > 0 ? 
+                    (workedTarget / stats.targetQuota) : 0;
+                const totalRatio = stats.workQuota > 0 ? 
+                    (workedShifts / stats.workQuota) : 0;
+                
+                if (targetRatio < totalRatio - 0.1) {
+                    stats.workPressure += 0.5;
+                }
+            } else {
+                stats.targetShiftPressure = 0;
+                stats.workedTargetShifts = 0;
+            }
         });
     }
 
-    classifyStaffByBundle() {
-        this.staffList.forEach(staff => {
-            const bundleShift = staff.packageType || staff.prefs?.bundleShift;
-            if (bundleShift) this.bundleStaff.push(staff);
-            else this.nonBundleStaff.push(staff);
-        });
-    }
-
+    // ============================================================
+    // 🔧 核心 3：填班機制 (三階段)
+    // ============================================================
     fillShiftNeeds(day, shiftCode, neededCount) {
         const dateStr = this.getDateStr(day);
         let currentCount = this.countStaff(day, shiftCode);
@@ -175,90 +286,339 @@ class SchedulerV2 extends BaseScheduler {
 
         if (gap <= 0) return;
 
-        // 包班優先
-        if (shiftCode === 'N') {
-            const bundleNStaff = this.bundleStaff.filter(s => (s.packageType || s.prefs?.bundleShift) === 'N');
-            if (bundleNStaff.length > 0) {
-                const bundleQuota = Math.ceil(neededCount * 0.8);
-                const bundleGap = Math.min(gap, bundleQuota);
-                let bundleCandidates = bundleNStaff.filter(s => this.getShiftByDate(dateStr, s.id) === 'OFF');
-                
-                this.sortCandidatesByPressure(bundleCandidates, dateStr, shiftCode);
-
-                for (const staff of bundleCandidates) {
-                    if (bundleGap <= 0 || gap <= 0) break;
-                    const scoreInfo = this.calculateScoreInfo(staff, dateStr, shiftCode);
-                    if (scoreInfo.totalScore < -50000) continue; 
-
-                    if (this.assignIfValid(day, staff, shiftCode)) {
-                        gap--;
-                    }
-                }
-            }
-        }
-
-        // 一般填補
-        let candidates = this.staffList.filter(s => {
-            if (this.getShiftByDate(dateStr, s.id) !== 'OFF') return false;
-            const prefs = s.prefs || {};
-            const bundleShift = s.packageType || prefs.bundleShift;
-            return (bundleShift === shiftCode || prefs.favShift === shiftCode || prefs.favShift2 === shiftCode || prefs.favShift3 === shiftCode);
+        // === 第一階段：包班人員優先 ===
+        const bundleStaff = this.bundleStaff.filter(s => {
+            const bundle = s.packageType || s.prefs?.bundleShift;
+            return bundle === shiftCode;
         });
         
-        this.sortCandidatesByPressure(candidates, dateStr, shiftCode);
+        if (bundleStaff.length > 0) {
+            // 包班人員填補目標：盡量填滿 (或設為 80% 如有需要)
+            const bundleTarget = Math.ceil(neededCount * 0.9); // 給予極高優先權
+            const bundleGap = Math.min(gap, bundleTarget);
+            
+            let bundleCandidates = bundleStaff.filter(s => 
+                this.getShiftByDate(dateStr, s.id) === 'OFF'
+            );
+            
+            // 按目標班別壓力排序
+            bundleCandidates.sort((a, b) => {
+                const statsA = this.staffStats[a.id];
+                const statsB = this.staffStats[b.id];
+                
+                // 比較目標壓力
+                const diff = (statsB.targetShiftPressure || 0) - (statsA.targetShiftPressure || 0);
+                if (Math.abs(diff) > 0.05) return diff; // 壓力大者先
 
-        for (const staff of candidates) {
-            if (gap <= 0) break;
-            const scoreInfo = this.calculateScoreInfo(staff, dateStr, shiftCode);
-            if (scoreInfo.totalScore < -50000) continue;
+                // 比較完成率
+                const ratioA = statsA.targetQuota > 0 ? (statsA.workedTargetShifts / statsA.targetQuota) : 1;
+                const ratioB = statsB.targetQuota > 0 ? (statsB.workedTargetShifts / statsB.targetQuota) : 1;
+                return ratioA - ratioB; // 完成率低者先
+            });
 
-            if (this.assignIfValid(day, staff, shiftCode)) {
-                gap--;
-            } else {
-                if (this.tryResolveConflict(day, staff, shiftCode)) {
-                     if (this.assignIfValid(day, staff, shiftCode)) gap--;
+            let filled = 0;
+            for (const staff of bundleCandidates) {
+                if (filled >= bundleGap || gap <= 0) break;
+                
+                const scoreInfo = this.calculateScoreInfo(staff, dateStr, shiftCode);
+                if (scoreInfo.totalScore < -50000) continue;
+
+                if (this.assignIfValid(day, staff, shiftCode)) {
+                    gap--;
+                    filled++;
+                }
+            }
+        }
+
+        // === 第二階段：有偏好的非包班人員 ===
+        if (gap > 0) {
+            let prefCandidates = this.nonBundleStaff.filter(s => {
+                if (this.getShiftByDate(dateStr, s.id) !== 'OFF') return false;
+                
+                const prefs = s.prefs || {};
+                return (prefs.favShift === shiftCode || 
+                        prefs.favShift2 === shiftCode || 
+                        prefs.favShift3 === shiftCode);
+            });
+            
+            this.sortCandidatesByPressure(prefCandidates, dateStr, shiftCode);
+
+            for (const staff of prefCandidates) {
+                if (gap <= 0) break;
+                
+                const scoreInfo = this.calculateScoreInfo(staff, dateStr, shiftCode);
+                if (scoreInfo.totalScore < -50000) continue;
+
+                if (this.assignIfValid(day, staff, shiftCode)) {
+                    gap--;
+                } else if (this.tryResolveConflict(day, staff, shiftCode)) {
+                    if (this.assignIfValid(day, staff, shiftCode)) gap--;
+                }
+            }
+        }
+
+        // === 第三階段：所有可行人員（含包班但進度超前者） ===
+        if (gap > 0) {
+            let allCandidates = this.staffList.filter(s => {
+                if (this.getShiftByDate(dateStr, s.id) !== 'OFF') return false;
+                
+                const stats = this.staffStats[s.id];
+                // 包班人員：只有在目標班別進度超前時才加入幫忙
+                if (stats.targetShift && stats.targetShift !== shiftCode) {
+                    const ratio = stats.targetQuota > 0 ? 
+                        (stats.workedTargetShifts / stats.targetQuota) : 0;
+                    const totalRatio = stats.workQuota > 0 ? 
+                        (stats.workedShifts / stats.workQuota) : 0;
+                    
+                    // 目標班別進度超前 5% 以上
+                    return ratio > totalRatio + 0.05;
+                }
+                return true;
+            });
+            
+            this.sortCandidatesByPressure(allCandidates, dateStr, shiftCode);
+
+            for (const staff of allCandidates) {
+                if (gap <= 0) break;
+                
+                const scoreInfo = this.calculateScoreInfo(staff, dateStr, shiftCode);
+                if (scoreInfo.totalScore < -50000) continue;
+
+                if (this.assignIfValid(day, staff, shiftCode)) {
+                    gap--;
+                } else if (this.tryResolveConflict(day, staff, shiftCode)) {
+                    if (this.assignIfValid(day, staff, shiftCode)) gap--;
                 }
             }
         }
         
+        // === 第四階段：回溯填補 ===
         if (gap > 0 && this.backtrackDepth > 0) {
             const recovered = this.resolveShortageWithBacktrack(day, shiftCode, gap);
             gap -= recovered;
         }
+        
+        if (gap > 0) {
+            console.warn(`[缺口警示] ${dateStr} ${shiftCode} 尚缺 ${gap} 人`);
+        }
     }
 
-    sortCandidatesByPressure(candidates, dateStr, shiftCode) {
-        this.shuffleArray(candidates); 
-        candidates.sort((a, b) => {
-            const pressureA = this.staffStats[a.id].workPressure;
-            const pressureB = this.staffStats[b.id].workPressure;
-            const diff = pressureB - pressureA; 
+    // ============================================================
+    // 🔧 核心 4：精細化平衡機制
+    // ============================================================
+    postProcessBalancing(limitDay) {
+        const rounds = (this.rules.fairness?.balanceRounds || 100) * 2;
+        
+        // 1. 先平衡 OFF 數（所有人員）
+        const isFairOff = this.rules.fairness?.fairOff !== false;
+        if (isFairOff) {
+            this.balanceShiftType('OFF', limitDay, rounds);
+        }
+        
+        // 2. 分別平衡夜班數
+        const isFairNight = this.rules.fairness?.fairNight !== false;
+        if (isFairNight) {
+            this.balanceNightShiftsByGroup(limitDay, rounds);
+        }
+    }
+
+    balanceNightShiftsByGroup(limitDay, rounds) {
+        // 找出所有夜班代碼
+        const nightShifts = this.shiftCodes.filter(code => this.isNightShift(code));
+        
+        // 分群
+        const groups = new Map();
+        
+        this.staffList.forEach(staff => {
+            const bundleShift = staff.packageType || staff.prefs?.bundleShift;
             
+            if (bundleShift && nightShifts.includes(bundleShift)) {
+                // 包班人員：按包班類型分組
+                const key = `bundle_${bundleShift}`;
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(staff);
+            } else if (!bundleShift) {
+                // 非包班人員：統一處理
+                const key = 'non_bundle_night';
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(staff);
+            }
+        });
+        
+        // 對每組分別平衡
+        groups.forEach((staffGroup, groupKey) => {
+            if (groupKey.startsWith('bundle_')) {
+                // 包班人員：只平衡該特定夜班
+                const targetShift = groupKey.replace('bundle_', '');
+                this.balanceShiftTypeForGroup(targetShift, staffGroup, limitDay, rounds);
+            } else {
+                // 非包班人員：平衡所有夜班總數
+                this.balanceTotalNightShiftsForGroup(nightShifts, staffGroup, limitDay, rounds);
+            }
+        });
+    }
+
+    // 平衡特定群組的特定班別
+    balanceShiftTypeForGroup(targetShift, staffGroup, limitDay, rounds) {
+        const tolerance = this.tolerance || 2;
+        
+        const isLocked = (d, uid) => {
+            const dateStr = this.getDateStr(d);
+            const s = this.staffList.find(x => x.id === uid);
+            return s?.schedulingParams?.[dateStr] !== undefined;
+        };
+        
+        for (let r = 0; r < rounds; r++) {
+            const stats = staffGroup.map(s => {
+                let count = 0;
+                for(let d = 1; d <= limitDay; d++) {
+                    if(this.getShiftByDate(this.getDateStr(d), s.id) === targetShift) count++;
+                }
+                return { id: s.id, count, obj: s };
+            }).sort((a, b) => b.count - a.count);
+            
+            if (stats.length === 0) break;
+            const maxPerson = stats[0];
+            const minPerson = stats[stats.length - 1];
+            
+            if (maxPerson.count - minPerson.count <= tolerance) break;
+            
+            let swapped = false;
+            const days = Array.from({length: limitDay}, (_, i) => i + 1);
+            this.shuffleArray(days);
+            
+            for (const d of days) {
+                if (isLocked(d, maxPerson.id) || isLocked(d, minPerson.id)) continue;
+                
+                const dateStr = this.getDateStr(d);
+                const shiftMax = this.getShiftByDate(dateStr, maxPerson.id);
+                const shiftMin = this.getShiftByDate(dateStr, minPerson.id);
+                
+                // Max有目標班，Min沒有 -> 交換
+                if (shiftMax === targetShift && shiftMin !== targetShift) {
+                    if (this.checkSwapValidity(d, maxPerson.obj, shiftMax, shiftMin) &&
+                        this.checkSwapValidity(d, minPerson.obj, shiftMin, shiftMax)) {
+                        
+                        this.updateShift(dateStr, maxPerson.id, shiftMax, shiftMin);
+                        this.updateShift(dateStr, minPerson.id, shiftMin, shiftMax);
+                        swapped = true;
+                        break;
+                    }
+                }
+            }
+            if (!swapped) break;
+        }
+    }
+
+    // 平衡非包班人員的總夜班數
+    balanceTotalNightShiftsForGroup(nightShifts, staffGroup, limitDay, rounds) {
+        const tolerance = this.tolerance || 2;
+        const isLocked = (d, uid) => {
+            const dateStr = this.getDateStr(d);
+            const s = this.staffList.find(x => x.id === uid);
+            return s?.schedulingParams?.[dateStr] !== undefined;
+        };
+        
+        for (let r = 0; r < rounds; r++) {
+            const stats = staffGroup.map(s => {
+                let count = 0;
+                for(let d = 1; d <= limitDay; d++) {
+                    const shift = this.getShiftByDate(this.getDateStr(d), s.id);
+                    if(nightShifts.includes(shift)) count++;
+                }
+                return { id: s.id, count, obj: s };
+            }).sort((a, b) => b.count - a.count);
+            
+            if (stats.length === 0) break;
+            const maxPerson = stats[0];
+            const minPerson = stats[stats.length - 1];
+            
+            if (maxPerson.count - minPerson.count <= tolerance) break;
+            
+            let swapped = false;
+            const days = Array.from({length: limitDay}, (_, i) => i + 1);
+            this.shuffleArray(days);
+            
+            for (const d of days) {
+                if (isLocked(d, maxPerson.id) || isLocked(d, minPerson.id)) continue;
+                
+                const dateStr = this.getDateStr(d);
+                const shiftMax = this.getShiftByDate(dateStr, maxPerson.id);
+                const shiftMin = this.getShiftByDate(dateStr, minPerson.id);
+                
+                // Max有夜班，Min無夜班 -> 交換
+                if (nightShifts.includes(shiftMax) && !nightShifts.includes(shiftMin)) {
+                    if (this.checkSwapValidity(d, maxPerson.obj, shiftMax, shiftMin) &&
+                        this.checkSwapValidity(d, minPerson.obj, shiftMin, shiftMax)) {
+                        
+                        this.updateShift(dateStr, maxPerson.id, shiftMax, shiftMin);
+                        this.updateShift(dateStr, minPerson.id, shiftMin, shiftMax);
+                        swapped = true;
+                        break;
+                    }
+                }
+            }
+            if (!swapped) break;
+        }
+    }
+
+    // --- 輔助：排序邏輯 ---
+    sortCandidatesByPressure(candidates, dateStr, shiftCode) {
+        this.shuffleArray(candidates);
+        
+        candidates.sort((a, b) => {
+            const statsA = this.staffStats[a.id];
+            const statsB = this.staffStats[b.id];
+            
+            let pressureA = statsA.workPressure;
+            let pressureB = statsB.workPressure;
+            
+            // 如果是目標班別，使用目標壓力比較
+            if (statsA.targetShift === shiftCode) pressureA = Math.max(pressureA, statsA.targetShiftPressure);
+            if (statsB.targetShift === shiftCode) pressureB = Math.max(pressureB, statsB.targetShiftPressure);
+            
+            const diff = pressureB - pressureA;
             if (Math.abs(diff) > 0.05) return diff > 0 ? 1 : -1;
             
             const scoreA = this.calculateScoreInfo(a, dateStr, shiftCode).totalScore;
             const scoreB = this.calculateScoreInfo(b, dateStr, shiftCode).totalScore;
-            return scoreB - scoreA; 
+            return scoreB - scoreA;
         });
     }
 
+    // --- 輔助：資源再分配 (使用綜合壓力) ---
     optimizeDailyAllocation(day) {
         const dateStr = this.getDateStr(day);
-        
         const offStaffs = this.staffList.filter(s => 
             this.getShiftByDate(dateStr, s.id) === 'OFF' && !this.isPreRequestOff(s.id, dateStr)
         );
 
-        offStaffs.sort((a, b) => this.staffStats[b.id].workPressure - this.staffStats[a.id].workPressure);
+        // 按綜合壓力排序
+        offStaffs.sort((a, b) => {
+            const statsA = this.staffStats[a.id];
+            const statsB = this.staffStats[b.id];
+            const maxP_A = Math.max(statsA.workPressure, statsA.targetShiftPressure || 0);
+            const maxP_B = Math.max(statsB.workPressure, statsB.targetShiftPressure || 0);
+            return maxP_B - maxP_A;
+        });
 
         for (const highPressureStaff of offStaffs) {
-            const pressure = this.staffStats[highPressureStaff.id].workPressure;
-            if (pressure < 0.7) continue; 
+            const stats = this.staffStats[highPressureStaff.id];
+            const pressure = Math.max(stats.workPressure, stats.targetShiftPressure || 0);
+            
+            if (pressure < 0.7) continue;
 
-            const targetShifts = this.shiftCodes.filter(code => {
-                if (code === 'OFF' || code === 'REQ_OFF') return false;
+            // 尋找可搶班別
+            let targetShifts = [];
+            if (stats.targetShift) {
+                const s = this.calculateScoreInfo(highPressureStaff, dateStr, stats.targetShift);
+                if (s.totalScore > -1000) targetShifts.push(stats.targetShift);
+            }
+            
+            this.shiftCodes.forEach(code => {
+                if (code === 'OFF' || code === 'REQ_OFF' || code === stats.targetShift) return;
                 const s = this.calculateScoreInfo(highPressureStaff, dateStr, code);
-                return s.totalScore > -1000; 
+                if (s.totalScore > -1000) targetShifts.push(code);
             });
             
             targetShifts.sort((a, b) => {
@@ -268,24 +628,25 @@ class SchedulerV2 extends BaseScheduler {
 
             for (const targetCode of targetShifts) {
                 const assignedUids = this.schedule[dateStr][targetCode] || [];
-                
                 let bestSwapTarget = null;
-                let maxPressureDiff = -999;
+                let maxBenefit = -999;
 
                 for (const uid of assignedUids) {
                     const lowPressureStaff = this.staffList.find(s => s.id === uid);
-                    if (!lowPressureStaff || this.isPreRequestOff(lowPressureStaff.id, dateStr)) continue; 
+                    if (!lowPressureStaff || this.isPreRequestOff(lowPressureStaff.id, dateStr)) continue;
 
-                    const lowPressure = this.staffStats[lowPressureStaff.id].workPressure;
-                    const diff = pressure - lowPressure;
+                    const lowStats = this.staffStats[lowPressureStaff.id];
+                    const lowPressure = Math.max(lowStats.workPressure, lowStats.targetShiftPressure || 0);
+                    
+                    let benefit = pressure - lowPressure;
+                    if (stats.targetShift === targetCode) benefit += 0.3; // 搶回本命班加分
+                    if (lowStats.targetShift === targetCode) benefit -= 0.3; // 對方本命班減分
 
-                    if (diff > 0.2) { 
-                        if (diff > maxPressureDiff) {
-                            if (this.checkSwapValidity(day, highPressureStaff, 'OFF', targetCode) && 
-                                this.checkSwapValidity(day, lowPressureStaff, targetCode, 'OFF')) {
-                                bestSwapTarget = lowPressureStaff;
-                                maxPressureDiff = diff;
-                            }
+                    if (benefit > 0.2 && benefit > maxBenefit) {
+                        if (this.checkSwapValidity(day, highPressureStaff, 'OFF', targetCode) && 
+                            this.checkSwapValidity(day, lowPressureStaff, targetCode, 'OFF')) {
+                            bestSwapTarget = lowPressureStaff;
+                            maxBenefit = benefit;
                         }
                     }
                 }
@@ -299,6 +660,21 @@ class SchedulerV2 extends BaseScheduler {
         }
     }
 
+    // --- 輔助：分類包班人員 ---
+    classifyStaffByBundle() {
+        this.staffList.forEach(staff => {
+            const bundleShift = staff.packageType || staff.prefs?.bundleShift;
+            if (bundleShift) this.bundleStaff.push(staff);
+            else this.nonBundleStaff.push(staff);
+        });
+    }
+
+    // --- 輔助：判斷夜班 ---
+    isNightShift(code) {
+        return ['N', 'E', 'EN'].includes(code); // 根據實際代碼調整
+    }
+
+    // --- 其他標準方法 ---
     calculateScoreInfo(staff, dateStr, shiftCode) {
         let score = 0;
         const policy = this.rules.policy || {};
@@ -335,11 +711,12 @@ class SchedulerV2 extends BaseScheduler {
         if (bundleShift === shiftCode) {
             score += 50000; 
             isPreferred = true;
-            const currentDay = new Date(dateStr).getDate();
-            const totalShiftsSoFar = this.getTotalShiftsUpTo(staff.id, currentDay - 1);
-            const bundleShiftsSoFar = this.countSpecificShiftsUpTo(staff.id, currentDay - 1, bundleShift);
-            const bundleRatio = (totalShiftsSoFar > 0) ? (bundleShiftsSoFar / totalShiftsSoFar) : 0;
-            if (bundleRatio < 0.8) score += 10000; 
+            // 比例加權：如果還沒達標，額外加分
+            const stats = this.staffStats[staff.id];
+            if (stats.targetQuota > 0) {
+                const ratio = stats.workedTargetShifts / stats.targetQuota;
+                if (ratio < 0.8) score += 10000;
+            }
         }
 
         if (prefs.favShift === shiftCode) { score += 3000; isPreferred = true; }
@@ -355,65 +732,48 @@ class SchedulerV2 extends BaseScheduler {
         return { totalScore: score, isPreferred: isPreferred };
     }
 
-    // 🔧 核心修正：合法性檢查應用長假放寬
-    isValidAssignment(staff, dateStr, shiftCode) {
-        const baseValid = super.isValidAssignment(staff, dateStr, shiftCode);
-        if (baseValid) return true;
+    resolveShortageWithBacktrack(currentDay, targetShift, gap) {
+        let recovered = 0;
+        for (let d = currentDay - 1; d >= Math.max(1, currentDay - this.backtrackDepth); d--) {
+            if (gap <= 0) break;
+            const pastDateStr = this.getDateStr(d);
+            const currentDateStr = this.getDateStr(currentDay);
+            const candidates = this.staffList.filter(s => 
+                this.getShiftByDate(currentDateStr, s.id) === 'OFF' &&
+                !this.isPreRequestOff(s.id, currentDateStr)
+            );
+            this.sortCandidatesByPressure(candidates, currentDateStr, targetShift);
+            for (const staff of candidates) {
+                if (gap <= 0) break;
+                if (this.attemptBacktrackForStaff(staff, currentDay, targetShift)) {
+                    this.updateShift(currentDateStr, staff.id, 'OFF', targetShift);
+                    gap--;
+                    recovered++;
+                }
+            }
+        }
+        return recovered;
+    }
 
-        const consDays = this.getConsecutiveWorkDays(staff.id, dateStr);
-        const normalLimit = this.rules.policy?.maxConsDays || 6;
-        
-        if (consDays + 1 > normalLimit) {
-            const stats = this.staffStats[staff.id];
-            
-            // [修正] 只要被標記為長假人員 (包含封頂者)，就允許放寬
-            if (stats?.isLongVacationer) {
-                const longVacLimit = this.rules.policy?.longVacationWorkLimit || 7;
-                
-                // 只有當設定的長假上限真的比一般上限高時，才放行
-                if (longVacLimit > normalLimit && consDays + 1 <= longVacLimit) {
-                    const currentDayIndex = new Date(dateStr).getDate();
-                    let prevShift = 'OFF';
-                    if (currentDayIndex > 1) {
-                         const prevDateStr = this.getDateStr(currentDayIndex - 1);
-                         prevShift = this.getShiftByDate(prevDateStr, staff.id);
-                    } else if (currentDayIndex === 1) {
-                        prevShift = this.lastMonthData?.[staff.id]?.lastShift || 'OFF';
-                    }
-                    if (!this.checkRestPeriod(prevShift, shiftCode)) return false; 
+    attemptBacktrackForStaff(staff, currentDay, targetShift) {
+        const currentDateStr = this.getDateStr(currentDay);
+        const scoreInfo = this.calculateScoreInfo(staff, currentDateStr, targetShift);
+        if (scoreInfo.totalScore < -50000) return false;
+
+        for (let d = currentDay - 1; d >= Math.max(1, currentDay - this.backtrackDepth); d--) {
+            const pastDateStr = this.getDateStr(d);
+            const pastShift = this.getShiftByDate(pastDateStr, staff.id);
+            if (pastShift !== 'OFF' && pastShift !== 'REQ_OFF' && !this.isPreRequestOff(staff.id, pastDateStr)) {
+                this.updateShift(pastDateStr, staff.id, pastShift, 'OFF');
+                if (this.isValidAssignment(staff, currentDateStr, targetShift) && 
+                    this.checkGroupMaxLimit(currentDay, staff, targetShift)) {
                     return true;
+                } else {
+                    this.updateShift(pastDateStr, staff.id, 'OFF', pastShift);
                 }
             }
         }
         return false;
-    }
-
-    // === 其他輔助函數 ===
-    
-    countSystemOffsUpTo(uid, dayLimit) {
-        let count = 0;
-        for (let d = 1; d <= dayLimit; d++) {
-            const shift = this.getShiftByDate(this.getDateStr(d), uid);
-            if (shift === 'OFF') count++;
-        }
-        return count;
-    }
-
-    getTotalShiftsUpTo(uid, dayLimit) {
-        let count = 0;
-        for (let d = 1; d <= dayLimit; d++) {
-            const shift = this.getShiftByDate(this.getDateStr(d), uid);
-            if (shift !== 'OFF' && shift !== 'REQ_OFF') count++;
-        }
-        return count;
-    }
-
-    countSpecificShiftsUpTo(uid, dayLimit, targetShift) {
-        let count = 0;
-        for (let d = 1; d <= dayLimit; d++) {
-            if (this.getShiftByDate(this.getDateStr(d), uid) === targetShift) count++;
-        }
-        return count;
     }
 
     checkSwapValidity(day, staff, currentShift, newShift) {
@@ -431,6 +791,43 @@ class SchedulerV2 extends BaseScheduler {
             [array[i], array[j]] = [array[j], array[i]];
         }
         return array;
+    }
+
+    assignIfValid(day, staff, shiftCode) {
+        const dateStr = this.getDateStr(day);
+        const isValid = this.isValidAssignment(staff, dateStr, shiftCode);
+        const isGroupValid = this.checkGroupMaxLimit(day, staff, shiftCode);
+        if (isValid && isGroupValid) {
+            this.updateShift(dateStr, staff.id, 'OFF', shiftCode);
+            return true;
+        }
+        return false;
+    }
+
+    isValidAssignment(staff, dateStr, shiftCode) {
+        const baseValid = super.isValidAssignment(staff, dateStr, shiftCode);
+        if (baseValid) return true;
+        const consDays = this.getConsecutiveWorkDays(staff.id, dateStr);
+        const normalLimit = this.rules.policy?.maxConsDays || 6;
+        if (consDays + 1 > normalLimit) {
+            const stats = this.staffStats[staff.id];
+            if (stats?.isLongVacationer) {
+                const longVacLimit = this.rules.policy?.longVacationWorkLimit || 7;
+                if (consDays + 1 <= longVacLimit) {
+                    const currentDayIndex = new Date(dateStr).getDate();
+                    let prevShift = 'OFF';
+                    if (currentDayIndex > 1) {
+                         const prevDateStr = this.getDateStr(currentDayIndex - 1);
+                         prevShift = this.getShiftByDate(prevDateStr, staff.id);
+                    } else if (currentDayIndex === 1) {
+                        prevShift = this.lastMonthData?.[staff.id]?.lastShift || 'OFF';
+                    }
+                    if (!this.checkRestPeriod(prevShift, shiftCode)) return false; 
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     tryResolveConflict(day, staff, targetShift) {
@@ -489,56 +886,37 @@ class SchedulerV2 extends BaseScheduler {
         return currentCount < limit;
     }
 
-    resolveShortageWithBacktrack(currentDay, targetShift, gap) {
-        let recovered = 0;
-        for (let d = currentDay - 1; d >= Math.max(1, currentDay - this.backtrackDepth); d--) {
-            if (gap <= 0) break;
-            const pastDateStr = this.getDateStr(d);
-            const currentDateStr = this.getDateStr(currentDay);
-            const candidates = this.staffList.filter(s => 
-                this.getShiftByDate(currentDateStr, s.id) === 'OFF' &&
-                !this.isPreRequestOff(s.id, currentDateStr)
-            );
-            this.sortCandidatesByPressure(candidates, currentDateStr, targetShift);
-            for (const staff of candidates) {
-                if (gap <= 0) break;
-                if (this.attemptBacktrackForStaff(staff, currentDay, targetShift)) {
-                    this.updateShift(currentDateStr, staff.id, 'OFF', targetShift);
-                    gap--;
-                    recovered++;
+    applyPreSchedules() {
+        this.staffList.forEach(staff => {
+            const params = staff.schedulingParams || {};
+            for (let d = 1; d <= this.daysInMonth; d++) {
+                const dateStr = this.getDateStr(d);
+                const req = params[dateStr];
+                if (req === 'REQ_OFF') {
+                    this.updateShift(dateStr, staff.id, 'OFF', 'REQ_OFF');
+                }
+                else if (req && req !== 'OFF' && !req.startsWith('!')) {
+                    this.updateShift(dateStr, staff.id, 'OFF', req);
                 }
             }
-        }
-        return recovered;
+        });
     }
 
-    attemptBacktrackForStaff(staff, currentDay, targetShift) {
-        const currentDateStr = this.getDateStr(currentDay);
-        const scoreInfo = this.calculateScoreInfo(staff, currentDateStr, targetShift);
-        if (scoreInfo.totalScore < -50000) return false;
-
-        for (let d = currentDay - 1; d >= Math.max(1, currentDay - this.backtrackDepth); d--) {
-            const pastDateStr = this.getDateStr(d);
-            const pastShift = this.getShiftByDate(pastDateStr, staff.id);
-            if (pastShift !== 'OFF' && pastShift !== 'REQ_OFF' && !this.isPreRequestOff(staff.id, pastDateStr)) {
-                this.updateShift(pastDateStr, staff.id, pastShift, 'OFF');
-                if (this.isValidAssignment(staff, currentDateStr, targetShift) && 
-                    this.checkGroupMaxLimit(currentDay, staff, targetShift)) {
-                    return true;
-                } else {
-                    this.updateShift(pastDateStr, staff.id, 'OFF', pastShift);
-                }
-            }
+    countSpecificShiftsUpTo(uid, dayLimit, targetShift) {
+        let count = 0;
+        for (let d = 1; d <= dayLimit; d++) {
+            if (this.getShiftByDate(this.getDateStr(d), uid) === targetShift) count++;
         }
-        return false;
+        return count;
     }
 
-    postProcessBalancing(limitDay) {
-        const rounds = (this.rules.fairness?.balanceRounds || 100) * 2; 
-        const isFairNight = this.rules.fairness?.fairNight !== false; 
-        if (isFairNight) this.balanceShiftType('N', limitDay, rounds);
-        const isFairOff = this.rules.fairness?.fairOff !== false;     
-        if (isFairOff) this.balanceShiftType('OFF', limitDay, rounds);
+    getTotalShiftsUpTo(uid, dayLimit) {
+        let count = 0;
+        for (let d = 1; d <= dayLimit; d++) {
+            const shift = this.getShiftByDate(this.getDateStr(d), uid);
+            if (shift !== 'OFF' && shift !== 'REQ_OFF') count++;
+        }
+        return count;
     }
 
     balanceShiftType(targetShift, limitDay, rounds) {
@@ -593,22 +971,6 @@ class SchedulerV2 extends BaseScheduler {
             }
             if (!swapped) break; 
         }
-    }
-
-    applyPreSchedules() {
-        this.staffList.forEach(staff => {
-            const params = staff.schedulingParams || {};
-            for (let d = 1; d <= this.daysInMonth; d++) {
-                const dateStr = this.getDateStr(d);
-                const req = params[dateStr];
-                if (req === 'REQ_OFF') {
-                    this.updateShift(dateStr, staff.id, 'OFF', 'REQ_OFF');
-                }
-                else if (req && req !== 'OFF' && !req.startsWith('!')) {
-                    this.updateShift(dateStr, staff.id, 'OFF', req);
-                }
-            }
-        });
     }
 
     formatResult() { 
