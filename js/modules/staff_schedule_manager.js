@@ -9,6 +9,7 @@ const staffScheduleManager = {
     init: async function() {
         if (!app.currentUser) { alert("請先登入"); return; }
         this.uid = app.getUid();
+        this.unitId = app.getUnitId();
         
         // 預設本月
         const now = new Date();
@@ -46,7 +47,7 @@ const staffScheduleManager = {
             // 過濾出與我相關的班表
             const mySchedules = snap.docs.filter(doc => {
                 const d = doc.data();
-                const isMyUnit = (d.unitId === app.userUnitId);
+                const isMyUnit = (d.unitId === this.unitId);
                 const isParticipant = (d.staffList || []).some(s => s.uid === this.uid);
                 return isMyUnit || isParticipant;
             });
@@ -62,7 +63,7 @@ const staffScheduleManager = {
             if(noData) noData.style.display = 'none';
 
             // 優先取主單位的班表
-            const targetDoc = mySchedules.find(doc => doc.data().unitId === app.userUnitId) || mySchedules[0];
+            const targetDoc = mySchedules.find(doc => doc.data().unitId === this.unitId) || mySchedules[0];
             this.currentSchedule = { id: targetDoc.id, ...targetDoc.data() };
             this.currentAssignments = this.currentSchedule.assignments || {};
             
