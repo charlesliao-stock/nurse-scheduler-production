@@ -87,13 +87,22 @@ const staffScheduleManager = {
             this.currentSchedule = { id: targetDoc.id, ...targetDoc.data() };
             this.currentAssignments = this.currentSchedule.assignments || {};
             
-            // 模糊比對：將資料映射回 this.uid
-            if (!this.currentAssignments[this.uid]) {
+            // 模糊比對與資料映射
+            let myData = this.currentAssignments[this.uid];
+            if (!myData) {
                 const fuzzyKey = Object.keys(this.currentAssignments).find(k => k.trim() === this.uid.trim());
                 if (fuzzyKey) {
                     console.log(`🔧 Mapping data from '${fuzzyKey}' to '${this.uid}'`);
                     this.currentAssignments[this.uid] = this.currentAssignments[fuzzyKey];
+                    myData = this.currentAssignments[this.uid];
                 }
+            }
+
+            // 🛠️ Debug: 印出資料庫裡的真實 Keys，確認格式
+            if (myData) {
+                console.log("🛠️ Database Keys Sample:", Object.keys(myData).slice(0, 5));
+            } else {
+                console.warn("⚠️ No assignment data found for this UID inside the schedule.");
             }
             
             this.renderHorizontalTable(year, month);
@@ -105,7 +114,7 @@ const staffScheduleManager = {
         }
     },
 
-    // --- 核心：橫式班表渲染 ---
+    // --- 核心：橫式班表渲染 (萬能鑰匙版) ---
     renderHorizontalTable: function(year, month) {
         const rowWeekday = document.getElementById('row-weekday');
         const rowDate = document.getElementById('row-date');
@@ -128,8 +137,19 @@ const staffScheduleManager = {
             const dayOfWeek = dateObj.getDay(); 
             const weekStr = ['日','一','二','三','四','五','六'][dayOfWeek];
             
-            // ⚠️ 關鍵修正：改回使用 current_d 格式
-            const shiftCode = myAssign[`current_${d}`] || 'OFF';
+            // ⚠️ 萬能讀取邏輯：嘗試所有可能的 Key 格式
+            // 1. current_1 (不補零)
+            // 2. current_01 (補零)
+            // 3. YYYY-MM-DD (日期字串)
+            let shiftCode = myAssign[`current_${d}`];
+            if (!shiftCode) shiftCode = myAssign[`current_${String(d).padStart(2, '0')}`];
+            if (!shiftCode) {
+                const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                shiftCode = myAssign[dateKey];
+            }
+            
+            // 如果都沒找到，預設 OFF
+            shiftCode = shiftCode || 'OFF';
             
             // 1. 星期列
             const tdW = document.createElement('td');
@@ -177,8 +197,13 @@ const staffScheduleManager = {
         let totalShifts = 0, totalOff = 0, holidayOff = 0, evening = 0, night = 0, exchangeCount = 0;
 
         for (let d = 1; d <= daysInMonth; d++) {
-            // ⚠️ 關鍵修正：統計也要用 current_d
-            const code = myAssign[`current_${d}`];
+            // ⚠️ 統計也要用萬能邏輯
+            let code = myAssign[`current_${d}`];
+            if (!code) code = myAssign[`current_${String(d).padStart(2, '0')}`];
+            if (!code) {
+                const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                code = myAssign[dateKey];
+            }
             
             if (!code || code === 'OFF' || code === 'REQ_OFF') {
                 totalOff++;
@@ -252,8 +277,14 @@ const staffScheduleManager = {
             }
             targetAssign = targetAssign || {};
 
-            // ⚠️ 關鍵修正：對方班表也是 current_d
-            const targetShift = targetAssign[`current_${day}`] || 'OFF';
+            // ⚠️ 對方班表也要用萬能邏輯
+            let targetShift = targetAssign[`current_${day}`];
+            if (!targetShift) targetShift = targetAssign[`current_${String(day).padStart(2, '0')}`];
+            if (!targetShift) {
+                const dateKey = `${this.currentSchedule.year}-${String(this.currentSchedule.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                targetShift = targetAssign[dateKey];
+            }
+            targetShift = targetShift || 'OFF';
             
             if (targetShift !== myShift) {
                 options.push(`<option value="${staff.uid}" data-shift="${targetShift}">
