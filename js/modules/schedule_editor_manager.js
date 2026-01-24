@@ -1,11 +1,11 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 完整修正版：修正排班表介面，顯示完整排班偏好 (包班 + 志願序)
+// 🚀 最終修正版：相容新資料格式 + 自動寫入 assignments + 完整評分UI實作
 
 const scheduleEditorManager = {
     scheduleId: null, data: null, shifts: [], assignments: {}, 
     unitRules: {}, staffMap: {}, usersMap: {}, isLoading: false,
-    lastMonthData: {}, // 儲存上個月完整資料 (含修正)
-    lastMonthDays: 31, // 預設值，載入後會更新
+    lastMonthData: {}, lastMonthDays: 31,
+    lastScoreResult: null, // 用於儲存評分結果
 
     init: async function(id) { 
         console.log("Schedule Editor Init:", id);
@@ -19,14 +19,13 @@ const scheduleEditorManager = {
                 this.loadShifts(), 
                 this.loadUsers(), 
                 this.loadUnitRules(),
-                this.loadLastMonthSchedule() // 載入上月班表
+                this.loadLastMonthSchedule()
             ]);
             
             if(typeof scoringManager !== 'undefined') {
                 await scoringManager.loadSettings(this.data.unitId);
             }
             
-            // 資料結構防呆
             if (!this.data.assignments || typeof this.data.assignments !== 'object') {
                 this.data.assignments = {};
             }
@@ -42,20 +41,21 @@ const scheduleEditorManager = {
             this.updateRealTimeStats(); 
             this.updateScheduleScore(); 
             this.setupEvents();
-            
-            // 初始化右鍵選單
-            let menu = document.getElementById('schContextMenu');
-            if (!menu) {
-                menu = document.createElement('div');
-                menu.id = 'schContextMenu';
-                menu.className = 'context-menu';
-                document.body.appendChild(menu);
-            }
+            this.initContextMenu();
         } catch (e) { 
             console.error(e);
             document.getElementById('schBody').innerHTML = `<tr><td colspan="20" style="color:red; text-align:center; padding:20px;">初始化失敗: ${e.message}</td></tr>`;
         }
         finally { this.isLoading = false; }
+    },
+
+    initContextMenu: function() {
+        if (!document.getElementById('schContextMenu')) {
+            const menu = document.createElement('div');
+            menu.id = 'schContextMenu';
+            menu.className = 'context-menu';
+            document.body.appendChild(menu);
+        }
     },
 
     loadContext: async function() {
@@ -65,24 +65,17 @@ const scheduleEditorManager = {
         this.data.staffList.forEach(s => { this.staffMap[s.uid] = s; });
     },
 
-    // 載入上月班表：優先使用傳遞過來的資料
     loadLastMonthSchedule: async function() {
         const { year, month } = this.data;
-        
-        // 計算上個月天數
         let ly = year, lm = month - 1;
         if (lm === 0) { lm = 12; ly--; }
         this.lastMonthDays = new Date(ly, lm, 0).getDate();
 
-        // 1. 優先使用資料庫中已經存好的 lastMonthData (從預班表帶過來的)
         if (this.data.lastMonthData && Object.keys(this.data.lastMonthData).length > 0) {
             this.lastMonthData = this.data.lastMonthData;
-            console.log("✅ 使用傳遞過來的上月資料 (含修正)");
             return;
         }
 
-        // 2. 備案：自己去撈已發布的班表
-        console.warn("⚠️ 無傳遞資料，嘗試重新撈取上月已發布班表...");
         const snap = await db.collection('schedules')
             .where('unitId', '==', this.data.unitId)
             .where('year', '==', ly)
@@ -95,7 +88,6 @@ const scheduleEditorManager = {
         if (!snap.empty) {
             const lastData = snap.docs[0].data();
             const assigns = lastData.assignments || {};
-            // 轉格式以符合 renderMatrix 需求
             Object.keys(assigns).forEach(uid => {
                 this.lastMonthData[uid] = {};
                 for (let d = 1; d <= this.lastMonthDays; d++) {
@@ -128,12 +120,11 @@ const scheduleEditorManager = {
         h1 += `<th colspan="4" style="background:#e8f4fd;">統計</th></tr>`;
 
         let h2 = `<tr>`;
-        // 上月最後 6 天
         const lastDays = this.lastMonthDays || 31;
         for(let d = lastDays - 5; d <= lastDays; d++) {
             h2 += `<th style="background:#f5f5f5; font-size:0.7rem; color:#999;">${d}</th>`;
         }
-        // 本月
+        
         for(let d=1; d<=daysInMonth; d++) {
             const date = new Date(year, month-1, d);
             const w = weeks[date.getDay()];
@@ -142,8 +133,8 @@ const scheduleEditorManager = {
         }
         h2 += `<th style="width:40px; background:#f0f7ff; font-size:0.75rem;">總OFF</th>
                <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">假OFF</th>
-               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">小夜</th>
-               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">大夜</th></tr>`;
+               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">E</th>
+               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">N</th></tr>`;
         
         thead.innerHTML = h1 + h2;
 
@@ -153,53 +144,39 @@ const scheduleEditorManager = {
             const ua = this.assignments[uid] || {};
             const empId = this.usersMap[uid]?.employeeId || '';
             
-            // [修正] 讀取偏好並組合顯示字串
             const prefs = staff.prefs || ua.preferences || {};
             let prefDisplay = '';
             
-            // 1. 顯示包班
             if (prefs.bundleShift || staff.packageType) {
                 prefDisplay += `<div style="font-weight:bold; font-size:0.85rem;">包${prefs.bundleShift || staff.packageType}</div>`;
             }
             
-            // 2. 顯示志願序 (Fav1 -> Fav2)
             let favs = [];
             if (prefs.favShift) favs.push(prefs.favShift);
             if (prefs.favShift2) favs.push(prefs.favShift2);
-            if (prefs.favShift3) favs.push(prefs.favShift3);
-            
             if (favs.length > 0) {
-                prefDisplay += `<div style="font-size:0.75rem; color:#666; line-height:1.2;">${favs.join('→')}</div>`;
-            } else if (!prefDisplay) {
-                prefDisplay = '-';
+                prefDisplay += `<div style="font-size:0.75rem; color:#666;">${favs.join('→')}</div>`;
             }
 
             bodyHtml += `<tr data-uid="${uid}">
                 <td style="position:sticky; left:0; background:#fff;">${empId}</td>
                 <td style="position:sticky; left:60px; background:#fff;">${staff.name}</td>
-                <td style="text-align:center;">${prefDisplay}</td>`;
+                <td style="text-align:center;">${prefDisplay || '-'}</td>`;
             
-            // 渲染上月最後 6 天
             const lastData = this.lastMonthData[uid] || {};
             for(let d = lastDays - 5; d <= lastDays; d++) {
-                // 相容 last_XX 與 current_XX 格式
-                const val = lastData[`last_${d}`] || lastData[`current_${d}`] || lastData[d] || ''; 
+                const val = lastData[`last_${d}`] || lastData[`current_${d}`] || ''; 
                 bodyHtml += `<td style="background:#fafafa; color:#999; font-size:0.85rem;">${val}</td>`;
             }
 
-            // 統計
-            let totalOff = 0;
-            let holidayOff = 0;
-            let eveningCount = 0;
-            let nightCount = 0;
+            let totalOff = 0, holidayOff = 0, eveningCount = 0, nightCount = 0;
 
             for(let d=1; d<=daysInMonth; d++) {
                 const val = ua[`current_${d}`] || '';
                 const isLocked = (val==='REQ_OFF');
-                const dragAttr = isLocked ? '' : 'draggable="true"';
                 
                 bodyHtml += `<td class="cell-clickable ${isLocked?'':'cell-draggable'}" 
-                                 data-uid="${uid}" data-day="${d}" ${dragAttr} 
+                                 data-uid="${uid}" data-day="${d}" ${isLocked?'':'draggable="true"'} 
                                  oncontextmenu="scheduleEditorManager.handleRightClick(event, '${uid}', '${d}'); return false;">
                                  ${this.renderCellContent(val, uid, d)}
                              </td>`;
@@ -209,20 +186,14 @@ const scheduleEditorManager = {
                     const date = new Date(year, month-1, d);
                     const w = date.getDay();
                     if (w === 0 || w === 6) holidayOff++;
-                } else if (val === 'E') {
-                    eveningCount++;
-                } else if (val === 'N') {
-                    nightCount++;
-                }
+                } else if (val === 'E') eveningCount++;
+                else if (val === 'N') nightCount++;
             }
 
-            // 右側統計
             bodyHtml += `<td style="background:#f9f9f9; font-weight:bold;">${totalOff}</td>
                          <td style="background:#f9f9f9; color:red;">${holidayOff}</td>
                          <td style="background:#f9f9f9;">${eveningCount}</td>
-                         <td style="background:#f9f9f9;">${nightCount}</td>`;
-            
-            bodyHtml += `</tr>`;
+                         <td style="background:#f9f9f9;">${nightCount}</td></tr>`;
         });
         tbody.innerHTML = bodyHtml;
         this.bindEvents();
@@ -237,67 +208,162 @@ const scheduleEditorManager = {
             const year = this.data.year;
             const month = this.data.month;
             
-            // 1. 準備人員資料
             const staffListForAI = this.data.staffList.map(s => {
                 const ua = this.assignments[s.uid] || {};
-                
-                // 鎖定 REQ_OFF
                 const preReq = {};
                 for(let d=1; d<=31; d++) {
                     const k = `current_${d}`;
                     if(ua[k] === 'REQ_OFF') preReq[`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`] = 'REQ_OFF';
                 }
-                
-                // 優先讀取 staff.prefs
-                const prefs = s.prefs || ua.preferences || {};
-
                 return {
                     id: s.uid, uid: s.uid, name: s.name, group: s.group,
-                    prefs: prefs,
-                    packageType: prefs.bundleShift || null,
+                    prefs: s.prefs || ua.preferences || {},
+                    packageType: (s.prefs||{}).bundleShift || null,
                     schedulingParams: preReq
                 };
             });
 
-            // 2. 準備規則
             const rules = {
                 dailyNeeds: this.data.dailyNeeds || {},
                 specificNeeds: this.data.specificNeeds || {}, 
                 groupLimits: this.data.groupLimits || {}, 
                 shiftCodes: this.shifts.map(s => s.code),
                 shifts: this.shifts, 
-                ...this.unitRules, 
-                ...(this.data.settings || {})
+                ...this.unitRules, ...(this.data.settings || {})
             };
 
-            // 3. 執行排班 (傳入 this.lastMonthData)
             const scheduler = SchedulerFactory.create('V2', staffListForAI, year, month, this.lastMonthData, rules);
             const aiResult = scheduler.run();
             
+            // 🔥 關鍵修正：處理新格式 (帶有 assignments 屬性)
             this.applyAIResult(aiResult);
+            
             this.renderMatrix();
             this.updateRealTimeStats();
-            
-            if(typeof scoringManager !== 'undefined') {
-                scoringManager.setBase(null);
-            }
+            if(typeof scoringManager !== 'undefined') scoringManager.setBase(null);
             this.updateScheduleScore();
 
+            // ⚠️ 自動執行一次完整存檔 (包含 assignments)
+            if (aiResult.assignments) {
+                console.log("💾 AI 產生了 assignments，準備寫入...", aiResult.assignments);
+                this.assignments = aiResult.assignments;
+            }
             await this.saveDraft(true);
+            
             alert("AI 排班完成!");
         } catch (e) { console.error(e); alert("AI 失敗: " + e.message); this.renderMatrix(); }
         finally { this.isLoading = false; }
     },
 
-    // 缺額檢查 (完整保留)
+    // 🔥 關鍵函式：解析 AI 回傳結果
+    applyAIResult: function(res) {
+        // 1. 取得矩陣資料 (過濾掉 assignments 屬性)
+        const scheduleMatrix = {};
+        Object.keys(res).forEach(key => {
+            if (key !== 'assignments') {
+                scheduleMatrix[key] = res[key];
+            }
+        });
+
+        // 2. 清除舊班表 (保留 REQ_OFF)
+        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+        this.data.staffList.forEach(s => {
+            const uid = s.uid;
+            if(!this.assignments[uid]) this.assignments[uid] = {};
+            for(let d=1; d<=daysInMonth; d++) {
+                if(this.assignments[uid][`current_${d}`] !== 'REQ_OFF') delete this.assignments[uid][`current_${d}`];
+            }
+        });
+
+        // 3. 填入新班表
+        Object.keys(scheduleMatrix).forEach(dateStr => {
+            const day = parseInt(dateStr.split('-')[2]);
+            if (isNaN(day)) return;
+            
+            const daySch = scheduleMatrix[dateStr];
+            Object.keys(daySch).forEach(code => {
+                if (Array.isArray(daySch[code])) {
+                    daySch[code].forEach(uid => {
+                        if (this.assignments[uid] && this.assignments[uid][`current_${day}`] !== 'REQ_OFF') {
+                            this.assignments[uid][`current_${day}`] = code;
+                        }
+                    });
+                }
+            });
+        });
+        
+        // 4. 如果 res 裡直接有 assignments，直接合併
+        if (res.assignments) {
+            Object.keys(res.assignments).forEach(uid => {
+                if (this.assignments[uid]) {
+                    this.assignments[uid] = { ...this.assignments[uid], ...res.assignments[uid] };
+                }
+            });
+        }
+    },
+
+    saveDraft: async function(silent) {
+        try {
+            await db.collection('schedules').doc(this.scheduleId).update({
+                assignments: this.assignments,
+                schedule: this.generateMatrixFromAssignments(), // 同步更新矩陣欄位
+                adjustments: this.data.adjustments || {},
+                adjustmentCount: this.data.adjustmentCount || 0,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            if(!silent) alert("儲存成功");
+        } catch(e) { console.error("儲存失敗", e); if(!silent) alert("儲存失敗"); }
+    },
+
+    generateMatrixFromAssignments: function() {
+        const matrix = {};
+        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+        
+        for(let d=1; d<=daysInMonth; d++) {
+            const dateKey = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+            matrix[dateKey] = {};
+            
+            this.data.staffList.forEach(s => {
+                const shift = this.assignments[s.uid][`current_${d}`];
+                if (shift && shift !== 'OFF') {
+                    if (!matrix[dateKey][shift]) matrix[dateKey][shift] = [];
+                    matrix[dateKey][shift].push(s.uid);
+                }
+            });
+        }
+        return matrix;
+    },
+
+    publishSchedule: async function() {
+        const shortages = this.checkShortages();
+        if (shortages.length > 0) {
+            const msg = `⚠️ 無法發布：偵測到人力缺口\n\n${shortages.slice(0, 5).join('\n')}\n${shortages.length>5?'...等共'+shortages.length+'處':''}\n\n是否強制發布？`;
+            if (!confirm(msg)) return;
+        } else {
+            if(!confirm("確定要發布班表？")) return;
+        }
+
+        try {
+            // 發布前再存一次，確保 assignments 是最新的
+            await this.saveDraft(true);
+            
+            await db.collection('schedules').doc(this.scheduleId).update({
+                status: 'published',
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            this.data.status = 'published';
+            this.renderToolbar();
+            alert("班表已發布！");
+        } catch(e) { alert("發布失敗: " + e.message); }
+    },
+    
     checkShortages: function() {
         const list = [];
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
         const dailyNeeds = this.data.dailyNeeds || {};
         const specificNeeds = this.data.specificNeeds || {};
-        
-        // 1. 統計目前排班狀況
         const countMap = {};
+        
         this.data.staffList.forEach(s => {
             const assign = this.assignments[s.uid] || {};
             for(let d=1; d<=daysInMonth; d++) {
@@ -310,7 +376,6 @@ const scheduleEditorManager = {
             }
         });
 
-        // 2. 比對需求
         for(let d=1; d<=daysInMonth; d++) {
             const dateStr = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
             const jsDay = new Date(this.data.year, this.data.month-1, d).getDay();
@@ -319,7 +384,6 @@ const scheduleEditorManager = {
             this.shifts.forEach(s => {
                 const actual = countMap[`${d}_${s.code}`] || 0;
                 let need = 0;
-                // 優先讀取臨時需求，若無則讀取常規需求
                 if (specificNeeds[dateStr] && specificNeeds[dateStr][s.code] !== undefined) {
                     need = specificNeeds[dateStr][s.code];
                 } else {
@@ -333,28 +397,7 @@ const scheduleEditorManager = {
         }
         return list;
     },
-
-    publishSchedule: async function() {
-        const shortages = this.checkShortages();
-        if (shortages.length > 0) {
-            const msg = `⚠️ 無法發布：偵測到人力缺口\n\n${shortages.slice(0, 5).join('\n')}\n${shortages.length>5?'...等共'+shortages.length+'處':''}\n\n是否強制發布？`;
-            if (!confirm(msg)) return;
-        } else {
-            if(!confirm("確定要發布班表？")) return;
-        }
-
-        try {
-            await db.collection('schedules').doc(this.scheduleId).update({
-                status: 'published',
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            this.data.status = 'published';
-            this.renderToolbar();
-            alert("班表已發布！");
-        } catch(e) { alert("發布失敗: " + e.message); }
-    },
-
-    // --- 輔助函式 ---
+    
     showLoading: function() { document.getElementById('schBody').innerHTML='<tr><td colspan="35">載入中...</td></tr>'; },
     loadShifts: async function() {
         const snap = await db.collection('shifts').where('unitId', '==', this.data.unitId).orderBy('startTime').get();
@@ -390,16 +433,13 @@ const scheduleEditorManager = {
     renderCellContent: function(val, uid, d) {
         const isAdjusted = this.data.adjustments && this.data.adjustments[uid] && this.data.adjustments[uid][d];
         const style = isAdjusted ? 'background-color: #ffeaa7; border: 1px solid #fdcb6e; color: #d35400;' : '';
-        const badgeClass = isAdjusted ? '' : 'badge badge-primary';
         
         if (!val || val === 'OFF') {
             return `<span style="color:#bbb; ${isAdjusted ? 'color: #d35400; font-weight: bold;' : ''}">OFF</span>`;
         }
         if (val === 'REQ_OFF') return '<span class="badge badge-success">休</span>';
         
-        if (isAdjusted) {
-            return `<span class="badge" style="${style}">${val}</span>`;
-        }
+        if (isAdjusted) return `<span class="badge" style="${style}">${val}</span>`;
         return `<span class="badge badge-primary">${val}</span>`;
     },
     handleRightClick: function(e, uid, d) {
@@ -420,19 +460,14 @@ const scheduleEditorManager = {
         const { uid, d } = this.targetCell;
         const key = `current_${d}`;
         
-        // 紀錄調整
         if (!this.data.adjustments) this.data.adjustments = {};
         if (!this.data.adjustments[uid]) this.data.adjustments[uid] = {};
         
         const oldVal = this.assignments[uid][key];
         if (oldVal !== code) {
             this.data.adjustments[uid][d] = true;
-            
-            // 更新調整總數
             let count = 0;
-            Object.values(this.data.adjustments).forEach(userAdj => {
-                count += Object.keys(userAdj).length;
-            });
+            Object.values(this.data.adjustments).forEach(userAdj => { count += Object.keys(userAdj).length; });
             this.data.adjustmentCount = count;
         }
 
@@ -451,31 +486,6 @@ const scheduleEditorManager = {
     bindEvents: function() {
         document.addEventListener('click', () => { 
             const m = document.getElementById('schContextMenu'); if(m) m.style.display='none'; 
-        });
-    },
-    applyAIResult: function(res) {
-        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
-        
-        // 初始化或重置調整紀錄
-        this.data.adjustments = {};
-        this.data.adjustmentCount = 0;
-
-        this.data.staffList.forEach(s => {
-            const uid = s.uid;
-            if(!this.assignments[uid]) this.assignments[uid] = {};
-            for(let d=1; d<=daysInMonth; d++) {
-                if(this.assignments[uid][`current_${d}`] !== 'REQ_OFF') delete this.assignments[uid][`current_${d}`];
-            }
-        });
-        Object.keys(res).forEach(dateStr => {
-            const day = parseInt(dateStr.split('-')[2]);
-            const daySch = res[dateStr];
-            Object.keys(daySch).forEach(code => {
-                daySch[code].forEach(uid => {
-                    if(this.assignments[uid][`current_${day}`] !== 'REQ_OFF')
-                        this.assignments[uid][`current_${day}`] = code;
-                });
-            });
         });
     },
     updateRealTimeStats: function() {
@@ -585,17 +595,6 @@ const scheduleEditorManager = {
         html += `<h4>總分: ${res.total.toFixed(1)}</h4>`;
         document.getElementById('scoreDetailContent').innerHTML = html;
         document.getElementById('scoreDetailModal').style.display = 'block';
-    },
-    saveDraft: async function(silent) {
-        try {
-            await db.collection('schedules').doc(this.scheduleId).update({
-                assignments: this.assignments,
-                adjustments: this.data.adjustments || {},
-                adjustmentCount: this.data.adjustmentCount || 0,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            if(!silent) alert("儲存成功");
-        } catch(e) { alert("儲存失敗"); }
     },
     unpublishSchedule: async function() {
         if(!confirm("取消發布?")) return;
