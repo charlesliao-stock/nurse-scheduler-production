@@ -1,10 +1,10 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 完整修正版：正確接收上月資料與偏好、支援歷史修正顯示
+// 🚀 完整修正版：包含完整缺額檢查、上月資料修正顯示、AI 資料傳遞優化
 
 const scheduleEditorManager = {
     scheduleId: null, data: null, shifts: [], assignments: {}, 
     unitRules: {}, staffMap: {}, usersMap: {}, isLoading: false,
-    lastMonthData: {}, // [新增] 儲存上個月資料
+    lastMonthData: {}, // 儲存上個月完整資料 (含修正)
 
     init: async function(id) { 
         console.log("Schedule Editor Init:", id);
@@ -18,13 +18,14 @@ const scheduleEditorManager = {
                 this.loadShifts(), 
                 this.loadUsers(), 
                 this.loadUnitRules(),
-                this.loadLastMonthSchedule() // 載入上月班表 (優先讀取 data 內建)
+                this.loadLastMonthSchedule() // 載入上月班表
             ]);
             
             if(typeof scoringManager !== 'undefined') {
                 await scoringManager.loadSettings(this.data.unitId);
             }
             
+            // 資料結構防呆驗證
             if (!this.data.assignments || typeof this.data.assignments !== 'object') {
                 this.data.assignments = {};
             }
@@ -41,6 +42,14 @@ const scheduleEditorManager = {
             this.updateScheduleScore(); 
             this.setupEvents();
             
+            // 初始化右鍵選單 DOM
+            let menu = document.getElementById('schContextMenu');
+            if (!menu) {
+                menu = document.createElement('div');
+                menu.id = 'schContextMenu';
+                menu.className = 'context-menu';
+                document.body.appendChild(menu);
+            }
         } catch (e) { 
             console.error(e);
             document.getElementById('schBody').innerHTML = `<tr><td colspan="20" style="color:red; text-align:center; padding:20px;">初始化失敗: ${e.message}</td></tr>`;
@@ -55,7 +64,7 @@ const scheduleEditorManager = {
         this.data.staffList.forEach(s => { this.staffMap[s.uid] = s; });
     },
 
-    // [修正] 載入上月班表邏輯
+    // 載入上月班表邏輯
     loadLastMonthSchedule: async function() {
         // 1. 優先使用資料庫中已經存好的 lastMonthData (這是從預班表帶過來的，包含手動修正)
         if (this.data.lastMonthData && Object.keys(this.data.lastMonthData).length > 0) {
@@ -151,7 +160,7 @@ const scheduleEditorManager = {
             const ua = this.assignments[uid] || {};
             const empId = this.usersMap[uid]?.employeeId || '';
             
-            // [修正] 優先讀取 staff.prefs (從預班表帶過來的)，其次讀取 assignments 裡的
+            // 優先讀取 staff.prefs (從預班表帶過來的)，其次讀取 assignments 裡的
             const prefs = staff.prefs || ua.preferences || {};
             const bundleDisplay = prefs.bundleShift || staff.packageType || '-';
 
@@ -160,11 +169,10 @@ const scheduleEditorManager = {
                 <td style="position:sticky; left:60px; background:#fff;">${staff.name}</td>
                 <td>${bundleDisplay}</td>`;
             
-            // [修正] 渲染上月最後 6 天班表 (使用 lastMonthData)
+            // 渲染上月最後 6 天班表 (使用 lastMonthData)
             const lastData = this.lastMonthData[uid] || {};
             for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
                 // lastMonthData 的 key 可能是 last_28 或 current_28 (視來源而定)
-                // 這裡嘗試多種 key 格式以防萬一
                 const val = lastData[`last_${d}`] || lastData[`current_${d}`] || lastData[d] || ''; 
                 bodyHtml += `<td style="background:#fafafa; color:#999; font-size:0.85rem;">${val}</td>`;
             }
@@ -232,7 +240,7 @@ const scheduleEditorManager = {
                     if(ua[k] === 'REQ_OFF') preReq[`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`] = 'REQ_OFF';
                 }
                 
-                // [修正] 確保 AI 讀得到偏好 (優先從 staff.prefs)
+                // 優先讀取 staff.prefs
                 const prefs = s.prefs || ua.preferences || {};
 
                 return {
@@ -254,8 +262,7 @@ const scheduleEditorManager = {
                 ...(this.data.settings || {})
             };
 
-            // 3. 建立並執行排班器
-            // [修正] 直接傳遞 this.lastMonthData，確保 AI 知道上個月修正後的班表
+            // 3. 執行排班 (直接傳遞 this.lastMonthData)
             const scheduler = SchedulerFactory.create('V2', staffListForAI, year, month, this.lastMonthData, rules);
             const aiResult = scheduler.run();
             
@@ -274,7 +281,72 @@ const scheduleEditorManager = {
         finally { this.isLoading = false; }
     },
 
-    // --- 其他輔助函式保持不變 ---
+    // 檢查缺額 (完整版)
+    checkShortages: function() {
+        const list = [];
+        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+        const dailyNeeds = this.data.dailyNeeds || {};
+        const specificNeeds = this.data.specificNeeds || {};
+        
+        // 1. 統計目前排班狀況
+        const countMap = {};
+        this.data.staffList.forEach(s => {
+            const assign = this.assignments[s.uid] || {};
+            for(let d=1; d<=daysInMonth; d++) {
+                const val = assign[`current_${d}`];
+                if(val && val !== 'OFF' && val !== 'REQ_OFF') {
+                    const key = `${d}_${val}`;
+                    if(!countMap[key]) countMap[key] = 0;
+                    countMap[key]++;
+                }
+            }
+        });
+
+        // 2. 比對需求
+        for(let d=1; d<=daysInMonth; d++) {
+            const dateStr = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+            const jsDay = new Date(this.data.year, this.data.month-1, d).getDay();
+            const needKeyIndex = (jsDay === 0) ? 6 : jsDay - 1;
+
+            this.shifts.forEach(s => {
+                const actual = countMap[`${d}_${s.code}`] || 0;
+                let need = 0;
+                // 優先讀取臨時需求，若無則讀取常規需求
+                if (specificNeeds[dateStr] && specificNeeds[dateStr][s.code] !== undefined) {
+                    need = specificNeeds[dateStr][s.code];
+                } else {
+                    need = dailyNeeds[`${s.code}_${needKeyIndex}`] || 0;
+                }
+
+                if (actual < need) {
+                    list.push(`${this.data.month}/${d} (${s.code}): 缺 ${need - actual} 人`);
+                }
+            });
+        }
+        return list;
+    },
+
+    publishSchedule: async function() {
+        const shortages = this.checkShortages();
+        if (shortages.length > 0) {
+            const msg = `⚠️ 無法發布：偵測到人力缺口\n\n${shortages.slice(0, 5).join('\n')}\n${shortages.length>5?'...等共'+shortages.length+'處':''}\n\n是否強制發布？`;
+            if (!confirm(msg)) return;
+        } else {
+            if(!confirm("確定要發布班表？")) return;
+        }
+
+        try {
+            await db.collection('schedules').doc(this.scheduleId).update({
+                status: 'published',
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            this.data.status = 'published';
+            this.renderToolbar();
+            alert("班表已發布！");
+        } catch(e) { alert("發布失敗: " + e.message); }
+    },
+
+    // --- 以下為輔助函式 (保持不變) ---
     showLoading: function() { document.getElementById('schBody').innerHTML='<tr><td colspan="35">載入中...</td></tr>'; },
     loadShifts: async function() {
         const snap = await db.collection('shifts').where('unitId', '==', this.data.unitId).orderBy('startTime').get();
@@ -467,7 +539,6 @@ const scheduleEditorManager = {
         const res = this.lastScoreResult;
         let html = '';
         html += `<h4>總分: ${res.total.toFixed(1)}</h4>`;
-        // 這裡可依需求展開更多細節
         document.getElementById('scoreDetailContent').innerHTML = html;
         document.getElementById('scoreDetailModal').style.display = 'block';
     },
@@ -508,19 +579,6 @@ const scheduleEditorManager = {
         this.updateScheduleScore();
         await this.saveDraft(true);
         alert("已重置");
-    },
-    checkShortages: function() { return []; }, // 簡化版
-    publishSchedule: async function() {
-        if(!confirm("確定要發布班表？")) return;
-        try {
-            await db.collection('schedules').doc(this.scheduleId).update({
-                status: 'published',
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            this.data.status = 'published';
-            this.renderToolbar();
-            alert("班表已發布！");
-        } catch(e) { alert("發布失敗: " + e.message); }
     },
     setupEvents: function() { }
 };
