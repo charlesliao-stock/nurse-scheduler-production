@@ -1,5 +1,5 @@
 // js/scheduler/SchedulerV2.js
-// 🚀 最終修正版：代碼精簡 + 配額邏輯防呆 + 雙軌制平衡
+// 🚀 最終修復版：修復 assignIfValid 遺失問題 + 完整功能整合
 
 class SchedulerV2 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -11,39 +11,28 @@ class SchedulerV2 extends BaseScheduler {
         this.tolerance = this.rules.fairness?.fairOffVar || 2; 
         this.minCons = this.rules.pattern?.minConsecutive || 2;
         
-        // 分組清單
         this.bundleStaff = [];
         this.nonBundleStaff = [];
     }
 
     run() {
-        console.log(`🚀 SchedulerV2 Refined Logic Start.`);
+        console.log(`🚀 SchedulerV2 Debugged Version Start.`);
         
         this.applyPreSchedules();
-        
-        // 1. 初始化並計算配額
         this.calculateFixedQuota(); 
         this.classifyStaffByBundle();
         
-        // 設定分段平衡點
         const segments = Math.max(3, this.rules.aiParams?.balancingSegments || 3);
         const interval = Math.floor(this.daysInMonth / segments);
         for (let i = 1; i < segments; i++) {
             this.checkpoints.push(i * interval);
         }
 
-        // --- 主迴圈 ---
         for (let d = 1; d <= this.daysInMonth; d++) {
-            
-            // 2. 每日更新壓力
             this.calculateDailyWorkPressure(d);
-
             const dailyNeeds = this.getDailyNeeds(d);
-            
-            // 班別順序：N 班優先處理以確保包班權益
             const shiftOrder = this.getOptimalShiftOrder(dailyNeeds);
 
-            // 3. 多階段填班
             for (const shiftCode of shiftOrder) {
                 const count = dailyNeeds[shiftCode] || 0;
                 if (count > 0) {
@@ -51,10 +40,8 @@ class SchedulerV2 extends BaseScheduler {
                 }
             }
 
-            // 4. 資源再分配
             this.optimizeDailyAllocation(d);
 
-            // 5. 分段平衡
             if (this.checkpoints.includes(d)) {
                 this.postProcessBalancing(d);
             }
@@ -67,7 +54,7 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     // ============================================================
-    // 🔧 核心 1：配額計算 (修正：確保 workQuota >= targetQuota)
+    // 1. 配額計算
     // ============================================================
     calculateFixedQuota() {
         let totalNeedsByShift = {};
@@ -99,25 +86,19 @@ class SchedulerV2 extends BaseScheduler {
             };
         });
 
-        // 識別包班人員
         const bundleStaffByShift = {};
         this.staffList.forEach(staff => {
             const bundleShift = staff.packageType || staff.prefs?.bundleShift;
             if (bundleShift) {
-                if (!bundleStaffByShift[bundleShift]) {
-                    bundleStaffByShift[bundleShift] = [];
-                }
+                if (!bundleStaffByShift[bundleShift]) bundleStaffByShift[bundleShift] = [];
                 bundleStaffByShift[bundleShift].push(staff);
                 this.staffStats[staff.id].targetShift = bundleShift;
             }
         });
         
-        // 分配包班配額
         Object.entries(bundleStaffByShift).forEach(([shift, staffs]) => {
             const totalNeed = totalNeedsByShift[shift] || 0;
-            const totalAvailable = staffs.reduce((sum, s) => 
-                sum + this.staffStats[s.id].availableDays, 0
-            );
+            const totalAvailable = staffs.reduce((sum, s) => sum + this.staffStats[s.id].availableDays, 0);
             
             staffs.forEach(staff => {
                 const stats = this.staffStats[staff.id];
@@ -132,19 +113,14 @@ class SchedulerV2 extends BaseScheduler {
                 } else {
                     stats.workQuota = stats.targetQuota;
                 }
-                
-                // ⚠️ [修正] 確保總配額至少包含目標班別配額
                 stats.workQuota = Math.max(stats.workQuota, stats.targetQuota);
             });
             
-            // 處理餘數
             const allocated = staffs.reduce((sum, s) => sum + this.staffStats[s.id].targetQuota, 0);
             const remainder = totalNeed - allocated;
             
             if (remainder > 0) {
-                const sorted = [...staffs].sort((a, b) => 
-                    this.staffStats[b.id].availableDays - this.staffStats[a.id].availableDays
-                );
+                const sorted = [...staffs].sort((a, b) => this.staffStats[b.id].availableDays - this.staffStats[a.id].availableDays);
                 for (let i = 0; i < remainder && i < sorted.length; i++) {
                     const stats = this.staffStats[sorted[i].id];
                     if (!stats.isLongVacationer) {
@@ -155,13 +131,10 @@ class SchedulerV2 extends BaseScheduler {
             }
         });
 
-        // 計算剩餘需求並分配給非包班人員
         let remainingShifts = 0;
         Object.entries(totalNeedsByShift).forEach(([shift, total]) => {
             const bundleStaffs = bundleStaffByShift[shift] || [];
-            const bundleAllocated = bundleStaffs.reduce((sum, s) => 
-                sum + this.staffStats[s.id].targetQuota, 0
-            );
+            const bundleAllocated = bundleStaffs.reduce((sum, s) => sum + this.staffStats[s.id].targetQuota, 0);
             remainingShifts += Math.max(0, total - bundleAllocated);
         });
         
@@ -174,7 +147,6 @@ class SchedulerV2 extends BaseScheduler {
             let staffToAssign = [...nonBundleStaff];
             for(let iter = 0; iter < 5; iter++) {
                 if (staffToAssign.length === 0) break;
-                
                 const avgQuota = Math.ceil(remainingShifts / staffToAssign.length);
                 let nextRoundStaff = [];
                 
@@ -202,7 +174,6 @@ class SchedulerV2 extends BaseScheduler {
             }
         }
         
-        // 二次檢查
         this.staffList.forEach(s => {
             if (this.staffStats[s.id].reqOffCount >= 5) {
                 this.staffStats[s.id].isLongVacationer = true;
@@ -211,7 +182,7 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     // ============================================================
-    // 🔧 核心 2：每日壓力計算
+    // 2. 壓力計算
     // ============================================================
     calculateDailyWorkPressure(currentDay) {
         this.staffList.forEach(s => {
@@ -222,24 +193,17 @@ class SchedulerV2 extends BaseScheduler {
             let remainingAvailableDays = 0;
             const params = s.schedulingParams || {};
             for(let d = currentDay; d <= this.daysInMonth; d++) {
-                if (params[this.getDateStr(d)] !== 'REQ_OFF') {
-                    remainingAvailableDays++;
-                }
+                if (params[this.getDateStr(d)] !== 'REQ_OFF') remainingAvailableDays++;
             }
 
-            const basePressure = remainingAvailableDays > 0 ? 
-                (remainingQuota / remainingAvailableDays) : 999;
-            
+            const basePressure = remainingAvailableDays > 0 ? (remainingQuota / remainingAvailableDays) : 999;
             stats.workedShifts = workedShifts;
             stats.workPressure = basePressure;
             
             if (stats.targetShift) {
-                const workedTarget = this.countSpecificShiftsUpTo(
-                    s.id, currentDay - 1, stats.targetShift
-                );
+                const workedTarget = this.countSpecificShiftsUpTo(s.id, currentDay - 1, stats.targetShift);
                 const remainingTarget = stats.targetQuota - workedTarget;
-                const targetPressure = remainingAvailableDays > 0 ? 
-                    (remainingTarget / remainingAvailableDays) : 999;
+                const targetPressure = remainingAvailableDays > 0 ? (remainingTarget / remainingAvailableDays) : 999;
                 
                 stats.targetShiftPressure = targetPressure;
                 stats.workedTargetShifts = workedTarget;
@@ -247,9 +211,7 @@ class SchedulerV2 extends BaseScheduler {
                 const targetRatio = stats.targetQuota > 0 ? (workedTarget / stats.targetQuota) : 0;
                 const totalRatio = stats.workQuota > 0 ? (workedShifts / stats.workQuota) : 0;
                 
-                if (targetRatio < totalRatio - 0.1) {
-                    stats.workPressure += 0.5;
-                }
+                if (targetRatio < totalRatio - 0.1) stats.workPressure += 0.5;
             } else {
                 stats.targetShiftPressure = 0;
                 stats.workedTargetShifts = 0;
@@ -258,7 +220,7 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     // ============================================================
-    // 🔧 核心 3：填班機制
+    // 3. 填班機制 (修正：assignIfValid 確保存在)
     // ============================================================
     fillShiftNeeds(day, shiftCode, neededCount) {
         const dateStr = this.getDateStr(day);
@@ -267,7 +229,7 @@ class SchedulerV2 extends BaseScheduler {
 
         if (gap <= 0) return;
 
-        // 第一階段：包班人員
+        // 第一階段：包班
         const bundleStaff = this.bundleStaff.filter(s => {
             const bundle = s.packageType || s.prefs?.bundleShift;
             return bundle === shiftCode;
@@ -276,20 +238,14 @@ class SchedulerV2 extends BaseScheduler {
         if (bundleStaff.length > 0) {
             const bundleTarget = Math.ceil(neededCount * 0.9);
             const bundleGap = Math.min(gap, bundleTarget);
-            
-            let bundleCandidates = bundleStaff.filter(s => 
-                this.getShiftByDate(dateStr, s.id) === 'OFF'
-            );
-            
+            let bundleCandidates = bundleStaff.filter(s => this.getShiftByDate(dateStr, s.id) === 'OFF');
             this.sortCandidatesByPressure(bundleCandidates, dateStr, shiftCode);
 
             let filled = 0;
             for (const staff of bundleCandidates) {
                 if (filled >= bundleGap || gap <= 0) break;
-                
                 const scoreInfo = this.calculateScoreInfo(staff, dateStr, shiftCode);
                 if (scoreInfo.totalScore < -50000) continue;
-
                 if (this.assignIfValid(day, staff, shiftCode)) {
                     gap--;
                     filled++;
@@ -317,7 +273,7 @@ class SchedulerV2 extends BaseScheduler {
             }
         }
 
-        // 第三階段：其餘人員
+        // 第三階段：其餘
         if (gap > 0) {
             let allCandidates = this.staffList.filter(s => {
                 if (this.getShiftByDate(dateStr, s.id) !== 'OFF') return false;
@@ -329,7 +285,6 @@ class SchedulerV2 extends BaseScheduler {
                 }
                 return true;
             });
-            
             this.sortCandidatesByPressure(allCandidates, dateStr, shiftCode);
 
             for (const staff of allCandidates) {
@@ -343,7 +298,6 @@ class SchedulerV2 extends BaseScheduler {
             }
         }
         
-        // 第四階段：回溯
         if (gap > 0 && this.backtrackDepth > 0) {
             const recovered = this.resolveShortageWithBacktrack(day, shiftCode, gap);
             gap -= recovered;
@@ -352,8 +306,20 @@ class SchedulerV2 extends BaseScheduler {
         if (gap > 0) console.warn(`[缺口] ${dateStr} ${shiftCode} 尚缺 ${gap}`);
     }
 
+    // ⚠️ 關鍵修正：確保此函式在 Class 內定義
+    assignIfValid(day, staff, shiftCode) {
+        const dateStr = this.getDateStr(day);
+        const isValid = this.isValidAssignment(staff, dateStr, shiftCode);
+        const isGroupValid = this.checkGroupMaxLimit(day, staff, shiftCode);
+        if (isValid && isGroupValid) {
+            this.updateShift(dateStr, staff.id, 'OFF', shiftCode);
+            return true;
+        }
+        return false;
+    }
+
     // ============================================================
-    // 🔧 核心 4：平衡機制 (使用 BaseScheduler isNightShift)
+    // 4. 平衡機制
     // ============================================================
     postProcessBalancing(limitDay) {
         const rounds = (this.rules.fairness?.balanceRounds || 100) * 2;
@@ -364,8 +330,69 @@ class SchedulerV2 extends BaseScheduler {
         if (isFairNight) this.balanceNightShiftsByGroup(limitDay, rounds);
     }
 
+    // ⚠️ 關鍵修正：補回 balanceShiftType (先前可能遺漏)
+    balanceShiftType(targetShift, limitDay, rounds) {
+        const isLocked = (d, uid) => {
+             const dateStr = this.getDateStr(d);
+             const s = this.staffList.find(x => x.id === uid);
+             return s?.schedulingParams?.[dateStr] !== undefined; 
+        };
+        for (let r = 0; r < rounds; r++) {
+            const stats = this.staffList.map(s => {
+                let count = 0;
+                for(let d=1; d<=limitDay; d++) {
+                    if(this.getShiftByDate(this.getDateStr(d), s.id) === targetShift) count++;
+                }
+                return { id: s.id, count, obj: s };
+            }).sort((a, b) => b.count - a.count);
+            
+            const maxPerson = stats[0]; // OFF 多的人 (因為是 sort asc, index 0 是 count 最小? wait)
+            // sort((a, b) => a - b) -> 小到大. 
+            // OFF: 小=上班多, 大=休假多. 
+            // 若要平衡 OFF，找 OFF 多的給 OFF 少的?
+            // 原邏輯: maxPerson = stats[length-1] (最大值), min = stats[0] (最小值)
+            // 這裡 maxPerson 變數命名可能混淆，我們統一：
+            
+            const minObj = stats[0]; // 數量最少 (例如 OFF 少 = 很累)
+            const maxObj = stats[stats.length - 1]; // 數量最多 (例如 OFF 多 = 很閒)
+            
+            if (maxObj.count - minObj.count <= this.tolerance) break; 
+            
+            let swapped = false;
+            const days = Array.from({length: limitDay}, (_, i) => i + 1);
+            this.shuffleArray(days);
+            
+            for (const d of days) {
+                if (isLocked(d, maxObj.id) || isLocked(d, minObj.id)) continue;
+                const dateStr = this.getDateStr(d);
+                const shiftMax = this.getShiftByDate(dateStr, maxObj.id); 
+                const shiftMin = this.getShiftByDate(dateStr, minObj.id); 
+                
+                // 目標：把 maxObj 的 targetShift 移給 minObj
+                // 場景：target=OFF. Max=OFF, Min=Work. 
+                // 交換後：Max=Work, Min=OFF. (Max 把假讓出來)
+                let canSwap = false;
+                if (shiftMax === targetShift && shiftMin !== targetShift) {
+                    canSwap = true;
+                }
+                
+                if (canSwap) {
+                    if (this.checkSwapValidity(d, maxObj.obj, shiftMax, shiftMin) &&
+                        this.checkSwapValidity(d, minObj.obj, shiftMin, shiftMax)) {
+                        
+                        this.updateShift(dateStr, maxObj.id, shiftMax, shiftMin);
+                        this.updateShift(dateStr, minObj.id, shiftMin, shiftMax);
+                        swapped = true;
+                        break; 
+                    }
+                }
+            }
+            if (!swapped) break; 
+        }
+    }
+
     balanceNightShiftsByGroup(limitDay, rounds) {
-        // ⚠️ [修正] 使用 BaseScheduler 的方法
+        // 修正：使用继承的 isNightShift
         const nightShifts = this.shiftCodes.filter(code => this.isNightShift(code));
         const groups = new Map();
         
@@ -399,7 +426,6 @@ class SchedulerV2 extends BaseScheduler {
             const s = this.staffList.find(x => x.id === uid);
             return s?.schedulingParams?.[dateStr] !== undefined;
         };
-        
         for (let r = 0; r < rounds; r++) {
             const stats = staffGroup.map(s => {
                 let count = 0;
@@ -411,12 +437,10 @@ class SchedulerV2 extends BaseScheduler {
             
             if (stats.length === 0 || stats[stats.length-1].count - stats[0].count <= tolerance) break;
             
-            const maxPerson = stats[stats.length - 1]; // 注意 sort 順序
-            const minPerson = stats[0];
+            const maxObj = stats[stats.length - 1];
+            const minObj = stats[0];
             
-            // ... (同之前的交換邏輯，省略重複部分以節省篇幅) ...
-            // 這裡使用通用的交換邏輯
-            this.attemptSwap(maxPerson, minPerson, targetShift, null, limitDay, isLocked);
+            this.attemptSwap(maxObj, minObj, targetShift, null, limitDay, isLocked);
         }
     }
 
@@ -427,7 +451,6 @@ class SchedulerV2 extends BaseScheduler {
             const s = this.staffList.find(x => x.id === uid);
             return s?.schedulingParams?.[dateStr] !== undefined;
         };
-        
         for (let r = 0; r < rounds; r++) {
             const stats = staffGroup.map(s => {
                 let count = 0;
@@ -440,34 +463,33 @@ class SchedulerV2 extends BaseScheduler {
             
             if (stats.length === 0 || stats[stats.length-1].count - stats[0].count <= tolerance) break;
             
-            const maxPerson = stats[stats.length - 1];
-            const minPerson = stats[0];
+            const maxObj = stats[stats.length - 1];
+            const minObj = stats[0];
             
-            this.attemptSwap(maxPerson, minPerson, null, nightShifts, limitDay, isLocked);
+            this.attemptSwap(maxObj, minObj, null, nightShifts, limitDay, isLocked);
         }
     }
     
-    // 抽象出的交換嘗試函數
-    attemptSwap(maxPerson, minPerson, targetShift, validShifts, limitDay, isLocked) {
+    attemptSwap(maxObj, minObj, targetShift, validShifts, limitDay, isLocked) {
         let swapped = false;
         const days = Array.from({length: limitDay}, (_, i) => i + 1);
         this.shuffleArray(days);
         
         for (const d of days) {
-            if (isLocked(d, maxPerson.id) || isLocked(d, minPerson.id)) continue;
+            if (isLocked(d, maxObj.id) || isLocked(d, minObj.id)) continue;
             
             const dateStr = this.getDateStr(d);
-            const shiftMax = this.getShiftByDate(dateStr, maxPerson.id);
-            const shiftMin = this.getShiftByDate(dateStr, minPerson.id);
+            const shiftMax = this.getShiftByDate(dateStr, maxObj.id);
+            const shiftMin = this.getShiftByDate(dateStr, minObj.id);
             
             const maxHas = targetShift ? shiftMax === targetShift : validShifts.includes(shiftMax);
             const minHas = targetShift ? shiftMin === targetShift : validShifts.includes(shiftMin);
             
             if (maxHas && !minHas) {
-                if (this.checkSwapValidity(d, maxPerson.obj, shiftMax, shiftMin) &&
-                    this.checkSwapValidity(d, minPerson.obj, shiftMin, shiftMax)) {
-                    this.updateShift(dateStr, maxPerson.id, shiftMax, shiftMin);
-                    this.updateShift(dateStr, minPerson.id, shiftMin, shiftMax);
+                if (this.checkSwapValidity(d, maxObj.obj, shiftMax, shiftMin) &&
+                    this.checkSwapValidity(d, minObj.obj, shiftMin, shiftMax)) {
+                    this.updateShift(dateStr, maxObj.id, shiftMax, shiftMin);
+                    this.updateShift(dateStr, minObj.id, shiftMin, shiftMax);
                     swapped = true;
                     break;
                 }
@@ -525,8 +547,8 @@ class SchedulerV2 extends BaseScheduler {
 
         for (const highP of offStaffs) {
             const stats = this.staffStats[highP.id];
-            const p = Math.max(stats.workPressure, stats.targetShiftPressure || 0);
-            if (p < 0.7) continue;
+            const pressure = Math.max(stats.workPressure, stats.targetShiftPressure || 0);
+            if (pressure < 0.7) continue;
 
             const targets = [];
             if (stats.targetShift && this.calculateScoreInfo(highP, dateStr, stats.targetShift).totalScore > -1000) {
@@ -549,7 +571,7 @@ class SchedulerV2 extends BaseScheduler {
                     
                     const lowStats = this.staffStats[lowP.id];
                     const pLow = Math.max(lowStats.workPressure, lowStats.targetShiftPressure||0);
-                    let diff = p - pLow;
+                    let diff = pressure - pLow;
                     
                     if (stats.targetShift === code) diff += 0.3;
                     if (lowStats.targetShift === code) diff -= 0.3;
@@ -618,7 +640,6 @@ class SchedulerV2 extends BaseScheduler {
         return { totalScore: score, isPreferred: isPreferred };
     }
 
-    // 其他必要方法保持原樣
     classifyStaffByBundle() {
         this.staffList.forEach(staff => {
             const bundleShift = staff.packageType || staff.prefs?.bundleShift;
@@ -687,7 +708,6 @@ class SchedulerV2 extends BaseScheduler {
             if (stats?.isLongVacationer) {
                 const longVacLimit = this.rules.policy?.longVacationWorkLimit || 7;
                 if (consDays + 1 <= longVacLimit) {
-                    // 檢查間隔
                     const currentDayIndex = new Date(dateStr).getDate();
                     let prevShift = 'OFF';
                     if (currentDayIndex > 1) {
