@@ -36,7 +36,7 @@ const staffScheduleManager = {
         const wrapper = document.getElementById('horizontalScheduleWrapper');
         const noData = document.getElementById('noDataMessage');
         
-        console.log(`🔍 Loading schedule for ${year}/${month}, UID: ${this.uid}, Unit: ${this.unitId}`);
+        console.log(`🔍 Loading schedule for ${year}/${month}, UID: '${this.uid}', Unit: ${this.unitId}`);
         
         try {
             // 讀取已發布的班表 (跨單位查詢)
@@ -48,14 +48,20 @@ const staffScheduleManager = {
 
             console.log(`📂 Found ${snap.size} published schedules in total.`);
 
-            // 過濾出與我相關的班表
+            // 過濾出與我相關的班表 (加入容錯比對)
             const mySchedules = snap.docs.filter(doc => {
                 const d = doc.data();
                 const isMyUnit = (d.unitId === this.unitId);
                 const isParticipant = (d.staffList || []).some(s => s.uid === this.uid);
-                const hasMyAssign = d.assignments && d.assignments[this.uid];
                 
-                console.log(`📄 Checking Schedule ${doc.id}: Unit=${d.unitId}, isMyUnit=${isMyUnit}, isParticipant=${isParticipant}, hasMyAssign=${!!hasMyAssign}`);
+                // --- 修正：模糊比對 Assignment Key ---
+                const assignments = d.assignments || {};
+                const assignKeys = Object.keys(assignments);
+                // 檢查是否有 Key 去除空白後等於我的 UID
+                const hasMyAssign = assignKeys.some(key => key.trim() === this.uid.trim());
+                // ------------------------------------
+                
+                console.log(`📄 Checking Schedule ${doc.id}: Unit=${d.unitId}, Match=${isMyUnit || isParticipant || hasMyAssign}`);
                 return isMyUnit || isParticipant || hasMyAssign;
             });
 
@@ -71,18 +77,34 @@ const staffScheduleManager = {
             if(noData) noData.style.display = 'none';
 
             // 優先取包含我排班資料的班表
-            const targetDoc = mySchedules.find(doc => doc.data().assignments && doc.data().assignments[this.uid]) || 
-                              mySchedules.find(doc => doc.data().unitId === this.unitId) || 
-                              mySchedules[0];
+            // (這裡同樣需要模糊比對來尋找)
+            let targetDoc = mySchedules.find(doc => {
+                const assigns = doc.data().assignments || {};
+                return Object.keys(assigns).some(k => k.trim() === this.uid.trim());
+            });
+
+            // 如果沒找到有資料的，就退而求其次找單位符合的
+            if (!targetDoc) {
+                targetDoc = mySchedules.find(doc => doc.data().unitId === this.unitId) || mySchedules[0];
+            }
             
             console.log(`✅ Selected target schedule: ${targetDoc.id} (Unit: ${targetDoc.data().unitId})`);
             
             this.currentSchedule = { id: targetDoc.id, ...targetDoc.data() };
             this.currentAssignments = this.currentSchedule.assignments || {};
             
+            // --- 修正：確保 currentAssignments[this.uid] 有資料 ---
+            // 如果直接用 this.uid 取不到，嘗試找出那個「長得像」的 Key
             if (!this.currentAssignments[this.uid]) {
-                console.warn(`⚠️ UID ${this.uid} not found in assignments of schedule ${targetDoc.id}`);
+                const fuzzyKey = Object.keys(this.currentAssignments).find(k => k.trim() === this.uid.trim());
+                if (fuzzyKey) {
+                    console.log(`🔧 Mapping fuzzy key '${fuzzyKey}' to '${this.uid}'`);
+                    this.currentAssignments[this.uid] = this.currentAssignments[fuzzyKey];
+                } else {
+                    console.warn(`⚠️ UID ${this.uid} data matches nothing in assignments. Keys:`, Object.keys(this.currentAssignments));
+                }
             }
+            // ---------------------------------------------------
             
             this.renderHorizontalTable(year, month);
             this.calculateStats(year, month);
@@ -115,6 +137,9 @@ const staffScheduleManager = {
             const dateObj = new Date(year, month-1, d);
             const dayOfWeek = dateObj.getDay(); // 0=日, 6=六
             const weekStr = ['日','一','二','三','四','五','六'][dayOfWeek];
+            
+            // 修正：確保讀取 logic 與存檔一致 (current_1 vs current_01)
+            // 通常是 current_1, current_2...
             const shiftCode = myAssign[`current_${d}`] || 'OFF';
             
             // 1. 星期列
@@ -140,6 +165,10 @@ const staffScheduleManager = {
             shiftBox.className = 'shift-box';
             shiftBox.textContent = shiftCode;
             
+            // 樣式處理 (可選)
+            if (shiftCode === 'N') shiftBox.classList.add('shift-n'); // 若 CSS 有定義
+            if (shiftCode === 'OFF') shiftBox.classList.add('shift-off');
+
             // 只有未來日期可以點擊換班
             if (dateObj > today) {
                 shiftBox.onclick = () => this.openExchangeModal(d, shiftCode);
@@ -181,12 +210,17 @@ const staffScheduleManager = {
             ).length;
         }
 
-        document.getElementById('statTotalShifts').innerText = totalShifts;
-        document.getElementById('statTotalOff').innerText = totalOff;
-        document.getElementById('statHolidayOff').innerText = holidayOff;
-        document.getElementById('statEvening').innerText = evening;
-        document.getElementById('statNight').innerText = night;
-        document.getElementById('statExchangeCount').innerText = exchangeCount;
+        const safeSetText = (id, val) => {
+            const el = document.getElementById(id);
+            if(el) el.innerText = val;
+        };
+
+        safeSetText('statTotalShifts', totalShifts);
+        safeSetText('statTotalOff', totalOff);
+        safeSetText('statHolidayOff', holidayOff);
+        safeSetText('statEvening', evening);
+        safeSetText('statNight', night);
+        safeSetText('statExchangeCount', exchangeCount);
     },
 
     resetStats: function() {
@@ -203,22 +237,37 @@ const staffScheduleManager = {
         this.exchangeData = { day, myShift };
         const dateStr = `${this.currentSchedule.year}/${this.currentSchedule.month}/${day}`;
         
-        document.getElementById('exchangeInfo').innerHTML = `
-            <strong>申請日期：</strong> ${dateStr} <br>
-            <strong>您的班別：</strong> <span class="badge badge-warning">${myShift}</span>
-        `;
+        const infoEl = document.getElementById('exchangeInfo');
+        if(infoEl) {
+            infoEl.innerHTML = `
+                <strong>申請日期：</strong> ${dateStr} <br>
+                <strong>您的班別：</strong> <span class="badge badge-warning">${myShift}</span>
+            `;
+        }
         
         const select = document.getElementById('exchangeTargetSelect');
+        if(!select) return;
         select.innerHTML = '<option value="">載入中...</option>';
         
         const staffList = this.currentSchedule.staffList || [];
         const options = [];
 
         staffList.forEach(staff => {
-            if (staff.uid === this.uid) return;
-            const targetAssign = this.currentAssignments[staff.uid] || {};
+            // 排除自己
+            // 這裡也要做 trim 比較比較安全
+            if (staff.uid.trim() === this.uid.trim()) return;
+
+            // 取得對方的 Assignment (同樣需要模糊比對)
+            let targetAssign = this.currentAssignments[staff.uid];
+            if (!targetAssign) {
+                const fuzzyKey = Object.keys(this.currentAssignments).find(k => k.trim() === staff.uid.trim());
+                if (fuzzyKey) targetAssign = this.currentAssignments[fuzzyKey];
+            }
+            targetAssign = targetAssign || {};
+
             const targetShift = targetAssign[`current_${day}`] || 'OFF';
             
+            // 只能跟不同班別的人換 (或者根據需求調整)
             if (targetShift !== myShift) {
                 options.push(`<option value="${staff.uid}" data-shift="${targetShift}">
                     ${staff.name} (班別: ${targetShift})
@@ -232,17 +281,21 @@ const staffScheduleManager = {
             select.innerHTML = '<option value="">請選擇對象</option>' + options.join('');
         }
 
-        document.getElementById('exchangeModal').classList.add('show');
+        const modal = document.getElementById('exchangeModal');
+        if(modal) modal.classList.add('show');
+        // 如果是 Bootstrap 模態框，可能需要 $(modal).modal('show')
     },
 
     closeExchangeModal: function() {
-        document.getElementById('exchangeModal').classList.remove('show');
+        const modal = document.getElementById('exchangeModal');
+        if(modal) modal.classList.remove('show');
         this.exchangeData = null;
     },
 
     toggleOtherReason: function() {
         const val = document.getElementById('exchangeReasonCategory').value;
-        document.getElementById('otherReasonGroup').style.display = (val === 'other') ? 'block' : 'none';
+        const group = document.getElementById('otherReasonGroup');
+        if(group) group.style.display = (val === 'other') ? 'block' : 'none';
     },
 
     submitExchange: async function() {
