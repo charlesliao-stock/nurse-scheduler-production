@@ -88,7 +88,7 @@ const systemStatisticsCalculator = {
         
         // 分析調整
         const stats = {
-            totalAdjustments: 0,
+            totalAdjustments: currentSchedule.adjustmentCount || 0,
             adjustmentRate: 0,
             byReason: {
                 vacancy: { count: 0, details: [] },
@@ -96,11 +96,20 @@ const systemStatisticsCalculator = {
                 staffing: { count: 0, details: [] }
             }
         };
+
+        // 如果已經有 adjustmentCount，且沒有 originalSchedule，則直接計算比例
+        if (currentSchedule.adjustmentCount !== undefined && (!originalSchedule || originalSchedule === currentSchedule)) {
+            stats.adjustmentRate = totalRequired > 0 
+                ? Math.round((stats.totalAdjustments / totalRequired * 100) * 10) / 10 
+                : 0;
+            return stats;
+        }
         
-        // 比較原始班表和當前班表，找出調整
+        // 比較原始班表和當前班表，找出調整 (保留原邏輯作為 fallback 或詳細分析)
         const originalAssignments = originalSchedule.assignments || {};
         const currentAssignments = currentSchedule.assignments || {};
         
+        let compareCount = 0;
         Object.keys(currentAssignments).forEach(uid => {
             for (let d = 1; d <= daysInMonth; d++) {
                 const key = `current_${d}`;
@@ -108,7 +117,7 @@ const systemStatisticsCalculator = {
                 const currentShift = currentAssignments[uid]?.[key] || 'OFF';
                 
                 if (originalShift !== currentShift) {
-                    stats.totalAdjustments++;
+                    compareCount++;
                     
                     // 分析調整原因 (簡化版本，實際需要更複雜的邏輯)
                     if (originalShift === 'OFF' && currentShift !== 'OFF') {
@@ -146,6 +155,11 @@ const systemStatisticsCalculator = {
             }
         });
         
+        // 如果比較出來的調整數大於紀錄的調整數，以比較結果為準
+        if (compareCount > stats.totalAdjustments) {
+            stats.totalAdjustments = compareCount;
+        }
+
         // 計算修正率
         stats.adjustmentRate = totalRequired > 0 
             ? Math.round((stats.totalAdjustments / totalRequired * 100) * 10) / 10 

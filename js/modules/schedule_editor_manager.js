@@ -201,7 +201,7 @@ const scheduleEditorManager = {
                 bodyHtml += `<td class="cell-clickable ${isLocked?'':'cell-draggable'}" 
                                  data-uid="${uid}" data-day="${d}" ${dragAttr} 
                                  oncontextmenu="scheduleEditorManager.handleRightClick(event, '${uid}', '${d}'); return false;">
-                                 ${this.renderCellContent(val)}
+                                 ${this.renderCellContent(val, uid, d)}
                              </td>`;
                 
                 if (!val || val === 'OFF' || val === 'REQ_OFF') {
@@ -387,9 +387,19 @@ const scheduleEditorManager = {
             rightGroup.innerHTML = `${aiBtn} ${resetBtn} ${saveBtn} ${pubBtn}`;
         }
     },
-    renderCellContent: function(val) {
-        if (!val || val === 'OFF') return '<span style="color:#bbb;">OFF</span>';
+    renderCellContent: function(val, uid, d) {
+        const isAdjusted = this.data.adjustments && this.data.adjustments[uid] && this.data.adjustments[uid][d];
+        const style = isAdjusted ? 'background-color: #ffeaa7; border: 1px solid #fdcb6e; color: #d35400;' : '';
+        const badgeClass = isAdjusted ? '' : 'badge badge-primary';
+        
+        if (!val || val === 'OFF') {
+            return `<span style="color:#bbb; ${isAdjusted ? 'color: #d35400; font-weight: bold;' : ''}">OFF</span>`;
+        }
         if (val === 'REQ_OFF') return '<span class="badge badge-success">休</span>';
+        
+        if (isAdjusted) {
+            return `<span class="badge" style="${style}">${val}</span>`;
+        }
         return `<span class="badge badge-primary">${val}</span>`;
     },
     handleRightClick: function(e, uid, d) {
@@ -409,8 +419,29 @@ const scheduleEditorManager = {
     setShift: function(code) {
         const { uid, d } = this.targetCell;
         const key = `current_${d}`;
-        if (code === null) delete this.assignments[uid][key];
-        else this.assignments[uid][key] = code;
+        
+        // 紀錄調整
+        if (!this.data.adjustments) this.data.adjustments = {};
+        if (!this.data.adjustments[uid]) this.data.adjustments[uid] = {};
+        
+        const oldVal = this.assignments[uid][key];
+        if (oldVal !== code) {
+            this.data.adjustments[uid][d] = true;
+            
+            // 更新調整總數
+            let count = 0;
+            Object.values(this.data.adjustments).forEach(userAdj => {
+                count += Object.keys(userAdj).length;
+            });
+            this.data.adjustmentCount = count;
+        }
+
+        if (code === null) {
+            delete this.assignments[uid][key];
+            if (this.data.adjustments[uid]) delete this.data.adjustments[uid][d];
+        } else {
+            this.assignments[uid][key] = code;
+        }
         
         this.renderMatrix();
         this.updateRealTimeStats();
@@ -424,6 +455,11 @@ const scheduleEditorManager = {
     },
     applyAIResult: function(res) {
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+        
+        // 初始化或重置調整紀錄
+        this.data.adjustments = {};
+        this.data.adjustmentCount = 0;
+
         this.data.staffList.forEach(s => {
             const uid = s.uid;
             if(!this.assignments[uid]) this.assignments[uid] = {};
@@ -554,6 +590,8 @@ const scheduleEditorManager = {
         try {
             await db.collection('schedules').doc(this.scheduleId).update({
                 assignments: this.assignments,
+                adjustments: this.data.adjustments || {},
+                adjustmentCount: this.data.adjustmentCount || 0,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             if(!silent) alert("儲存成功");
