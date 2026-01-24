@@ -36,6 +36,8 @@ const staffScheduleManager = {
         const wrapper = document.getElementById('horizontalScheduleWrapper');
         const noData = document.getElementById('noDataMessage');
         
+        console.log(`🔍 Loading schedule for ${year}/${month}, UID: ${this.uid}, Unit: ${this.unitId}`);
+        
         try {
             // 讀取已發布的班表 (跨單位查詢)
             const snap = await db.collection('schedules')
@@ -44,15 +46,21 @@ const staffScheduleManager = {
                 .where('status', '==', 'published')
                 .get();
 
+            console.log(`📂 Found ${snap.size} published schedules in total.`);
+
             // 過濾出與我相關的班表
             const mySchedules = snap.docs.filter(doc => {
                 const d = doc.data();
                 const isMyUnit = (d.unitId === this.unitId);
                 const isParticipant = (d.staffList || []).some(s => s.uid === this.uid);
-                return isMyUnit || isParticipant;
+                const hasMyAssign = d.assignments && d.assignments[this.uid];
+                
+                console.log(`📄 Checking Schedule ${doc.id}: Unit=${d.unitId}, isMyUnit=${isMyUnit}, isParticipant=${isParticipant}, hasMyAssign=${!!hasMyAssign}`);
+                return isMyUnit || isParticipant || hasMyAssign;
             });
 
             if (mySchedules.length === 0) {
+                console.warn("❌ No matching schedules found for this user.");
                 if(wrapper) wrapper.style.display = 'none';
                 if(noData) noData.style.display = 'block';
                 this.resetStats();
@@ -62,16 +70,25 @@ const staffScheduleManager = {
             if(wrapper) wrapper.style.display = 'block';
             if(noData) noData.style.display = 'none';
 
-            // 優先取主單位的班表
-            const targetDoc = mySchedules.find(doc => doc.data().unitId === this.unitId) || mySchedules[0];
+            // 優先取包含我排班資料的班表
+            const targetDoc = mySchedules.find(doc => doc.data().assignments && doc.data().assignments[this.uid]) || 
+                              mySchedules.find(doc => doc.data().unitId === this.unitId) || 
+                              mySchedules[0];
+            
+            console.log(`✅ Selected target schedule: ${targetDoc.id} (Unit: ${targetDoc.data().unitId})`);
+            
             this.currentSchedule = { id: targetDoc.id, ...targetDoc.data() };
             this.currentAssignments = this.currentSchedule.assignments || {};
+            
+            if (!this.currentAssignments[this.uid]) {
+                console.warn(`⚠️ UID ${this.uid} not found in assignments of schedule ${targetDoc.id}`);
+            }
             
             this.renderHorizontalTable(year, month);
             this.calculateStats(year, month);
             
         } catch(e) {
-            console.error(e);
+            console.error("❌ Load Data Error:", e);
             alert("載入錯誤: " + e.message);
         }
     },
