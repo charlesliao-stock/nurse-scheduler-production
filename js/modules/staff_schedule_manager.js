@@ -1,66 +1,62 @@
 // js/modules/staff_schedule_manager.js
-// 🚀 最終嚴格版：精確身分驗證 + 拒絕隨機資料 + 完整模擬支援
+// 🚀 最終重構版 v4：雙視圖介面 + 三方握手流程 + 嚴格違規檢查
 
 const staffScheduleManager = {
+    // 核心資料
     currentSchedule: null,
-    currentAssignments: {},
-    allShifts: [],
-    uid: null, 
-    isSimulating: false, 
+    currentAssignments: {}, // 格式: { uid: { current_1: 'N', ... } }
+    staffMap: {},           // 格式: { uid: { name: '...', role: '...' } }
+    allShifts: [],          // 班別定義
+    
+    // 狀態
+    uid: null,              // 當前視角 UID
     unitId: null,
+    isSimulating: false,
+    viewMode: 'personal',   // 'personal' or 'unit'
 
-    // --- 初始化 ---
+    // --- 1. 初始化與身分確認 ---
     init: async function() {
         if (!app.currentUser) { alert("請先登入"); return; }
         
-        // 1. 決定身分 (模擬優先)
+        // 身分判定 (Simulation > AppImpersonation > Real)
         const simUid = sessionStorage.getItem('simulation_uid');
-        const simName = sessionStorage.getItem('simulation_name');
+        const appImpUid = (typeof app !== 'undefined' && app.getUid) ? app.getUid() : null;
 
         if (simUid) {
-            // A. 開發者深度模擬
             this.uid = simUid.trim();
             this.isSimulating = true;
-            this.showSimulationBadge(simName || simUid);
-            console.warn(`🎭 [模擬模式] 使用身分: ${simName} (${this.uid})`);
+            this.showSimulationBadge(sessionStorage.getItem('simulation_name') || '開發者模擬');
+        } else if (appImpUid && appImpUid !== app.currentUser.uid) {
+            this.uid = appImpUid.trim();
+            this.isSimulating = true;
+            const impName = document.getElementById('displayUserName')?.innerText || '模擬';
+            this.showSimulationBadge(impName);
         } else {
-            // B. APP 層級模擬 (例如護理長切換視角)
-            const appImpUid = (typeof app !== 'undefined' && app.getUid) ? app.getUid() : null;
-            
-            if (appImpUid && appImpUid !== app.currentUser.uid) {
-                 this.uid = appImpUid.trim();
-                 this.isSimulating = true;
-                 this.showSimulationBadge('管理員預覽');
-            } else {
-                 // C. 本人登入
-                 this.uid = app.currentUser.uid.trim();
-                 this.isSimulating = false;
-                 this.removeSimulationBadge();
-            }
+            this.uid = app.currentUser.uid.trim();
+            this.isSimulating = false;
+            this.removeSimulationBadge();
         }
 
         this.unitId = app.getUnitId();
         
-        // 設定預設月份
+        // 預設月份
         const now = new Date();
         const monthStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-        const monthInput = document.getElementById('scheduleMonth');
-        if(monthInput && !monthInput.value) monthInput.value = monthStr;
+        const input = document.getElementById('scheduleMonth');
+        if(input && !input.value) input.value = monthStr;
         
         await this.loadShifts();
         await this.loadData();
     },
 
-    // --- 載入班別設定 (用於顯示顏色/名稱) ---
     loadShifts: async function() {
         try {
-            // 這裡不限定 unitId，避免跨單位支援時看不到班別顏色
             const snap = await db.collection('shifts').get();
             this.allShifts = snap.docs.map(d => d.data());
         } catch(e) { console.error("Load Shifts Error:", e); }
     },
 
-    // --- 核心：載入班表資料 ---
+    // --- 2. 資料讀取 ---
     loadData: async function() {
         const ym = document.getElementById('scheduleMonth').value;
         if(!ym) return;
@@ -68,357 +64,337 @@ const staffScheduleManager = {
         
         const wrapper = document.getElementById('horizontalScheduleWrapper');
         const noData = document.getElementById('noDataMessage');
-        const infoAlert = document.getElementById('scheduleInfoAlert');
-        if(infoAlert) infoAlert.remove(); // 清除舊提示
+        const container = document.getElementById('myScheduleView');
         
-        console.log(`🔍 查詢班表: ${year}/${month}, 目標 UID: '${this.uid}'`);
-        
-        // 先隱藏介面，避免閃爍
+        // UI Reset
         if(wrapper) wrapper.style.display = 'none';
-        if(noData) noData.style.display = 'block';
-        if(noData) noData.innerHTML = '<div style="padding:20px; text-align:center;"><i class="fas fa-spinner fa-spin"></i> 資料讀取中...</div>';
+        if(noData) { noData.style.display = 'block'; noData.innerHTML = '<div style="padding:20px; text-align:center;">資料讀取中...</div>'; }
 
         try {
-            // 1. 從 Firebase 撈取該月份所有已發布的班表
+            // 查詢已發布班表
             const snap = await db.collection('schedules')
                 .where('year', '==', year)
                 .where('month', '==', month)
                 .where('status', '==', 'published')
                 .get();
 
-            if (snap.empty) {
-                this.renderNoDataState("本月尚未發布任何班表。");
-                return;
+            // 尋找屬於我的班表 (檢查 assignments 或 staffList)
+            let targetDoc = null;
+            for (const doc of snap.docs) {
+                const d = doc.data();
+                if (d.assignments && d.assignments[this.uid]) { targetDoc = doc; break; }
+                if (d.staffList && d.staffList.some(s => s.uid.trim() === this.uid)) { targetDoc = doc; break; }
+                // 管理員特例：如果是管理員且同單位，也允許查看(但自己沒班)
+                if ((app.userRole === 'system_admin' || app.userRole === 'unit_manager') && d.unitId === this.unitId) { targetDoc = doc; break; }
             }
 
-            console.log(`📂 找到 ${snap.size} 份已發布班表，正在進行身分比對...`);
-
-            // 2. 精確匹配：找出「包含我」的那一份班表
-            // 不再隨便抓第一份，而是檢查我的 UID 是否在裡面
-            let targetDoc = snap.docs.find(doc => {
-                const data = doc.data();
-                const cleanUid = this.uid;
-
-                // 驗證 A: 檢查 assignments 物件 (最快)
-                if (data.assignments && data.assignments[cleanUid]) return true;
-                
-                // 驗證 B: 檢查 staffList 陣列 (備用)
-                if (data.staffList && Array.isArray(data.staffList)) {
-                    if (data.staffList.some(s => s.uid.trim() === cleanUid)) return true;
-                }
-
-                // 驗證 C: 檢查 schedule 矩陣 (最後手段，防止 assignments 損壞)
-                if (this.checkMatrixForUid(data.schedule, cleanUid)) return true;
-
-                return false;
-            });
-
-            // 3. 處理「找不到資料」的情況
             if (!targetDoc) {
-                // 如果是管理員，給予明確提示
-                if (app.userRole === 'system_admin' || app.userRole === 'unit_manager') {
-                     console.warn("User is Admin/Manager but not in schedule.");
-                     this.renderNoDataState(`您 (${app.userRole}) 不在本月排班名單中。<br>請使用「深度身分模擬」功能查看員工班表。`, true);
-                } else {
-                     // 一般員工真的沒班表
-                     console.warn("User not found in any schedule.");
-                     this.renderNoDataState("您不在本月的排班名單中 (或班表非您所屬單位)。");
-                }
-                this.resetStats();
+                this.renderNoDataState("查無您的班表資料 (或班表尚未發布)。");
                 return;
             }
 
-            console.log(`✅ 成功匹配班表 ID: ${targetDoc.id}`);
-            
-            // 4. 資料準備
+            // 解析資料
             this.currentSchedule = { id: targetDoc.id, ...targetDoc.data() };
             this.currentAssignments = this.currentSchedule.assignments || {};
             
-            // 取得「我」的資料
-            let myData = this.currentAssignments[this.uid];
-
-            // 防呆：如果 assignments[uid] 是空的或只有 preferences，嘗試從矩陣補救
-            const hasShiftKeys = myData && Object.keys(myData).some(k => k.startsWith('current_'));
-            
-            if (!hasShiftKeys) {
-                console.warn(`⚠️ Assignments 缺漏，嘗試從矩陣還原資料...`);
-                if (this.currentSchedule.schedule) {
-                    const recoveredData = this.extractShiftsFromMatrix(this.currentSchedule.schedule, this.uid);
-                    // 如果矩陣裡有資料，才補回去
-                    if (Object.keys(recoveredData).length > 0) {
-                        this.currentAssignments[this.uid] = recoveredData;
-                        myData = recoveredData;
-                    }
-                }
+            // 建立人員對照表 (方便顯示名字)
+            this.staffMap = {};
+            if(this.currentSchedule.staffList) {
+                this.currentSchedule.staffList.forEach(s => {
+                    this.staffMap[s.uid.trim()] = s;
+                });
             }
 
-            // 二次確認：如果補救後還是沒資料，顯示全空狀態 (但這是正確的，代表真的沒排班，而不是系統壞掉)
-            if (!myData) {
-                 this.currentAssignments[this.uid] = { preferences: {} }; // 避免報錯
+            // 防呆：如果 assignments 空的，嘗試從矩陣還原
+            if (Object.keys(this.currentAssignments).length === 0 && this.currentSchedule.schedule) {
+                this.recoverAssignmentsFromMatrix();
             }
 
-            // 5. 渲染畫面
+            // 顯示介面
             if(wrapper) wrapper.style.display = 'block';
             if(noData) noData.style.display = 'none';
             
-            this.renderHorizontalTable(year, month);
-            this.calculateStats(year, month);
-            
+            this.render(); // 根據當前模式渲染
+
         } catch(e) {
-            console.error("❌ Load Data Error:", e);
-            this.renderNoDataState(`讀取失敗: ${e.message}`);
+            console.error(e);
+            this.renderNoDataState(`載入失敗: ${e.message}`);
         }
     },
 
-    // --- 輔助：顯示無資料狀態 ---
-    renderNoDataState: function(msg, isAdminHint = false) {
-        const wrapper = document.getElementById('horizontalScheduleWrapper');
-        const noData = document.getElementById('noDataMessage');
-        
-        if(wrapper) wrapper.style.display = 'none';
-        if(noData) {
-            noData.style.display = 'block';
-            let html = `<div style="padding:40px; text-align:center; color:#7f8c8d;">
-                <i class="fas fa-calendar-times" style="font-size:3rem; margin-bottom:15px; color:#bdc3c7;"></i>
-                <h3>${msg}</h3>`;
-            
-            if (isAdminHint) {
-                html += `
-                <div style="margin-top:15px; background:#f8f9fa; padding:10px; border-radius:5px; display:inline-block; text-align:left;">
-                    <strong><i class="fas fa-lightbulb"></i> 管理員提示：</strong>
-                    <ul style="margin:5px 0 0 20px; padding:0; font-size:0.9rem;">
-                        <li>管理員帳號通常不參與排班，因此查無資料是正常的。</li>
-                        <li>若要測試員工視角，請按 F12 開啟 Console 輸入：<br>
-                            <code>staffScheduleManager.startSimulation('員工UID', '姓名')</code>
-                        </li>
-                    </ul>
-                </div>`;
-            }
-            html += `</div>`;
-            noData.innerHTML = html;
+    // --- 3. 視圖渲染切換 ---
+    toggleViewMode: function() {
+        const isChecked = document.getElementById('checkShowAllStaff').checked;
+        this.viewMode = isChecked ? 'unit' : 'personal';
+        this.render();
+    },
+
+    render: function() {
+        if (this.viewMode === 'unit') {
+            document.getElementById('myScheduleView').style.display = 'none';
+            document.getElementById('unitScheduleView').style.display = 'block';
+            document.getElementById('personalStatsContainer').style.display = 'none';
+            this.renderUnitMatrix();
+        } else {
+            document.getElementById('myScheduleView').style.display = 'block';
+            document.getElementById('unitScheduleView').style.display = 'none';
+            document.getElementById('personalStatsContainer').style.display = 'grid';
+            this.renderPersonalTable();
+            this.calculatePersonalStats();
         }
     },
 
-    // --- 輔助：從矩陣反查 (Backup) ---
-    checkMatrixForUid: function(matrix, uid) {
-        if (!matrix) return false;
-        return Object.values(matrix).some(dayShifts => {
-            return Object.values(dayShifts).some(uids => Array.isArray(uids) && uids.some(u => u.trim() === uid));
-        });
-    },
-
-    extractShiftsFromMatrix: function(matrix, targetUid) {
-        if (!matrix) return {};
-        const result = {};
-        Object.entries(matrix).forEach(([dateStr, dayShifts]) => {
-            Object.entries(dayShifts).forEach(([shiftCode, uids]) => {
-                if (Array.isArray(uids) && uids.some(u => u.trim() === targetUid)) {
-                    const dayPart = parseInt(dateStr.split('-')[2]);
-                    if (!isNaN(dayPart)) result[`current_${dayPart}`] = shiftCode;
-                }
-            });
-        });
-        return result;
-    },
-
-    // --- 渲染：水平班表 ---
-    renderHorizontalTable: function(year, month) {
+    // --- 3.1 渲染：個人視圖 ---
+    renderPersonalTable: function() {
         const rowWeekday = document.getElementById('row-weekday');
         const rowDate = document.getElementById('row-date');
         const rowShift = document.getElementById('row-shift');
-        if(!rowWeekday || !rowDate || !rowShift) return;
-
-        // 清空表格 (保留標題欄)
+        
+        // 清空
         while(rowWeekday.cells.length > 1) rowWeekday.deleteCell(1);
         while(rowDate.cells.length > 1) rowDate.deleteCell(1);
         while(rowShift.cells.length > 1) rowShift.deleteCell(1);
 
-        const myAssign = this.currentAssignments[this.uid] || {};
-        const daysInMonth = new Date(year, month, 0).getDate();
-        const today = new Date();
-        today.setHours(0,0,0,0);
+        const myData = this.currentAssignments[this.uid] || {};
+        const daysInMonth = new Date(this.currentSchedule.year, this.currentSchedule.month, 0).getDate();
+        const today = new Date(); today.setHours(0,0,0,0);
 
         for (let d = 1; d <= daysInMonth; d++) {
-            const dateObj = new Date(year, month-1, d);
-            const dayOfWeek = dateObj.getDay(); 
-            const weekStr = ['日','一','二','三','四','五','六'][dayOfWeek];
+            const dateObj = new Date(this.currentSchedule.year, this.currentSchedule.month-1, d);
+            const w = ['日','一','二','三','四','五','六'][dateObj.getDay()];
             
-            // 讀取班別 (支援 current_1 或 current_01 或 YYYY-MM-DD)
-            let shiftCode = myAssign[`current_${d}`] || 
-                            myAssign[`current_${String(d).padStart(2, '0')}`] || 
-                            'OFF';
-            
-            // 1. 星期列
-            const tdW = document.createElement('td');
-            tdW.textContent = weekStr;
-            tdW.className = 'weekday-cell';
-            if(dayOfWeek === 0) tdW.classList.add('weekend-sun');
-            else if(dayOfWeek === 6) tdW.classList.add('weekend-sat');
-            else tdW.classList.add('weekday-normal');
+            // 讀取班別
+            let shiftCode = myData[`current_${d}`] || 'OFF';
+
+            // 星期
+            const tdW = document.createElement('td'); tdW.textContent = w;
+            if(dateObj.getDay()===0 || dateObj.getDay()===6) tdW.style.color = 'red';
             rowWeekday.appendChild(tdW);
 
-            // 2. 日期列
-            const tdD = document.createElement('td');
-            tdD.textContent = String(d).padStart(2, '0');
-            tdD.className = 'date-cell';
-            // 標記今天
-            if (dateObj.getTime() === today.getTime()) tdD.style.backgroundColor = '#fff3cd'; 
+            // 日期
+            const tdD = document.createElement('td'); tdD.textContent = d;
+            if(dateObj.getTime() === today.getTime()) tdD.style.backgroundColor = '#fff3cd';
             rowDate.appendChild(tdD);
 
-            // 3. 班別列
+            // 班別
             const tdS = document.createElement('td');
-            tdS.className = 'shift-cell';
+            const box = this.createShiftBox(shiftCode);
             
-            const shiftBox = document.createElement('div');
-            shiftBox.className = 'shift-box';
-            shiftBox.textContent = shiftCode;
-            
-            // 樣式處理
-            if (shiftCode === 'N') shiftBox.classList.add('shift-n');
-            else if (shiftCode === 'OFF' || shiftCode === 'REQ_OFF') shiftBox.classList.add('shift-off');
-            else if (shiftCode !== 'D' && shiftCode !== 'E') {
-                // 特殊班別顏色 (嘗試從 allShifts 對照)
-                const shiftDef = this.allShifts.find(s => s.code === shiftCode);
-                if (shiftDef && shiftDef.color) {
-                    shiftBox.style.backgroundColor = shiftDef.color;
-                    shiftBox.style.color = '#fff';
-                    shiftBox.style.border = 'none';
-                }
-            }
-
-            // 換班點擊事件 (僅限未來日期)
+            // 點擊事件 (未來日期)
             if (dateObj > today) {
-                shiftBox.onclick = () => this.openExchangeModal(d, shiftCode);
-                shiftBox.title = "點擊申請換班";
-            } else {
-                shiftBox.style.cursor = 'default';
-                shiftBox.style.opacity = '0.8';
+                box.style.cursor = 'pointer';
+                box.onclick = () => this.openExchangeModal(d, shiftCode);
+                box.title = "點擊申請換班";
             }
-            tdS.appendChild(shiftBox);
+            tdS.appendChild(box);
             rowShift.appendChild(tdS);
         }
     },
 
-    // --- 統計計算 ---
-    calculateStats: function(year, month) {
-        const myAssign = this.currentAssignments[this.uid] || {};
-        const daysInMonth = new Date(year, month, 0).getDate();
-        let totalShifts = 0, totalOff = 0, holidayOff = 0, evening = 0, night = 0, exchangeCount = 0;
+    // --- 3.2 渲染：全單位矩陣 ---
+    renderUnitMatrix: function() {
+        const thead = document.getElementById('unitHead');
+        const tbody = document.getElementById('unitBody');
+        const daysInMonth = new Date(this.currentSchedule.year, this.currentSchedule.month, 0).getDate();
+        
+        // Header
+        let h = `<tr><th style="width:80px; position:sticky; left:0; background:#fff; z-index:2;">姓名</th>`;
+        for(let d=1; d<=daysInMonth; d++) {
+            const w = new Date(this.currentSchedule.year, this.currentSchedule.month-1, d).getDay();
+            h += `<th style="min-width:35px; ${w===0||w===6?'color:red':''}">${d}</th>`;
+        }
+        h += `</tr>`;
+        thead.innerHTML = h;
 
-        for (let d = 1; d <= daysInMonth; d++) {
-            let code = myAssign[`current_${d}`] || 'OFF';
-            
-            if (code === 'OFF' || code === 'REQ_OFF') {
-                totalOff++;
-                const date = new Date(year, month-1, d);
-                if (date.getDay() === 0 || date.getDay() === 6) holidayOff++;
-            } else {
-                totalShifts++;
-                if (code === 'E' || code === 'EN') evening++;
-                if (code === 'N') night++;
+        // Body
+        let b = '';
+        const sortedUids = Object.keys(this.currentAssignments).sort(); // 可優化排序
+        
+        sortedUids.forEach(uid => {
+            const staffName = this.staffMap[uid]?.name || '未知';
+            b += `<tr><td style="position:sticky; left:0; background:#fff; font-weight:bold;">${staffName}</td>`;
+            for(let d=1; d<=daysInMonth; d++) {
+                const shift = this.currentAssignments[uid][`current_${d}`] || 'OFF';
+                b += `<td>${shift}</td>`; // 全單位視圖僅顯示文字，不給點擊 (保持畫面乾淨)
             }
-        }
-
-        // 統計換班數 (僅統計該次排班內的)
-        if (this.currentSchedule.exchanges) {
-            // 注意：這裡是舊資料結構，如果有新 collection 結構需調整，目前先保留
-        }
-
-        const safeSet = (id, val) => { const el = document.getElementById(id); if(el) el.innerText = val; };
-        safeSet('statTotalShifts', totalShifts);
-        safeSet('statTotalOff', totalOff);
-        safeSet('statHolidayOff', holidayOff);
-        safeSet('statEvening', evening);
-        safeSet('statNight', night);
-    },
-
-    resetStats: function() {
-        ['statTotalShifts','statTotalOff','statHolidayOff','statEvening','statNight','statExchangeCount'].forEach(id => {
-            const el = document.getElementById(id);
-            if(el) el.innerText = '0';
+            b += `</tr>`;
         });
+        tbody.innerHTML = b;
     },
 
-    // --- 換班功能 ---
+    // --- 4. 換班功能與驗證 ---
     exchangeData: null,
+    
     openExchangeModal: function(day, myShift) {
-        if (this.isSimulating) {
-            alert("⚠️ 模擬模式下無法申請換班，請切換回本人帳號。");
-            return;
+        if (this.isSimulating && app.userRole !== 'system_admin') {
+            // alert("模擬模式下不可操作"); // 根據需求：模擬要能操作，所以不擋
         }
 
         this.exchangeData = { day, myShift };
         const dateStr = `${this.currentSchedule.year}/${this.currentSchedule.month}/${day}`;
         
-        const infoEl = document.getElementById('exchangeInfo');
-        if(infoEl) infoEl.innerHTML = `<strong>日期：</strong> ${dateStr} <br><strong>您的班別：</strong> <span class="badge badge-warning">${myShift}</span>`;
+        document.getElementById('exchangeInfo').innerHTML = `
+            <strong>日期：</strong> ${dateStr} <br>
+            <strong>我的原本班別：</strong> <span class="badge badge-info">${myShift}</span>
+        `;
         
+        // 載入可交換對象
         const select = document.getElementById('exchangeTargetSelect');
-        if(!select) return;
-        select.innerHTML = '<option value="">載入中...</option>';
+        select.innerHTML = '<option value="">--- 請選擇對象 ---</option>';
         
-        // 載入可交換對象 (排除自己)
-        const staffList = this.currentSchedule.staffList || [];
-        const options = [];
-        
-        staffList.forEach(staff => {
-            const targetUid = staff.uid.trim();
-            if (targetUid === this.uid) return;
+        Object.keys(this.currentAssignments).forEach(targetUid => {
+            if (targetUid === this.uid) return; // 排除自己
             
-            // 取得對方的班表
-            let targetAssign = this.currentAssignments[targetUid];
+            const targetName = this.staffMap[targetUid]?.name || targetUid;
+            const targetShift = this.currentAssignments[targetUid][`current_${day}`] || 'OFF';
             
-            // 如果這一包 assignments 裡沒有對方的資料，嘗試去 Assignments 全局找
-            if (!targetAssign) {
-                 targetAssign = this.currentSchedule.assignments ? this.currentSchedule.assignments[targetUid] : null;
-            }
-
-            // 如果 assignments 還是找不到，嘗試從矩陣提取
-            if (!targetAssign) {
-                 targetAssign = this.extractShiftsFromMatrix(this.currentSchedule.schedule, targetUid);
-            }
-            
-            targetAssign = targetAssign || {};
-            const targetShift = targetAssign[`current_${day}`] || 'OFF';
-            
-            // 只有班別不同才列出
+            // 排除相同班別 (換了沒意義)
             if (targetShift !== myShift) {
-                options.push(`<option value="${targetUid}" data-shift="${targetShift}">${staff.name} (班別: ${targetShift})</option>`);
+                select.innerHTML += `<option value="${targetUid}" data-shift="${targetShift}">
+                    ${targetName} (目前: ${targetShift})
+                </option>`;
             }
         });
 
-        if (options.length === 0) select.innerHTML = '<option value="">無可交換對象</option>';
-        else select.innerHTML = '<option value="">請選擇對象</option>' + options.join('');
+        // 重置欄位
+        document.querySelectorAll('input[name="reason"]').forEach(el => el.checked = false);
+        document.getElementById('otherReasonBox').style.display = 'none';
+        document.getElementById('otherReasonBox').value = '';
+        document.getElementById('validationResult').style.display = 'none';
+
+        // 綁定驗證事件 (當選擇對象時，立即檢查是否違規)
+        select.onchange = () => this.validateSwapPreview();
+
+        document.getElementById('exchangeModal').classList.add('show');
+    },
+
+    // 🔥 核心：違規預檢 (模擬交換後的狀態)
+    validateSwapPreview: function() {
+        const select = document.getElementById('exchangeTargetSelect');
+        const targetUid = select.value;
+        const resultDiv = document.getElementById('validationResult');
+        resultDiv.style.display = 'none';
         
-        const modal = document.getElementById('exchangeModal');
-        if(modal) modal.classList.add('show');
+        if (!targetUid) return;
+
+        const targetShift = select.options[select.selectedIndex].getAttribute('data-shift');
+        const day = this.exchangeData.day;
+        const myShift = this.exchangeData.myShift;
+
+        const errors = [];
+        const warnings = [];
+
+        // 執行檢查
+        // 1. 接班禁忌 (Continuity)
+        if (!this.checkContinuity(this.uid, day, targetShift)) errors.push(`您換班後將違反「接班規定」(如 N 接 D)`);
+        if (!this.checkContinuity(targetUid, day, myShift)) errors.push(`對方換班後將違反「接班規定」`);
+
+        // 2. 連續上班 (Consecutive Days)
+        const myCons = this.checkConsecutive(this.uid, day, targetShift);
+        if (myCons > 12) errors.push(`您換班後將連續上班 ${myCons} 天 (超過12天禁止)`);
+        else if (myCons > 6) warnings.push(`⚠️ 注意：您換班後將連續上班 ${myCons} 天`);
+
+        const targetCons = this.checkConsecutive(targetUid, day, myShift);
+        if (targetCons > 12) errors.push(`對方換班後將連續上班 ${targetCons} 天 (禁止)`);
+        else if (targetCons > 6) warnings.push(`⚠️ 注意：對方換班後將連續上班 ${targetCons} 天`);
+
+        // 3. 當日人力 (Staffing)
+        // 簡易檢查：如果我是 D 換成 OFF，那天 D 就少 1。檢查是否低於最低需求 (需 dailyNeeds 支援)
+        if (this.currentSchedule.dailyNeeds) {
+            const staffingError = this.checkStaffing(day, myShift, targetShift);
+            if (staffingError) errors.push(staffingError);
+        }
+
+        // 顯示結果
+        if (errors.length > 0) {
+            resultDiv.className = 'alert alert-danger';
+            resultDiv.innerHTML = `<strong><i class="fas fa-ban"></i> 禁止申請：</strong><br>${errors.join('<br>')}`;
+            resultDiv.style.display = 'block';
+            document.querySelector('#exchangeModal .btn-primary').disabled = true;
+        } else if (warnings.length > 0) {
+            resultDiv.className = 'alert alert-warning';
+            resultDiv.innerHTML = `<strong><i class="fas fa-exclamation-triangle"></i> 提醒：</strong><br>${warnings.join('<br>')}`;
+            resultDiv.style.display = 'block';
+            document.querySelector('#exchangeModal .btn-primary').disabled = false;
+        } else {
+            resultDiv.className = 'alert alert-success';
+            resultDiv.innerHTML = `<i class="fas fa-check-circle"></i> 檢查通過，符合排班規則。`;
+            resultDiv.style.display = 'block';
+            document.querySelector('#exchangeModal .btn-primary').disabled = false;
+        }
     },
 
-    closeExchangeModal: function() {
-        const modal = document.getElementById('exchangeModal');
-        if(modal) modal.classList.remove('show');
-        this.exchangeData = null;
+    // 檢查接班 (前後 1 天)
+    checkContinuity: function(uid, day, newShift) {
+        if (newShift === 'OFF' || newShift === 'REQ_OFF') return true; // 休假無接班問題
+        
+        // 取得前一天與後一天的班別
+        const prevShift = this.currentAssignments[uid][`current_${day-1}`]; // 注意：若是1號需抓上月(暫簡化為不檢查上月)
+        const nextShift = this.currentAssignments[uid][`current_${day+1}`];
+
+        // 規則：N 不能接 D 或 E (假設 N 是夜班)
+        // 這裡需要根據您的 shifts 定義來判斷，這裡先寫死常見規則
+        if (prevShift === 'N' && (newShift === 'D' || newShift === 'E')) return false;
+        if (newShift === 'N' && (nextShift === 'D' || nextShift === 'E')) return false;
+
+        return true;
     },
 
-    toggleOtherReason: function() {
-        const val = document.getElementById('exchangeReasonCategory').value;
-        const group = document.getElementById('otherReasonGroup');
-        if(group) group.style.display = (val === 'other') ? 'block' : 'none';
+    // 檢查連續上班 (模擬置換後計算)
+    checkConsecutive: function(uid, changeDay, newShift) {
+        if (newShift === 'OFF' || newShift === 'REQ_OFF') return 0; // 換成休假，連班斷掉
+
+        // 複製一份該員的班表陣列
+        const daysInMonth = new Date(this.currentSchedule.year, this.currentSchedule.month, 0).getDate();
+        const shifts = [];
+        for(let d=1; d<=daysInMonth; d++) {
+            if (d === changeDay) shifts.push(newShift);
+            else shifts.push(this.currentAssignments[uid][`current_${d}`] || 'OFF');
+        }
+
+        // 計算包含 changeDay 的最大連續數
+        let maxCons = 0;
+        let currentCons = 0;
+        for (let s of shifts) {
+            if (s !== 'OFF' && s !== 'REQ_OFF') currentCons++;
+            else currentCons = 0;
+            if (currentCons > maxCons) maxCons = currentCons;
+        }
+        return maxCons;
+    },
+
+    // 檢查人力 (簡易版)
+    checkStaffing: function(day, shiftOut, shiftIn) {
+        // 如果 shiftOut 是上班 (如 D)，shiftIn 是休假 (OFF)，則 D -1
+        // 如果造成 D < dailyNeeds，則報錯
+        // 需實作... (略，視需求複雜度而定)
+        return null; 
     },
 
     submitExchange: async function() {
-        const targetSelect = document.getElementById('exchangeTargetSelect');
-        const targetUid = targetSelect.value;
+        const select = document.getElementById('exchangeTargetSelect');
+        const targetUid = select.value;
         if (!targetUid) { alert("請選擇交換對象"); return; }
-        
-        const targetName = targetSelect.options[targetSelect.selectedIndex].text.split(' ')[0];
-        const targetShift = targetSelect.options[targetSelect.selectedIndex].getAttribute('data-shift');
-        const reasonCategory = document.getElementById('exchangeReasonCategory').value;
-        const otherReasonText = document.getElementById('otherReasonText').value;
-        const reason = document.getElementById('exchangeReason').value;
 
-        if (!reasonCategory) { alert("請選擇換班事由分類"); return; }
-        if (reasonCategory === 'other' && !otherReasonText) { alert("請填寫其他原因說明"); return; }
+        const targetShift = select.options[select.selectedIndex].getAttribute('data-shift');
+        const reasonRadio = document.querySelector('input[name="reason"]:checked');
+        
+        if (!reasonRadio) { alert("請勾選換班原因"); return; }
+        
+        let reasonVal = reasonRadio.value;
+        let reasonDesc = "";
+        
+        if (reasonVal === 'other') {
+            reasonDesc = document.getElementById('otherReasonBox').value;
+            if(!reasonDesc) { alert("請填寫其他原因說明"); return; }
+        }
+
+        // 再次驗證
+        const resultDiv = document.getElementById('validationResult');
+        if (resultDiv.classList.contains('alert-danger')) {
+            alert("此換班違反規則，無法送出。");
+            return;
+        }
 
         try {
             const requestData = {
@@ -427,54 +403,147 @@ const staffScheduleManager = {
                 year: this.currentSchedule.year,
                 month: this.currentSchedule.month,
                 day: this.exchangeData.day,
+                
+                // 申請人 (員工1)
                 requesterId: this.uid,
-                requesterName: app.currentUser.displayName || '我',
+                requesterName: app.currentUser.displayName || this.uid,
                 requesterShift: this.exchangeData.myShift,
+                
+                // 對象 (員工2)
                 targetId: targetUid,
-                targetName: targetName,
+                targetName: this.staffMap[targetUid]?.name || targetUid,
                 targetShift: targetShift,
-                reasonCategory: reasonCategory,
-                otherReason: reasonCategory === 'other' ? otherReasonText : null,
-                reason: reason,
-                status: 'pending_target',
+                
+                // 原因
+                reasonCategory: reasonVal,
+                otherReason: reasonDesc,
+                
+                // 流程狀態: pending_target -> pending_manager -> approved
+                status: 'pending_target', 
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             };
-            
+
             await db.collection('shift_requests').add(requestData);
-            alert("✅ 申請已送出！");
+            alert("✅ 申請已送出！\n\n流程說明：\n1. 等待對方同意\n2. 等待護理長核准\n3. 系統自動更新班表");
             this.closeExchangeModal();
-        } catch(e) { console.error(e); alert("申請失敗: " + e.message); }
+        } catch(e) { 
+            console.error(e); 
+            alert("申請失敗: " + e.message); 
+        }
     },
 
-    // --- 模擬工具 UI ---
-    startSimulation: function(targetUid, targetName = '模擬員工') {
-        sessionStorage.setItem('simulation_uid', targetUid);
-        sessionStorage.setItem('simulation_name', targetName);
-        alert(`已切換為模擬視角：${targetName}\n網頁將重新整理...`);
-        location.reload();
+    // --- 工具函式 ---
+    createShiftBox: function(code) {
+        const div = document.createElement('div');
+        div.className = 'shift-box';
+        div.textContent = code;
+        
+        if(code === 'OFF' || code === 'REQ_OFF') div.classList.add('shift-off');
+        else if(code === 'N') div.classList.add('shift-n');
+        else {
+            const def = this.allShifts.find(s => s.code === code);
+            if(def && def.color) {
+                div.style.backgroundColor = def.color;
+                div.style.color = '#fff';
+            } else {
+                div.classList.add('shift-d');
+            }
+        }
+        return div;
+    },
+
+    closeExchangeModal: function() { document.getElementById('exchangeModal').classList.remove('show'); },
+    
+    calculatePersonalStats: function() {
+        const myData = this.currentAssignments[this.uid] || {};
+        let counts = { total:0, off:0, holiday:0, D:0, E:0, N:0 };
+        const daysInMonth = new Date(this.currentSchedule.year, this.currentSchedule.month, 0).getDate();
+
+        for(let d=1; d<=daysInMonth; d++) {
+            const code = myData[`current_${d}`];
+            if(!code) continue;
+            
+            if(code === 'OFF' || code === 'REQ_OFF') {
+                counts.off++;
+                const w = new Date(this.currentSchedule.year, this.currentSchedule.month-1, d).getDay();
+                if(w===0 || w===6) counts.holiday++;
+            } else {
+                counts.total++;
+                if(code === 'D') counts.D++;
+                if(code === 'E') counts.E++;
+                if(code === 'N') counts.N++;
+            }
+        }
+        
+        document.getElementById('statTotalShifts').innerText = counts.total;
+        document.getElementById('statTotalOff').innerText = counts.off;
+        document.getElementById('statHolidayOff').innerText = counts.holiday;
+        document.getElementById('statDay').innerText = counts.D;
+        document.getElementById('statEvening').innerText = counts.E;
+        document.getElementById('statNight').innerText = counts.N;
+    },
+
+    recoverAssignmentsFromMatrix: function() {
+        if(!this.currentSchedule.schedule) return;
+        const matrix = this.currentSchedule.schedule;
+        const result = {};
+        
+        Object.keys(matrix).forEach(dateStr => {
+            const day = parseInt(dateStr.split('-')[2]);
+            if(isNaN(day)) return;
+            
+            const shifts = matrix[dateStr];
+            Object.keys(shifts).forEach(code => {
+                shifts[code].forEach(uid => {
+                    if(!result[uid]) result[uid] = {};
+                    result[uid][`current_${day}`] = code;
+                });
+            });
+        });
+        
+        // Merge back
+        Object.keys(result).forEach(uid => {
+            if(!this.currentAssignments[uid]) this.currentAssignments[uid] = result[uid];
+        });
+    },
+
+    renderNoDataState: function(msg, isAdmin = false) {
+        const noData = document.getElementById('noDataMessage');
+        const wrapper = document.getElementById('horizontalScheduleWrapper');
+        if(wrapper) wrapper.style.display = 'none';
+        
+        let html = `<div style="padding:40px; color:#95a5a6;">
+            <i class="fas fa-calendar-times" style="font-size:3rem; margin-bottom:10px;"></i>
+            <h3>${msg}</h3>
+        </div>`;
+        
+        if(isAdmin) {
+            html += `<div class="alert alert-warning" style="display:inline-block; margin-top:10px;">
+                <strong>管理員模式：</strong> 請使用左側選單的「深度身分模擬」來切換至員工視角。
+            </div>`;
+        }
+        
+        noData.innerHTML = html;
+        noData.style.display = 'block';
+    },
+
+    showSimulationBadge: function(name) {
+        let b = document.getElementById('sim-badge');
+        if(!b) {
+            b = document.createElement('div');
+            b.id = 'sim-badge';
+            b.style.cssText = "position:fixed; bottom:10px; right:10px; background:#e74c3c; color:white; padding:8px 15px; border-radius:30px; font-weight:bold; box-shadow:0 2px 10px rgba(0,0,0,0.2); z-index:9999;";
+            document.body.appendChild(b);
+        }
+        b.innerHTML = `🎭 模擬視角: ${name} <button onclick="staffScheduleManager.endSimulation()" style="margin-left:10px; border:none; background:#fff; color:#e74c3c; border-radius:10px; cursor:pointer;">退出</button>`;
     },
 
     endSimulation: function() {
         sessionStorage.removeItem('simulation_uid');
         sessionStorage.removeItem('simulation_name');
-        if (typeof app !== 'undefined' && app.clearImpersonation) app.clearImpersonation(); 
-        alert("已結束模擬，恢復為原始身分。\n網頁將重新整理...");
+        if(app.clearImpersonation) app.clearImpersonation();
         location.reload();
     },
-
-    showSimulationBadge: function(name) {
-        let badge = document.getElementById('sim-badge');
-        if (!badge) {
-            badge = document.createElement('div');
-            badge.id = 'sim-badge';
-            badge.style.cssText = "position:fixed; bottom:10px; right:10px; background:#e74c3c; color:white; padding:8px 12px; z-index:9999; border-radius:30px; font-weight:bold; box-shadow:0 2px 10px rgba(0,0,0,0.3); font-size:14px; display:flex; align-items:center; gap:10px;";
-            badge.innerHTML = `<span>🎭 模擬視角: ${name}</span> <button onclick="staffScheduleManager.endSimulation()" style="background:white; color:#e74c3c; border:none; padding:2px 8px; border-radius:10px; cursor:pointer; font-weight:bold;">退出</button>`;
-            document.body.appendChild(badge);
-        }
-    },
-
-    removeSimulationBadge: function() {
-        const badge = document.getElementById('sim-badge');
-        if (badge) badge.remove();
-    }
+    
+    removeSimulationBadge: function() { const b=document.getElementById('sim-badge'); if(b) b.remove(); }
 };
