@@ -1,5 +1,5 @@
 // js/modules/staff_schedule_manager.js
-// 🚀 最終完整版：強化 UID 處理與 Fallback 機制 (解決全 OFF 問題)
+// 🚀 最終除錯版：顯示矩陣內容 + 修正計數邏輯
 
 const staffScheduleManager = {
     currentSchedule: null,
@@ -9,7 +9,7 @@ const staffScheduleManager = {
     
     init: async function() {
         if (!app.currentUser) { alert("請先登入"); return; }
-        // 🔥 Fix: 這裡強制 trim()，確保與資料庫的一致性
+        // 確保 UID 乾淨
         this.uid = app.getUid().trim();
         this.unitId = app.getUnitId();
         
@@ -51,7 +51,6 @@ const staffScheduleManager = {
             const mySchedules = snap.docs.filter(doc => {
                 const d = doc.data();
                 const isMyUnit = (d.unitId === this.unitId);
-                // 🔥 Fix: 使用 trim() 進行比較
                 const isParticipant = (d.staffList || []).some(s => s.uid.trim() === this.uid);
                 const assignments = d.assignments || {};
                 const hasAssign = Object.keys(assignments).some(k => k.trim() === this.uid);
@@ -71,7 +70,6 @@ const staffScheduleManager = {
             if(wrapper) wrapper.style.display = 'block';
             if(noData) noData.style.display = 'none';
 
-            // 優先取矩陣裡有資料的，或單位符合的
             let targetDoc = mySchedules.find(doc => this.checkMatrixForUid(doc.data().schedule || {}, this.uid));
             if (!targetDoc) targetDoc = mySchedules.find(doc => doc.data().unitId === this.unitId) || mySchedules[0];
             
@@ -80,24 +78,33 @@ const staffScheduleManager = {
             this.currentSchedule = { id: targetDoc.id, ...targetDoc.data() };
             this.currentAssignments = this.currentSchedule.assignments || {};
             
-            // 🔥 關鍵修復：正確判定 Assignments 是否有效
-            // 有時候 Assignments 裡只有 { preferences: {} }，這時候必須強制用 Matrix Fallback
             let myData = this.currentAssignments[this.uid];
             
+            // 檢查 Assignments 是否有效 (必須包含 current_X 或日期 key)
             const hasShiftKeys = myData && Object.keys(myData).some(k => k.startsWith('current_') || k.match(/^\d{4}-\d{2}-\d{2}$/));
 
             if (!hasShiftKeys) {
                 console.warn("⚠️ Assignments empty or only has prefs. Switching to Matrix Extraction Mode...");
-                // 檢查是否真的有矩陣資料
+                
+                // 🔥 DEBUG: 檢查矩陣結構
                 if (this.currentSchedule.schedule) {
+                    const keys = Object.keys(this.currentSchedule.schedule);
+                    console.log(`🔥 Matrix has ${keys.length} days. First day key: ${keys[0]}`);
+                    if (keys.length > 0) {
+                        const sampleDay = this.currentSchedule.schedule[keys[0]];
+                        console.log(`🔥 Sample Data (${keys[0]}):`, JSON.stringify(sampleDay));
+                    }
+                    
                     myData = this.extractShiftsFromMatrix(this.currentSchedule.schedule, this.uid);
                     this.currentAssignments[this.uid] = myData; 
                 } else {
-                    console.error("🔥 'schedule' matrix field is missing!");
+                    console.error("🔥 'schedule' field is MISSING in document!");
                 }
             }
 
-            console.log("🛠️ Effective Data Keys:", Object.keys(myData || {}));
+            // 修正 Log：排除 preferences 其實際數量
+            const validKeys = Object.keys(myData || {}).filter(k => k !== 'preferences');
+            console.log(`🛠️ Effective Shift Keys: ${validKeys.length}`, validKeys);
             
             this.renderHorizontalTable(year, month);
             this.calculateStats(year, month);
@@ -110,7 +117,6 @@ const staffScheduleManager = {
 
     checkMatrixForUid: function(matrix, uid) {
         if (!matrix) return false;
-        // 🔥 Fix: Trim UID
         return Object.values(matrix).some(dayShifts => {
             return Object.values(dayShifts).some(uids => Array.isArray(uids) && uids.some(u => u.trim() === uid));
         });
@@ -119,18 +125,25 @@ const staffScheduleManager = {
     extractShiftsFromMatrix: function(matrix, uid) {
         if (!matrix) return {};
         const result = {};
+        let foundCount = 0;
+
         Object.entries(matrix).forEach(([dateStr, dayShifts]) => {
             Object.entries(dayShifts).forEach(([shiftCode, uids]) => {
-                // 🔥 Fix: Trim UID
+                // 🔥 DEBUG: 若是第一天，印出 UID 列表以供檢查
+                if (foundCount === 0 && Array.isArray(uids) && uids.length > 0) {
+                   // console.log(`🔍 Checking Match on ${dateStr} [${shiftCode}]: Mine='${uid}', InList=`, uids);
+                }
+
                 if (Array.isArray(uids) && uids.some(u => u.trim() === uid)) {
                     result[dateStr] = shiftCode;
                     const dayPart = parseInt(dateStr.split('-')[2]);
                     if (!isNaN(dayPart)) result[`current_${dayPart}`] = shiftCode;
+                    foundCount++;
                 }
             });
         });
         result.preferences = {}; 
-        console.log(`🔧 Extracted ${Object.keys(result).length} shifts from matrix for ${uid}`);
+        console.log(`🔧 Extracted ${foundCount} actual shifts (excluding prefs) for ${uid}`);
         return result;
     },
 
