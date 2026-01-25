@@ -115,18 +115,44 @@ const staffScheduleManager = {
         });
     },
 
-    extractShiftsFromMatrix: function(matrix, uid) {
-        if (!matrix) return {};
-        const result = {};
-        Object.entries(matrix).forEach(([dateStr, dayShifts]) => {
-            Object.entries(dayShifts).forEach(([shiftCode, uids]) => {
-                if (Array.isArray(uids) && uids.includes(uid)) {
-                    result[dateStr] = shiftCode;
-                    const dayPart = parseInt(dateStr.split('-')[2]);
-                    if (!isNaN(dayPart)) result[`current_${dayPart}`] = shiftCode;
+extractShiftsFromMatrix: function(matrix, uid) {
+    if (!matrix) return {};
+    const result = {};
+    
+    console.log("🔍 開始提取，matrix 有幾天:", Object.keys(matrix).length);
+    
+    Object.entries(matrix).forEach(([dateStr, dayShifts]) => {
+        console.log(`📅 檢查 ${dateStr}:`, dayShifts);
+        
+        Object.entries(dayShifts).forEach(([shiftCode, uids]) => {
+            console.log(`  班別 ${shiftCode}:`, uids, `(是否陣列: ${Array.isArray(uids)})`);
+            
+            if (Array.isArray(uids) && uids.includes(uid)) {
+                console.log(`  ✅ 找到我的班！shiftCode=${shiftCode}`);
+                
+                result[dateStr] = shiftCode;
+                const dayPart = parseInt(dateStr.split('-')[2]);
+                
+                console.log(`  → dayPart = ${dayPart}`);
+                
+                if (!isNaN(dayPart)) {
+                    result[`current_${dayPart}`] = shiftCode;
+                    console.log(`  → 已設定 current_${dayPart} = ${shiftCode}`);
                 }
-            });
+            }
         });
+    });
+    
+    console.log("🔧 提取完成，result 內容:", {...result});  // 複製一份避免被修改
+    console.log("🔧 Keys 數量:", Object.keys(result).length);
+    
+    result.preferences = {};
+    
+    console.log("🔧 加入 preferences 後，Keys:", Object.keys(result));
+    console.log("🔧 最終 result:", result);
+    
+    return result;
+}
         result.preferences = {}; 
         console.log(`🔧 Extracted ${Object.keys(result).length} shifts from matrix for ${uid}`);
         return result;
