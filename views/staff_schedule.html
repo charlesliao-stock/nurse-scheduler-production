@@ -1,149 +1,117 @@
 <div class="page-section active">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-        <h2 style="margin:0;"><i class="fas fa-user-clock"></i> 我的班表與統計</h2>
+        <h2 style="margin:0;"><i class="fas fa-user-clock"></i> 我的班表查詢</h2>
     </div>
     
-    <div class="toolbar" style="margin-bottom: 20px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
-        <div class="form-group" style="margin:0;">
-            <label>選擇月份：</label>
-            <input type="month" id="scheduleMonth" class="form-control" style="width: 160px; display:inline-block;">
+    <div class="toolbar" style="margin-bottom: 20px; background:white; padding:15px; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,0.05); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+        <div style="display:flex; gap:15px; align-items:center;">
+            <div class="form-group" style="margin:0;">
+                <label style="font-weight:bold; margin-right:5px;">月份：</label>
+                <input type="month" id="scheduleMonth" class="form-control" style="width: 160px; display:inline-block;">
+            </div>
+            <button class="btn btn-primary" onclick="staffScheduleManager.loadData()">
+                <i class="fas fa-search"></i> 查詢
+            </button>
         </div>
-        
-        <button class="btn btn-primary" onclick="staffScheduleManager.loadData()">
-            <i class="fas fa-search"></i> 查詢
-        </button>
+
+        <div style="display:flex; align-items:center;">
+            <label class="switch-label" style="cursor:pointer; display:flex; align-items:center; user-select:none;">
+                <input type="checkbox" id="checkShowAllStaff" onchange="staffScheduleManager.toggleViewMode()" style="width:18px; height:18px; margin-right:8px;">
+                <span style="font-size:1rem; color:#2c3e50;">顯示全單位班表</span>
+            </label>
+        </div>
     </div>
     
-    <!-- 統計卡片 -->
-    <div class="score-cards-grid" style="grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); margin-bottom: 20px; gap: 10px;">
+    <div id="personalStatsContainer" class="score-cards-grid" style="grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); margin-bottom: 20px; gap: 10px;">
         <div class="score-card" style="padding: 10px;">
             <h5 style="color:#7f8c8d; margin:0; font-size: 0.9rem;">上班總數</h5>
-            <h2 id="statTotalShifts" style="color:#2c3e50; margin:5px 0; font-size: 1.5rem;">0</h2>
+            <h2 id="statTotalShifts" style="color:#2c3e50; margin:5px 0; font-size: 1.5rem;">-</h2>
         </div>
         <div class="score-card" style="padding: 10px;">
-            <h5 style="color:#7f8c8d; margin:0; font-size: 0.9rem;">總休假</h5>
-            <h2 id="statTotalOff" style="color:#27ae60; margin:5px 0; font-size: 1.5rem;">0</h2>
+            <h5 style="color:#7f8c8d; margin:0; font-size: 0.9rem;">休假天數</h5>
+            <h2 id="statTotalOff" style="color:#27ae60; margin:5px 0; font-size: 1.5rem;">-</h2>
         </div>
         <div class="score-card" style="padding: 10px;">
             <h5 style="color:#7f8c8d; margin:0; font-size: 0.9rem;">假日休</h5>
-            <h2 id="statHolidayOff" style="color:#e67e22; margin:5px 0; font-size: 1.5rem;">0</h2>
+            <h2 id="statHolidayOff" style="color:#e67e22; margin:5px 0; font-size: 1.5rem;">-</h2>
         </div>
         <div class="score-card" style="padding: 10px;">
-            <h5 style="color:#7f8c8d; margin:0; font-size: 0.9rem;">小夜班</h5>
-            <h2 id="statEvening" style="color:#8e44ad; margin:5px 0; font-size: 1.5rem;">0</h2>
+            <h5 style="color:#7f8c8d; margin:0; font-size: 0.9rem;">白班(D)</h5>
+            <h2 id="statDay" style="color:#3498db; margin:5px 0; font-size: 1.5rem;">-</h2>
         </div>
         <div class="score-card" style="padding: 10px;">
-            <h5 style="color:#7f8c8d; margin:0; font-size: 0.9rem;">大夜班</h5>
-            <h2 id="statNight" style="color:#c0392b; margin:5px 0; font-size: 1.5rem;">0</h2>
+            <h5 style="color:#7f8c8d; margin:0; font-size: 0.9rem;">小夜(E)</h5>
+            <h2 id="statEvening" style="color:#9b59b6; margin:5px 0; font-size: 1.5rem;">-</h2>
         </div>
         <div class="score-card" style="padding: 10px;">
-            <h5 style="color:#7f8c8d; margin:0; font-size: 0.9rem;">換班數</h5>
-            <h2 id="statExchangeCount" style="color:#3498db; margin:5px 0; font-size: 1.5rem;">0</h2>
+            <h5 style="color:#7f8c8d; margin:0; font-size: 0.9rem;">大夜(N)</h5>
+            <h2 id="statNight" style="color:#34495e; margin:5px 0; font-size: 1.5rem;">-</h2>
         </div>
     </div>
 
-    <!-- 橫式班表容器 -->
-    <div class="card" style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); overflow-x: auto;">
-        <div id="horizontalScheduleWrapper" style="min-width: 800px;">
-            <table class="horizontal-calendar-table" style="width: 100%; border-collapse: collapse; table-layout: fixed;">
-                <tr id="row-weekday">
-                    <th style="width: 80px; background: #f8f9fa; border: 1px solid #dee2e6;">星期</th>
-                    <!-- 動態插入星期 -->
-                </tr>
-                <tr id="row-date">
-                    <th style="width: 80px; background: #f8f9fa; border: 1px solid #dee2e6;">日期</th>
-                    <!-- 動態插入日期 -->
-                </tr>
-                <tr id="row-shift">
-                    <th style="width: 80px; background: #f8f9fa; border: 1px solid #dee2e6;">班別</th>
-                    <!-- 動態插入班別 -->
-                </tr>
+    <div id="horizontalScheduleWrapper" class="card" style="padding: 0; overflow: hidden; display:none;">
+        <div id="myScheduleView" style="overflow-x: auto;">
+            <table class="table table-bordered text-center" style="margin:0;">
+                <thead>
+                    <tr id="row-weekday" style="background:#f8f9fa;">
+                        <th style="width:100px; background:#fff;">星期</th>
+                    </tr>
+                    <tr id="row-date">
+                        <th style="width:100px; background:#fff;">日期</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr id="row-shift">
+                        <th style="width:100px; background:#eef2f3; vertical-align: middle;">我的班別</th>
+                    </tr>
+                </tbody>
             </table>
         </div>
-        <div id="noDataMessage" style="display:none; text-align:center; padding:40px; color:#999;">
-            <i class="fas fa-calendar-times" style="font-size: 3rem; margin-bottom: 15px; display: block;"></i>
-            本月尚無已發布的班表
+
+        <div id="unitScheduleView" style="display:none; overflow:auto; max-height: 600px;">
+            <table class="table table-bordered table-sm text-center" style="min-width: 1500px; margin:0;">
+                <thead id="unitHead" class="thead-light" style="position:sticky; top:0; z-index:10;"></thead>
+                <tbody id="unitBody"></tbody>
+            </table>
         </div>
     </div>
+
+    <div id="noDataMessage" style="display:none; text-align:center; padding:50px; color:#999;"></div>
 </div>
 
-<style>
-.horizontal-calendar-table td, .horizontal-calendar-table th {
-    border: 1px solid #dee2e6;
-    text-align: center;
-    padding: 8px 4px;
-    font-size: 0.9rem;
-}
-.horizontal-calendar-table .weekday-cell {
-    color: white;
-    font-weight: bold;
-}
-.horizontal-calendar-table .date-cell {
-    background: #f1f3f5;
-    font-weight: bold;
-}
-.horizontal-calendar-table .shift-cell {
-    padding: 10px 2px;
-}
-.horizontal-calendar-table .shift-box {
-    display: inline-block;
-    width: 90%;
-    padding: 4px 0;
-    border: 1px solid #adb5bd;
-    background: #fff9db;
-    border-radius: 4px;
-    font-weight: bold;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-.horizontal-calendar-table .shift-box:hover {
-    background: #fff3bf;
-    border-color: #f08c00;
-    transform: scale(1.05);
-}
-.horizontal-calendar-table .weekend-sun { background-color: #c0392b !important; }
-.horizontal-calendar-table .weekend-sat { background-color: #2980b9 !important; }
-.horizontal-calendar-table .weekday-normal { background-color: #495057 !important; }
-</style>
-
-<!-- 換班彈窗 (保持不變) -->
 <div id="exchangeModal" class="modal">
-    <div class="modal-content" style="max-width: 500px;">
-        <h3><i class="fas fa-exchange-alt"></i> 提出換班申請</h3>
-        <div id="exchangeInfo" style="background: #e7f5ff; padding: 15px; border-radius: 4px; margin-bottom: 15px; border-left: 4px solid #3498db;"></div>
+    <div class="modal-content" style="max-width: 600px;">
+        <h3 style="border-bottom: 1px solid #eee; padding-bottom: 10px; margin-top: 0;">
+            <i class="fas fa-exchange-alt"></i> 提出換班申請
+        </h3>
         
-        <div class="form-group">
-            <label>選擇互換對象 (同一天班表)</label>
-            <select id="exchangeTargetSelect" class="form-control">
-                <option value="">載入中...</option>
-            </select>
-        </div>
-        
-        <div class="form-group">
-            <label>換班事由分類 <span style="color:red;">*</span></label>
-            <select id="exchangeReasonCategory" class="form-control" onchange="staffScheduleManager.toggleOtherReason()">
-                <option value="">請選擇...</option>
-                <option value="unit_staffing_adjustment">單位人力調整</option>
-                <option value="public_holiday">公假</option>
-                <option value="sick_leave">病假</option>
-                <option value="bereavement">喪假</option>
-                <option value="support">支援</option>
-                <option value="personal_factors">個人因素</option>
-                <option value="other">其他</option>
-            </select>
-        </div>
-        
-        <div class="form-group" id="otherReasonGroup" style="display:none;">
-            <label>其他原因說明 <span style="color:red;">*</span></label>
-            <textarea id="otherReasonText" class="form-control" rows="2" placeholder="請填寫其他原因..."></textarea>
-        </div>
-        
-        <div class="form-group">
-            <label>具體原因說明</label>
-            <textarea id="exchangeReason" class="form-control" rows="3" placeholder="請說明具體原因..."></textarea>
+        <div class="alert alert-info" id="exchangeInfo" style="margin-bottom:15px;"></div>
+
+        <div style="display:flex; gap:15px; margin-bottom:15px;">
+            <div style="flex:1;">
+                <label>選擇交換對象 <span style="color:red;">*</span></label>
+                <select id="exchangeTargetSelect" class="form-control" style="font-family: monospace;">
+                    <option value="">載入中...</option>
+                </select>
+            </div>
         </div>
 
-        <div style="text-align:right; margin-top:20px;">
+        <div class="form-group">
+            <label>換班原因 (必填) <span style="color:red;">*</span></label>
+            <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:5px;">
+                <label><input type="radio" name="reason" value="personal"> 個人因素</label>
+                <label><input type="radio" name="reason" value="sick"> 病假/身體不適</label>
+                <label><input type="radio" name="reason" value="family"> 家庭因素</label>
+                <label><input type="radio" name="reason" value="course"> 上課/進修</label>
+                <label><input type="radio" name="reason" value="official"> 公務/會議</label>
+                <label><input type="radio" name="reason" value="other" onchange="document.getElementById('otherReasonBox').style.display='block'"> 其他</label>
+            </div>
+            <textarea id="otherReasonBox" class="form-control" rows="2" placeholder="請填寫具體原因..." style="display:none; margin-top:5px;"></textarea>
+        </div>
+
+        <div id="validationResult" style="display:none; margin-top:15px; padding:10px; border-radius:5px;"></div>
+
+        <div style="text-align:right; margin-top:20px; border-top:1px solid #eee; padding-top:15px;">
             <button class="btn btn-secondary" onclick="staffScheduleManager.closeExchangeModal()">取消</button>
             <button class="btn btn-primary" onclick="staffScheduleManager.submitExchange()">送出申請</button>
         </div>
