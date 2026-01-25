@@ -1,5 +1,5 @@
 // js/scheduler/SchedulerV2.js
-// 🚀 最終完整版：暴力平衡 + 雙軌制配額 + 自動產生Assignments (修復員工端全OFF問題)
+// 🚀 最終完整修正版：確保 UID Trim 與 Assignments 輸出完整
 
 class SchedulerV2 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -56,10 +56,10 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     // ============================================================
-    // 🔧 核心功能區
+    // 🔧 核心功能區 (保持原樣，僅省略未變動部分以節省篇幅，請保留您原本的邏輯)
     // ============================================================
     
-    calculateFixedQuota() {
+    calculateFixedQuota() { /* ...同原程式碼... */ 
         let totalNeedsByShift = {};
         for (let d = 1; d <= this.daysInMonth; d++) {
             const needs = this.getDailyNeeds(d);
@@ -184,7 +184,7 @@ class SchedulerV2 extends BaseScheduler {
         });
     }
 
-    calculateDailyWorkPressure(currentDay) {
+    calculateDailyWorkPressure(currentDay) { /* ...同原程式碼... */
         this.staffList.forEach(s => {
             const stats = this.staffStats[s.id];
             const workedShifts = this.getTotalShiftsUpTo(s.id, currentDay - 1);
@@ -219,7 +219,7 @@ class SchedulerV2 extends BaseScheduler {
         });
     }
 
-    fillShiftNeeds(day, shiftCode, neededCount) {
+    fillShiftNeeds(day, shiftCode, neededCount) { /* ...同原程式碼... */ 
         const dateStr = this.getDateStr(day);
         let currentCount = this.countStaff(day, shiftCode);
         let gap = neededCount - currentCount;
@@ -296,7 +296,7 @@ class SchedulerV2 extends BaseScheduler {
         if (gap > 0) console.warn(`[缺口] ${dateStr} ${shiftCode} 尚缺 ${gap}`);
     }
 
-    postProcessBalancing(limitDay, isFinal = false) {
+    postProcessBalancing(limitDay, isFinal = false) { /* ...同原程式碼... */ 
         const rounds = isFinal ? 500 : 50; 
         const isFairOff = this.rules.fairness?.fairOff !== false;
         if (isFairOff) this.forceBalanceGlobalOffs(limitDay, rounds);
@@ -304,7 +304,7 @@ class SchedulerV2 extends BaseScheduler {
         if (isFairNight) this.balanceNightShiftsByGroup(limitDay, rounds);
     }
 
-    forceBalanceGlobalOffs(limitDay, rounds) {
+    forceBalanceGlobalOffs(limitDay, rounds) { /* ...同原程式碼... */ 
         for (let r = 0; r < rounds; r++) {
             const stats = this.staffList.map(s => {
                 let offCount = 0;
@@ -341,7 +341,7 @@ class SchedulerV2 extends BaseScheduler {
         }
     }
 
-    balanceNightShiftsByGroup(limitDay, rounds) {
+    balanceNightShiftsByGroup(limitDay, rounds) { /* ...同原程式碼... */ 
         const nightShifts = this.shiftCodes.filter(code => (super.isNightShift ? super.isNightShift(code) : ['N','E'].includes(code)));
         const groups = new Map();
         this.staffList.forEach(staff => {
@@ -366,7 +366,7 @@ class SchedulerV2 extends BaseScheduler {
         });
     }
 
-    balanceShiftTypeForGroup(targetShift, staffGroup, limitDay, rounds) {
+    balanceShiftTypeForGroup(targetShift, staffGroup, limitDay, rounds) { /* ...同原程式碼... */ 
         const tolerance = this.tolerance || 2;
         const isLocked = (d, uid) => {
             const dateStr = this.getDateStr(d);
@@ -388,7 +388,7 @@ class SchedulerV2 extends BaseScheduler {
         }
     }
 
-    balanceTotalNightShiftsForGroup(nightShifts, staffGroup, limitDay, rounds) {
+    balanceTotalNightShiftsForGroup(nightShifts, staffGroup, limitDay, rounds) { /* ...同原程式碼... */ 
         const tolerance = this.tolerance || 2;
         const isLocked = (d, uid) => {
             const dateStr = this.getDateStr(d);
@@ -411,7 +411,7 @@ class SchedulerV2 extends BaseScheduler {
         }
     }
     
-    attemptSwap(maxObj, minObj, targetShift, validShifts, limitDay, isLocked) {
+    attemptSwap(maxObj, minObj, targetShift, validShifts, limitDay, isLocked) { /* ...同原程式碼... */ 
         let swapped = false;
         const days = Array.from({length: limitDay}, (_, i) => i + 1);
         this.shuffleArray(days);
@@ -434,7 +434,7 @@ class SchedulerV2 extends BaseScheduler {
         }
     }
 
-    applyPreSchedules() {
+    applyPreSchedules() { /* ...同原程式碼... */ 
         this.staffList.forEach(staff => {
             const params = staff.schedulingParams || {};
             for (let d = 1; d <= this.daysInMonth; d++) {
@@ -446,7 +446,7 @@ class SchedulerV2 extends BaseScheduler {
         });
     }
 
-    checkSwapValidity(day, staff, currentShift, newShift, looseMode = false) {
+    checkSwapValidity(day, staff, currentShift, newShift, looseMode = false) { /* ...同原程式碼... */ 
         const dateStr = this.getDateStr(day);
         if (!this.isValidAssignment(staff, dateStr, newShift)) return false;
         const scoreInfo = this.calculateScoreInfo(staff, dateStr, newShift);
@@ -460,7 +460,7 @@ class SchedulerV2 extends BaseScheduler {
         }
     }
 
-    getOptimalShiftOrder(dailyNeeds) {
+    getOptimalShiftOrder(dailyNeeds) { /* ...同原程式碼... */ 
         const shiftOrder = this.shiftCodes.filter(c => c !== 'OFF' && c !== 'REQ_OFF');
         const bundleWeights = new Map();
         shiftOrder.forEach(code => {
@@ -476,7 +476,7 @@ class SchedulerV2 extends BaseScheduler {
         return shiftOrder;
     }
 
-    sortCandidatesByPressure(candidates, dateStr, shiftCode) {
+    sortCandidatesByPressure(candidates, dateStr, shiftCode) { /* ...同原程式碼... */ 
         this.shuffleArray(candidates);
         candidates.sort((a, b) => {
             const statsA = this.staffStats[a.id];
@@ -493,7 +493,7 @@ class SchedulerV2 extends BaseScheduler {
         });
     }
 
-    optimizeDailyAllocation(day) {
+    optimizeDailyAllocation(day) { /* ...同原程式碼... */ 
         const dateStr = this.getDateStr(day);
         const offStaffs = this.staffList.filter(s => this.getShiftByDate(dateStr, s.id) === 'OFF' && !this.isPreRequestOff(s.id, dateStr));
         offStaffs.sort((a, b) => {
@@ -540,7 +540,7 @@ class SchedulerV2 extends BaseScheduler {
         }
     }
 
-    calculateScoreInfo(staff, dateStr, shiftCode) {
+    calculateScoreInfo(staff, dateStr, shiftCode) { /* ...同原程式碼... */ 
         let score = 0;
         const policy = this.rules.policy || {};
         const pressure = this.staffStats[staff.id]?.workPressure || 0;
@@ -577,7 +577,7 @@ class SchedulerV2 extends BaseScheduler {
         return { totalScore: score, isPreferred: isPreferred };
     }
 
-    classifyStaffByBundle() {
+    classifyStaffByBundle() { /* ...同原程式碼... */ 
         this.staffList.forEach(staff => {
             const bundleShift = staff.packageType || staff.prefs?.bundleShift;
             if (bundleShift) this.bundleStaff.push(staff);
@@ -585,7 +585,7 @@ class SchedulerV2 extends BaseScheduler {
         });
     }
 
-    resolveShortageWithBacktrack(currentDay, targetShift, gap) {
+    resolveShortageWithBacktrack(currentDay, targetShift, gap) { /* ...同原程式碼... */ 
         let recovered = 0;
         for (let d = currentDay - 1; d >= Math.max(1, currentDay - this.backtrackDepth); d--) {
             if (gap <= 0) break;
@@ -605,7 +605,7 @@ class SchedulerV2 extends BaseScheduler {
         return recovered;
     }
 
-    attemptBacktrackForStaff(staff, currentDay, targetShift) {
+    attemptBacktrackForStaff(staff, currentDay, targetShift) { /* ...同原程式碼... */ 
         const currentDateStr = this.getDateStr(currentDay);
         const scoreInfo = this.calculateScoreInfo(staff, currentDateStr, targetShift);
         if (scoreInfo.totalScore < -50000) return false;
@@ -621,7 +621,7 @@ class SchedulerV2 extends BaseScheduler {
         return false;
     }
 
-    assignIfValid(day, staff, shiftCode) {
+    assignIfValid(day, staff, shiftCode) { /* ...同原程式碼... */ 
         const dateStr = this.getDateStr(day);
         const isValid = this.isValidAssignment(staff, dateStr, shiftCode);
         const isGroupValid = this.checkGroupMaxLimit(day, staff, shiftCode);
@@ -632,7 +632,7 @@ class SchedulerV2 extends BaseScheduler {
         return false;
     }
 
-    isValidAssignment(staff, dateStr, shiftCode) {
+    isValidAssignment(staff, dateStr, shiftCode) { /* ...同原程式碼... */ 
         const baseValid = super.isValidAssignment(staff, dateStr, shiftCode);
         if (baseValid) return true;
         const consDays = this.getConsecutiveWorkDays(staff.id, dateStr);
@@ -656,7 +656,7 @@ class SchedulerV2 extends BaseScheduler {
         return false;
     }
 
-    tryResolveConflict(day, staff, targetShift) {
+    tryResolveConflict(day, staff, targetShift) { /* ...同原程式碼... */ 
         if (day === 1) return false;
         const dateStr = this.getDateStr(day);
         const prevDateStr = this.getDateStr(day - 1);
@@ -674,7 +674,7 @@ class SchedulerV2 extends BaseScheduler {
         return false;
     }
     
-    getDailyNeeds(day) {
+    getDailyNeeds(day) { /* ...同原程式碼... */ 
         const dateStr = this.getDateStr(day);
         const date = new Date(this.year, this.month - 1, day);
         const dayIdx = (date.getDay() + 6) % 7; 
@@ -691,7 +691,7 @@ class SchedulerV2 extends BaseScheduler {
         return needs;
     }
 
-    checkGroupMaxLimit(day, staff, shiftCode) {
+    checkGroupMaxLimit(day, staff, shiftCode) { /* ...同原程式碼... */ 
         if (!this.rules.groupLimits) return true;
         const group = staff.group; 
         if (!group) return true;
@@ -707,7 +707,7 @@ class SchedulerV2 extends BaseScheduler {
         return currentCount < limit;
     }
 
-    countSpecificShiftsUpTo(uid, dayLimit, targetShift) {
+    countSpecificShiftsUpTo(uid, dayLimit, targetShift) { /* ...同原程式碼... */ 
         let count = 0;
         for (let d = 1; d <= dayLimit; d++) {
             if (this.getShiftByDate(this.getDateStr(d), uid) === targetShift) count++;
@@ -715,7 +715,7 @@ class SchedulerV2 extends BaseScheduler {
         return count;
     }
 
-    getTotalShiftsUpTo(uid, dayLimit) {
+    getTotalShiftsUpTo(uid, dayLimit) { /* ...同原程式碼... */ 
         let count = 0;
         for (let d = 1; d <= dayLimit; d++) {
             const shift = this.getShiftByDate(this.getDateStr(d), uid);
@@ -745,14 +745,23 @@ class SchedulerV2 extends BaseScheduler {
             }); 
         } 
         
-        // 2. 建立 Assignments 物件 (給前台看) - 關鍵修復
+        // 2. 建立 Assignments 物件 (給前台看) - 關鍵修復：確保 UID 一致性與資料寫入
         const assignments = {};
-        this.staffList.forEach(staff => { assignments[staff.id] = { preferences: staff.prefs || {} }; });
+        this.staffList.forEach(staff => { 
+            // 🔥 Fix: 使用 trim() 確保 key 乾淨
+            const safeUid = staff.id.trim();
+            assignments[safeUid] = { preferences: staff.prefs || {} }; 
+        });
+        
         for (let d = 1; d <= this.daysInMonth; d++) {
             const dateStr = this.getDateStr(d);
             this.staffList.forEach(staff => {
+                const safeUid = staff.id.trim();
                 const shift = this.getShiftByDate(dateStr, staff.id);
-                assignments[staff.id][`current_${d}`] = shift;
+                // 這裡我們把所有班別都寫入，如果是 OFF 也寫入，讓前端明確知道狀態
+                if (assignments[safeUid]) {
+                    assignments[safeUid][`current_${d}`] = shift;
+                }
             });
         }
         res.assignments = assignments;
