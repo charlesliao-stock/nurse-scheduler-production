@@ -152,11 +152,7 @@ extractShiftsFromMatrix: function(matrix, uid) {
     console.log("🔧 最終 result:", result);
     
     return result;
-}
-        result.preferences = {}; 
-        console.log(`🔧 Extracted ${Object.keys(result).length} shifts from matrix for ${uid}`);
-        return result;
-    },
+},
 
     renderHorizontalTable: function(year, month) {
         const rowWeekday = document.getElementById('row-weekday');
