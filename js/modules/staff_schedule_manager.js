@@ -1,16 +1,36 @@
 // js/modules/staff_schedule_manager.js
-// 🚀 最終除錯版：顯示矩陣內容 + 修正計數邏輯
+// 🚀 最終開發版：支援「深度模擬」+「ID 自動癒合」
+// 使用方式：在 Console 輸入 staffScheduleManager.startSimulation('目標UID') 即可切換視角
 
 const staffScheduleManager = {
     currentSchedule: null,
     currentAssignments: {},
     allShifts: [],
-    uid: null,
+    uid: null, // 這裡會儲存「當下視角」的 ID (可能是本人，也可能是模擬對象)
+    isSimulating: false, // 標記是否正在模擬
     
     init: async function() {
         if (!app.currentUser) { alert("請先登入"); return; }
-        // 確保 UID 乾淨
-        this.uid = app.getUid().trim();
+        
+        // ==========================================
+        // 🎭 深度模擬邏輯 (Deep Simulation Check)
+        // ==========================================
+        const simUid = sessionStorage.getItem('simulation_uid');
+        const simName = sessionStorage.getItem('simulation_name');
+
+        if (simUid) {
+            this.uid = simUid.trim();
+            this.isSimulating = true;
+            console.warn(`🎭 深度模擬模式啟動！正在模擬視角: ${simName || simUid}`);
+            
+            // 在畫面上增加一個明顯的標示，提醒開發者正在模擬
+            this.showSimulationBadge(simName || simUid);
+        } else {
+            this.uid = app.getUid().trim();
+            this.isSimulating = false;
+            this.removeSimulationBadge();
+        }
+
         this.unitId = app.getUnitId();
         
         const now = new Date();
@@ -20,6 +40,38 @@ const staffScheduleManager = {
         
         await this.loadShifts();
         await this.loadData();
+    },
+
+    // 🛠️ 開發者工具：啟動模擬
+    startSimulation: function(targetUid, targetName = '模擬員工') {
+        sessionStorage.setItem('simulation_uid', targetUid);
+        sessionStorage.setItem('simulation_name', targetName);
+        alert(`已切換為模擬視角：${targetName}\n網頁將重新整理...`);
+        location.reload();
+    },
+
+    // 🛠️ 開發者工具：結束模擬
+    endSimulation: function() {
+        sessionStorage.removeItem('simulation_uid');
+        sessionStorage.removeItem('simulation_name');
+        alert("已結束模擬，恢復為管理員視角。\n網頁將重新整理...");
+        location.reload();
+    },
+
+    showSimulationBadge: function(name) {
+        let badge = document.getElementById('sim-badge');
+        if (!badge) {
+            badge = document.createElement('div');
+            badge.id = 'sim-badge';
+            badge.style.cssText = "position:fixed; bottom:10px; right:10px; background:red; color:white; padding:10px; z-index:9999; border-radius:5px; font-weight:bold; box-shadow:0 0 10px rgba(0,0,0,0.5);";
+            badge.innerHTML = `🎭 模擬中: ${name} <button onclick="staffScheduleManager.endSimulation()" style="margin-left:10px; color:black;">退出</button>`;
+            document.body.appendChild(badge);
+        }
+    },
+
+    removeSimulationBadge: function() {
+        const badge = document.getElementById('sim-badge');
+        if (badge) badge.remove();
     },
 
     loadShifts: async function() {
@@ -37,7 +89,8 @@ const staffScheduleManager = {
         const wrapper = document.getElementById('horizontalScheduleWrapper');
         const noData = document.getElementById('noDataMessage');
         
-        console.log(`🔍 Loading schedule for ${year}/${month}, UID: '${this.uid}'`);
+        // Log 顯示當前使用的 ID 是誰
+        console.log(`🔍 Loading schedule for ${year}/${month}. View Mode: ${this.isSimulating ? '🎭 SIMULATION' : '👤 REAL'}, UID: '${this.uid}'`);
         
         try {
             const snap = await db.collection('schedules')
@@ -48,18 +101,14 @@ const staffScheduleManager = {
 
             console.log(`📂 Found ${snap.size} published schedules.`);
 
-            const mySchedules = snap.docs.filter(doc => {
-                const d = doc.data();
-                const isMyUnit = (d.unitId === this.unitId);
-                const isParticipant = (d.staffList || []).some(s => s.uid.trim() === this.uid);
-                const assignments = d.assignments || {};
-                const hasAssign = Object.keys(assignments).some(k => k.trim() === this.uid);
-                const hasMatrixRecord = this.checkMatrixForUid(d.schedule || {}, this.uid);
+            // 1. 嘗試找出目標班表 (優先匹配 Matrix 中的 UID，其次匹配 Unit)
+            let targetDoc = snap.docs.find(doc => this.checkMatrixForUid(doc.data().schedule || {}, this.uid));
+            
+            if (!targetDoc) {
+                targetDoc = snap.docs.find(doc => doc.data().unitId === this.unitId);
+            }
 
-                return isMyUnit || isParticipant || hasAssign || hasMatrixRecord;
-            });
-
-            if (mySchedules.length === 0) {
+            if (!targetDoc) {
                 console.warn("❌ No matching schedules found.");
                 if(wrapper) wrapper.style.display = 'none';
                 if(noData) noData.style.display = 'block';
@@ -67,44 +116,63 @@ const staffScheduleManager = {
                 return;
             }
 
+            console.log(`✅ Selected target: ${targetDoc.id} (Unit: ${targetDoc.data().unitId})`);
+            
             if(wrapper) wrapper.style.display = 'block';
             if(noData) noData.style.display = 'none';
 
-            let targetDoc = mySchedules.find(doc => this.checkMatrixForUid(doc.data().schedule || {}, this.uid));
-            if (!targetDoc) targetDoc = mySchedules.find(doc => doc.data().unitId === this.unitId) || mySchedules[0];
-            
-            console.log(`✅ Selected target: ${targetDoc.id} (Unit: ${targetDoc.data().unitId})`);
-            
             this.currentSchedule = { id: targetDoc.id, ...targetDoc.data() };
-            this.currentAssignments = this.currentSchedule.assignments || {};
             
-            let myData = this.currentAssignments[this.uid];
+            // ==========================================
+            // 🔥 ID 自動癒合 (Self-Healing) - 即使在模擬模式下也運作
+            // ==========================================
+            let effectiveUid = this.uid;
             
-            // 檢查 Assignments 是否有效 (必須包含 current_X 或日期 key)
-            const hasShiftKeys = myData && Object.keys(myData).some(k => k.startsWith('current_') || k.match(/^\d{4}-\d{2}-\d{2}$/));
+            // 只有在「非模擬」且「找不到人」的情況下，才嘗試用登入者名字去反推
+            // 如果是模擬模式，我們假設開發者給的 UID 是準確的，或者我們用模擬的名字去反推
+            let matchName = this.isSimulating ? sessionStorage.getItem('simulation_name') : (app.currentUser.displayName || app.currentUser.name);
+            if (!matchName) matchName = '';
 
-            if (!hasShiftKeys) {
-                console.warn("⚠️ Assignments empty or only has prefs. Switching to Matrix Extraction Mode...");
+            const staffList = this.currentSchedule.staffList || [];
+            const userInList = staffList.find(s => s.uid.trim() === this.uid);
+
+            if (!userInList) {
+                console.warn(`⚠️ Target UID (${this.uid}) not found in schedule staff list! Trying Name Match: '${matchName}'...`);
                 
-                // 🔥 DEBUG: 檢查矩陣結構
-                if (this.currentSchedule.schedule) {
-                    const keys = Object.keys(this.currentSchedule.schedule);
-                    console.log(`🔥 Matrix has ${keys.length} days. First day key: ${keys[0]}`);
-                    if (keys.length > 0) {
-                        const sampleDay = this.currentSchedule.schedule[keys[0]];
-                        console.log(`🔥 Sample Data (${keys[0]}):`, JSON.stringify(sampleDay));
+                // 嘗試用姓名反查
+                const nameMatch = staffList.find(s => s.name.trim() === matchName.trim());
+                if (nameMatch) {
+                    console.warn(`✅ Name Match Found! Switching Effective UID to: ${nameMatch.uid} (was ${this.uid})`);
+                    effectiveUid = nameMatch.uid.trim();
+                    // 如果是在模擬模式，我們可以順便更新一下 session 裡的 ID，讓下次更準確
+                    if (this.isSimulating) {
+                         sessionStorage.setItem('simulation_uid', effectiveUid);
+                         this.uid = effectiveUid;
                     }
-                    
-                    myData = this.extractShiftsFromMatrix(this.currentSchedule.schedule, this.uid);
-                    this.currentAssignments[this.uid] = myData; 
                 } else {
-                    console.error("🔥 'schedule' field is MISSING in document!");
+                    console.error("❌ Fatal: User not found in schedule by UID or Name.");
                 }
             }
 
-            // 修正 Log：排除 preferences 其實際數量
-            const validKeys = Object.keys(myData || {}).filter(k => k !== 'preferences');
-            console.log(`🛠️ Effective Shift Keys: ${validKeys.length}`, validKeys);
+            // ==========================================
+            // 2. 提取資料
+            // ==========================================
+            this.currentAssignments = this.currentSchedule.assignments || {};
+            let myData = this.currentAssignments[effectiveUid];
+            
+            const hasShiftKeys = myData && Object.keys(myData).some(k => k.startsWith('current_') || k.match(/^\d{4}-\d{2}-\d{2}$/));
+
+            if (!hasShiftKeys) {
+                console.warn(`⚠️ Assignments empty for ${effectiveUid}. Switching to Matrix Extraction...`);
+                if (this.currentSchedule.schedule) {
+                    myData = this.extractShiftsFromMatrix(this.currentSchedule.schedule, effectiveUid);
+                    this.currentAssignments[this.uid] = myData; 
+                }
+            } else {
+                if (effectiveUid !== this.uid) {
+                     this.currentAssignments[this.uid] = myData;
+                }
+            }
             
             this.renderHorizontalTable(year, month);
             this.calculateStats(year, month);
@@ -122,28 +190,19 @@ const staffScheduleManager = {
         });
     },
 
-    extractShiftsFromMatrix: function(matrix, uid) {
+    extractShiftsFromMatrix: function(matrix, targetUid) {
         if (!matrix) return {};
         const result = {};
-        let foundCount = 0;
-
         Object.entries(matrix).forEach(([dateStr, dayShifts]) => {
             Object.entries(dayShifts).forEach(([shiftCode, uids]) => {
-                // 🔥 DEBUG: 若是第一天，印出 UID 列表以供檢查
-                if (foundCount === 0 && Array.isArray(uids) && uids.length > 0) {
-                   // console.log(`🔍 Checking Match on ${dateStr} [${shiftCode}]: Mine='${uid}', InList=`, uids);
-                }
-
-                if (Array.isArray(uids) && uids.some(u => u.trim() === uid)) {
+                if (Array.isArray(uids) && uids.some(u => u.trim() === targetUid)) {
                     result[dateStr] = shiftCode;
                     const dayPart = parseInt(dateStr.split('-')[2]);
                     if (!isNaN(dayPart)) result[`current_${dayPart}`] = shiftCode;
-                    foundCount++;
                 }
             });
         });
         result.preferences = {}; 
-        console.log(`🔧 Extracted ${foundCount} actual shifts (excluding prefs) for ${uid}`);
         return result;
     },
 
@@ -298,6 +357,12 @@ const staffScheduleManager = {
     },
 
     submitExchange: async function() {
+        // 模擬模式下禁止提交，以免搞混資料
+        if (this.isSimulating) {
+            alert("⚠️ 模擬模式下無法提交換班申請，請切回本人帳號操作。");
+            return;
+        }
+
         const targetSelect = document.getElementById('exchangeTargetSelect');
         const targetUid = targetSelect.value;
         if (!targetUid) { alert("請選擇交換對象"); return; }
