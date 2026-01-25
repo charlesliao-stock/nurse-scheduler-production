@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 最終完整版：修復存檔邏輯 (同步寫入 schedule 與 assignments) + 完整 UI 功能
+// 🚀 最終完整版：修復存檔邏輯 (同步寫入 schedule 與 assignments) + UID Trim 修正
 
 const scheduleEditorManager = {
     scheduleId: null, 
@@ -12,7 +12,7 @@ const scheduleEditorManager = {
     isLoading: false,
     lastMonthData: {}, 
     lastMonthDays: 31,
-    lastScoreResult: null, // 用於儲存評分結果
+    lastScoreResult: null, 
 
     init: async function(id) { 
         console.log("Schedule Editor Init:", id);
@@ -71,10 +71,14 @@ const scheduleEditorManager = {
         const doc = await db.collection('schedules').doc(this.scheduleId).get();
         if (!doc.exists) throw new Error("資料不存在");
         this.data = doc.data();
-        this.data.staffList.forEach(s => { this.staffMap[s.uid] = s; });
+        // 🔥 Fix: 載入時強制 Trim UID，避免空白字元導致對應失敗
+        this.data.staffList.forEach(s => { 
+            s.uid = s.uid.trim();
+            this.staffMap[s.uid] = s; 
+        });
     },
 
-    loadLastMonthSchedule: async function() {
+    loadLastMonthSchedule: async function() { /* ...同原程式碼... */
         const { year, month } = this.data;
         let ly = year, lm = month - 1;
         if (lm === 0) { lm = 12; ly--; }
@@ -107,7 +111,7 @@ const scheduleEditorManager = {
         }
     },
 
-    renderMatrix: function() {
+    renderMatrix: function() { /* ...同原程式碼... */
         const thead = document.getElementById('schHead');
         const tbody = document.getElementById('schBody');
         const year = this.data.year;
@@ -262,18 +266,28 @@ const scheduleEditorManager = {
     },
 
     applyAIResult: function(res) {
-        // 如果是新格式 (有 assignments)，合併之
+        // 🔥 Fix: 強化合併邏輯，確保資料寫入 Assignments
         if (res.assignments) {
+            console.log("Applying AI Assignments Data...");
             Object.keys(res.assignments).forEach(uid => {
-                if(!this.assignments[uid]) this.assignments[uid] = {};
-                this.assignments[uid] = { ...this.assignments[uid], ...res.assignments[uid] };
+                const cleanUid = uid.trim();
+                // 如果該員工尚未在 assignments 物件中，初始化它
+                if(!this.assignments[cleanUid]) this.assignments[cleanUid] = {};
+                
+                // 強制合併：保留原本的 preferences，並覆蓋 current_d
+                // 注意：這裡 res.assignments[uid] 已經包含了 preferences 和 current_X
+                this.assignments[cleanUid] = { 
+                    ...this.assignments[cleanUid], 
+                    ...res.assignments[uid] 
+                };
             });
         } else {
-            // 舊格式 (res 就是矩陣)，也支援
+            // 舊格式兼容 (Fallback)
             const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
             this.data.staffList.forEach(s => {
-                const uid = s.uid;
+                const uid = s.uid.trim();
                 if(!this.assignments[uid]) this.assignments[uid] = {};
+                // 清除除了 REQ_OFF 以外的舊資料
                 for(let d=1; d<=daysInMonth; d++) {
                     if(this.assignments[uid][`current_${d}`] !== 'REQ_OFF') delete this.assignments[uid][`current_${d}`];
                 }
@@ -284,7 +298,8 @@ const scheduleEditorManager = {
                 const daySch = res[dateStr];
                 Object.keys(daySch).forEach(code => {
                     if (Array.isArray(daySch[code])) {
-                        daySch[code].forEach(uid => {
+                        daySch[code].forEach(rawUid => {
+                            const uid = rawUid.trim();
                             if (this.assignments[uid] && this.assignments[uid][`current_${day}`] !== 'REQ_OFF') {
                                 this.assignments[uid][`current_${day}`] = code;
                             }
@@ -298,11 +313,16 @@ const scheduleEditorManager = {
     // 🔥 關鍵修正：產生矩陣並存檔
     saveDraft: async function(silent) {
         try {
+            // 存檔前再次確認 assignments 是否為空
+            if (Object.keys(this.assignments).length === 0) {
+                 console.warn("Save Draft Warning: Assignments is empty!");
+            }
+
             const scheduleMatrix = this.generateMatrixFromAssignments();
             
             await db.collection('schedules').doc(this.scheduleId).update({
-                assignments: this.assignments, // 個人班表
-                schedule: scheduleMatrix,      // 全院總表 (給前台備援用)
+                assignments: this.assignments, // 個人班表 (Single Source of Truth)
+                schedule: scheduleMatrix,      // 全院總表 (衍生資料)
                 adjustments: this.data.adjustments || {},
                 adjustmentCount: this.data.adjustmentCount || 0,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -321,7 +341,7 @@ const scheduleEditorManager = {
             matrix[dateKey] = {};
             
             this.data.staffList.forEach(s => {
-                const uid = s.uid;
+                const uid = s.uid.trim();
                 if (this.assignments[uid]) {
                     const shift = this.assignments[uid][`current_${d}`];
                     // 這裡不排除 OFF/REQ_OFF，全存以保證完整性
@@ -335,7 +355,7 @@ const scheduleEditorManager = {
         return matrix;
     },
 
-    publishSchedule: async function() {
+    publishSchedule: async function() { /* ...同原程式碼... */ 
         const shortages = this.checkShortages();
         if (shortages.length > 0) {
             const msg = `⚠️ 無法發布：偵測到人力缺口\n\n${shortages.slice(0, 5).join('\n')}\n${shortages.length>5?'...等共'+shortages.length+'處':''}\n\n是否強制發布？`;
@@ -358,7 +378,7 @@ const scheduleEditorManager = {
         } catch(e) { alert("發布失敗: " + e.message); }
     },
     
-    checkShortages: function() {
+    checkShortages: function() { /* ...同原程式碼... */ 
         const list = [];
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
         const dailyNeeds = this.data.dailyNeeds || {};
@@ -416,7 +436,7 @@ const scheduleEditorManager = {
         this.unitRules = doc.data().schedulingRules || {};
     },
     
-    renderToolbar: function() {
+    renderToolbar: function() { /* ...同原程式碼... */ 
         const statusBadge = document.getElementById('schStatus'); 
         if(statusBadge) {
             const isPub = this.data.status === 'published';
@@ -436,7 +456,7 @@ const scheduleEditorManager = {
         }
     },
     
-    renderCellContent: function(val, uid, d) {
+    renderCellContent: function(val, uid, d) { /* ...同原程式碼... */ 
         const isAdjusted = this.data.adjustments && this.data.adjustments[uid] && this.data.adjustments[uid][d];
         const style = isAdjusted ? 'background-color: #ffeaa7; border: 1px solid #fdcb6e; color: #d35400;' : '';
         if (!val || val === 'OFF') return `<span style="color:#bbb; ${isAdjusted ? 'color: #d35400; font-weight: bold;' : ''}">OFF</span>`;
@@ -445,7 +465,7 @@ const scheduleEditorManager = {
         return `<span class="badge badge-primary">${val}</span>`;
     },
     
-    handleRightClick: function(e, uid, d) {
+    handleRightClick: function(e, uid, d) { /* ...同原程式碼... */ 
         this.targetCell = { uid, d };
         const menu = document.getElementById('schContextMenu');
         let html = `<ul><li class="menu-header">設定 ${d} 日</li>`;
@@ -460,7 +480,7 @@ const scheduleEditorManager = {
         e.preventDefault();
     },
     
-    setShift: function(code) {
+    setShift: function(code) { /* ...同原程式碼... */ 
         const { uid, d } = this.targetCell;
         const key = `current_${d}`;
         if (!this.data.adjustments) this.data.adjustments = {};
@@ -488,7 +508,7 @@ const scheduleEditorManager = {
         document.addEventListener('click', () => { const m = document.getElementById('schContextMenu'); if(m) m.style.display='none'; });
     },
     
-    updateRealTimeStats: function() {
+    updateRealTimeStats: function() { /* ...同原程式碼... */ 
         const tfoot = document.getElementById('schFoot');
         if(!tfoot) return;
         const year = this.data.year;
@@ -537,7 +557,7 @@ const scheduleEditorManager = {
         tfoot.innerHTML = fHtml;
     },
     
-    renderScoreBoardContainer: function() {
+    renderScoreBoardContainer: function() { /* ...同原程式碼... */ 
         const container = document.getElementById('matrixContainer');
         if (!container) return;
         const parent = container.parentElement; 
