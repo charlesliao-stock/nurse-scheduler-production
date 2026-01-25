@@ -1,34 +1,41 @@
 // js/modules/staff_schedule_manager.js
-// 🚀 最終開發版：支援「深度模擬」+「ID 自動癒合」
-// 使用方式：在 Console 輸入 staffScheduleManager.startSimulation('目標UID') 即可切換視角
+// 🚀 最終修正版 v3：嚴格身分驗證 (不顯示隨機資料) + 明確的狀態提示
 
 const staffScheduleManager = {
     currentSchedule: null,
     currentAssignments: {},
     allShifts: [],
-    uid: null, // 這裡會儲存「當下視角」的 ID (可能是本人，也可能是模擬對象)
-    isSimulating: false, // 標記是否正在模擬
+    uid: null, 
+    isSimulating: false, 
     
     init: async function() {
         if (!app.currentUser) { alert("請先登入"); return; }
         
         // ==========================================
-        // 🎭 深度模擬邏輯 (Deep Simulation Check)
+        // 1. 決定當前視角 (模擬 vs 真實)
         // ==========================================
         const simUid = sessionStorage.getItem('simulation_uid');
         const simName = sessionStorage.getItem('simulation_name');
 
         if (simUid) {
+            // A. 模擬模式
             this.uid = simUid.trim();
             this.isSimulating = true;
-            console.warn(`🎭 深度模擬模式啟動！正在模擬視角: ${simName || simUid}`);
-            
-            // 在畫面上增加一個明顯的標示，提醒開發者正在模擬
+            console.warn(`🎭 深度模擬模式啟動！正在模擬: ${simName || simUid}`);
             this.showSimulationBadge(simName || simUid);
         } else {
-            this.uid = app.getUid().trim();
-            this.isSimulating = false;
-            this.removeSimulationBadge();
+            // B. 真實模式
+            // 檢查是否有 app 層級的模擬 (例如從左側選單切換)
+            const appImpUid = (typeof app !== 'undefined') ? app.getUid() : null;
+            if (appImpUid && appImpUid !== app.currentUser.uid) {
+                 this.uid = appImpUid.trim();
+                 this.isSimulating = true;
+                 this.showSimulationBadge('管理員預覽');
+            } else {
+                 this.uid = app.currentUser.uid.trim();
+                 this.isSimulating = false;
+                 this.removeSimulationBadge();
+            }
         }
 
         this.unitId = app.getUnitId();
@@ -42,7 +49,7 @@ const staffScheduleManager = {
         await this.loadData();
     },
 
-    // 🛠️ 開發者工具：啟動模擬
+    // 🛠️ 開發者工具
     startSimulation: function(targetUid, targetName = '模擬員工') {
         sessionStorage.setItem('simulation_uid', targetUid);
         sessionStorage.setItem('simulation_name', targetName);
@@ -50,11 +57,11 @@ const staffScheduleManager = {
         location.reload();
     },
 
-    // 🛠️ 開發者工具：結束模擬
     endSimulation: function() {
         sessionStorage.removeItem('simulation_uid');
         sessionStorage.removeItem('simulation_name');
-        alert("已結束模擬，恢復為管理員視角。\n網頁將重新整理...");
+        if (typeof app !== 'undefined' && app.clearImpersonation) app.clearImpersonation(); 
+        alert("已結束模擬，恢復為原始身分。\n網頁將重新整理...");
         location.reload();
     },
 
@@ -63,8 +70,8 @@ const staffScheduleManager = {
         if (!badge) {
             badge = document.createElement('div');
             badge.id = 'sim-badge';
-            badge.style.cssText = "position:fixed; bottom:10px; right:10px; background:red; color:white; padding:10px; z-index:9999; border-radius:5px; font-weight:bold; box-shadow:0 0 10px rgba(0,0,0,0.5);";
-            badge.innerHTML = `🎭 模擬中: ${name} <button onclick="staffScheduleManager.endSimulation()" style="margin-left:10px; color:black;">退出</button>`;
+            badge.style.cssText = "position:fixed; bottom:10px; right:10px; background:#e74c3c; color:white; padding:8px 12px; z-index:9999; border-radius:30px; font-weight:bold; box-shadow:0 2px 10px rgba(0,0,0,0.3); font-size:14px; display:flex; align-items:center; gap:10px;";
+            badge.innerHTML = `<span>🎭 模擬視角: ${name}</span> <button onclick="staffScheduleManager.endSimulation()" style="background:white; color:#e74c3c; border:none; padding:2px 8px; border-radius:10px; cursor:pointer; font-weight:bold;">退出</button>`;
             document.body.appendChild(badge);
         }
     },
@@ -88,11 +95,13 @@ const staffScheduleManager = {
         
         const wrapper = document.getElementById('horizontalScheduleWrapper');
         const noData = document.getElementById('noDataMessage');
+        const infoAlert = document.getElementById('scheduleInfoAlert');
+        if(infoAlert) infoAlert.remove(); // 清除舊提示
         
-        // Log 顯示當前使用的 ID 是誰
-        console.log(`🔍 Loading schedule for ${year}/${month}. View Mode: ${this.isSimulating ? '🎭 SIMULATION' : '👤 REAL'}, UID: '${this.uid}'`);
+        console.log(`🔍 Loading schedule for ${year}/${month}. Target UID: '${this.uid}'`);
         
         try {
+            // 1. 撈取班表
             const snap = await db.collection('schedules')
                 .where('year', '==', year)
                 .where('month', '==', month)
@@ -101,76 +110,61 @@ const staffScheduleManager = {
 
             console.log(`📂 Found ${snap.size} published schedules.`);
 
-            // 1. 嘗試找出目標班表 (優先匹配 Matrix 中的 UID，其次匹配 Unit)
-            let targetDoc = snap.docs.find(doc => this.checkMatrixForUid(doc.data().schedule || {}, this.uid));
+            // 2. 精確匹配：該班表中必須包含此 UID
+            // 我們不再隨便抓一個，而是檢查 staffList 或 assignments 是否真的有這個人
+            let targetDoc = snap.docs.find(doc => {
+                const data = doc.data();
+                // A. 檢查 assignments (最準)
+                if (data.assignments && data.assignments[this.uid]) return true;
+                // B. 檢查 staffList
+                if (data.staffList && data.staffList.some(s => s.uid.trim() === this.uid)) return true;
+                // C. 檢查矩陣
+                if (this.checkMatrixForUid(data.schedule, this.uid)) return true;
+                return false;
+            });
+
+            // 如果找不到「包含我」的班表，但我是管理員，可能我想看的是單位的班表？
+            // 這裡做一個妥協：如果是管理員且沒在排班內，我們暫時不載入任何資料，並顯示特定訊息
             
             if (!targetDoc) {
-                targetDoc = snap.docs.find(doc => doc.data().unitId === this.unitId);
-            }
-
-            if (!targetDoc) {
-                console.warn("❌ No matching schedules found.");
-                if(wrapper) wrapper.style.display = 'none';
-                if(noData) noData.style.display = 'block';
-                this.resetStats();
+                // 如果是管理員，提示他去模擬
+                if (app.userRole === 'system_admin' || app.userRole === 'unit_manager') {
+                     console.warn("User is Admin/Manager but not in schedule.");
+                     this.renderNoDataState("您不在本月排班名單中。", true); // true = 顯示管理員提示
+                } else {
+                     console.warn("User not found in any schedule.");
+                     this.renderNoDataState("尚無您的班表資料 (未發布或未排入)。");
+                }
                 return;
             }
 
-            console.log(`✅ Selected target: ${targetDoc.id} (Unit: ${targetDoc.data().unitId})`);
+            console.log(`✅ Schedule Match Found: ${targetDoc.id}`);
             
             if(wrapper) wrapper.style.display = 'block';
             if(noData) noData.style.display = 'none';
 
             this.currentSchedule = { id: targetDoc.id, ...targetDoc.data() };
-            
-            // ==========================================
-            // 🔥 ID 自動癒合 (Self-Healing) - 即使在模擬模式下也運作
-            // ==========================================
-            let effectiveUid = this.uid;
-            
-            // 只有在「非模擬」且「找不到人」的情況下，才嘗試用登入者名字去反推
-            // 如果是模擬模式，我們假設開發者給的 UID 是準確的，或者我們用模擬的名字去反推
-            let matchName = this.isSimulating ? sessionStorage.getItem('simulation_name') : (app.currentUser.displayName || app.currentUser.name);
-            if (!matchName) matchName = '';
-
-            const staffList = this.currentSchedule.staffList || [];
-            const userInList = staffList.find(s => s.uid.trim() === this.uid);
-
-            if (!userInList) {
-                console.warn(`⚠️ Target UID (${this.uid}) not found in schedule staff list! Trying Name Match: '${matchName}'...`);
-                
-                // 嘗試用姓名反查
-                const nameMatch = staffList.find(s => s.name.trim() === matchName.trim());
-                if (nameMatch) {
-                    console.warn(`✅ Name Match Found! Switching Effective UID to: ${nameMatch.uid} (was ${this.uid})`);
-                    effectiveUid = nameMatch.uid.trim();
-                    // 如果是在模擬模式，我們可以順便更新一下 session 裡的 ID，讓下次更準確
-                    if (this.isSimulating) {
-                         sessionStorage.setItem('simulation_uid', effectiveUid);
-                         this.uid = effectiveUid;
-                    }
-                } else {
-                    console.error("❌ Fatal: User not found in schedule by UID or Name.");
-                }
-            }
-
-            // ==========================================
-            // 2. 提取資料
-            // ==========================================
             this.currentAssignments = this.currentSchedule.assignments || {};
-            let myData = this.currentAssignments[effectiveUid];
             
+            // 3. 提取資料
+            // 此時我們確定 assignments[this.uid] 應該要存在，或者矩陣裡有資料
+            let myData = this.currentAssignments[this.uid];
+            
+            // 再次檢查資料完整性
             const hasShiftKeys = myData && Object.keys(myData).some(k => k.startsWith('current_') || k.match(/^\d{4}-\d{2}-\d{2}$/));
 
             if (!hasShiftKeys) {
-                console.warn(`⚠️ Assignments empty for ${effectiveUid}. Switching to Matrix Extraction...`);
+                console.warn(`⚠️ Assignments empty. Attempting Matrix Extraction for ${this.uid}...`);
                 if (this.currentSchedule.schedule) {
-                    myData = this.extractShiftsFromMatrix(this.currentSchedule.schedule, effectiveUid);
-                    this.currentAssignments[this.uid] = myData; 
-                }
-            } else {
-                if (effectiveUid !== this.uid) {
-                     this.currentAssignments[this.uid] = myData;
+                    myData = this.extractShiftsFromMatrix(this.currentSchedule.schedule, this.uid);
+                    // 回填，方便渲染
+                    this.currentAssignments[this.uid] = myData;
+                    
+                    // 如果連矩陣都沒有，那就是真的沒班
+                    if (Object.keys(myData).length === 0) {
+                         this.renderNoDataState("本月您沒有被安排任何班別 (全空)。");
+                         return; // 雖然有表，但沒班，顯示狀態
+                    }
                 }
             }
             
@@ -181,6 +175,27 @@ const staffScheduleManager = {
             console.error("❌ Load Data Error:", e);
             alert("載入錯誤: " + e.message);
         }
+    },
+
+    renderNoDataState: function(msg, isAdminHint = false) {
+        const wrapper = document.getElementById('horizontalScheduleWrapper');
+        const noData = document.getElementById('noDataMessage');
+        
+        if(wrapper) wrapper.style.display = 'none';
+        if(noData) {
+            noData.style.display = 'block';
+            let html = `<h3><i class="fas fa-info-circle"></i> ${msg}</h3>`;
+            
+            if (isAdminHint) {
+                html += `
+                <div style="margin-top:10px; color:#666; font-size:0.9rem;">
+                    <p>您是管理員，通常不參與排班。</p>
+                    <p>若要測試員工視角，請使用 <strong>「深度身分模擬」</strong> 功能。</p>
+                </div>`;
+            }
+            noData.innerHTML = html;
+        }
+        this.resetStats();
     },
 
     checkMatrixForUid: function(matrix, uid) {
@@ -207,6 +222,7 @@ const staffScheduleManager = {
     },
 
     renderHorizontalTable: function(year, month) {
+        // ... (保持原本的渲染邏輯) ...
         const rowWeekday = document.getElementById('row-weekday');
         const rowDate = document.getElementById('row-date');
         const rowShift = document.getElementById('row-shift');
@@ -270,6 +286,7 @@ const staffScheduleManager = {
     },
 
     calculateStats: function(year, month) {
+         // ... (保持原本的統計邏輯) ...
         const myAssign = this.currentAssignments[this.uid] || {};
         const daysInMonth = new Date(year, month, 0).getDate();
         let totalShifts = 0, totalOff = 0, holidayOff = 0, evening = 0, night = 0, exchangeCount = 0;
@@ -313,6 +330,7 @@ const staffScheduleManager = {
         });
     },
 
+    // ... (保留 Exchange 相關功能，不變) ...
     exchangeData: null,
     openExchangeModal: function(day, myShift) {
         this.exchangeData = { day, myShift };
@@ -357,7 +375,6 @@ const staffScheduleManager = {
     },
 
     submitExchange: async function() {
-        // 模擬模式下禁止提交，以免搞混資料
         if (this.isSimulating) {
             alert("⚠️ 模擬模式下無法提交換班申請，請切回本人帳號操作。");
             return;
