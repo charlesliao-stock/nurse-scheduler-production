@@ -75,7 +75,6 @@
             msgBox.style.display = 'block';
             msg.innerHTML = text;
             
-            // 設定樣式
             switch(type) {
                 case 'error':
                     msgBox.style.backgroundColor = '#fee';
@@ -92,7 +91,7 @@
                     msgBox.style.borderLeft = '4px solid #ffc107';
                     msgBox.style.color = '#856404';
                     break;
-                default: // info
+                default:
                     msgBox.style.backgroundColor = '#d1ecf1';
                     msgBox.style.borderLeft = '4px solid #17a2b8';
                     msgBox.style.color = '#0c5460';
@@ -136,13 +135,26 @@
                 const signInMethods = await auth.fetchSignInMethodsForEmail(email);
                 
                 if (signInMethods.length > 0) {
-                    console.warn('[開通] Email 已註冊');
-                    throw new Error(
-                        '此 Email 已被註冊。\n\n' +
-                        '可能情況：\n' +
-                        '1. 您已完成開通，請直接登入\n' +
-                        '2. 之前開通失敗，請聯絡管理員使用「故障排查工具」修復'
+                    console.warn('[開通] Email 已在 Auth 中註冊');
+                    
+                    // 顯示特殊的錯誤訊息，提供修復選項
+                    showMessage(
+                        '⚠️ 此 Email 已被註冊<br><br>' +
+                        '<strong>可能的情況：</strong><br>' +
+                        '1. 您已完成開通 → <a href="index.html" style="color:#3498db;">直接登入</a><br>' +
+                        '2. 之前開通失敗，資料不一致<br><br>' +
+                        '<strong>解決方案：</strong><br>' +
+                        '<button onclick="handleExistingAccount(\'' + email + '\', \'' + empId + '\', \'' + pwd + '\')" ' +
+                        'style="margin-top:10px; padding:8px 16px; background:#e67e22; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:bold;">' +
+                        '<i class="fas fa-tools"></i> 嘗試修復並開通' +
+                        '</button><br>' +
+                        '<small style="display:block; margin-top:10px; color:#999;">或聯絡系統管理員使用「故障排查工具」</small>',
+                        'warning'
                     );
+                    
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-check-circle"></i> 確認開通';
+                    return;
                 }
 
                 // ========================================
@@ -157,145 +169,215 @@
                 console.log('[開通] Auth 帳號建立成功, UID:', newUid);
 
                 // ========================================
-                // 步驟 3: 驗證員工資料（現在已登入，有權限查詢）
+                // 步驟 3: 驗證員工資料
                 // ========================================
                 console.log('[開通] 步驟 3: 驗證員工資料...');
                 showMessage('⏳ 正在驗證員工資料...', 'info');
 
-                try {
-                    const userQuery = await db.collection('users')
-                        .where('employeeId', '==', empId)
-                        .where('email', '==', email)
-                        .where('isActive', '==', true)
-                        .get();
+                await validateAndMigrateData(empId, email, newUid);
 
-                    if (userQuery.empty) {
-                        throw new Error('找不到此員工資料，請確認員工編號和 Email 是否正確。');
-                    }
+                // ========================================
+                // 步驟 4: 完成
+                // ========================================
+                showMessage(
+                    '✅ 開通成功！<br><br>' +
+                    '您的帳號已成功啟用。<br>' +
+                    '系統將在 3 秒後自動導向登入頁面...',
+                    'success'
+                );
 
-                    // 檢查是否有重複記錄
-                    if (userQuery.size > 1) {
-                        console.warn('[開通] 警告：發現多筆相同的員工記錄');
-                        throw new Error('系統檢測到資料異常（重複記錄），請聯絡系統管理員進行修復。');
-                    }
+                await auth.signOut();
 
-                    const oldDoc = userQuery.docs[0];
-                    const userData = oldDoc.data();
-                    const oldDocId = oldDoc.id;
-
-                    console.log('[開通] 找到員工資料:', {
-                        docId: oldDocId,
-                        employeeId: userData.employeeId,
-                        email: userData.email,
-                        isRegistered: userData.isRegistered
-                    });
-
-                    // 檢查是否已開通
-                    if (userData.isRegistered && userData.uid) {
-                        console.log('[開通] 員工資料顯示已開通');
-                        throw new Error('此員工資料已標記為開通狀態，但 Auth 帳號不存在。資料可能不一致，請聯絡管理員。');
-                    }
-
-                    // ========================================
-                    // 步驟 4: 遷移 Firestore 資料
-                    // ========================================
-                    console.log('[開通] 步驟 4: 遷移 Firestore 資料...');
-                    showMessage('⏳ 正在完成開通...', 'info');
-
-                    // 準備新資料
-                    const newData = {
-                        ...userData,
-                        uid: newUid,
-                        isRegistered: true,
-                        isActive: true,
-                        activatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    };
-
-                    // 使用 Batch 確保原子性操作
-                    const batch = db.batch();
-                    
-                    // 建立新文件（ID = UID）
-                    const newDocRef = db.collection('users').doc(newUid);
-                    batch.set(newDocRef, newData);
-                    
-                    // 刪除舊的暫存文件（只有在不同 ID 的情況下才刪除）
-                    if (oldDocId !== newUid) {
-                        const oldDocRef = db.collection('users').doc(oldDocId);
-                        batch.delete(oldDocRef);
-                        console.log('[開通] 將刪除舊文件:', oldDocId);
-                    }
-
-                    await batch.commit();
-                    console.log('[開通] Firestore 資料遷移成功');
-
-                    // ========================================
-                    // 步驟 5: 完成並導向登入頁
-                    // ========================================
-                    showMessage(
-                        '✅ 開通成功！<br><br>' +
-                        '您的帳號已成功啟用。<br>' +
-                        '系統將在 3 秒後自動導向登入頁面...',
-                        'success'
-                    );
-
-                    // 登出剛建立的帳號
-                    await auth.signOut();
-
-                    // 延遲 3 秒後跳轉
-                    setTimeout(() => {
-                        window.location.href = 'index.html';
-                    }, 3000);
-
-                } catch (verifyError) {
-                    console.error('[開通] 驗證失敗:', verifyError);
-                    
-                    // 驗證失敗，清理已建立的 Auth 帳號
-                    try {
-                        const currentUser = auth.currentUser;
-                        if (currentUser && currentUser.uid === newUid) {
-                            await currentUser.delete();
-                            console.log('[開通] 已清理失敗的 Auth 帳號');
-                        }
-                    } catch (deleteError) {
-                        console.error('[開通] 清理 Auth 帳號失敗:', deleteError);
-                    }
-                    
-                    throw verifyError;
-                }
+                setTimeout(() => {
+                    window.location.href = 'index.html';
+                }, 3000);
 
             } catch (error) {
                 console.error('[開通] 開通失敗:', error);
-                
-                // 錯誤訊息處理
-                let errorMessage = error.message;
-                
-                // 處理常見的 Firebase 錯誤
-                if (error.code) {
-                    switch(error.code) {
-                        case 'auth/email-already-in-use':
-                            errorMessage = '此 Email 已被註冊。\n\n請確認是否已完成開通，或聯絡系統管理員。';
-                            break;
-                        case 'auth/invalid-email':
-                            errorMessage = 'Email 格式不正確，請重新輸入。';
-                            break;
-                        case 'auth/weak-password':
-                            errorMessage = '密碼強度不足，請使用至少 6 個字元的密碼。';
-                            break;
-                        case 'auth/network-request-failed':
-                            errorMessage = '網路連線失敗，請檢查網路後重試。';
-                            break;
-                        case 'permission-denied':
-                            errorMessage = '權限不足。\n\n可能原因：\n1. 安全規則設定問題\n2. 資料狀態異常\n\n請聯絡系統管理員。';
-                            break;
-                    }
-                }
-                
-                showMessage('❌ 開通失敗<br><br>' + errorMessage.replace(/\n/g, '<br>'), 'error');
+                handleActivationError(error);
                 
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-check-circle"></i> 確認開通';
             }
+        }
+
+        // 處理已存在帳號的情況
+        async function handleExistingAccount(email, empId, pwd) {
+            if (!confirm('此操作將嘗試修復資料並重設密碼。\n\n確定要繼續嗎？')) {
+                return;
+            }
+
+            showMessage('⏳ 正在修復資料...', 'info');
+            const btn = document.getElementById('btnSubmit');
+            btn.disabled = true;
+
+            try {
+                console.log('[修復] 開始修復流程...');
+                
+                // 步驟 1: 嘗試使用臨時密碼登入
+                console.log('[修復] 步驟 1: 嘗試登入...');
+                
+                let currentUser = null;
+                try {
+                    // 嘗試用新密碼登入
+                    const cred = await auth.signInWithEmailAndPassword(email, pwd);
+                    currentUser = cred.user;
+                    console.log('[修復] 使用新密碼登入成功');
+                } catch (loginError) {
+                    console.log('[修復] 新密碼登入失敗，嘗試發送重設郵件...');
+                    
+                    // 發送密碼重設郵件
+                    await auth.sendPasswordResetEmail(email);
+                    
+                    showMessage(
+                        '📧 密碼重設郵件已發送<br><br>' +
+                        '請檢查您的信箱（包括垃圾郵件夾）。<br>' +
+                        '點擊郵件中的連結重設密碼後，即可登入。<br><br>' +
+                        '<a href="index.html" style="color:#3498db; font-weight:bold;">前往登入頁面</a>',
+                        'success'
+                    );
+                    
+                    btn.disabled = false;
+                    return;
+                }
+
+                // 步驟 2: 驗證並修復 Firestore 資料
+                console.log('[修復] 步驟 2: 驗證並修復 Firestore 資料...');
+                showMessage('⏳ 正在修復資料...', 'info');
+                
+                await validateAndMigrateData(empId, email, currentUser.uid);
+
+                // 步驟 3: 完成
+                showMessage(
+                    '✅ 修復成功！<br><br>' +
+                    '您的帳號已修復並可正常使用。<br>' +
+                    '系統將在 3 秒後自動導向登入頁面...',
+                    'success'
+                );
+
+                await auth.signOut();
+
+                setTimeout(() => {
+                    window.location.href = 'index.html';
+                }, 3000);
+
+            } catch (error) {
+                console.error('[修復] 修復失敗:', error);
+                
+                showMessage(
+                    '❌ 修復失敗<br><br>' +
+                    error.message + '<br><br>' +
+                    '請聯絡系統管理員使用「故障排查工具」進行修復。',
+                    'error'
+                );
+                
+                btn.disabled = false;
+            }
+        }
+
+        // 驗證並遷移資料的共用函數
+        async function validateAndMigrateData(empId, email, uid) {
+            try {
+                const userQuery = await db.collection('users')
+                    .where('employeeId', '==', empId)
+                    .where('email', '==', email)
+                    .where('isActive', '==', true)
+                    .get();
+
+                if (userQuery.empty) {
+                    throw new Error('找不到此員工資料，請確認員工編號和 Email 是否正確。');
+                }
+
+                if (userQuery.size > 1) {
+                    console.warn('[驗證] 警告：發現多筆相同的員工記錄');
+                    // 不拋出錯誤，繼續處理（會自動清理）
+                }
+
+                // 取得所有匹配的記錄
+                const allDocs = [];
+                userQuery.forEach(doc => {
+                    allDocs.push({
+                        ref: doc.ref,
+                        id: doc.id,
+                        data: doc.data()
+                    });
+                });
+
+                console.log(`[驗證] 找到 ${allDocs.length} 筆員工資料`);
+
+                // 準備新資料（使用第一筆記錄的資料）
+                const baseData = allDocs[0].data;
+                const newData = {
+                    ...baseData,
+                    uid: uid,
+                    isRegistered: true,
+                    isActive: true,
+                    activatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                };
+
+                // 使用 Batch 操作
+                const batch = db.batch();
+                
+                // 建立新文件（ID = UID）
+                const newDocRef = db.collection('users').doc(uid);
+                batch.set(newDocRef, newData);
+                console.log('[遷移] 建立新文件:', uid);
+                
+                // 刪除所有舊的文件
+                allDocs.forEach(doc => {
+                    if (doc.id !== uid) {
+                        batch.delete(doc.ref);
+                        console.log('[遷移] 刪除舊文件:', doc.id);
+                    }
+                });
+
+                await batch.commit();
+                console.log('[遷移] Firestore 資料遷移成功');
+
+            } catch (error) {
+                console.error('[驗證] 失敗:', error);
+                
+                // 驗證失敗，清理 Auth 帳號
+                try {
+                    const currentUser = auth.currentUser;
+                    if (currentUser && currentUser.uid === uid) {
+                        await currentUser.delete();
+                        console.log('[清理] 已清理失敗的 Auth 帳號');
+                    }
+                } catch (deleteError) {
+                    console.error('[清理] 清理 Auth 帳號失敗:', deleteError);
+                }
+                
+                throw error;
+            }
+        }
+
+        // 錯誤處理
+        function handleActivationError(error) {
+            let errorMessage = error.message;
+            
+            if (error.code) {
+                switch(error.code) {
+                    case 'auth/email-already-in-use':
+                        errorMessage = '此 Email 已被註冊。\n\n請點擊上方的「嘗試修復並開通」按鈕。';
+                        break;
+                    case 'auth/invalid-email':
+                        errorMessage = 'Email 格式不正確，請重新輸入。';
+                        break;
+                    case 'auth/weak-password':
+                        errorMessage = '密碼強度不足，請使用至少 6 個字元的密碼。';
+                        break;
+                    case 'auth/network-request-failed':
+                        errorMessage = '網路連線失敗，請檢查網路後重試。';
+                        break;
+                    case 'permission-denied':
+                        errorMessage = '權限不足。\n\n可能原因：\n1. 安全規則設定問題\n2. 資料狀態異常\n\n請聯絡系統管理員。';
+                        break;
+                }
+            }
+            
+            showMessage('❌ 開通失敗<br><br>' + errorMessage.replace(/\n/g, '<br>'), 'error');
         }
 
         // 按 Enter 鍵提交
