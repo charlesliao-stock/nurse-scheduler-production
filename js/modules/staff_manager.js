@@ -5,19 +5,43 @@ const StaffManager = {
     rolesCache: [],
 
     init: async function() {
+        // === 修復：檢查是否在正確的頁面 ===
+        const requiredElements = [
+            'staffTableBody',
+            'addStaffBtn',
+            'staffModal',
+            'saveStaffBtn',
+            'cancelStaffBtn'
+        ];
+
+        const missingElements = requiredElements.filter(id => !document.getElementById(id));
+        
+        if (missingElements.length > 0) {
+            console.log(`[StaffManager] 跳過初始化：當前頁面缺少必要元素 (${missingElements.join(', ')})`);
+            return; // 不是員工管理頁面，直接返回
+        }
+
+        console.log('[StaffManager] 開始初始化...');
+        
         this.db = firebase.firestore();
         await this.loadUnits();
         await this.loadRoles();
         await this.loadData();
         this.bindEvents();
+        
+        console.log('[StaffManager] 初始化完成');
     },
 
     bindEvents: function() {
-        document.getElementById('addStaffBtn').addEventListener('click', () => this.showModal());
-        document.getElementById('saveStaffBtn').addEventListener('click', () => this.saveData());
-        document.getElementById('cancelStaffBtn').addEventListener('click', () => this.hideModal());
-        
+        const addBtn = document.getElementById('addStaffBtn');
+        const saveBtn = document.getElementById('saveStaffBtn');
+        const cancelBtn = document.getElementById('cancelStaffBtn');
         const searchInput = document.getElementById('searchStaff');
+
+        if (addBtn) addBtn.addEventListener('click', () => this.showModal());
+        if (saveBtn) saveBtn.addEventListener('click', () => this.saveData());
+        if (cancelBtn) cancelBtn.addEventListener('click', () => this.hideModal());
+        
         if (searchInput) {
             searchInput.addEventListener('input', (e) => this.filterTable(e.target.value));
         }
@@ -32,7 +56,7 @@ const StaffManager = {
             });
             this.renderUnitOptions();
         } catch (error) {
-            console.error('載入單位失敗:', error);
+            console.error('[StaffManager] 載入單位失敗:', error);
             alert('載入單位資料失敗，請重新整理頁面');
         }
     },
@@ -46,7 +70,7 @@ const StaffManager = {
             });
             this.renderRoleOptions();
         } catch (error) {
-            console.error('載入角色失敗:', error);
+            console.error('[StaffManager] 載入角色失敗:', error);
             alert('載入角色資料失敗，請重新整理頁面');
         }
     },
@@ -79,12 +103,17 @@ const StaffManager = {
 
     loadData: async function() {
         try {
-            const snapshot = await this.db.collection('users').orderBy('displayName').get();
             const tbody = document.getElementById('staffTableBody');
+            if (!tbody) {
+                console.warn('[StaffManager] 找不到 staffTableBody 元素');
+                return;
+            }
+
+            const snapshot = await this.db.collection('users').orderBy('displayName').get();
             tbody.innerHTML = '';
 
             if (snapshot.empty) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">尚無員工資料</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">尚無員工資料</td></tr>';
                 return;
             }
 
@@ -119,37 +148,49 @@ const StaffManager = {
                 `;
             });
         } catch (error) {
-            console.error('載入員工資料失敗:', error);
-            alert('載入員工資料失敗');
+            console.error('[StaffManager] 載入員工資料失敗:', error);
+            alert('載入員工資料失敗：' + error.message);
         }
     },
 
     showModal: function(data = null) {
+        const modal = document.getElementById('staffModal');
+        if (!modal) return;
+
         this.currentEditId = data ? data.id : null;
         
-        document.getElementById('staffEmployeeId').value = data?.employeeId || '';
-        document.getElementById('staffName').value = data?.displayName || '';
-        document.getElementById('staffEmail').value = data?.email || '';
-        document.getElementById('staffUnit').value = data?.unitId || '';
-        document.getElementById('staffRole').value = data?.role || '';
-        document.getElementById('staffActive').checked = data?.isActive !== false;
+        const empIdInput = document.getElementById('staffEmployeeId');
+        const nameInput = document.getElementById('staffName');
+        const emailInput = document.getElementById('staffEmail');
+        const unitSelect = document.getElementById('staffUnit');
+        const roleSelect = document.getElementById('staffRole');
+        const activeCheckbox = document.getElementById('staffActive');
+        const modalTitle = document.getElementById('modalTitle');
+
+        if (empIdInput) empIdInput.value = data?.employeeId || '';
+        if (nameInput) nameInput.value = data?.displayName || '';
+        if (emailInput) emailInput.value = data?.email || '';
+        if (unitSelect) unitSelect.value = data?.unitId || '';
+        if (roleSelect) roleSelect.value = data?.role || '';
+        if (activeCheckbox) activeCheckbox.checked = data?.isActive !== false;
+        if (modalTitle) modalTitle.textContent = data ? '編輯員工' : '新增員工';
         
-        document.getElementById('staffModal').style.display = 'block';
-        document.getElementById('modalTitle').textContent = data ? '編輯員工' : '新增員工';
+        modal.style.display = 'block';
     },
 
     hideModal: function() {
-        document.getElementById('staffModal').style.display = 'none';
+        const modal = document.getElementById('staffModal');
+        if (modal) modal.style.display = 'none';
         this.currentEditId = null;
     },
 
     saveData: async function() {
-        const empId = document.getElementById('staffEmployeeId').value.trim();
-        const name = document.getElementById('staffName').value.trim();
-        const email = document.getElementById('staffEmail').value.trim();
-        const selectedUnitId = document.getElementById('staffUnit').value;
-        const selectedRole = document.getElementById('staffRole').value;
-        const isActive = document.getElementById('staffActive').checked;
+        const empId = document.getElementById('staffEmployeeId')?.value.trim();
+        const name = document.getElementById('staffName')?.value.trim();
+        const email = document.getElementById('staffEmail')?.value.trim();
+        const selectedUnitId = document.getElementById('staffUnit')?.value;
+        const selectedRole = document.getElementById('staffRole')?.value;
+        const isActive = document.getElementById('staffActive')?.checked;
 
         // 驗證必填欄位
         if (!empId || !name || !email || !selectedUnitId || !selectedRole) {
@@ -168,7 +209,7 @@ const StaffManager = {
             const batch = this.db.batch();
             const docId = this.currentEditId;
 
-            // === 修復 1：新增時檢查員工編號唯一性 ===
+            // === 新增時檢查員工編號唯一性 ===
             if (!docId) {
                 const empIdCheck = await this.db.collection('users')
                     .where('employeeId', '==', empId)
@@ -180,7 +221,7 @@ const StaffManager = {
                 }
             }
 
-            // === 修復 2：新增時檢查 Email 唯一性 ===
+            // === 新增時檢查 Email 唯一性 ===
             if (!docId) {
                 const emailCheck = await this.db.collection('users')
                     .where('email', '==', email)
@@ -211,8 +252,8 @@ const StaffManager = {
                 const userRef = this.db.collection('users').doc();
                 batch.set(userRef, {
                     ...data,
-                    isRegistered: false,  // 標記為未開通
-                    uid: null,            // 尚無 Firebase Auth UID
+                    isRegistered: false,
+                    uid: null,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
             }
@@ -223,9 +264,8 @@ const StaffManager = {
             this.hideModal();
             await this.loadData();
         } catch (error) {
-            console.error('儲存失敗:', error);
+            console.error('[StaffManager] 儲存失敗:', error);
             
-            // === 修復 3：優化錯誤訊息 ===
             if (error.code === 'permission-denied') {
                 alert('權限不足：您沒有權限執行此操作');
             } else if (error.code === 'unavailable') {
@@ -245,7 +285,7 @@ const StaffManager = {
             }
             this.showModal({ id: docId, ...doc.data() });
         } catch (error) {
-            console.error('載入編輯資料失敗:', error);
+            console.error('[StaffManager] 載入編輯資料失敗:', error);
             alert('載入編輯資料失敗');
         }
     },
@@ -260,13 +300,15 @@ const StaffManager = {
             alert('刪除成功');
             await this.loadData();
         } catch (error) {
-            console.error('刪除失敗:', error);
+            console.error('[StaffManager] 刪除失敗:', error);
             alert('刪除失敗：' + error.message);
         }
     },
 
     filterTable: function(keyword) {
         const tbody = document.getElementById('staffTableBody');
+        if (!tbody) return;
+
         const rows = tbody.getElementsByTagName('tr');
         const lowerKeyword = keyword.toLowerCase();
 
@@ -276,14 +318,12 @@ const StaffManager = {
         }
     },
 
-    // === 故障排查工具：修復 Auth 與 Firestore 不同步 ===
     fixAuthFirestoreSync: async function(email) {
         if (!confirm(`確定要修復 Email「${email}」的帳號同步問題嗎？\n\n此操作將：\n1. 檢查該 Email 的所有記錄\n2. 保留最新的已開通記錄\n3. 刪除重複或未開通的舊記錄`)) {
             return;
         }
 
         try {
-            // 1. 查詢所有相同 Email 的 Firestore 記錄
             const firestoreSnapshot = await this.db.collection('users')
                 .where('email', '==', email)
                 .get();
@@ -293,22 +333,19 @@ const StaffManager = {
                 return;
             }
 
-            // 2. 檢查 Firebase Auth 是否有該帳號
             let authUid = null;
             try {
                 const authUser = await firebase.auth().fetchSignInMethodsForEmail(email);
                 if (authUser && authUser.length > 0) {
-                    // Email 已在 Auth 中註冊，取得 UID
                     const currentUser = firebase.auth().currentUser;
                     if (currentUser && currentUser.email === email) {
                         authUid = currentUser.uid;
                     }
                 }
             } catch (authError) {
-                console.log('Auth 查詢結果：該 Email 尚未在 Firebase Auth 註冊');
+                console.log('[StaffManager] Auth 查詢結果：該 Email 尚未在 Firebase Auth 註冊');
             }
 
-            // 3. 整理所有記錄
             const allRecords = [];
             firestoreSnapshot.forEach(doc => {
                 allRecords.push({
@@ -317,9 +354,8 @@ const StaffManager = {
                 });
             });
 
-            console.log(`找到 ${allRecords.length} 筆記錄：`, allRecords);
+            console.log(`[StaffManager] 找到 ${allRecords.length} 筆記錄：`, allRecords);
 
-            // 4. 尋找正確的記錄（已開通且 UID 匹配）
             let correctRecord = null;
             if (authUid) {
                 correctRecord = allRecords.find(r => 
@@ -327,7 +363,6 @@ const StaffManager = {
                 );
             }
 
-            // 5. 如果沒有正確記錄，選擇最新的已開通記錄
             if (!correctRecord) {
                 const registeredRecords = allRecords
                     .filter(r => r.data.isRegistered)
@@ -340,7 +375,6 @@ const StaffManager = {
                 correctRecord = registeredRecords[0];
             }
 
-            // 6. 刪除重複記錄
             const batch = this.db.batch();
             let deletedCount = 0;
 
@@ -348,7 +382,7 @@ const StaffManager = {
                 if (record.id !== correctRecord?.id) {
                     batch.delete(this.db.collection('users').doc(record.id));
                     deletedCount++;
-                    console.log(`準備刪除記錄：${record.id}`, record.data);
+                    console.log(`[StaffManager] 準備刪除記錄：${record.id}`, record.data);
                 }
             }
 
@@ -361,13 +395,21 @@ const StaffManager = {
 
             await this.loadData();
         } catch (error) {
-            console.error('修復同步失敗:', error);
+            console.error('[StaffManager] 修復同步失敗:', error);
             alert(`修復失敗：${error.message}`);
         }
     }
 };
 
-// 頁面載入時初始化
+// === 修復：安全的初始化 ===
 document.addEventListener('DOMContentLoaded', () => {
-    StaffManager.init();
+    // 檢查是否在員工管理頁面
+    if (document.getElementById('staffTableBody')) {
+        console.log('[StaffManager] 偵測到員工管理頁面，開始初始化...');
+        StaffManager.init().catch(error => {
+            console.error('[StaffManager] 初始化失敗:', error);
+        });
+    } else {
+        console.log('[StaffManager] 非員工管理頁面，跳過初始化');
+    }
 });
