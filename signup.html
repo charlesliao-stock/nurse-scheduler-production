@@ -3,151 +3,578 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>醫院排班系統 - 帳號開通</title>
-    <link rel="stylesheet" href="css/style.css">
-    
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <title>帳號開通 - 排班系統</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .signup-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            width: 100%;
+            max-width: 450px;
+            animation: slideIn 0.5s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo h1 {
+            color: #667eea;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .logo p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+        }
+
+        .form-group input::placeholder {
+            color: #aaa;
+        }
+
+        .btn-activate {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+
+        .btn-activate:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102,126,234,0.3);
+        }
+
+        .btn-activate:active {
+            transform: translateY(0);
+        }
+
+        .btn-activate:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .info-box {
+            background: #f0f4ff;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            font-size: 13px;
+            color: #555;
+            line-height: 1.6;
+        }
+
+        .info-box strong {
+            color: #667eea;
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .info-box ul {
+            margin-left: 20px;
+            margin-top: 8px;
+        }
+
+        .info-box li {
+            margin-bottom: 5px;
+        }
+
+        .footer-links {
+            text-align: center;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .footer-links a {
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+            transition: color 0.3s;
+        }
+
+        .footer-links a:hover {
+            color: #764ba2;
+            text-decoration: underline;
+        }
+
+        .error-message {
+            background: #fee;
+            border-left: 4px solid #f44;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: #c33;
+            display: none;
+        }
+
+        .success-message {
+            background: #efe;
+            border-left: 4px solid #4f4;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: #3c3;
+            display: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .password-strength {
+            margin-top: 8px;
+            font-size: 12px;
+        }
+
+        .password-strength .bar {
+            height: 4px;
+            background: #e0e0e0;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-bottom: 5px;
+        }
+
+        .password-strength .bar-fill {
+            height: 100%;
+            width: 0%;
+            transition: all 0.3s;
+        }
+
+        .password-strength.weak .bar-fill {
+            width: 33%;
+            background: #f44;
+        }
+
+        .password-strength.medium .bar-fill {
+            width: 66%;
+            background: #fa4;
+        }
+
+        .password-strength.strong .bar-fill {
+            width: 100%;
+            background: #4f4;
+        }
+    </style>
 </head>
-<body style="background: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh;">
-
-    <div class="login-card" style="width: 400px; padding: 30px;">
-        <h2 style="color: #2c3e50; text-align: center; margin-bottom: 20px;">
-            <i class="fas fa-user-check"></i> 帳號開通認領
-        </h2>
-        
-        <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px;">
-            請輸入您的員工資訊以驗證身分。驗證通過後即可設定密碼。
-        </p>
-
-        <div class="form-group" style="margin-bottom: 15px;">
-            <label style="display:block; margin-bottom:5px; font-weight:bold;">員工編號</label>
-            <input type="text" id="verifyEmpId" placeholder="例如: N1001" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;">
+<body>
+    <div class="signup-container">
+        <div class="logo">
+            <h1>🏥 排班系統</h1>
+            <p>帳號開通頁面</p>
         </div>
 
-        <div class="form-group" style="margin-bottom: 15px;">
-            <label style="display:block; margin-bottom:5px; font-weight:bold;">Email (必須與建檔一致)</label>
-            <input type="email" id="verifyEmail" placeholder="您的 Email" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;">
+        <div class="info-box">
+            <strong>📋 開通須知：</strong>
+            <ul>
+                <li>請向管理員確認您的員工編號與註冊 Email</li>
+                <li>密碼長度至少 6 個字元，建議使用英數混合</li>
+                <li>開通後即可使用 Email 與密碼登入系統</li>
+            </ul>
         </div>
 
-        <div class="form-group" style="margin-bottom: 20px;">
-            <label style="display:block; margin-bottom:5px; font-weight:bold;">設定新密碼</label>
-            <input type="password" id="newPwd" placeholder="請設定 6 位數以上密碼" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;">
+        <div class="error-message" id="errorMessage"></div>
+        <div class="success-message" id="successMessage"></div>
+
+        <form id="signupForm">
+            <div class="form-group">
+                <label for="employeeId">員工編號 *</label>
+                <input 
+                    type="text" 
+                    id="employeeId" 
+                    placeholder="請輸入您的員工編號" 
+                    required
+                    autocomplete="off"
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email *</label>
+                <input 
+                    type="email" 
+                    id="email" 
+                    placeholder="請輸入管理員提供的 Email" 
+                    required
+                    autocomplete="email"
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="password">設定密碼 *</label>
+                <input 
+                    type="password" 
+                    id="password" 
+                    placeholder="請設定登入密碼（至少 6 字元）" 
+                    required
+                    autocomplete="new-password"
+                >
+                <div class="password-strength" id="passwordStrength">
+                    <div class="bar"><div class="bar-fill"></div></div>
+                    <span class="strength-text"></span>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="confirmPassword">確認密碼 *</label>
+                <input 
+                    type="password" 
+                    id="confirmPassword" 
+                    placeholder="請再次輸入密碼" 
+                    required
+                    autocomplete="new-password"
+                >
+            </div>
+
+            <button type="submit" class="btn-activate" id="activateBtn">
+                開通帳號
+            </button>
+        </form>
+
+        <div class="loading" id="loadingIndicator">
+            <div class="loading-spinner"></div>
+            <p style="margin-top: 10px; color: #666;">處理中，請稍候...</p>
         </div>
 
-        <button class="btn btn-primary" onclick="activateAccount()" id="btnSubmit">
-            確認開通
-        </button>
-        
-        <p id="msg" style="color: red; margin-top: 15px; text-align: center; font-size: 0.9rem;"></p>
-
-        <div style="text-align: center; margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px;">
-            <a href="index.html" style="color: #3498db; text-decoration: none;">已有帳號？直接登入</a>
+        <div class="footer-links">
+            <a href="index.html">← 返回登入頁面</a>
         </div>
     </div>
 
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+    
+    <!-- Firebase Config -->
     <script src="js/config.js"></script>
+
     <script>
-        async function activateAccount() {
-            const empId = document.getElementById('verifyEmpId').value.trim();
-            const email = document.getElementById('verifyEmail').value.trim();
-            const pwd = document.getElementById('newPwd').value;
-            const msg = document.getElementById('msg');
-            const btn = document.getElementById('btnSubmit');
+        // 初始化 Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
 
-            if(!empId || !email || !pwd) {
-                msg.textContent = "請填寫所有欄位"; return;
+        // UI 元素
+        const form = document.getElementById('signupForm');
+        const activateBtn = document.getElementById('activateBtn');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const errorMessage = document.getElementById('errorMessage');
+        const successMessage = document.getElementById('successMessage');
+        const passwordInput = document.getElementById('password');
+        const passwordStrength = document.getElementById('passwordStrength');
+
+        // 顯示錯誤訊息
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+            successMessage.style.display = 'none';
+            
+            // 3 秒後自動隱藏
+            setTimeout(() => {
+                errorMessage.style.display = 'none';
+            }, 5000);
+        }
+
+        // 顯示成功訊息
+        function showSuccess(message) {
+            successMessage.textContent = message;
+            successMessage.style.display = 'block';
+            errorMessage.style.display = 'none';
+        }
+
+        // 設定載入狀態
+        function setLoading(isLoading) {
+            if (isLoading) {
+                activateBtn.disabled = true;
+                activateBtn.textContent = '處理中...';
+                loadingIndicator.style.display = 'block';
+                form.style.opacity = '0.6';
+            } else {
+                activateBtn.disabled = false;
+                activateBtn.textContent = '開通帳號';
+                loadingIndicator.style.display = 'none';
+                form.style.opacity = '1';
             }
-            if(pwd.length < 6) {
-                msg.textContent = "密碼長度至少需 6 碼"; return;
+        }
+
+        // 密碼強度檢測
+        passwordInput.addEventListener('input', function() {
+            const pwd = this.value;
+            const strengthText = passwordStrength.querySelector('.strength-text');
+            
+            if (pwd.length === 0) {
+                passwordStrength.className = 'password-strength';
+                strengthText.textContent = '';
+                return;
             }
 
-            msg.textContent = "正在驗證資料...";
-            msg.style.color = "blue";
-            btn.disabled = true;
+            let strength = 0;
+            if (pwd.length >= 6) strength++;
+            if (pwd.length >= 8) strength++;
+            if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) strength++;
+            if (/\d/.test(pwd)) strength++;
+            if (/[^a-zA-Z0-9]/.test(pwd)) strength++;
+
+            if (strength <= 2) {
+                passwordStrength.className = 'password-strength weak';
+                strengthText.textContent = '密碼強度：弱';
+            } else if (strength <= 3) {
+                passwordStrength.className = 'password-strength medium';
+                strengthText.textContent = '密碼強度：中';
+            } else {
+                passwordStrength.className = 'password-strength strong';
+                strengthText.textContent = '密碼強度：強';
+            }
+        });
+
+        // 表單提交處理
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const empId = document.getElementById('employeeId').value.trim();
+            const email = document.getElementById('email').value.trim().toLowerCase();
+            const pwd = document.getElementById('password').value;
+            const confirmPwd = document.getElementById('confirmPassword').value;
+
+            // 前端驗證
+            if (!empId || !email || !pwd || !confirmPwd) {
+                showError('請填寫所有必填欄位');
+                return;
+            }
+
+            if (pwd !== confirmPwd) {
+                showError('兩次輸入的密碼不一致，請重新輸入');
+                document.getElementById('confirmPassword').value = '';
+                document.getElementById('confirmPassword').focus();
+                return;
+            }
+
+            if (pwd.length < 6) {
+                showError('密碼長度至少需要 6 個字元');
+                return;
+            }
+
+            setLoading(true);
+            errorMessage.style.display = 'none';
 
             try {
-                // 1. 查詢資料庫：是否有名單？
+                await activateAccount(empId, email, pwd);
+            } catch (error) {
+                console.error('開通失敗:', error);
+                showError(error.message || '開通失敗，請稍後再試');
+                setLoading(false);
+            }
+        });
+
+        // === 核心功能：帳號開通 ===
+        async function activateAccount(empId, email, pwd) {
+            let userCredential = null;
+            let oldDocRef = null;
+
+            try {
+                // Step 1: 查詢 Firestore 暫存記錄
+                console.log('[開通流程] Step 1: 查詢暫存記錄...');
                 const snapshot = await db.collection('users')
                     .where('employeeId', '==', empId)
                     .where('email', '==', email)
                     .get();
 
                 if (snapshot.empty) {
-                    throw new Error("找不到此員工資料，或 Email/員編 不符。");
+                    throw new Error('找不到對應的帳號資料，請確認員工編號與 Email 是否正確，或聯絡管理員');
+                }
+
+                if (snapshot.size > 1) {
+                    console.warn('[開通流程] 警告：發現多筆相同員編+Email 的記錄');
                 }
 
                 const oldDoc = snapshot.docs[0];
+                oldDocRef = oldDoc.ref;
                 const userData = oldDoc.data();
 
-                // 2. 檢查是否已經註冊過
+                console.log('[開通流程] 找到暫存記錄:', userData);
+
+                // Step 2: 驗證是否已開通
                 if (userData.isRegistered && userData.uid) {
-                    throw new Error("此帳號已經開通，請直接前往登入頁面。");
+                    throw new Error('此帳號已經開通，請直接前往登入頁面使用您的 Email 與密碼登入');
                 }
 
-                msg.textContent = "驗證通過，正在建立帳號...";
-
-                // 3. 建立 Firebase Auth 帳號 (這一步會登入該新帳號)
-                const userCredential = await auth.createUserWithEmailAndPassword(email, pwd);
-                const newUid = userCredential.user.uid;
-
-                // 4. 資料遷移：建立新文件 (ID=UID) -> 刪除舊文件
-                const batch = db.batch();
-                
-                // 新文件參照
-                const newDocRef = db.collection('users').doc(newUid);
-                
-                // 複製舊資料並更新狀態
-                const newData = { ...userData };
-                delete newData.uid; 
-                
-                batch.set(newDocRef, {
-                    ...newData,
-                    uid: newUid,           // 綁定真實 UID
-                    isRegistered: true,    // 標記已註冊
-                    isActive: true,        // 確保員工狀態為啟用
-                    activatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-
-                // 刪除舊的暫存文件
-                batch.delete(oldDoc.ref);
-
-                await batch.commit();
-
-                alert("🎉 開通成功！\n系統將自動引導至首頁，請使用剛設定的密碼登入。");
-                window.location.href = 'index.html';
-
-            } catch (error) {
-                console.error(error);
-                let text = error.message;
-                
-                // 處理「Email 已被註冊」的特殊情況
-                if(error.code === 'auth/email-already-in-use') {
-                    // 嘗試查找是否已有對應的 Firestore 文件
-                    try {
-                        const existingDocs = await db.collection('users')
+                // Step 3: 建立 Firebase Auth 帳號
+                console.log('[開通流程] Step 2: 建立 Firebase Auth 帳號...');
+                try {
+                    userCredential = await auth.createUserWithEmailAndPassword(email, pwd);
+                } catch (authError) {
+                    if (authError.code === 'auth/email-already-in-use') {
+                        // Email 已被註冊，檢查是否為異常情況
+                        const existingUserDoc = await db.collection('users')
                             .where('email', '==', email)
                             .where('isRegistered', '==', true)
                             .get();
-                        
-                        if (!existingDocs.empty) {
-                            text = "此帳號已經開通，請直接前往登入頁面。";
+
+                        if (!existingUserDoc.empty) {
+                            throw new Error('此 Email 已完成開通，請直接前往登入頁面');
                         } else {
-                            // Auth 帳號存在但 Firestore 資料不同步
-                            text = "此 Email 已被註冊 (Auth)。\n\n可能原因：之前開通失敗導致資料不同步。\n\n請聯絡系統管理員進行修復。";
+                            throw new Error('此 Email 已被註冊但資料異常，請聯絡管理員協助處理');
                         }
-                    } catch (checkError) {
-                        console.error("檢查現有帳號失敗:", checkError);
-                        text = "此 Email 已經被註冊過了 (Auth)，請嘗試直接登入。";
+                    } else if (authError.code === 'auth/weak-password') {
+                        throw new Error('密碼強度不足，請使用至少 6 個字元的密碼');
+                    } else if (authError.code === 'auth/invalid-email') {
+                        throw new Error('Email 格式不正確');
+                    } else {
+                        throw new Error(`Firebase Auth 建立失敗：${authError.message}`);
                     }
                 }
+
+                const newUid = userCredential.user.uid;
+                console.log('[開通流程] Auth 帳號建立成功，UID:', newUid);
+
+                // Step 4: 資料遷移（修復：加入 Firestore 失敗回滾機制）
+                console.log('[開通流程] Step 3: 資料遷移至正式文件...');
                 
-                msg.style.color = "red";
-                msg.textContent = text;
-                btn.disabled = false;
+                try {
+                    const batch = db.batch();
+
+                    // 建立新文件（Document ID = 真實 UID）
+                    const newDocRef = db.collection('users').doc(newUid);
+                    batch.set(newDocRef, {
+                        ...userData,
+                        uid: newUid,
+                        isRegistered: true,
+                        isActive: true,
+                        activatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    // 刪除舊的暫存文件
+                    batch.delete(oldDocRef);
+
+                    // 執行 Batch 操作
+                    await batch.commit();
+                    console.log('[開通流程] Firestore 資料遷移完成');
+
+                } catch (firestoreError) {
+                    console.error('[開通流程] Firestore 寫入失敗，執行回滾...', firestoreError);
+                    
+                    // === 修復：回滾 Firebase Auth 帳號 ===
+                    if (userCredential && userCredential.user) {
+                        try {
+                            await userCredential.user.delete();
+                            console.log('[開通流程] Auth 帳號已回滾刪除');
+                        } catch (deleteError) {
+                            console.error('[開通流程] Auth 回滾失敗:', deleteError);
+                        }
+                    }
+
+                    throw new Error(`資料庫寫入失敗，請重新嘗試開通。錯誤詳情：${firestoreError.message}`);
+                }
+
+                // Step 5: 完成開通
+                console.log('[開通流程] ✓ 開通完成！');
+                showSuccess('✓ 帳號開通成功！3 秒後將自動跳轉至登入頁面...');
+                
+                // 3 秒後跳轉
+                setTimeout(() => {
+                    window.location.href = 'index.html';
+                }, 3000);
+
+            } catch (error) {
+                // 最外層錯誤處理
+                console.error('[開通流程] 發生錯誤:', error);
+                throw error;
             }
         }
+
+        // 防止重複提交
+        let isSubmitting = false;
+        form.addEventListener('submit', function(e) {
+            if (isSubmitting) {
+                e.preventDefault();
+                return false;
+            }
+        });
     </script>
 </body>
 </html>
