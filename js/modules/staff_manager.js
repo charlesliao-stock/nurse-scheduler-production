@@ -1,4 +1,4 @@
-// js/modules/staff_manager.js (優化版)
+// js/modules/staff_manager.js (完整修正版)
 
 const staffManager = {
     allData: [],
@@ -98,7 +98,6 @@ const staffManager = {
             this.renderTable();
         } catch (error) {
             console.error("Fetch Data Error:", error);
-            // [修正] 更友善的 UI 錯誤提示
             tbody.innerHTML = `
                 <tr>
                     <td colspan="7" style="text-align:center; padding:30px; color:#e74c3c;">
@@ -370,14 +369,19 @@ const staffManager = {
         reader.readAsText(file);
     },
 
-    // --- 故障排查工具：修復資料不同步 ---
+    // --- 9. 故障排查工具：修復資料不同步 (完整增強版) ---
     fixAuthFirestoreSync: async function(email) {
-        if (!email) { alert("請輸入 Email"); return; }
+        if (!email) { 
+            alert("請輸入 Email"); 
+            return; 
+        }
         
         try {
             console.log(`[修復] 開始檢查 Email: ${email}`);
             
-            // 1. 查詢 Firestore 中的所有相關記錄
+            // ========================================
+            // 步驟 1: 查詢 Firestore 中的所有相關記錄
+            // ========================================
             const firestoreDocs = await db.collection('users')
                 .where('email', '==', email)
                 .get();
@@ -385,91 +389,145 @@ const staffManager = {
             console.log(`[修復] Firestore 中找到 ${firestoreDocs.size} 筆記錄`);
             
             if (firestoreDocs.empty) {
-                alert("❌ Firestore 中找不到此 Email 的記錄");
+                alert("❌ Firestore 中找不到此 Email 的記錄\n\n請確認：\n1. Email 是否正確\n2. 是否已由管理員建立員工資料");
                 return;
             }
             
-            // 2. 檢查是否有多筆記錄
+            // ========================================
+            // 步驟 2: 檢查 Auth 系統中的狀態
+            // ========================================
+            console.log(`[修復] 檢查 Auth 系統狀態...`);
+            let authExists = false;
+            let authUid = null;
+            
+            try {
+                const signInMethods = await auth.fetchSignInMethodsForEmail(email);
+                authExists = signInMethods.length > 0;
+                console.log(`[修復] Auth 帳號存在: ${authExists}`);
+            } catch (authError) {
+                console.warn(`[修復] 無法檢查 Auth 狀態:`, authError);
+            }
+            
+            // ========================================
+            // 步驟 3: 分析並處理不同情況
+            // ========================================
+            
+            // 情況 A: 有多筆 Firestore 記錄
             if (firestoreDocs.size > 1) {
-                console.warn(`[修復] 警告：找到 ${firestoreDocs.size} 筆相同 Email 的記錄，這可能導致問題`);
+                console.warn(`[修復] 警告：找到 ${firestoreDocs.size} 筆相同 Email 的記錄`);
                 
-                // 分類記錄：已開通 vs 未開通
+                // 分類記錄
                 const registeredDocs = [];
                 const unregisteredDocs = [];
                 
                 firestoreDocs.forEach(doc => {
                     const data = doc.data();
+                    const timestamp = data.activatedAt?.toMillis?.() || data.createdAt?.toMillis?.() || 0;
+                    
                     if (data.isRegistered && data.uid) {
-                        registeredDocs.push({ doc, data, timestamp: data.activatedAt?.toMillis?.() || 0 });
+                        registeredDocs.push({ doc, data, timestamp });
                     } else {
-                        unregisteredDocs.push({ doc, data });
+                        unregisteredDocs.push({ doc, data, timestamp });
                     }
                 });
                 
                 console.log(`[修復] 已開通: ${registeredDocs.length}, 未開通: ${unregisteredDocs.length}`);
                 
-                // 情況 1：沒有已開通的記錄
+                // 子情況 A1: 沒有已開通的記錄
                 if (registeredDocs.length === 0) {
-                    alert(
-                        `❌ 找到 ${firestoreDocs.size} 筆相同 Email 的記錄，但都未開通。\n\n` +
-                        `無法自動修復。\n\n` +
-                        `可能原因：\n` +
-                        `1. 之前開通失敗，導致多筆未開通的記錄\n` +
-                        `2. 帳號尚未完成開通流程\n\n` +
-                        `建議：\n` +
-                        `1. 聯絡系統管理員手動檢查\n` +
-                        `2. 或刪除舊記錄後重新開通`
-                    );
+                    if (!authExists) {
+                        // 所有記錄都未開通，且 Auth 也不存在 -> 清理舊記錄
+                        const confirmCleanup = confirm(
+                            `找到 ${firestoreDocs.size} 筆相同 Email 的重複記錄，但都未開通。\n\n` +
+                            `建議刪除所有舊記錄，只保留一筆最新的。\n\n` +
+                            `確定要繼續嗎？`
+                        );
+                        
+                        if (!confirmCleanup) return;
+                        
+                        // 按時間排序，保留最新的
+                        const sortedDocs = unregisteredDocs.sort((a, b) => b.timestamp - a.timestamp);
+                        const keepDoc = sortedDocs[0];
+                        const deleteDocs = sortedDocs.slice(1);
+                        
+                        const batch = db.batch();
+                        deleteDocs.forEach(item => {
+                            batch.delete(item.doc.ref);
+                            console.log(`[修復] 刪除重複記錄: ${item.doc.id}`);
+                        });
+                        
+                        // 確保保留的記錄狀態正確
+                        batch.update(keepDoc.doc.ref, {
+                            isActive: true,
+                            isRegistered: false,
+                            uid: null,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        
+                        await batch.commit();
+                        alert(`✅ 清理完成！\n\n保留記錄: ${keepDoc.doc.id}\n刪除記錄: ${deleteDocs.length} 筆\n\n員工現在可以重新開通帳號。`);
+                        
+                    } else {
+                        // Auth 存在但 Firestore 都未開通 -> 嚴重錯誤
+                        alert(
+                            `❌ 檢測到資料嚴重不同步\n\n` +
+                            `• Firestore: ${firestoreDocs.size} 筆記錄（都未開通）\n` +
+                            `• Auth: 帳號已存在\n\n` +
+                            `這種情況需要手動處理：\n` +
+                            `1. 聯絡技術人員\n` +
+                            `2. 或先刪除 Auth 帳號（需要 Admin SDK）\n` +
+                            `3. 再清理 Firestore 重複記錄`
+                        );
+                    }
                     return;
                 }
                 
-                // 情況 2：有已開通的記錄
+                // 子情況 A2: 有已開通的記錄
                 // 找出最新的已開通記錄
                 registeredDocs.sort((a, b) => b.timestamp - a.timestamp);
-                const latestDoc = registeredDocs[0].doc;
-                const latestData = registeredDocs[0].data;
+                const latestDoc = registeredDocs[0];
                 
-                // 要刪除的記錄 = 其他已開通的 + 所有未開通的
+                // 要刪除的記錄
                 const docsToDelete = [
-                    ...registeredDocs.slice(1).map(r => r.doc),
-                    ...unregisteredDocs.map(u => u.doc)
+                    ...registeredDocs.slice(1),
+                    ...unregisteredDocs
                 ];
                 
-                // 顯示詳細信息
-                const deleteList = docsToDelete.map((doc, idx) => {
-                    const data = doc.data();
-                    return `${idx + 1}. ${doc.id} (${data.isRegistered ? '已開通' : '未開通'})`;
-                }).join('\n');
-                
-                const confirmDelete = confirm(
-                    `找到 ${firestoreDocs.size} 筆相同 Email 的記錄。\n\n` +
-                    `將保留最新的已開通記錄：\n` +
-                    `${latestDoc.id}\n\n` +
-                    `將刪除以下 ${docsToDelete.length} 筆記錄：\n` +
-                    `${deleteList}\n\n` +
-                    `確定要繼續嗎？`
-                );
-                if (!confirmDelete) return;
-                
-                // 執行刪除
-                const batch = db.batch();
-                docsToDelete.forEach(doc => {
-                    batch.delete(doc.ref);
-                    console.log(`[修復] 刪除舊記錄: ${doc.id}`);
-                });
-                
-                // 確保保留的記錄狀態正確
-                batch.update(latestDoc.ref, {
-                    isActive: true,
-                    isRegistered: true,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                console.log(`[修復] 更新保留的記錄: ${latestDoc.id}`);
-                
-                await batch.commit();
-                alert(`✅ 修復完成！\n\n保留記錄: ${latestDoc.id}\n刪除記錄: ${docsToDelete.length} 筆`);
-            } else {
-                // 只有一筆記錄，檢查其狀態
+                if (docsToDelete.length > 0) {
+                    const deleteList = docsToDelete.map((item, idx) => {
+                        return `${idx + 1}. ${item.doc.id} (${item.data.isRegistered ? '已開通' : '未開通'})`;
+                    }).join('\n');
+                    
+                    const confirmDelete = confirm(
+                        `找到 ${firestoreDocs.size} 筆相同 Email 的記錄。\n\n` +
+                        `將保留最新的已開通記錄：\n${latestDoc.doc.id}\n\n` +
+                        `將刪除以下 ${docsToDelete.length} 筆記錄：\n${deleteList}\n\n` +
+                        `確定要繼續嗎？`
+                    );
+                    
+                    if (!confirmDelete) return;
+                    
+                    const batch = db.batch();
+                    docsToDelete.forEach(item => {
+                        batch.delete(item.doc.ref);
+                        console.log(`[修復] 刪除重複記錄: ${item.doc.id}`);
+                    });
+                    
+                    // 確保保留的記錄狀態正確
+                    batch.update(latestDoc.doc.ref, {
+                        isActive: true,
+                        isRegistered: true,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    await batch.commit();
+                    alert(`✅ 修復完成！\n\n保留記錄: ${latestDoc.doc.id}\n刪除記錄: ${docsToDelete.length} 筆`);
+                } else {
+                    alert(`✅ 資料狀態正常\n\n只有一筆已開通的記錄，無需修復。`);
+                }
+            }
+            // 情況 B: 只有一筆 Firestore 記錄
+            else {
                 const doc = firestoreDocs.docs[0];
                 const data = doc.data();
                 
@@ -477,14 +535,35 @@ const staffManager = {
                     docId: doc.id,
                     isRegistered: data.isRegistered,
                     isActive: data.isActive,
-                    uid: data.uid
+                    uid: data.uid,
+                    authExists: authExists
                 });
                 
+                // 子情況 B1: 記錄未開通
                 if (!data.isRegistered || !data.uid) {
-                    alert(`❌ 此記錄未開通\n\nUID: ${data.uid || '無'}\nisRegistered: ${data.isRegistered}\n\n請確認員工已完成開通流程。`);
+                    if (!authExists) {
+                        // Firestore 未開通，Auth 不存在 -> 正常狀態
+                        alert(
+                            `✅ 資料狀態正常\n\n` +
+                            `此員工尚未開通帳號。\n` +
+                            `請員工前往開通頁面完成開通流程。`
+                        );
+                    } else {
+                        // Firestore 未開通，但 Auth 存在 -> 需要清理 Auth
+                        alert(
+                            `⚠️ 檢測到不一致狀態\n\n` +
+                            `• Firestore: 未開通\n` +
+                            `• Auth: 帳號已存在\n\n` +
+                            `可能原因：之前開通失敗\n\n` +
+                            `建議操作：\n` +
+                            `1. 刪除 Auth 帳號（需要 Admin SDK 或 Firebase Console）\n` +
+                            `2. 讓員工重新開通`
+                        );
+                    }
                     return;
                 }
                 
+                // 子情況 B2: 記錄已開通
                 if (!data.isActive) {
                     const confirmFix = confirm(
                         `此記錄已開通但狀態為「停用」。\n\n` +
@@ -498,65 +577,120 @@ const staffManager = {
                     });
                     alert("✅ 修復完成！已將員工狀態恢復為啟用。");
                 } else {
-                    alert(`✅ 此記錄狀態正常\n\nUID: ${data.uid}\nisRegistered: ${data.isRegistered}\nisActive: ${data.isActive}`);
+                    // 檢查文件 ID 是否等於 UID
+                    if (doc.id !== data.uid) {
+                        const confirmMigrate = confirm(
+                            `⚠️ 檢測到文件 ID 與 UID 不一致\n\n` +
+                            `文件 ID: ${doc.id}\n` +
+                            `UID: ${data.uid}\n\n` +
+                            `建議將資料遷移到正確的文件 ID。\n\n` +
+                            `確定要進行遷移嗎？`
+                        );
+                        
+                        if (!confirmMigrate) return;
+                        
+                        const batch = db.batch();
+                        
+                        // 建立新文件（使用 UID 作為 ID）
+                        const newDocRef = db.collection('users').doc(data.uid);
+                        batch.set(newDocRef, {
+                            ...data,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        
+                        // 刪除舊文件
+                        batch.delete(doc.ref);
+                        
+                        await batch.commit();
+                        alert(`✅ 遷移完成！\n\n新文件 ID: ${data.uid}\n已刪除舊文件: ${doc.id}`);
+                    } else {
+                        alert(
+                            `✅ 資料狀態正常\n\n` +
+                            `UID: ${data.uid}\n` +
+                            `isRegistered: ${data.isRegistered}\n` +
+                            `isActive: ${data.isActive}\n\n` +
+                            `無需修復。`
+                        );
+                    }
                 }
             }
             
-            // 3. 重新載入資料
+            // 重新載入資料
             await this.fetchData();
             
         } catch (error) {
             console.error("[修復] 出錯:", error);
-            alert(`修復失敗: ${error.message}`);
+            alert(`❌ 修復失敗\n\n錯誤訊息: ${error.message}`);
         }
-    }
-};
+    },
 
-// --- 故障排查工具輔助函數 ---
-staffManager.openTroubleshootModal = function() {
-    const modal = document.getElementById('troubleshootModal');
-    if(modal) {
-        modal.classList.add('show');
-        document.getElementById('troubleshootEmail').value = '';
+    // --- 故障排查工具：UI 輔助函數 ---
+    openTroubleshootModal: function() {
+        const modal = document.getElementById('troubleshootModal');
+        if(modal) {
+            modal.classList.add('show');
+            document.getElementById('troubleshootEmail').value = '';
+            const resultDiv = document.getElementById('troubleshootResult');
+            if(resultDiv) resultDiv.style.display = 'none';
+        }
+    },
+
+    closeTroubleshootModal: function() {
+        const modal = document.getElementById('troubleshootModal');
+        if(modal) modal.classList.remove('show');
+    },
+
+    startTroubleshoot: async function() {
+        const email = document.getElementById('troubleshootEmail').value.trim();
         const resultDiv = document.getElementById('troubleshootResult');
-        if(resultDiv) resultDiv.style.display = 'none';
-    }
-};
-
-staffManager.closeTroubleshootModal = function() {
-    const modal = document.getElementById('troubleshootModal');
-    if(modal) modal.classList.remove('show');
-};
-
-staffManager.startTroubleshoot = async function() {
-    const email = document.getElementById('troubleshootEmail').value.trim();
-    const resultDiv = document.getElementById('troubleshootResult');
-    
-    if (!email) {
+        
+        if (!email) {
+            if(resultDiv) {
+                resultDiv.style.display = 'block';
+                resultDiv.style.backgroundColor = '#f8d7da';
+                resultDiv.style.color = '#721c24';
+                resultDiv.style.padding = '15px';
+                resultDiv.style.borderRadius = '4px';
+                resultDiv.style.marginTop = '10px';
+                resultDiv.textContent = '❌ 請輸入 Email';
+            }
+            return;
+        }
+        
+        // 驗證 Email 格式
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            if(resultDiv) {
+                resultDiv.style.display = 'block';
+                resultDiv.style.backgroundColor = '#f8d7da';
+                resultDiv.style.color = '#721c24';
+                resultDiv.style.padding = '15px';
+                resultDiv.style.borderRadius = '4px';
+                resultDiv.style.marginTop = '10px';
+                resultDiv.textContent = '❌ Email 格式不正確';
+            }
+            return;
+        }
+        
         if(resultDiv) {
             resultDiv.style.display = 'block';
-            resultDiv.style.backgroundColor = '#f8d7da';
-            resultDiv.style.color = '#721c24';
-            resultDiv.textContent = '❌ 請輸入 Email';
+            resultDiv.style.backgroundColor = '#d1ecf1';
+            resultDiv.style.color = '#0c5460';
+            resultDiv.style.padding = '15px';
+            resultDiv.style.borderRadius = '4px';
+            resultDiv.style.marginTop = '10px';
+            resultDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在檢查並修復...';
         }
-        return;
-    }
-    
-    if(resultDiv) {
-        resultDiv.style.display = 'block';
-        resultDiv.style.backgroundColor = '#d1ecf1';
-        resultDiv.style.color = '#0c5460';
-        resultDiv.textContent = '⏳ 正在修復...';
-    }
-    
-    try {
-        await staffManager.fixAuthFirestoreSync(email);
-        if(resultDiv) resultDiv.style.display = 'none';
-    } catch (error) {
-        if(resultDiv) {
-            resultDiv.style.backgroundColor = '#f8d7da';
-            resultDiv.style.color = '#721c24';
-            resultDiv.textContent = `❌ 修復失敗: ${error.message}`;
+        
+        try {
+            await this.fixAuthFirestoreSync(email);
+            if(resultDiv) resultDiv.style.display = 'none';
+        } catch (error) {
+            if(resultDiv) {
+                resultDiv.style.backgroundColor = '#f8d7da';
+                resultDiv.style.color = '#721c24';
+                resultDiv.innerHTML = `❌ 修復失敗<br><small>${error.message}</small>`;
+            }
         }
     }
 };
