@@ -4,150 +4,340 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>醫院排班系統 - 帳號開通</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="css/style.css">
     
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
 </head>
-<body style="background: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh;">
+<body style="background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px;">
 
-    <div class="login-card" style="width: 400px; padding: 30px;">
-        <h2 style="color: #2c3e50; text-align: center; margin-bottom: 20px;">
+    <div class="login-card" style="width: 450px; max-width: 100%; padding: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+        <h2 style="color: #2c3e50; text-align: center; margin-bottom: 10px;">
             <i class="fas fa-user-check"></i> 帳號開通認領
         </h2>
         
-        <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px;">
-            請輸入您的員工資訊以驗證身分。驗證通過後即可設定密碼。
+        <p style="color: #666; font-size: 0.9rem; margin-bottom: 25px; text-align: center; line-height: 1.6;">
+            請輸入您的員工資訊以驗證身分<br>
+            驗證通過後即可設定密碼並啟用帳號
         </p>
 
         <div class="form-group" style="margin-bottom: 15px;">
-            <label style="display:block; margin-bottom:5px; font-weight:bold;">員工編號</label>
-            <input type="text" id="verifyEmpId" placeholder="例如: N1001" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;">
+            <label style="display:block; margin-bottom:5px; font-weight:bold; color:#333;">
+                <i class="fas fa-id-badge"></i> 員工編號
+            </label>
+            <input type="text" id="verifyEmpId" placeholder="例如: N1001" 
+                   style="width:100%; padding:12px; border:1px solid #ccc; border-radius:4px; font-size:14px;">
         </div>
 
         <div class="form-group" style="margin-bottom: 15px;">
-            <label style="display:block; margin-bottom:5px; font-weight:bold;">Email (必須與建檔一致)</label>
-            <input type="email" id="verifyEmail" placeholder="您的 Email" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;">
+            <label style="display:block; margin-bottom:5px; font-weight:bold; color:#333;">
+                <i class="fas fa-envelope"></i> Email (必須與建檔一致)
+            </label>
+            <input type="email" id="verifyEmail" placeholder="您的 Email" 
+                   style="width:100%; padding:12px; border:1px solid #ccc; border-radius:4px; font-size:14px;">
         </div>
 
         <div class="form-group" style="margin-bottom: 20px;">
-            <label style="display:block; margin-bottom:5px; font-weight:bold;">設定新密碼</label>
-            <input type="password" id="newPwd" placeholder="請設定 6 位數以上密碼" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;">
+            <label style="display:block; margin-bottom:5px; font-weight:bold; color:#333;">
+                <i class="fas fa-lock"></i> 設定新密碼
+            </label>
+            <input type="password" id="newPwd" placeholder="請設定 6 位數以上密碼" 
+                   style="width:100%; padding:12px; border:1px solid #ccc; border-radius:4px; font-size:14px;">
+            <small style="color:#999; font-size:0.85rem; display:block; margin-top:5px;">
+                密碼長度至少 6 個字元，建議包含英文及數字
+            </small>
         </div>
 
-        <button class="btn btn-primary" onclick="activateAccount()" id="btnSubmit">
-            確認開通
+        <button class="btn btn-primary" onclick="activateAccount()" id="btnSubmit" 
+                style="width:100%; padding:12px; font-size:16px; font-weight:bold;">
+            <i class="fas fa-check-circle"></i> 確認開通
         </button>
         
-        <p id="msg" style="color: red; margin-top: 15px; text-align: center; font-size: 0.9rem;"></p>
+        <div id="msgBox" style="margin-top: 15px; padding: 12px; border-radius: 4px; display:none;">
+            <p id="msg" style="margin:0; font-size: 0.9rem; line-height:1.5;"></p>
+        </div>
 
         <div style="text-align: center; margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px;">
-            <a href="index.html" style="color: #3498db; text-decoration: none;">已有帳號？直接登入</a>
+            <a href="index.html" style="color: #3498db; text-decoration: none; font-weight:500;">
+                <i class="fas fa-sign-in-alt"></i> 已有帳號？直接登入
+            </a>
         </div>
     </div>
 
     <script src="js/config.js"></script>
     <script>
+        // 顯示訊息的輔助函數
+        function showMessage(text, type = 'info') {
+            const msgBox = document.getElementById('msgBox');
+            const msg = document.getElementById('msg');
+            msgBox.style.display = 'block';
+            msg.innerHTML = text;
+            
+            // 設定樣式
+            switch(type) {
+                case 'error':
+                    msgBox.style.backgroundColor = '#fee';
+                    msgBox.style.borderLeft = '4px solid #e74c3c';
+                    msgBox.style.color = '#721c24';
+                    break;
+                case 'success':
+                    msgBox.style.backgroundColor = '#d4edda';
+                    msgBox.style.borderLeft = '4px solid #28a745';
+                    msgBox.style.color = '#155724';
+                    break;
+                case 'warning':
+                    msgBox.style.backgroundColor = '#fff3cd';
+                    msgBox.style.borderLeft = '4px solid #ffc107';
+                    msgBox.style.color = '#856404';
+                    break;
+                default: // info
+                    msgBox.style.backgroundColor = '#d1ecf1';
+                    msgBox.style.borderLeft = '4px solid #17a2b8';
+                    msgBox.style.color = '#0c5460';
+            }
+        }
+
         async function activateAccount() {
             const empId = document.getElementById('verifyEmpId').value.trim();
             const email = document.getElementById('verifyEmail').value.trim();
             const pwd = document.getElementById('newPwd').value;
-            const msg = document.getElementById('msg');
             const btn = document.getElementById('btnSubmit');
 
+            // 基本驗證
             if(!empId || !email || !pwd) {
-                msg.textContent = "請填寫所有欄位"; return;
+                showMessage('❌ 請填寫所有欄位', 'error');
+                return;
             }
             if(pwd.length < 6) {
-                msg.textContent = "密碼長度至少需 6 碼"; return;
+                showMessage('❌ 密碼長度至少需 6 個字元', 'error');
+                return;
             }
 
-            msg.textContent = "正在驗證資料...";
-            msg.style.color = "blue";
+            // 驗證 Email 格式
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if(!emailRegex.test(email)) {
+                showMessage('❌ 請輸入有效的 Email 格式', 'error');
+                return;
+            }
+
+            showMessage('⏳ 正在驗證資料...', 'info');
             btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 處理中...';
 
             try {
-                // 1. 查詢資料庫：是否有名單？
-                const snapshot = await db.collection('users')
+                // ========================================
+                // 步驟 1: 驗證員工資料是否存在
+                // ========================================
+                console.log('[開通] 步驟 1: 查詢員工資料...');
+                const userQuery = await db.collection('users')
                     .where('employeeId', '==', empId)
                     .where('email', '==', email)
+                    .where('isActive', '==', true)
                     .get();
 
-                if (snapshot.empty) {
-                    throw new Error("找不到此員工資料，或 Email/員編 不符。");
+                if (userQuery.empty) {
+                    throw new Error('找不到此員工資料，請確認員工編號和 Email 是否正確，或聯絡系統管理員。');
                 }
 
-                const oldDoc = snapshot.docs[0];
+                // 檢查是否有重複記錄
+                if (userQuery.size > 1) {
+                    console.warn('[開通] 警告：發現多筆相同的員工記錄');
+                    throw new Error('系統檢測到資料異常（重複記錄），請聯絡系統管理員進行修復。');
+                }
+
+                const oldDoc = userQuery.docs[0];
                 const userData = oldDoc.data();
+                const oldDocId = oldDoc.id;
 
-                // 2. 檢查是否已經註冊過
-                if (userData.isRegistered && userData.uid) {
-                    throw new Error("此帳號已經開通，請直接前往登入頁面。");
-                }
-
-                msg.textContent = "驗證通過，正在建立帳號...";
-
-                // 3. 建立 Firebase Auth 帳號 (這一步會登入該新帳號)
-                const userCredential = await auth.createUserWithEmailAndPassword(email, pwd);
-                const newUid = userCredential.user.uid;
-
-                // 4. 資料遷移：建立新文件 (ID=UID) -> 刪除舊文件
-                const batch = db.batch();
-                
-                // 新文件參照
-                const newDocRef = db.collection('users').doc(newUid);
-                
-                // 複製舊資料並更新狀態
-                const newData = { ...userData };
-                delete newData.uid; 
-                
-                batch.set(newDocRef, {
-                    ...newData,
-                    uid: newUid,           // 綁定真實 UID
-                    isRegistered: true,    // 標記已註冊
-                    isActive: true,        // 確保員工狀態為啟用
-                    activatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                console.log('[開通] 找到員工資料:', {
+                    docId: oldDocId,
+                    employeeId: userData.employeeId,
+                    email: userData.email,
+                    isRegistered: userData.isRegistered,
+                    hasUid: !!userData.uid
                 });
 
-                // 刪除舊的暫存文件
-                batch.delete(oldDoc.ref);
+                // ========================================
+                // 步驟 2: 檢查帳號是否已開通
+                // ========================================
+                if (userData.isRegistered && userData.uid) {
+                    console.log('[開通] 帳號已開通，UID:', userData.uid);
+                    showMessage(
+                        '⚠️ 此帳號已經開通<br><br>' +
+                        '請直接使用您的 Email 和密碼登入。<br>' +
+                        '如忘記密碼，請聯絡系統管理員重設。',
+                        'warning'
+                    );
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-check-circle"></i> 確認開通';
+                    return;
+                }
 
-                await batch.commit();
+                // ========================================
+                // 步驟 3: 檢查 Email 是否已在 Auth 中註冊
+                // ========================================
+                console.log('[開通] 步驟 2: 檢查 Email 是否已註冊...');
+                showMessage('⏳ 驗證通過，正在檢查帳號狀態...', 'info');
 
-                alert("🎉 開通成功！\n系統將自動引導至首頁，請使用剛設定的密碼登入。");
-                window.location.href = 'index.html';
+                // 使用 fetchSignInMethodsForEmail 檢查
+                const signInMethods = await auth.fetchSignInMethodsForEmail(email);
+                
+                if (signInMethods.length > 0) {
+                    console.warn('[開通] Email 已在 Auth 中註冊，嘗試修復...');
+                    
+                    // 嘗試使用該 Email 登入以獲取 UID
+                    showMessage('⏳ 檢測到舊帳號，正在嘗試修復...', 'warning');
+                    
+                    try {
+                        // 先登出當前任何登入狀態
+                        await auth.signOut();
+                        
+                        // 嘗試用 Email 和新密碼登入（可能會失敗，因為密碼不對）
+                        // 這裡我們使用另一個策略：直接刪除舊資料，讓使用者重新開通
+                        
+                        throw new Error(
+                            '此 Email 已被註冊，但資料不完整。\n\n' +
+                            '可能原因：之前開通失敗導致資料異常。\n\n' +
+                            '請聯絡系統管理員使用「故障排查工具」進行修復。\n\n' +
+                            '修復後即可重新開通。'
+                        );
+                    } catch (loginError) {
+                        console.error('[開通] 修復嘗試失敗:', loginError);
+                        throw new Error(
+                            '此 Email 已被註冊，但資料不完整。\n\n' +
+                            '請聯絡系統管理員進行修復。'
+                        );
+                    }
+                }
+
+                // ========================================
+                // 步驟 4: 建立 Firebase Auth 帳號
+                // ========================================
+                console.log('[開通] 步驟 3: 建立 Auth 帳號...');
+                showMessage('⏳ 正在建立帳號...', 'info');
+
+                const userCredential = await auth.createUserWithEmailAndPassword(email, pwd);
+                const newUid = userCredential.user.uid;
+                
+                console.log('[開通] Auth 帳號建立成功, UID:', newUid);
+
+                // ========================================
+                // 步驟 5: 遷移資料到新文件
+                // ========================================
+                console.log('[開通] 步驟 4: 遷移 Firestore 資料...');
+                showMessage('⏳ 正在完成開通...', 'info');
+
+                try {
+                    // 準備新資料
+                    const newData = {
+                        ...userData,
+                        uid: newUid,
+                        isRegistered: true,
+                        isActive: true,
+                        activatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    };
+
+                    // 使用 Batch 確保原子性操作
+                    const batch = db.batch();
+                    
+                    // 建立新文件（ID = UID）
+                    const newDocRef = db.collection('users').doc(newUid);
+                    batch.set(newDocRef, newData);
+                    
+                    // 刪除舊的暫存文件（只有在不同 ID 的情況下才刪除）
+                    if (oldDocId !== newUid) {
+                        const oldDocRef = db.collection('users').doc(oldDocId);
+                        batch.delete(oldDocRef);
+                        console.log('[開通] 將刪除舊文件:', oldDocId);
+                    }
+
+                    await batch.commit();
+                    console.log('[開通] Firestore 資料遷移成功');
+
+                    // ========================================
+                    // 步驟 6: 完成並導向登入頁
+                    // ========================================
+                    showMessage(
+                        '✅ 開通成功！<br><br>' +
+                        '您的帳號已成功啟用。<br>' +
+                        '系統將在 3 秒後自動導向登入頁面...',
+                        'success'
+                    );
+
+                    // 登出剛建立的帳號
+                    await auth.signOut();
+
+                    // 延遲 3 秒後跳轉
+                    setTimeout(() => {
+                        window.location.href = 'index.html';
+                    }, 3000);
+
+                } catch (firestoreError) {
+                    console.error('[開通] Firestore 操作失敗:', firestoreError);
+                    
+                    // 如果 Firestore 操作失敗，嘗試清理 Auth 帳號
+                    try {
+                        const currentUser = auth.currentUser;
+                        if (currentUser && currentUser.uid === newUid) {
+                            await currentUser.delete();
+                            console.log('[開通] 已清理失敗的 Auth 帳號');
+                        }
+                    } catch (deleteError) {
+                        console.error('[開通] 清理 Auth 帳號失敗:', deleteError);
+                    }
+                    
+                    throw new Error(
+                        '資料庫操作失敗。\n\n' +
+                        '錯誤詳情: ' + firestoreError.message + '\n\n' +
+                        '請重新嘗試，或聯絡系統管理員。'
+                    );
+                }
 
             } catch (error) {
-                console.error(error);
-                let text = error.message;
+                console.error('[開通] 開通失敗:', error);
                 
-                // 處理「Email 已被註冊」的特殊情況
-                if(error.code === 'auth/email-already-in-use') {
-                    // 嘗試查找是否已有對應的 Firestore 文件
-                    try {
-                        const existingDocs = await db.collection('users')
-                            .where('email', '==', email)
-                            .where('isRegistered', '==', true)
-                            .get();
-                        
-                        if (!existingDocs.empty) {
-                            text = "此帳號已經開通，請直接前往登入頁面。";
-                        } else {
-                            // Auth 帳號存在但 Firestore 資料不同步
-                            text = "此 Email 已被註冊 (Auth)。\n\n可能原因：之前開通失敗導致資料不同步。\n\n請聯絡系統管理員進行修復。";
-                        }
-                    } catch (checkError) {
-                        console.error("檢查現有帳號失敗:", checkError);
-                        text = "此 Email 已經被註冊過了 (Auth)，請嘗試直接登入。";
+                // 錯誤訊息處理
+                let errorMessage = error.message;
+                
+                // 處理常見的 Firebase 錯誤
+                if (error.code) {
+                    switch(error.code) {
+                        case 'auth/email-already-in-use':
+                            errorMessage = '此 Email 已被註冊。\n\n請確認是否已完成開通，或聯絡系統管理員。';
+                            break;
+                        case 'auth/invalid-email':
+                            errorMessage = 'Email 格式不正確，請重新輸入。';
+                            break;
+                        case 'auth/weak-password':
+                            errorMessage = '密碼強度不足，請使用至少 6 個字元的密碼。';
+                            break;
+                        case 'auth/network-request-failed':
+                            errorMessage = '網路連線失敗，請檢查網路後重試。';
+                            break;
+                        case 'permission-denied':
+                            errorMessage = '權限不足。\n\n可能原因：\n1. 安全規則設定問題\n2. 資料狀態異常\n\n請聯絡系統管理員。';
+                            break;
                     }
                 }
                 
-                msg.style.color = "red";
-                msg.textContent = text;
+                showMessage('❌ 開通失敗<br><br>' + errorMessage.replace(/\n/g, '<br>'), 'error');
+                
                 btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-check-circle"></i> 確認開通';
             }
         }
+
+        // 按 Enter 鍵提交
+        document.addEventListener('DOMContentLoaded', () => {
+            ['verifyEmpId', 'verifyEmail', 'newPwd'].forEach(id => {
+                document.getElementById(id).addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') activateAccount();
+                });
+            });
+        });
     </script>
 </body>
 </html>
