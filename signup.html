@@ -141,14 +141,19 @@
                     showMessage(
                         '⚠️ 此 Email 已被註冊<br><br>' +
                         '<strong>可能的情況：</strong><br>' +
-                        '1. 您已完成開通 → <a href="index.html" style="color:#3498db;">直接登入</a><br>' +
-                        '2. 之前開通失敗，資料不一致<br><br>' +
+                        '1. 您已完成開通 → <a href="index.html" style="color:#3498db; font-weight:bold;">直接登入</a><br>' +
+                        '2. 之前開通失敗，資料不一致<br>' +
+                        '3. Auth 系統中有孤兒帳號<br><br>' +
                         '<strong>解決方案：</strong><br>' +
                         '<button onclick="handleExistingAccount(\'' + email + '\', \'' + empId + '\', \'' + pwd + '\')" ' +
                         'style="margin-top:10px; padding:8px 16px; background:#e67e22; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:bold;">' +
-                        '<i class="fas fa-tools"></i> 嘗試修復並開通' +
+                        '<i class="fas fa-tools"></i> 嘗試自動修復' +
                         '</button><br>' +
-                        '<small style="display:block; margin-top:10px; color:#999;">或聯絡系統管理員使用「故障排查工具」</small>',
+                        '<small style="display:block; margin-top:15px; padding:10px; background:#fff3cd; border-radius:4px; border-left:3px solid #ffc107;">' +
+                        '<strong style="color:#856404;">📞 需要協助？</strong><br>' +
+                        '請聯絡系統管理員，提供此 Email 地址，<br>' +
+                        '管理員可使用「<a href="account_diagnosis.html" style="color:#856404; text-decoration:underline;">帳號診斷工具</a>」快速修復。' +
+                        '</small>',
                         'warning'
                     );
                     
