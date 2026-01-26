@@ -392,53 +392,82 @@ const staffManager = {
             // 2. 檢查是否有多筆記錄
             if (firestoreDocs.size > 1) {
                 console.warn(`[修復] 警告：找到 ${firestoreDocs.size} 筆相同 Email 的記錄，這可能導致問題`);
-                const confirmDelete = confirm(
-                    `找到 ${firestoreDocs.size} 筆相同 Email 的記錄。\n\n` +
-                    `系統將保留最新的已開通記錄，刪除其他舊記錄。\n\n` +
-                    `確定要繼續嗎？`
-                );
-                if (!confirmDelete) return;
                 
-                // 找出已開通且最新的記錄
-                let latestDoc = null;
-                let latestTimestamp = null;
-                const docsToDelete = [];
+                // 分類記錄：已開通 vs 未開通
+                const registeredDocs = [];
+                const unregisteredDocs = [];
                 
                 firestoreDocs.forEach(doc => {
                     const data = doc.data();
                     if (data.isRegistered && data.uid) {
-                        const timestamp = data.activatedAt?.toMillis?.() || 0;
-                        if (!latestTimestamp || timestamp > latestTimestamp) {
-                            if (latestDoc) docsToDelete.push(latestDoc);
-                            latestDoc = doc;
-                            latestTimestamp = timestamp;
-                        } else {
-                            docsToDelete.push(doc);
-                        }
+                        registeredDocs.push({ doc, data, timestamp: data.activatedAt?.toMillis?.() || 0 });
                     } else {
-                        docsToDelete.push(doc);
+                        unregisteredDocs.push({ doc, data });
                     }
                 });
                 
-                // 刪除舊記錄
+                console.log(`[修復] 已開通: ${registeredDocs.length}, 未開通: ${unregisteredDocs.length}`);
+                
+                // 情況 1：沒有已開通的記錄
+                if (registeredDocs.length === 0) {
+                    alert(
+                        `❌ 找到 ${firestoreDocs.size} 筆相同 Email 的記錄，但都未開通。\n\n` +
+                        `無法自動修復。\n\n` +
+                        `可能原因：\n` +
+                        `1. 之前開通失敗，導致多筆未開通的記錄\n` +
+                        `2. 帳號尚未完成開通流程\n\n` +
+                        `建議：\n` +
+                        `1. 聯絡系統管理員手動檢查\n` +
+                        `2. 或刪除舊記錄後重新開通`
+                    );
+                    return;
+                }
+                
+                // 情況 2：有已開通的記錄
+                // 找出最新的已開通記錄
+                registeredDocs.sort((a, b) => b.timestamp - a.timestamp);
+                const latestDoc = registeredDocs[0].doc;
+                const latestData = registeredDocs[0].data;
+                
+                // 要刪除的記錄 = 其他已開通的 + 所有未開通的
+                const docsToDelete = [
+                    ...registeredDocs.slice(1).map(r => r.doc),
+                    ...unregisteredDocs.map(u => u.doc)
+                ];
+                
+                // 顯示詳細信息
+                const deleteList = docsToDelete.map((doc, idx) => {
+                    const data = doc.data();
+                    return `${idx + 1}. ${doc.id} (${data.isRegistered ? '已開通' : '未開通'})`;
+                }).join('\n');
+                
+                const confirmDelete = confirm(
+                    `找到 ${firestoreDocs.size} 筆相同 Email 的記錄。\n\n` +
+                    `將保留最新的已開通記錄：\n` +
+                    `${latestDoc.id}\n\n` +
+                    `將刪除以下 ${docsToDelete.length} 筆記錄：\n` +
+                    `${deleteList}\n\n` +
+                    `確定要繼續嗎？`
+                );
+                if (!confirmDelete) return;
+                
+                // 執行刪除
                 const batch = db.batch();
                 docsToDelete.forEach(doc => {
                     batch.delete(doc.ref);
                     console.log(`[修復] 刪除舊記錄: ${doc.id}`);
                 });
                 
-                if (latestDoc) {
-                    // 確保保留的記錄狀態正確
-                    batch.update(latestDoc.ref, {
-                        isActive: true,
-                        isRegistered: true,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    console.log(`[修復] 更新保留的記錄: ${latestDoc.id}`);
-                }
+                // 確保保留的記錄狀態正確
+                batch.update(latestDoc.ref, {
+                    isActive: true,
+                    isRegistered: true,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                console.log(`[修復] 更新保留的記錄: ${latestDoc.id}`);
                 
                 await batch.commit();
-                alert("✅ 修復完成！已清理重複記錄並確保狀態正確。");
+                alert(`✅ 修復完成！\n\n保留記錄: ${latestDoc.id}\n刪除記錄: ${docsToDelete.length} 筆`);
             } else {
                 // 只有一筆記錄，檢查其狀態
                 const doc = firestoreDocs.docs[0];
