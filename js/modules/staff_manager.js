@@ -368,8 +368,7 @@ const staffManager = {
             } catch(error) { alert("匯入失敗: " + error.message); }
         };
         reader.readAsText(file);
-    }
-};
+    },
 
     // --- 故障排查工具：修復資料不同步 ---
     fixAuthFirestoreSync: async function(email) {
@@ -482,3 +481,4 @@ const staffManager = {
             alert(`修復失敗: ${error.message}`);
         }
     }
+};
