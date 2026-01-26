@@ -482,3 +482,52 @@ const staffManager = {
         }
     }
 };
+
+// --- 故障排查工具輔助函數 ---
+staffManager.openTroubleshootModal = function() {
+    const modal = document.getElementById('troubleshootModal');
+    if(modal) {
+        modal.classList.add('show');
+        document.getElementById('troubleshootEmail').value = '';
+        const resultDiv = document.getElementById('troubleshootResult');
+        if(resultDiv) resultDiv.style.display = 'none';
+    }
+};
+
+staffManager.closeTroubleshootModal = function() {
+    const modal = document.getElementById('troubleshootModal');
+    if(modal) modal.classList.remove('show');
+};
+
+staffManager.startTroubleshoot = async function() {
+    const email = document.getElementById('troubleshootEmail').value.trim();
+    const resultDiv = document.getElementById('troubleshootResult');
+    
+    if (!email) {
+        if(resultDiv) {
+            resultDiv.style.display = 'block';
+            resultDiv.style.backgroundColor = '#f8d7da';
+            resultDiv.style.color = '#721c24';
+            resultDiv.textContent = '❌ 請輸入 Email';
+        }
+        return;
+    }
+    
+    if(resultDiv) {
+        resultDiv.style.display = 'block';
+        resultDiv.style.backgroundColor = '#d1ecf1';
+        resultDiv.style.color = '#0c5460';
+        resultDiv.textContent = '⏳ 正在修復...';
+    }
+    
+    try {
+        await staffManager.fixAuthFirestoreSync(email);
+        if(resultDiv) resultDiv.style.display = 'none';
+    } catch (error) {
+        if(resultDiv) {
+            resultDiv.style.backgroundColor = '#f8d7da';
+            resultDiv.style.color = '#721c24';
+            resultDiv.textContent = `❌ 修復失敗: ${error.message}`;
+        }
+    }
+};
