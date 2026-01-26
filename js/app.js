@@ -1,4 +1,4 @@
-// js/app.js
+// js/app.js (修正模擬角色退出問題)
 
 const app = {
     currentUser: null,
@@ -11,6 +11,7 @@ const app = {
     impersonatedUnitId: null, // 模擬的單位 ID
     originalRole: null,    // 原始角色 (用於權限檢查)
     originalUid: null,     // 原始 UID
+    _allUsersForImp: null, // 快取所有使用者資料供模擬工具使用
 
     // --- 1. 系統初始化 ---
     init: function() {
@@ -111,13 +112,20 @@ const app = {
     },
 
     handleLogout: function() {
+        // 清理所有狀態
         this.currentUser = null;
         this.userRole = null;
         this.userUnitId = null;
         this.permissions = [];
         this.impersonatedRole = null;
+        this.impersonatedUid = null;
+        this.impersonatedUnitId = null;
         this.originalRole = null;
-        localStorage.removeItem('impersonatedRole');
+        this.originalUid = null;
+        this._allUsersForImp = null;
+        
+        // 清理 localStorage
+        localStorage.removeItem('impersonatedUser');
         
         const emailInput = document.getElementById('loginEmail');
         const passInput = document.getElementById('loginPassword');
@@ -148,6 +156,12 @@ const app = {
         try {
             console.log('📂 正在載入使用者資料:', uid);
             this.originalUid = uid;
+            
+            // 先清理之前的模擬狀態
+            this.impersonatedRole = null;
+            this.impersonatedUid = null;
+            this.impersonatedUnitId = null;
+            
             let userDoc = await db.collection('users').doc(uid).get();
             
             if(!userDoc.exists) {
@@ -158,6 +172,8 @@ const app = {
                     role: 'user',
                     unitId: null,
                     isActive: true,
+                    isRegistered: true,
+                    uid: uid,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     lastLogin: firebase.firestore.FieldValue.serverTimestamp()
                 });
@@ -172,37 +188,35 @@ const app = {
             this.originalRole = this.userRole;
             this.userUnitId = data.unitId;
 
-            // 處理身分模擬 (Impersonation 2.0)
+            // 處理身分模擬 (Impersonation)
             const savedImpersonation = localStorage.getItem('impersonatedUser');
             if (this.userRole === 'system_admin' && savedImpersonation) {
-                const impData = JSON.parse(savedImpersonation);
-                this.impersonatedUid = impData.uid;
-                this.impersonatedRole = impData.role;
-                this.impersonatedUnitId = impData.unitId;
-                console.log(`🎭 偵測到深度模擬: ${impData.name} (${this.impersonatedRole})`);
-                
-                // 覆蓋當前上下文 (關鍵：讓後續功能如換班申請讀取到模擬的 UID)
-                this.userUnitId = this.impersonatedUnitId;
-                // 注意：我們不直接修改 this.currentUser.uid (那是 Firebase Auth 的唯讀屬性)
-                // 但我們會修改 app.getUid() 讓所有模組統一調用
-            }
-
-            // 更新 UI 顯示
-            const nameEl = document.getElementById('displayUserName');
-            const roleEl = document.getElementById('displayUserRole');
-            
-            const activeRole = this.impersonatedRole || this.userRole;
-            const activeName = this.impersonatedUid ? (JSON.parse(savedImpersonation).name) : (data.displayName || '使用者');
-
-            if(nameEl) nameEl.textContent = activeName;
-            if(roleEl) {
-                roleEl.textContent = this.translateRole(activeRole);
-                if (this.impersonatedRole) {
-                    roleEl.innerHTML += ' <span style="font-size:0.7rem; color:#e74c3c;">(模擬)</span>';
+                try {
+                    const impData = JSON.parse(savedImpersonation);
+                    
+                    // 驗證模擬資料的完整性
+                    if (impData.uid && impData.role && impData.unitId) {
+                        this.impersonatedUid = impData.uid;
+                        this.impersonatedRole = impData.role;
+                        this.impersonatedUnitId = impData.unitId;
+                        this.userUnitId = impData.unitId; // 覆蓋單位 ID
+                        
+                        console.log(`🎭 啟用身分模擬: ${impData.name} (${this.impersonatedRole})`);
+                    } else {
+                        console.warn('⚠️ 模擬資料不完整，已清除');
+                        localStorage.removeItem('impersonatedUser');
+                    }
+                } catch (parseError) {
+                    console.error('❌ 解析模擬資料失敗:', parseError);
+                    localStorage.removeItem('impersonatedUser');
                 }
             }
 
+            // 更新 UI 顯示
+            await this.updateUserDisplay(data, savedImpersonation);
+
             // 載入權限
+            const activeRole = this.impersonatedRole || this.userRole;
             const roleDoc = await db.collection('system_roles').doc(activeRole).get();
             this.permissions = roleDoc.exists ? (roleDoc.data().permissions || []) : [];
 
@@ -221,6 +235,33 @@ const app = {
         } catch (error) {
             console.error("❌ Load Context Error:", error);
             throw error;
+        }
+    },
+
+    // --- 更新使用者顯示 ---
+    updateUserDisplay: async function(userData, savedImpersonation) {
+        const nameEl = document.getElementById('displayUserName');
+        const roleEl = document.getElementById('displayUserRole');
+        
+        let activeName = userData.displayName || '使用者';
+        let activeRole = this.userRole;
+        
+        if (this.impersonatedRole && savedImpersonation) {
+            try {
+                const impData = JSON.parse(savedImpersonation);
+                activeName = impData.name || activeName;
+                activeRole = this.impersonatedRole;
+            } catch (e) {
+                console.error('解析模擬資料失敗:', e);
+            }
+        }
+
+        if(nameEl) nameEl.textContent = activeName;
+        if(roleEl) {
+            roleEl.textContent = this.translateRole(activeRole);
+            if (this.impersonatedRole) {
+                roleEl.innerHTML += ' <span style="font-size:0.7rem; color:#e74c3c; font-weight:bold;">(模擬中)</span>';
+            }
         }
     },
 
@@ -247,8 +288,6 @@ const app = {
                 const allowedRoles = menu.allowedRoles || [];
                 const hasRoleAccess = allowedRoles.length === 0 || allowedRoles.includes(activeRole);
                 
-                // 修正：如果資料庫中仍存有舊的 requiredPermission，不應讓它干擾新的角色勾選邏輯
-                // 除非該選單明確需要特定的 permission 字串檢查，否則以角色勾選為準
                 if(hasRoleAccess) {
                     const li = document.createElement('li');
                     li.innerHTML = `<a class="menu-link" href="#${menu.path}"><i class="${menu.icon}"></i> ${menu.label}</a>`;
@@ -292,7 +331,7 @@ const app = {
         return map[role] || role;
     },
 
-    // --- 6. 身分模擬工具 (3.0 聯動選單) ---
+    // --- 6. 身分模擬工具 (修正版) ---
     renderImpersonationTool: async function() {
         let tool = document.getElementById('impersonation-tool');
         if (!tool) {
@@ -310,7 +349,9 @@ const app = {
         try {
             const unitSnap = await db.collection('units').get();
             unitSnap.forEach(doc => units.push({ id: doc.id, ...doc.data() }));
-        } catch (e) { console.error("Fetch units failed", e); }
+        } catch (e) { 
+            console.error("取得單位失敗:", e); 
+        }
 
         // 2. 取得所有使用者 (快取在 app 物件中供聯動使用)
         if (!this._allUsersForImp) {
@@ -318,7 +359,10 @@ const app = {
             try {
                 const userSnap = await db.collection('users').where('isActive', '==', true).get();
                 userSnap.forEach(doc => this._allUsersForImp.push({ uid: doc.id, ...doc.data() }));
-            } catch (e) { console.error("Fetch users failed", e); }
+                console.log(`📋 載入 ${this._allUsersForImp.length} 位使用者供模擬選擇`);
+            } catch (e) { 
+                console.error("取得使用者失敗:", e); 
+            }
         }
 
         let html = '<div style="color:rgba(255,255,255,0.7); margin-bottom:8px; font-weight:bold;"><i class="fas fa-user-secret"></i> 深度身分模擬</div>';
@@ -339,46 +383,122 @@ const app = {
 
         // 快速恢復按鈕
         if (this.impersonatedUid) {
-            html += `<button onclick="app.clearImpersonation()" style="width:100%; padding:4px; background:#e74c3c; color:white; border:none; border-radius:4px; font-size:0.75rem; cursor:pointer; margin-top:5px;">恢復原始身分</button>`;
+            html += `<button onclick="app.clearImpersonation()" style="width:100%; padding:6px; background:#e74c3c; color:white; border:none; border-radius:4px; font-size:0.8rem; cursor:pointer; margin-top:5px; font-weight:bold;">
+                <i class="fas fa-undo"></i> 恢復原始身分
+            </button>`;
         }
 
         tool.innerHTML = html;
 
         // 如果已有模擬單位，初始化人員選單
-        if (this.impersonatedUnitId || document.getElementById('impUnitSelect').value) {
-            this.updateImpUserList(this.impersonatedUnitId || document.getElementById('impUnitSelect').value);
+        const currentUnitId = this.impersonatedUnitId || document.getElementById('impUnitSelect')?.value;
+        if (currentUnitId) {
+            this.updateImpUserList(currentUnitId);
         }
     },
 
     updateImpUserList: function(unitId) {
         const userSelect = document.getElementById('impUserSelect');
-        if (!userSelect) return;
+        if (!userSelect) {
+            console.warn('找不到人員選擇器元素');
+            return;
+        }
 
         userSelect.innerHTML = '<option value="">--- 選擇人員 ---</option>';
         
+        if (!this._allUsersForImp || this._allUsersForImp.length === 0) {
+            userSelect.innerHTML += '<option value="" disabled>無可用人員</option>';
+            return;
+        }
+
         const filteredUsers = unitId 
             ? this._allUsersForImp.filter(u => u.unitId === unitId)
             : this._allUsersForImp;
 
+        if (filteredUsers.length === 0) {
+            userSelect.innerHTML += '<option value="" disabled>此單位無人員</option>';
+            return;
+        }
+
         filteredUsers.forEach(u => {
             const selected = this.impersonatedUid === u.uid ? 'selected' : '';
             const roleName = this.translateRole(u.role);
-            userSelect.innerHTML += `<option value='${JSON.stringify({uid:u.uid, name:u.displayName||u.name, role:u.role, unitId:u.unitId})}' ${selected} style="background:#2c3e50;">${u.displayName || u.name} (${roleName})</option>`;
+            const userData = {
+                uid: u.uid,
+                name: u.displayName || u.name || u.email,
+                role: u.role,
+                unitId: u.unitId
+            };
+            userSelect.innerHTML += `<option value='${JSON.stringify(userData)}' ${selected} style="background:#2c3e50;">${userData.name} (${roleName})</option>`;
         });
+
+        console.log(`📋 更新人員清單: ${filteredUsers.length} 位人員`);
     },
 
     impersonateUser: function(jsonStr) {
-        if (!jsonStr) return;
-        localStorage.setItem('impersonatedUser', jsonStr);
-        window.location.reload();
+        if (!jsonStr) {
+            console.log('取消模擬');
+            return;
+        }
+
+        try {
+            const userData = JSON.parse(jsonStr);
+            console.log('🎭 開始模擬:', userData);
+            
+            // 驗證資料完整性
+            if (!userData.uid || !userData.role || !userData.unitId) {
+                alert('模擬資料不完整，請重新選擇');
+                return;
+            }
+
+            localStorage.setItem('impersonatedUser', jsonStr);
+            console.log('✅ 模擬資料已儲存，準備重新載入頁面');
+            
+            // 延遲一點時間確保 localStorage 寫入完成
+            setTimeout(() => {
+                window.location.reload();
+            }, 100);
+            
+        } catch (error) {
+            console.error('❌ 模擬失敗:', error);
+            alert('模擬失敗: ' + error.message);
+        }
     },
 
     clearImpersonation: function() {
-        localStorage.removeItem('impersonatedUser');
-        window.location.reload();
+        console.log('🔄 清除模擬狀態');
+        
+        // 顯示確認對話框
+        if (!confirm('確定要恢復為原始身分嗎？')) {
+            return;
+        }
+
+        try {
+            // 清除 localStorage
+            localStorage.removeItem('impersonatedUser');
+            console.log('✅ 已清除 localStorage 中的模擬資料');
+
+            // 清除記憶體中的模擬狀態
+            this.impersonatedRole = null;
+            this.impersonatedUid = null;
+            this.impersonatedUnitId = null;
+            
+            console.log('✅ 已清除記憶體中的模擬狀態');
+
+            // 重新載入頁面以恢復原始狀態
+            setTimeout(() => {
+                console.log('🔄 重新載入頁面...');
+                window.location.reload();
+            }, 100);
+
+        } catch (error) {
+            console.error('❌ 清除模擬狀態失敗:', error);
+            alert('清除失敗: ' + error.message);
+        }
     }
 };
 
+// 確保 DOM 載入完成後初始化
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
