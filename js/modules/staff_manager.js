@@ -370,3 +370,115 @@ const staffManager = {
         reader.readAsText(file);
     }
 };
+
+    // --- 故障排查工具：修復資料不同步 ---
+    fixAuthFirestoreSync: async function(email) {
+        if (!email) { alert("請輸入 Email"); return; }
+        
+        try {
+            console.log(`[修復] 開始檢查 Email: ${email}`);
+            
+            // 1. 查詢 Firestore 中的所有相關記錄
+            const firestoreDocs = await db.collection('users')
+                .where('email', '==', email)
+                .get();
+            
+            console.log(`[修復] Firestore 中找到 ${firestoreDocs.size} 筆記錄`);
+            
+            if (firestoreDocs.empty) {
+                alert("❌ Firestore 中找不到此 Email 的記錄");
+                return;
+            }
+            
+            // 2. 檢查是否有多筆記錄
+            if (firestoreDocs.size > 1) {
+                console.warn(`[修復] 警告：找到 ${firestoreDocs.size} 筆相同 Email 的記錄，這可能導致問題`);
+                const confirmDelete = confirm(
+                    `找到 ${firestoreDocs.size} 筆相同 Email 的記錄。\n\n` +
+                    `系統將保留最新的已開通記錄，刪除其他舊記錄。\n\n` +
+                    `確定要繼續嗎？`
+                );
+                if (!confirmDelete) return;
+                
+                // 找出已開通且最新的記錄
+                let latestDoc = null;
+                let latestTimestamp = null;
+                const docsToDelete = [];
+                
+                firestoreDocs.forEach(doc => {
+                    const data = doc.data();
+                    if (data.isRegistered && data.uid) {
+                        const timestamp = data.activatedAt?.toMillis?.() || 0;
+                        if (!latestTimestamp || timestamp > latestTimestamp) {
+                            if (latestDoc) docsToDelete.push(latestDoc);
+                            latestDoc = doc;
+                            latestTimestamp = timestamp;
+                        } else {
+                            docsToDelete.push(doc);
+                        }
+                    } else {
+                        docsToDelete.push(doc);
+                    }
+                });
+                
+                // 刪除舊記錄
+                const batch = db.batch();
+                docsToDelete.forEach(doc => {
+                    batch.delete(doc.ref);
+                    console.log(`[修復] 刪除舊記錄: ${doc.id}`);
+                });
+                
+                if (latestDoc) {
+                    // 確保保留的記錄狀態正確
+                    batch.update(latestDoc.ref, {
+                        isActive: true,
+                        isRegistered: true,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    console.log(`[修復] 更新保留的記錄: ${latestDoc.id}`);
+                }
+                
+                await batch.commit();
+                alert("✅ 修復完成！已清理重複記錄並確保狀態正確。");
+            } else {
+                // 只有一筆記錄，檢查其狀態
+                const doc = firestoreDocs.docs[0];
+                const data = doc.data();
+                
+                console.log(`[修復] 記錄詳情:`, {
+                    docId: doc.id,
+                    isRegistered: data.isRegistered,
+                    isActive: data.isActive,
+                    uid: data.uid
+                });
+                
+                if (!data.isRegistered || !data.uid) {
+                    alert(`❌ 此記錄未開通\n\nUID: ${data.uid || '無'}\nisRegistered: ${data.isRegistered}\n\n請確認員工已完成開通流程。`);
+                    return;
+                }
+                
+                if (!data.isActive) {
+                    const confirmFix = confirm(
+                        `此記錄已開通但狀態為「停用」。\n\n` +
+                        `確定要將其恢復為「啟用」嗎？`
+                    );
+                    if (!confirmFix) return;
+                    
+                    await db.collection('users').doc(doc.id).update({
+                        isActive: true,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    alert("✅ 修復完成！已將員工狀態恢復為啟用。");
+                } else {
+                    alert(`✅ 此記錄狀態正常\n\nUID: ${data.uid}\nisRegistered: ${data.isRegistered}\nisActive: ${data.isActive}`);
+                }
+            }
+            
+            // 3. 重新載入資料
+            await this.fetchData();
+            
+        } catch (error) {
+            console.error("[修復] 出錯:", error);
+            alert(`修復失敗: ${error.message}`);
+        }
+    }

@@ -106,6 +106,7 @@
                     ...newData,
                     uid: newUid,           // 綁定真實 UID
                     isRegistered: true,    // 標記已註冊
+                    isActive: true,        // 確保員工狀態為啟用
                     activatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
 
@@ -120,7 +121,28 @@
             } catch (error) {
                 console.error(error);
                 let text = error.message;
-                if(error.code === 'auth/email-already-in-use') text = "此 Email 已經被註冊過了 (Auth)，請嘗試直接登入。";
+                
+                // 處理「Email 已被註冊」的特殊情況
+                if(error.code === 'auth/email-already-in-use') {
+                    // 嘗試查找是否已有對應的 Firestore 文件
+                    try {
+                        const existingDocs = await db.collection('users')
+                            .where('email', '==', email)
+                            .where('isRegistered', '==', true)
+                            .get();
+                        
+                        if (!existingDocs.empty) {
+                            text = "此帳號已經開通，請直接前往登入頁面。";
+                        } else {
+                            // Auth 帳號存在但 Firestore 資料不同步
+                            text = "此 Email 已被註冊 (Auth)。\n\n可能原因：之前開通失敗導致資料不同步。\n\n請聯絡系統管理員進行修復。";
+                        }
+                    } catch (checkError) {
+                        console.error("檢查現有帳號失敗:", checkError);
+                        text = "此 Email 已經被註冊過了 (Auth)，請嘗試直接登入。";
+                    }
+                }
+                
                 msg.style.color = "red";
                 msg.textContent = text;
                 btn.disabled = false;

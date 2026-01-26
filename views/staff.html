@@ -12,6 +12,7 @@
         <div style="margin-left:auto;">
             <button class="btn btn-add" onclick="staffManager.openModal()"><i class="fas fa-plus"></i> 新增人員</button>
             <button class="btn btn-import" onclick="staffManager.openImportModal()"><i class="fas fa-file-import"></i> 批次匯入</button>
+            <button class="btn" style="background-color:#17a2b8; color:white;" onclick="staffManager.openTroubleshootModal()"><i class="fas fa-wrench"></i> 故障排查</button>
         </div>
     </div>
 
@@ -180,3 +181,67 @@
         </div>
     </div>
 </div>
+
+<!-- 故障排查工具 Modal -->
+<div id="troubleshootModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+        <h3><i class="fas fa-wrench"></i> 帳號開通故障排查</h3>
+        <div style="background-color: #e8f4f8; color: #004085; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+            <i class="fas fa-info-circle"></i> 
+            <strong>使用說明：</strong><br>
+            如果員工開通時出現「Email 已被註冊」錯誤，但人員管理仍顯示「未開通」，請使用此工具進行修復。
+        </div>
+        <div style="margin-bottom: 20px;">
+            <label style="display:block; margin-bottom:8px; font-weight:bold;">員工 Email</label>
+            <input type="email" id="troubleshootEmail" placeholder="輸入員工 Email" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;">
+        </div>
+        <div id="troubleshootResult" style="margin-bottom:15px; font-size: 0.9rem; padding: 10px; border-radius: 4px; display: none;"></div>
+        
+        <div style="text-align:right;">
+            <button class="btn btn-close" onclick="staffManager.closeTroubleshootModal()">取消</button>
+            <button class="btn btn-primary" onclick="staffManager.startTroubleshoot()">
+                <i class="fas fa-search"></i> 開始修復
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+// 故障排查工具輔助函數
+staffManager.openTroubleshootModal = function() {
+    document.getElementById('troubleshootModal').classList.add('show');
+    document.getElementById('troubleshootEmail').value = '';
+    document.getElementById('troubleshootResult').style.display = 'none';
+};
+
+staffManager.closeTroubleshootModal = function() {
+    document.getElementById('troubleshootModal').classList.remove('show');
+};
+
+staffManager.startTroubleshoot = async function() {
+    const email = document.getElementById('troubleshootEmail').value.trim();
+    const resultDiv = document.getElementById('troubleshootResult');
+    
+    if (!email) {
+        resultDiv.style.display = 'block';
+        resultDiv.style.backgroundColor = '#f8d7da';
+        resultDiv.style.color = '#721c24';
+        resultDiv.textContent = '❌ 請輸入 Email';
+        return;
+    }
+    
+    resultDiv.style.display = 'block';
+    resultDiv.style.backgroundColor = '#d1ecf1';
+    resultDiv.style.color = '#0c5460';
+    resultDiv.textContent = '⏳ 正在修復...';
+    
+    try {
+        await staffManager.fixAuthFirestoreSync(email);
+        resultDiv.style.display = 'none';
+    } catch (error) {
+        resultDiv.style.backgroundColor = '#f8d7da';
+        resultDiv.style.color = '#721c24';
+        resultDiv.textContent = `❌ 修復失敗: ${error.message}`;
+    }
+};
+</script>
