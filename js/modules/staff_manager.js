@@ -1,4 +1,8 @@
-// js/modules/staff_manager.js (完整版 - 支援快速開通 + 密碼重設功能)
+// js/modules/staff_manager.js (完整版 - 改進版)
+// 修改重點：
+// 1. 所有人員都有重設密碼按鈕（不論是否已開通）
+// 2. 刪除改為停用，可復原
+// 3. 已停用的人員可以重新啟用
 
 const staffManager = {
     allData: [],
@@ -75,7 +79,7 @@ const staffManager = {
         }
     },
 
-    // --- 3. 讀取人員資料 ---
+    // --- 3. 讀取人員資料（修改：包含已停用的人員） ---
     fetchData: async function() {
         if(this.isLoading) return;
         const tbody = document.getElementById('staffTableBody');
@@ -84,7 +88,8 @@ const staffManager = {
         tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;"><i class="fas fa-spinner fa-spin"></i> 資料載入中...</td></tr>';
         this.isLoading = true;
 
-        let query = db.collection('users').where('isActive', '==', true);
+        // 修改：移除 isActive 篩選，載入所有人員（包含已停用）
+        let query = db.collection('users');
         const activeRole = app.impersonatedRole || app.userRole;
         if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && app.userUnitId) {
             query = query.where('unitId', '==', app.userUnitId);
@@ -174,39 +179,45 @@ const staffManager = {
             const rowStyle = u.isActive ? '' : 'opacity:0.5;background:#f8f9fa;';
             const nameDisplay = u.isActive 
                 ? u.displayName || '-'
-                : `${u.displayName || '-'} <span style="color:#e74c3c;font-size:0.8rem;">(已離職)</span>`;
+                : `${u.displayName || '-'} <span style="color:#e74c3c;font-size:0.8rem;">(已停用)</span>`;
             
-            // 操作按鈕
+            // --- 修改：操作按鈕邏輯 ---
             let actionButtons = '';
+            
             if (!u.isActive) {
-                // 已停用：重新啟用
+                // 已停用：顯示啟用按鈕 + 重設密碼按鈕
                 actionButtons = `
-                    <button class="btn" style="background:#28a745;color:white;padding:5px 10px;" 
-                            onclick="staffManager.reactivateUser('${u.id}')" title="重新啟用">
-                        <i class="fas fa-undo"></i> 重新啟用
+                    <button class="btn" style="background:#28a745;color:white;padding:5px 10px;margin-right:5px;" 
+                            onclick="staffManager.activateUser('${u.id}')" title="啟用">
+                        <i class="fas fa-check-circle"></i> 啟用
+                    </button>
+                    <button class="btn" style="background:#3498db;color:white;padding:5px 10px;" 
+                            onclick="staffManager.sendPasswordResetEmail('${u.id}')" 
+                            title="發送密碼重設郵件">
+                        <i class="fas fa-key"></i>
                     </button>
                 `;
             } else {
-                // 啟用中：正常按鈕
-                let deleteBtn = u.role === 'system_admin' 
-                    ? `<button class="btn btn-delete" disabled style="opacity:0.5; cursor:not-allowed;">刪除</button>`
-                    : `<button class="btn btn-delete" onclick="staffManager.deleteUser('${u.id}')">刪除</button>`;
-                
-                // 如果已開通，顯示重設密碼按鈕
-                const resetPasswordBtn = (u.isRegistered && u.uid) 
-                    ? `<button class="btn" style="background:#3498db;color:white;padding:5px 10px;margin-right:5px;" 
-                              onclick="staffManager.sendPasswordResetEmail('${u.id}')" 
-                              title="發送密碼重設郵件">
-                        <i class="fas fa-key"></i>
+                // 啟用中：編輯 + 重設密碼 + 停用按鈕
+                let deactivateBtn = u.role === 'system_admin' 
+                    ? `<button class="btn" style="background:#95a5a6;color:white;padding:5px 10px;" disabled title="超級管理員無法停用">
+                        <i class="fas fa-ban"></i> 停用
                       </button>`
-                    : '';
+                    : `<button class="btn" style="background:#e67e22;color:white;padding:5px 10px;" 
+                              onclick="staffManager.deactivateUser('${u.id}')" title="停用">
+                        <i class="fas fa-ban"></i> 停用
+                      </button>`;
                 
                 actionButtons = `
                     <button class="btn btn-edit" onclick="staffManager.openModal('${u.id}')" title="編輯">
                         <i class="fas fa-edit"></i>
                     </button>
-                    ${resetPasswordBtn}
-                    ${deleteBtn}
+                    <button class="btn" style="background:#3498db;color:white;padding:5px 10px;margin:0 5px;" 
+                            onclick="staffManager.sendPasswordResetEmail('${u.id}')" 
+                            title="發送密碼重設郵件">
+                        <i class="fas fa-key"></i>
+                    </button>
+                    ${deactivateBtn}
                 `;
             }
 
@@ -491,24 +502,20 @@ const staffManager = {
         }
     },
 
-    // --- 8. 刪除（停用）員工 ---
-    deleteUser: async function(id) {
+    // --- 8. 停用員工（取代原本的刪除） ---
+    deactivateUser: async function(id) {
         const u = this.allData.find(d => d.id === id);
         if (u && u.role === 'system_admin') { 
             alert("無法停用超級管理員！"); 
             return; 
         }
         
-        const confirmMsg = u?.uid 
-            ? `確定要將 ${u?.displayName || '此人員'} 標記為離職？\n\n` +
-              `⚠️ 此員工已有 Auth 帳號\n\n` +
-              `停用後：\n` +
-              `• Firestore 記錄保留（isActive = false）\n` +
-              `• Auth 帳號仍然存在\n` +
-              `• 員工無法登入系統（查詢時過濾）\n` +
-              `• Email 無法重複使用（除非重新啟用）\n\n` +
-              `建議：如需完全移除，請使用「帳號診斷工具」`
-            : `確定要將 ${u?.displayName || '此人員'} 標記為離職？`;
+        const confirmMsg = `確定要停用 ${u?.displayName || '此人員'}？\n\n` +
+            `停用後：\n` +
+            `• 無法登入系統\n` +
+            `• 不會出現在排班等功能中\n` +
+            `• 資料會保留，可隨時重新啟用\n\n` +
+            `💡 這是安全的操作，不會永久刪除資料`;
         
         if(!confirm(confirmMsg)) return;
         
@@ -520,19 +527,25 @@ const staffManager = {
             });
             
             await this.fetchData();
-            alert("✅ 已標記為離職\n\n記錄已保留，如需重新啟用請編輯該員工");
+            alert("✅ 已停用\n\n員工資料已保留，如需重新啟用請點擊「啟用」按鈕");
             
         } catch(e) { 
             alert("❌ 操作失敗：" + e.message); 
         }
     },
 
-    // --- 重新啟用員工 ---
-    reactivateUser: async function(id) {
+    // --- 9. 啟用員工 ---
+    activateUser: async function(id) {
         const u = this.allData.find(d => d.id === id);
         if (!u) return;
         
-        if (!confirm(`確定要重新啟用 ${u.displayName}？\n\n員工可以繼續使用原帳號登入。`)) return;
+        const confirmMsg = `確定要啟用 ${u.displayName}？\n\n` +
+            `啟用後：\n` +
+            `• 員工可以正常登入系統\n` +
+            `• 可以進行排班等操作\n` +
+            `• 如忘記密碼可使用「重設密碼」功能`;
+        
+        if (!confirm(confirmMsg)) return;
         
         try {
             await db.collection('users').doc(id).update({
@@ -542,14 +555,14 @@ const staffManager = {
             });
             
             await this.fetchData();
-            alert("✅ 員工已重新啟用");
+            alert("✅ 員工已啟用");
             
         } catch(e) {
             alert("❌ 操作失敗：" + e.message);
         }
     },
 
-    // --- 【新功能 1】發送密碼重設郵件（單一員工） ---
+    // --- 10. 發送密碼重設郵件（修改：支援所有人員） ---
     sendPasswordResetEmail: async function(userId) {
         const user = this.allData.find(u => u.id === userId);
         if (!user || !user.email) {
@@ -557,15 +570,47 @@ const staffManager = {
             return;
         }
         
-        const confirm1 = confirm(
-            `發送密碼重設郵件\n\n` +
-            `員工：${user.displayName}\n` +
-            `Email：${user.email}\n\n` +
-            `員工將收到郵件並可自行設定新密碼。\n\n` +
-            `確定要發送嗎？`
-        );
+        // 檢查是否已開通帳號
+        let authExists = false;
+        try {
+            const signInMethods = await auth.fetchSignInMethodsForEmail(user.email);
+            authExists = signInMethods.length > 0;
+        } catch (error) {
+            console.warn('無法檢查 Auth 狀態:', error);
+        }
         
-        if (!confirm1) return;
+        let confirmMsg = '';
+        if (!user.isRegistered || !user.uid) {
+            // 未開通的情況
+            if (authExists) {
+                confirmMsg = `⚠️ 特殊狀況\n\n` +
+                    `員工：${user.displayName}\n` +
+                    `Email：${user.email}\n\n` +
+                    `• Firestore：未開通\n` +
+                    `• Auth：帳號存在\n\n` +
+                    `仍要發送密碼重設郵件嗎？\n` +
+                    `（可能是之前開通失敗導致）`;
+            } else {
+                confirmMsg = `⚠️ 此員工尚未開通帳號\n\n` +
+                    `員工：${user.displayName}\n` +
+                    `Email：${user.email}\n\n` +
+                    `建議流程：\n` +
+                    `1. 員工前往開通頁面註冊\n` +
+                    `2. 或使用預設密碼（員工編號）登入\n\n` +
+                    `如果員工忘記或無法登入，\n` +
+                    `仍可發送重設郵件建立帳號。\n\n` +
+                    `是否要發送？`;
+            }
+        } else {
+            // 已開通的情況
+            confirmMsg = `發送密碼重設郵件\n\n` +
+                `員工：${user.displayName}\n` +
+                `Email：${user.email}\n\n` +
+                `員工將收到郵件並可自行設定新密碼。\n\n` +
+                `確定要發送嗎？`;
+        }
+        
+        if (!confirm(confirmMsg)) return;
         
         try {
             await auth.sendPasswordResetEmail(user.email);
@@ -573,21 +618,25 @@ const staffManager = {
                 `✅ 已發送密碼重設郵件\n\n` +
                 `請通知 ${user.displayName} 檢查信箱：\n` +
                 `${user.email}\n\n` +
-                `郵件可能需要幾分鐘才會送達，\n` +
-                `也請檢查垃圾郵件資料夾。`
+                `注意事項：\n` +
+                `• 郵件可能需要幾分鐘才會送達\n` +
+                `• 請檢查垃圾郵件資料夾\n` +
+                `• 重設連結有效期 1 小時`
             );
         } catch (error) {
             console.error('發送失敗:', error);
             
             if (error.code === 'auth/user-not-found') {
-                alert(
+                const createAccount = confirm(
                     `❌ Auth 系統中找不到此帳號\n\n` +
                     `員工：${user.displayName}\n` +
                     `Email：${user.email}\n\n` +
-                    `可能原因：\n` +
-                    `1. 員工尚未開通帳號\n` +
-                    `2. 帳號已被刪除\n\n` +
-                    `建議使用「帳號診斷工具」檢查`
+                    `建議解決方案：\n` +
+                    `1. 請員工使用預設密碼（員工編號）首次登入\n` +
+                    `2. 系統會自動建立帳號\n` +
+                    `3. 登入後可修改密碼\n\n` +
+                    `如果員工編號不足 6 字元，\n` +
+                    `請使用「帳號診斷工具」協助處理。`
                 );
             } else if (error.code === 'auth/too-many-requests') {
                 alert(
@@ -600,7 +649,7 @@ const staffManager = {
         }
     },
 
-    // --- 【新功能 2】批次重設密碼（使用員工編號） ---
+    // --- 11. 批次重設密碼（使用員工編號） ---
     batchResetPasswordsByEmployeeId: async function() {
         const confirm1 = confirm(
             `⚠️ 批次重設密碼為員工編號\n\n` +
@@ -633,7 +682,7 @@ const staffManager = {
         );
     },
 
-    // --- 【新功能 3】批次發送密碼重設郵件 ---
+    // --- 12. 批次發送密碼重設郵件 ---
     batchSendPasswordReset: async function() {
         const confirm1 = confirm(
             `⚠️ 批次發送密碼重設郵件\n\n` +
@@ -790,7 +839,7 @@ const staffManager = {
         reader.readAsText(file);
     },
 
-    // --- 9. 故障排查工具：修復資料不同步 (完整增強版) ---
+    // --- 13. 故障排查工具：修復資料不同步 (完整增強版) ---
     fixAuthFirestoreSync: async function(email) {
         if (!email) { 
             alert("請輸入 Email"); 
