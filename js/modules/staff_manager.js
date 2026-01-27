@@ -1,4 +1,4 @@
-// js/modules/staff_manager.js (完整修正版)
+// js/modules/staff_manager.js (完整版 - 支援快速開通)
 
 const staffManager = {
     allData: [],
@@ -36,7 +36,6 @@ const staffManager = {
         this.unitCache = {}; 
 
         let query = db.collection('units');
-        // 權限過濾：單位護理長與排班人員只能看到自己單位
         const activeRole = app.impersonatedRole || app.userRole;
         if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && app.userUnitId) {
             query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
@@ -82,11 +81,10 @@ const staffManager = {
         const tbody = document.getElementById('staffTableBody');
         if(!tbody) return;
         
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;"><i class="fas fa-spinner fa-spin"></i> 資料載入中...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;"><i class="fas fa-spinner fa-spin"></i> 資料載入中...</td></tr>';
         this.isLoading = true;
 
         let query = db.collection('users').where('isActive', '==', true);
-        // 權限過濾：單位護理長與排班人員只能看到自己單位的人員
         const activeRole = app.impersonatedRole || app.userRole;
         if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && app.userUnitId) {
             query = query.where('unitId', '==', app.userUnitId);
@@ -100,7 +98,7 @@ const staffManager = {
             console.error("Fetch Data Error:", error);
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="7" style="text-align:center; padding:30px; color:#e74c3c;">
+                    <td colspan="8" style="text-align:center; padding:30px; color:#e74c3c;">
                         <i class="fas fa-exclamation-triangle" style="font-size:2rem; margin-bottom:10px;"></i><br>
                         <strong>資料載入失敗</strong><br>
                         <small>錯誤代碼: ${error.message}</small><br>
@@ -142,6 +140,12 @@ const staffManager = {
             return matchUnit && matchSearch;
         });
 
+        // 統計未開通數量
+        const notActivatedCount = filtered.filter(u => !u.isRegistered).length;
+        
+        // 顯示批次開通提示
+        this.renderBatchActivationAlert(notActivatedCount);
+
         const { field, order } = this.sortState;
         filtered.sort((a, b) => {
             let valA, valB;
@@ -163,7 +167,7 @@ const staffManager = {
         });
 
         if(filtered.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:#999;">無符合資料</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px; color:#999;">無符合資料</td></tr>';
             return;
         }
 
@@ -171,28 +175,239 @@ const staffManager = {
         filtered.forEach(u => {
             const unitName = (this.unitCache[u.unitId]?.name) || u.unitId || '未知單位';
             const roleName = app.translateRole(u.role);
-            let deleteBtn = `<button class="btn btn-delete" onclick="staffManager.deleteUser('${u.id}')">刪除</button>`;
-            if (u.role === 'system_admin') deleteBtn = `<button class="btn btn-delete" disabled style="opacity:0.5; cursor:not-allowed;">刪除</button>`;
-            let statusTag = u.isRegistered ? '<span style="color:green; font-size:0.8rem;">(已開通)</span>' : '<span style="color:red; font-size:0.8rem;">(未開通)</span>';
+            
+            // 狀態徽章
+            let statusBadge;
+            if (u.isRegistered) {
+                statusBadge = '<span style="background:#28a745;color:#fff;padding:3px 10px;border-radius:12px;font-size:0.85rem;">✓ 已開通</span>';
+            } else {
+                statusBadge = '<span style="background:#ffc107;color:#000;padding:3px 10px;border-radius:12px;font-size:0.85rem;">⏳ 未開通</span>';
+            }
+            
+            // 操作按鈕
+            let actionButtons = '';
+            if (u.isRegistered) {
+                // 已開通：編輯、刪除、重設密碼
+                let deleteBtn = u.role === 'system_admin' 
+                    ? `<button class="btn btn-delete" disabled style="opacity:0.5; cursor:not-allowed;">刪除</button>`
+                    : `<button class="btn btn-delete" onclick="staffManager.deleteUser('${u.id}')">刪除</button>`;
+                
+                actionButtons = `
+                    <button class="btn btn-edit" onclick="staffManager.openModal('${u.id}')" title="編輯"><i class="fas fa-edit"></i></button>
+                    ${deleteBtn}
+                    <button class="btn" style="background:#17a2b8;color:white;padding:5px 10px;margin-left:3px;" 
+                            onclick="staffManager.resetPassword('${u.id}')" title="重設密碼">
+                        <i class="fas fa-key"></i>
+                    </button>
+                `;
+            } else {
+                // 未開通：編輯、刪除、產生開通連結、快速開通
+                actionButtons = `
+                    <button class="btn btn-edit" onclick="staffManager.openModal('${u.id}')" title="編輯"><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-delete" onclick="staffManager.deleteUser('${u.id}')">刪除</button>
+                    <button class="btn" style="background:#3498db;color:white;padding:5px 10px;margin-left:3px;" 
+                            onclick="staffManager.generateActivationLink('${u.id}')" title="產生開通連結">
+                        <i class="fas fa-link"></i>
+                    </button>
+                    <button class="btn" style="background:#e67e22;color:white;padding:5px 10px;margin-left:3px;" 
+                            onclick="staffManager.quickActivate('${u.id}')" title="快速開通">
+                        <i class="fas fa-bolt"></i>
+                    </button>
+                `;
+            }
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${unitName}</td>
                 <td>${u.employeeId || '-'}</td>
-                <td>${u.displayName || '-'} <br>${statusTag}</td>
+                <td>${u.displayName || '-'}</td>
                 <td>${u.level || '-'}</td>
                 <td>${u.groupId || '-'}</td>
                 <td><span class="role-badge" style="background:${this.getRoleColor(u.role)}">${roleName}</span></td>
-                <td><button class="btn btn-edit" onclick="staffManager.openModal('${u.id}')">編輯</button> ${deleteBtn}</td>
+                <td style="text-align:center;">${statusBadge}</td>
+                <td style="white-space:nowrap;">${actionButtons}</td>
             `;
             fragment.appendChild(tr);
         });
         tbody.appendChild(fragment);
     },
 
+    renderBatchActivationAlert: function(count) {
+        const container = document.querySelector('.staff-header-actions');
+        if (!container) return;
+
+        const existingAlert = container.querySelector('.batch-activate-alert');
+        if (existingAlert) existingAlert.remove();
+
+        if (count > 0) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'batch-activate-alert';
+            alertDiv.style.cssText = 'background:#fff3cd;padding:15px;border-radius:4px;margin-bottom:15px;border-left:4px solid #ffc107;';
+            alertDiv.innerHTML = `
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                        <strong style="color:#856404;">⚠️ 有 ${count} 位員工尚未開通帳號</strong>
+                        <p style="margin:5px 0 0 0;color:#856404;font-size:0.9rem;">
+                            您可以產生開通連結給員工，或使用快速開通功能
+                        </p>
+                    </div>
+                    <button onclick="alert('批次開通功能開發中\\n\\n建議使用「快速開通」逐一處理')" class="btn" 
+                            style="background:#e67e22;color:white;padding:10px 20px;font-weight:bold;white-space:nowrap;">
+                        <i class="fas fa-users"></i> 批次開通
+                    </button>
+                </div>
+            `;
+            container.insertBefore(alertDiv, container.firstChild);
+        }
+    },
+
     getRoleColor: function(role) {
         const colors = { 'system_admin': '#2c3e50', 'unit_manager': '#e67e22', 'unit_scheduler': '#27ae60', 'user': '#95a5a6' };
         return colors[role] || '#95a5a6';
+    },
+
+    // --- 產生開通連結 ---
+    generateActivationLink: function(id) {
+        const u = this.allData.find(d => d.id === id);
+        if (!u) return;
+
+        const baseUrl = window.location.origin + window.location.pathname.replace(/[^/]*$/, '');
+        const signupUrl = `${baseUrl}signup.html`;
+        
+        const message = 
+            `=================================\n` +
+            `🔐 帳號開通資訊\n` +
+            `=================================\n\n` +
+            `親愛的 ${u.displayName}，您好：\n\n` +
+            `您的帳號已建立完成，請點擊以下連結開通：\n\n` +
+            `📱 開通連結：\n${signupUrl}\n\n` +
+            `📋 開通時需要的資訊：\n` +
+            `員工編號：${u.employeeId}\n` +
+            `Email：${u.email}\n\n` +
+            `請妥善保管此資訊。\n` +
+            `=================================`;
+
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(message).then(() => {
+                alert('✅ 開通資訊已複製到剪貼簿！\n\n您可以直接貼上並傳送給員工。');
+            }).catch(() => {
+                this.showActivationInfo(message);
+            });
+        } else {
+            this.showActivationInfo(message);
+        }
+    },
+
+    showActivationInfo: function(message) {
+        const modal = document.createElement('div');
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;';
+        modal.innerHTML = `
+            <div style="background:white;padding:30px;border-radius:8px;max-width:600px;max-height:80vh;overflow:auto;">
+                <h3 style="margin-top:0;">📋 開通資訊</h3>
+                <textarea readonly style="width:100%;height:300px;padding:10px;font-family:monospace;font-size:0.9rem;border:1px solid #ddd;border-radius:4px;">${message}</textarea>
+                <div style="margin-top:15px;display:flex;gap:10px;">
+                    <button onclick="navigator.clipboard.writeText(\`${message.replace(/`/g, '\\`')}\`).then(()=>alert('已複製！'))" 
+                            style="flex:1;padding:10px;background:#3498db;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:bold;">
+                        <i class="fas fa-copy"></i> 複製
+                    </button>
+                    <button onclick="this.closest('div[style*=fixed]').remove()" 
+                            style="flex:1;padding:10px;background:#95a5a6;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:bold;">
+                        關閉
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    },
+
+    // --- 快速開通 ---
+    quickActivate: async function(id) {
+        const u = this.allData.find(d => d.id === id);
+        if (!u) return;
+
+        const defaultPwd = u.employeeId;
+        const confirmMsg = 
+            `確定要快速開通此帳號嗎？\n\n` +
+            `員工：${u.displayName}\n` +
+            `Email：${u.email}\n\n` +
+            `⚠️ 預設密碼將設為：${defaultPwd}\n\n` +
+            `開通後請通知員工登入並修改密碼。`;
+
+        if (!confirm(confirmMsg)) return;
+
+        try {
+            // 檢查 Auth 是否已存在
+            const signInMethods = await auth.fetchSignInMethodsForEmail(u.email);
+            if (signInMethods.length > 0) {
+                alert('❌ 此 Email 已在 Auth 系統中註冊\n\n請使用「帳號診斷工具」檢查。');
+                return;
+            }
+
+            // 建立 Auth 帳號
+            const userCredential = await auth.createUserWithEmailAndPassword(u.email, defaultPwd);
+            const newUid = userCredential.user.uid;
+
+            // 登出新建立的帳號
+            await auth.signOut();
+
+            // 更新 Firestore 記錄
+            const batch = db.batch();
+            
+            // 建立新文件（ID = UID）
+            const newDocRef = db.collection('users').doc(newUid);
+            batch.set(newDocRef, {
+                ...u,
+                uid: newUid,
+                isRegistered: true,
+                passwordChanged: false,  // 標記為未修改密碼
+                activatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // 刪除舊文件
+            batch.delete(db.collection('users').doc(id));
+            
+            await batch.commit();
+
+            alert(
+                '✅ 快速開通成功！\n\n' +
+                `員工：${u.displayName}\n` +
+                `Email：${u.email}\n` +
+                `預設密碼：${defaultPwd}\n\n` +
+                `請將密碼告知員工，並提醒首次登入後修改密碼。\n\n` +
+                `⚠️ 您需要重新登入管理員帳號`
+            );
+
+            setTimeout(() => {
+                window.location.href = 'index.html';
+            }, 2000);
+
+        } catch (error) {
+            console.error('[快速開通] 失敗:', error);
+            
+            if (auth.currentUser) {
+                try {
+                    await auth.currentUser.delete();
+                } catch(e) {}
+            }
+            
+            alert('❌ 快速開通失敗：\n\n' + error.message);
+        }
+    },
+
+    // --- 重設密碼 ---
+    resetPassword: async function(id) {
+        const u = this.allData.find(d => d.id === id);
+        if (!u || !u.isRegistered) return;
+
+        if (!confirm(`確定要為 ${u.displayName} 發送密碼重設郵件嗎？`)) return;
+
+        try {
+            await auth.sendPasswordResetEmail(u.email);
+            alert('✅ 密碼重設郵件已發送！\n\n請通知員工檢查信箱。');
+        } catch (error) {
+            alert('❌ 發送失敗：' + error.message);
+        }
     },
 
     // --- 6. Modal 操作 ---
@@ -379,9 +594,6 @@ const staffManager = {
         try {
             console.log(`[修復] 開始檢查 Email: ${email}`);
             
-            // ========================================
-            // 步驟 1: 查詢 Firestore 中的所有相關記錄
-            // ========================================
             const firestoreDocs = await db.collection('users')
                 .where('email', '==', email)
                 .get();
@@ -393,9 +605,6 @@ const staffManager = {
                 return;
             }
             
-            // ========================================
-            // 步驟 2: 檢查 Auth 系統中的狀態
-            // ========================================
             console.log(`[修復] 檢查 Auth 系統狀態...`);
             let authExists = false;
             let authUid = null;
@@ -408,15 +617,9 @@ const staffManager = {
                 console.warn(`[修復] 無法檢查 Auth 狀態:`, authError);
             }
             
-            // ========================================
-            // 步驟 3: 分析並處理不同情況
-            // ========================================
-            
-            // 情況 A: 有多筆 Firestore 記錄
             if (firestoreDocs.size > 1) {
                 console.warn(`[修復] 警告：找到 ${firestoreDocs.size} 筆相同 Email 的記錄`);
                 
-                // 分類記錄
                 const registeredDocs = [];
                 const unregisteredDocs = [];
                 
@@ -433,10 +636,8 @@ const staffManager = {
                 
                 console.log(`[修復] 已開通: ${registeredDocs.length}, 未開通: ${unregisteredDocs.length}`);
                 
-                // 子情況 A1: 沒有已開通的記錄
                 if (registeredDocs.length === 0) {
                     if (!authExists) {
-                        // 所有記錄都未開通，且 Auth 也不存在 -> 清理舊記錄
                         const confirmCleanup = confirm(
                             `找到 ${firestoreDocs.size} 筆相同 Email 的重複記錄，但都未開通。\n\n` +
                             `建議刪除所有舊記錄，只保留一筆最新的。\n\n` +
@@ -445,7 +646,6 @@ const staffManager = {
                         
                         if (!confirmCleanup) return;
                         
-                        // 按時間排序，保留最新的
                         const sortedDocs = unregisteredDocs.sort((a, b) => b.timestamp - a.timestamp);
                         const keepDoc = sortedDocs[0];
                         const deleteDocs = sortedDocs.slice(1);
@@ -456,7 +656,6 @@ const staffManager = {
                             console.log(`[修復] 刪除重複記錄: ${item.doc.id}`);
                         });
                         
-                        // 確保保留的記錄狀態正確
                         batch.update(keepDoc.doc.ref, {
                             isActive: true,
                             isRegistered: false,
@@ -468,7 +667,6 @@ const staffManager = {
                         alert(`✅ 清理完成！\n\n保留記錄: ${keepDoc.doc.id}\n刪除記錄: ${deleteDocs.length} 筆\n\n員工現在可以重新開通帳號。`);
                         
                     } else {
-                        // Auth 存在但 Firestore 都未開通 -> 嚴重錯誤
                         alert(
                             `❌ 檢測到資料嚴重不同步\n\n` +
                             `• Firestore: ${firestoreDocs.size} 筆記錄（都未開通）\n` +
@@ -482,12 +680,9 @@ const staffManager = {
                     return;
                 }
                 
-                // 子情況 A2: 有已開通的記錄
-                // 找出最新的已開通記錄
                 registeredDocs.sort((a, b) => b.timestamp - a.timestamp);
                 const latestDoc = registeredDocs[0];
                 
-                // 要刪除的記錄
                 const docsToDelete = [
                     ...registeredDocs.slice(1),
                     ...unregisteredDocs
@@ -513,7 +708,6 @@ const staffManager = {
                         console.log(`[修復] 刪除重複記錄: ${item.doc.id}`);
                     });
                     
-                    // 確保保留的記錄狀態正確
                     batch.update(latestDoc.doc.ref, {
                         isActive: true,
                         isRegistered: true,
@@ -525,9 +719,7 @@ const staffManager = {
                 } else {
                     alert(`✅ 資料狀態正常\n\n只有一筆已開通的記錄，無需修復。`);
                 }
-            }
-            // 情況 B: 只有一筆 Firestore 記錄
-            else {
+            } else {
                 const doc = firestoreDocs.docs[0];
                 const data = doc.data();
                 
@@ -539,17 +731,14 @@ const staffManager = {
                     authExists: authExists
                 });
                 
-                // 子情況 B1: 記錄未開通
                 if (!data.isRegistered || !data.uid) {
                     if (!authExists) {
-                        // Firestore 未開通，Auth 不存在 -> 正常狀態
                         alert(
                             `✅ 資料狀態正常\n\n` +
                             `此員工尚未開通帳號。\n` +
                             `請員工前往開通頁面完成開通流程。`
                         );
                     } else {
-                        // Firestore 未開通，但 Auth 存在 -> 需要清理 Auth
                         alert(
                             `⚠️ 檢測到不一致狀態\n\n` +
                             `• Firestore: 未開通\n` +
@@ -563,7 +752,6 @@ const staffManager = {
                     return;
                 }
                 
-                // 子情況 B2: 記錄已開通
                 if (!data.isActive) {
                     const confirmFix = confirm(
                         `此記錄已開通但狀態為「停用」。\n\n` +
@@ -577,7 +765,6 @@ const staffManager = {
                     });
                     alert("✅ 修復完成！已將員工狀態恢復為啟用。");
                 } else {
-                    // 檢查文件 ID 是否等於 UID
                     if (doc.id !== data.uid) {
                         const confirmMigrate = confirm(
                             `⚠️ 檢測到文件 ID 與 UID 不一致\n\n` +
@@ -591,14 +778,12 @@ const staffManager = {
                         
                         const batch = db.batch();
                         
-                        // 建立新文件（使用 UID 作為 ID）
                         const newDocRef = db.collection('users').doc(data.uid);
                         batch.set(newDocRef, {
                             ...data,
                             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                         });
                         
-                        // 刪除舊文件
                         batch.delete(doc.ref);
                         
                         await batch.commit();
@@ -615,7 +800,6 @@ const staffManager = {
                 }
             }
             
-            // 重新載入資料
             await this.fetchData();
             
         } catch (error) {
@@ -657,7 +841,6 @@ const staffManager = {
             return;
         }
         
-        // 驗證 Email 格式
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
             if(resultDiv) {
