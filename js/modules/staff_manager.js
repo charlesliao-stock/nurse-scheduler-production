@@ -140,12 +140,6 @@ const staffManager = {
             return matchUnit && matchSearch;
         });
 
-        // 統計未開通數量
-        const notActivatedCount = filtered.filter(u => !u.isRegistered).length;
-        
-        // 顯示批次開通提示
-        this.renderBatchActivationAlert(notActivatedCount);
-
         const { field, order } = this.sortState;
         filtered.sort((a, b) => {
             let valA, valB;
@@ -167,7 +161,7 @@ const staffManager = {
         });
 
         if(filtered.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px; color:#999;">無符合資料</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:#999;">無符合資料</td></tr>';
             return;
         }
 
@@ -176,55 +170,45 @@ const staffManager = {
             const unitName = (this.unitCache[u.unitId]?.name) || u.unitId || '未知單位';
             const roleName = app.translateRole(u.role);
             
-            // 狀態徽章
-            let statusBadge;
-            if (u.isRegistered) {
-                statusBadge = '<span style="background:#28a745;color:#fff;padding:3px 10px;border-radius:12px;font-size:0.85rem;">✓ 已開通</span>';
-            } else {
-                statusBadge = '<span style="background:#ffc107;color:#000;padding:3px 10px;border-radius:12px;font-size:0.85rem;">⏳ 未開通</span>';
-            }
+            // 停用員工的樣式
+            const rowStyle = u.isActive ? '' : 'opacity:0.5;background:#f8f9fa;';
+            const nameDisplay = u.isActive 
+                ? u.displayName || '-'
+                : `${u.displayName || '-'} <span style="color:#e74c3c;font-size:0.8rem;">(已離職)</span>`;
             
             // 操作按鈕
             let actionButtons = '';
-            if (u.isRegistered) {
-                // 已開通：編輯、刪除、重設密碼
+            if (!u.isActive) {
+                // 已停用：重新啟用
+                actionButtons = `
+                    <button class="btn" style="background:#28a745;color:white;padding:5px 10px;" 
+                            onclick="staffManager.reactivateUser('${u.id}')" title="重新啟用">
+                        <i class="fas fa-undo"></i> 重新啟用
+                    </button>
+                `;
+            } else {
+                // 啟用中：正常按鈕
                 let deleteBtn = u.role === 'system_admin' 
                     ? `<button class="btn btn-delete" disabled style="opacity:0.5; cursor:not-allowed;">刪除</button>`
                     : `<button class="btn btn-delete" onclick="staffManager.deleteUser('${u.id}')">刪除</button>`;
                 
                 actionButtons = `
-                    <button class="btn btn-edit" onclick="staffManager.openModal('${u.id}')" title="編輯"><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-edit" onclick="staffManager.openModal('${u.id}')" title="編輯">
+                        <i class="fas fa-edit"></i>
+                    </button>
                     ${deleteBtn}
-                    <button class="btn" style="background:#17a2b8;color:white;padding:5px 10px;margin-left:3px;" 
-                            onclick="staffManager.resetPassword('${u.id}')" title="重設密碼">
-                        <i class="fas fa-key"></i>
-                    </button>
-                `;
-            } else {
-                // 未開通：編輯、刪除、產生開通連結、快速開通
-                actionButtons = `
-                    <button class="btn btn-edit" onclick="staffManager.openModal('${u.id}')" title="編輯"><i class="fas fa-edit"></i></button>
-                    <button class="btn btn-delete" onclick="staffManager.deleteUser('${u.id}')">刪除</button>
-                    <button class="btn" style="background:#3498db;color:white;padding:5px 10px;margin-left:3px;" 
-                            onclick="staffManager.generateActivationLink('${u.id}')" title="產生開通連結">
-                        <i class="fas fa-link"></i>
-                    </button>
-                    <button class="btn" style="background:#e67e22;color:white;padding:5px 10px;margin-left:3px;" 
-                            onclick="staffManager.quickActivate('${u.id}')" title="快速開通">
-                        <i class="fas fa-bolt"></i>
-                    </button>
                 `;
             }
 
             const tr = document.createElement('tr');
+            tr.style.cssText = rowStyle;
             tr.innerHTML = `
                 <td>${unitName}</td>
                 <td>${u.employeeId || '-'}</td>
-                <td>${u.displayName || '-'}</td>
+                <td>${nameDisplay}</td>
                 <td>${u.level || '-'}</td>
                 <td>${u.groupId || '-'}</td>
                 <td><span class="role-badge" style="background:${this.getRoleColor(u.role)}">${roleName}</span></td>
-                <td style="text-align:center;">${statusBadge}</td>
                 <td style="white-space:nowrap;">${actionButtons}</td>
             `;
             fragment.appendChild(tr);
@@ -513,19 +497,15 @@ const staffManager = {
             
             document.getElementById('checkBundle').checked = params.canBundleShifts || false;
             
-            const statusField = document.getElementById('accountStatus');
-            if(statusField) statusField.value = u.isRegistered ? "已開通" : "等待員工自行開通";
         } else {
             document.querySelectorAll('#staffModal input:not([type="hidden"]), #staffModal select').forEach(i => {
-                if(i.type !== 'checkbox' && i.id !== 'accountStatus') i.value = '';
+                if(i.type !== 'checkbox') i.value = '';
                 if(i.type === 'checkbox') i.checked = false;
             });
             document.getElementById('inputRole').value = 'user';
             document.getElementById('inputRole').disabled = false;
             document.getElementById('inputLevel').value = 'N';
             document.getElementById('inputGroup').innerHTML = '<option value="">(請先選擇單位)</option>';
-            const statusField = document.getElementById('accountStatus');
-            if(statusField) statusField.value = "新建立 (未開通)";
         }
     },
 
@@ -542,9 +522,28 @@ const staffManager = {
         const selectedRole = document.getElementById('inputRole').value;
         const selectedUnitId = document.getElementById('inputUnit').value;
 
-        if(!empId || !email || !name || !selectedUnitId) { alert("請填寫所有必填欄位"); return; }
+        if(!empId || !email || !name || !selectedUnitId) { 
+            alert("請填寫所有必填欄位"); 
+            return; 
+        }
+        
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if(!emailRegex.test(email)) { alert("請輸入有效的電子郵件格式"); return; }
+        if(!emailRegex.test(email)) { 
+            alert("請輸入有效的電子郵件格式"); 
+            return; 
+        }
+        
+        // 檢查員工編號長度（作為預設密碼需至少 6 個字元）
+        if (empId.length < 6) {
+            const confirm6Chars = confirm(
+                `⚠️ 員工編號長度不足 6 個字元\n\n` +
+                `員工編號: ${empId} (${empId.length} 字元)\n\n` +
+                `Firebase Auth 要求密碼至少 6 個字元。\n` +
+                `建議使用較長的員工編號，或稍後手動調整。\n\n` +
+                `是否仍要繼續？`
+            );
+            if (!confirm6Chars) return;
+        }
 
         const data = {
             employeeId: empId,
@@ -569,17 +568,123 @@ const staffManager = {
         try {
             const batch = db.batch();
             let userRef;
+            
             if(docId) {
+                // 更新現有記錄
+                const existingDoc = await db.collection('users').doc(docId).get();
+                const existingData = existingDoc.data();
+                
+                // 如果修改了 Email，檢查新 Email 是否已被使用
+                if (existingData.email !== email) {
+                    const emailCheck = await db.collection('users')
+                        .where('email', '==', email)
+                        .get();
+                    
+                    if (!emailCheck.empty) {
+                        // 找到相同 Email 的記錄
+                        const conflictDoc = emailCheck.docs[0];
+                        const conflictData = conflictDoc.data();
+                        
+                        if (conflictData.isActive) {
+                            alert(`❌ 此 Email 已被使用\n\n員工：${conflictData.displayName}\n狀態：啟用中`);
+                            return;
+                        } else {
+                            const confirmReactive = confirm(
+                                `⚠️ 此 Email 曾經被使用\n\n` +
+                                `原員工：${conflictData.displayName}\n` +
+                                `狀態：已停用\n\n` +
+                                `可能原因：\n` +
+                                `1. 離職員工\n` +
+                                `2. 重複建立的記錄\n\n` +
+                                `建議：\n` +
+                                `• 如果是同一個人回任 → 重新啟用舊記錄\n` +
+                                `• 如果是不同人 → 需要先處理舊記錄\n\n` +
+                                `是否要查看詳細資訊？`
+                            );
+                            
+                            if (confirmReactive) {
+                                alert(
+                                    `📋 舊記錄詳細資訊\n\n` +
+                                    `員工編號：${conflictData.employeeId}\n` +
+                                    `姓名：${conflictData.displayName}\n` +
+                                    `Email：${conflictData.email}\n` +
+                                    `單位：${conflictData.unitId}\n` +
+                                    `職級：${conflictData.level}\n` +
+                                    `到職日：${conflictData.hireDate || '未設定'}\n\n` +
+                                    `建議操作：\n` +
+                                    `1. 如果是同一人 → 在列表中找到該記錄並重新啟用\n` +
+                                    `2. 如果是不同人 → 聯絡技術人員處理`
+                                );
+                            }
+                            return;
+                        }
+                    }
+                }
+                
                 userRef = db.collection('users').doc(docId);
                 batch.update(userRef, data);
+                
             } else {
-                userRef = db.collection('users').doc(); 
-                data.isRegistered = false; 
-                data.uid = null;
-                data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-                batch.set(userRef, data);
+                // 新增記錄 - 檢查 Email 是否已存在（包含已停用的）
+                const emailCheck = await db.collection('users')
+                    .where('email', '==', email)
+                    .get();
+                
+                if (!emailCheck.empty) {
+                    // 找到相同 Email 的記錄
+                    const existingDoc = emailCheck.docs[0];
+                    const existingData = existingDoc.data();
+                    
+                    if (existingData.isActive) {
+                        // 啟用中的記錄
+                        alert(
+                            `❌ 此 Email 已被使用\n\n` +
+                            `員工：${existingData.displayName} (${existingData.employeeId})\n` +
+                            `單位：${existingData.unitId}\n` +
+                            `狀態：啟用中\n\n` +
+                            `無法建立重複的 Email`
+                        );
+                        return;
+                    } else {
+                        // 已停用的記錄
+                        const action = confirm(
+                            `⚠️ 此 Email 曾經被使用\n\n` +
+                            `原員工：${existingData.displayName} (${existingData.employeeId})\n` +
+                            `單位：${existingData.unitId}\n` +
+                            `狀態：已停用\n\n` +
+                            `是否重新啟用此記錄？\n\n` +
+                            `• 確定 → 重新啟用並更新資料\n` +
+                            `• 取消 → 停止建立`
+                        );
+                        
+                        if (action) {
+                            // 重新啟用舊記錄
+                            userRef = db.collection('users').doc(existingDoc.id);
+                            data.isActive = true;
+                            data.reactivatedAt = firebase.firestore.FieldValue.serverTimestamp();
+                            batch.update(userRef, data);
+                            
+                            alert(
+                                `✅ 將重新啟用此員工\n\n` +
+                                `提醒：\n` +
+                                `• 員工可使用原密碼或員工編號登入\n` +
+                                `• 如果忘記密碼，可使用「重設密碼」功能`
+                            );
+                        } else {
+                            return;
+                        }
+                    }
+                } else {
+                    // Email 未被使用，正常建立
+                    userRef = db.collection('users').doc();
+                    data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+                    batch.set(userRef, data);
+                }
             }
+            
             const targetUid = docId || userRef.id;
+            
+            // 更新單位的管理員/排班人員清單
             if (selectedRole !== 'system_admin') {
                 const unitRef = db.collection('units').doc(selectedUnitId);
                 const unitDoc = await unitRef.get();
@@ -592,24 +697,90 @@ const staffManager = {
                     batch.update(unitRef, { managers, schedulers });
                 }
             }
+            
             await batch.commit();
-            alert("儲存成功！");
+            
+            if (!docId && !emailCheck.empty) {
+                alert("✅ 員工重新啟用成功！");
+            } else if (!docId) {
+                // 新增成功
+                alert(
+                    `✅ 員工建立成功！\n\n` +
+                    `請將以下資訊告知員工：\n\n` +
+                    `Email：${email}\n` +
+                    `預設密碼：${empId}\n\n` +
+                    `員工可使用 Email + 員工編號登入\n` +
+                    `首次登入系統會自動建立帳號並提示修改密碼`
+                );
+            } else {
+                alert("✅ 儲存成功！");
+            }
+            
             this.closeModal();
             await this.fetchData();
-        } catch (e) { console.error("Save Error:", e); alert("儲存失敗: " + e.message); }
+            
+        } catch (e) { 
+            console.error("Save Error:", e); 
+            alert("儲存失敗: " + e.message); 
+        }
     },
 
-    // --- 8. 刪除與匯入 ---
+    // --- 8. 刪除（停用）員工 ---
     deleteUser: async function(id) {
         const u = this.allData.find(d => d.id === id);
-        if (u && u.role === 'system_admin') { alert("無法刪除超級管理員！"); return; }
-        if(!confirm(`確定要將 ${u?.displayName || '此人員'} 標記為離職？`)) return;
+        if (u && u.role === 'system_admin') { 
+            alert("無法停用超級管理員！"); 
+            return; 
+        }
+        
+        const confirmMsg = u?.uid 
+            ? `確定要將 ${u?.displayName || '此人員'} 標記為離職？\n\n` +
+              `⚠️ 此員工已有 Auth 帳號\n\n` +
+              `停用後：\n` +
+              `• Firestore 記錄保留（isActive = false）\n` +
+              `• Auth 帳號仍然存在\n` +
+              `• 員工無法登入系統（查詢時過濾）\n` +
+              `• Email 無法重複使用（除非重新啟用）\n\n` +
+              `建議：如需完全移除，請使用「帳號診斷工具」`
+            : `確定要將 ${u?.displayName || '此人員'} 標記為離職？`;
+        
+        if(!confirm(confirmMsg)) return;
+        
         try {
             await db.collection('users').doc(id).update({ 
-                isActive: false, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                isActive: false,
+                deactivatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            await this.fetchData(); alert("已標記為離職");
-        } catch(e) { alert("操作失敗"); }
+            
+            await this.fetchData();
+            alert("✅ 已標記為離職\n\n記錄已保留，如需重新啟用請編輯該員工");
+            
+        } catch(e) { 
+            alert("❌ 操作失敗：" + e.message); 
+        }
+    },
+
+    // --- 重新啟用員工 ---
+    reactivateUser: async function(id) {
+        const u = this.allData.find(d => d.id === id);
+        if (!u) return;
+        
+        if (!confirm(`確定要重新啟用 ${u.displayName}？\n\n員工可以繼續使用原帳號登入。`)) return;
+        
+        try {
+            await db.collection('users').doc(id).update({
+                isActive: true,
+                reactivatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            await this.fetchData();
+            alert("✅ 員工已重新啟用");
+            
+        } catch(e) {
+            alert("❌ 操作失敗：" + e.message);
+        }
     },
 
     openImportModal: function() {
@@ -640,7 +811,7 @@ const staffManager = {
                     const docRef = db.collection('users').doc();
                     batch.set(docRef, {
                         unitId: cols[0].trim(), employeeId: cols[1].trim(), displayName: cols[2].trim(), email: cols[3].trim(),
-                        level: cols[4]||'N', hireDate: cols[5]||'', groupId: cols[6]||'', role: 'user', isActive: true, isRegistered: false, uid: null,
+                        level: cols[4]||'N', hireDate: cols[5]||'', groupId: cols[6]||'', role: 'user', isActive: true,
                         schedulingParams: { isPregnant: false, isBreastfeeding: false, canBundleShifts: false },
                         createdAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
