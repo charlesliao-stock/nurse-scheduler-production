@@ -192,8 +192,8 @@ const staffManager = {
                         <i class="fas fa-check-circle"></i> 啟用
                     </button>
                     <button class="btn" style="background:#3498db;color:white;padding:5px 10px;" 
-                            onclick="staffManager.sendPasswordResetEmail('${u.id}')" 
-                            title="發送密碼重設郵件">
+                            onclick="staffManager.resetPasswordToEmployeeId('${u.id}')" 
+                            title="重設密碼為員工編號">
                         <i class="fas fa-key"></i>
                     </button>
                 `;
@@ -213,8 +213,8 @@ const staffManager = {
                         <i class="fas fa-edit"></i>
                     </button>
                     <button class="btn" style="background:#3498db;color:white;padding:5px 10px;margin:0 5px;" 
-                            onclick="staffManager.sendPasswordResetEmail('${u.id}')" 
-                            title="發送密碼重設郵件">
+                            onclick="staffManager.resetPasswordToEmployeeId('${u.id}')" 
+                            title="重設密碼為員工編號">
                         <i class="fas fa-key"></i>
                     </button>
                     ${deactivateBtn}
@@ -562,170 +562,165 @@ const staffManager = {
         }
     },
 
-    // --- 10. 發送密碼重設郵件（修改：支援所有人員） ---
-    sendPasswordResetEmail: async function(userId) {
+    // --- 10. 重設密碼為員工編號 ---
+    resetPasswordToEmployeeId: async function(userId) {
         const user = this.allData.find(u => u.id === userId);
-        if (!user || !user.email) {
-            alert('❌ 找不到員工 Email');
+        if (!user || !user.email || !user.employeeId) {
+            alert('❌ 找不到員工資料或員工編號');
             return;
         }
         
-        // 檢查是否已開通帳號
-        let authExists = false;
-        try {
-            const signInMethods = await auth.fetchSignInMethodsForEmail(user.email);
-            authExists = signInMethods.length > 0;
-        } catch (error) {
-            console.warn('無法檢查 Auth 狀態:', error);
+        // 檢查員工編號長度
+        if (user.employeeId.length < 6) {
+            alert(
+                `❌ 員工編號不足 6 個字元\n\n` +
+                `員工：${user.displayName}\n` +
+                `員工編號：${user.employeeId} (${user.employeeId.length} 字元)\n\n` +
+                `Firebase Auth 要求密碼至少 6 個字元。\n` +
+                `請修改員工編號或使用其他方式重設密碼。`
+            );
+            return;
         }
         
-        let confirmMsg = '';
-        if (!user.isRegistered || !user.uid) {
-            // 未開通的情況
-            if (authExists) {
-                confirmMsg = `⚠️ 特殊狀況\n\n` +
-                    `員工：${user.displayName}\n` +
-                    `Email：${user.email}\n\n` +
-                    `• Firestore：未開通\n` +
-                    `• Auth：帳號存在\n\n` +
-                    `仍要發送密碼重設郵件嗎？\n` +
-                    `（可能是之前開通失敗導致）`;
-            } else {
-                confirmMsg = `⚠️ 此員工尚未開通帳號\n\n` +
-                    `員工：${user.displayName}\n` +
-                    `Email：${user.email}\n\n` +
-                    `建議流程：\n` +
-                    `1. 員工前往開通頁面註冊\n` +
-                    `2. 或使用預設密碼（員工編號）登入\n\n` +
-                    `如果員工忘記或無法登入，\n` +
-                    `仍可發送重設郵件建立帳號。\n\n` +
-                    `是否要發送？`;
-            }
-        } else {
-            // 已開通的情況
-            confirmMsg = `發送密碼重設郵件\n\n` +
-                `員工：${user.displayName}\n` +
-                `Email：${user.email}\n\n` +
-                `員工將收到郵件並可自行設定新密碼。\n\n` +
-                `確定要發送嗎？`;
-        }
+        const confirmMsg = `確定要重設密碼？\n\n` +
+            `員工：${user.displayName}\n` +
+            `Email：${user.email}\n` +
+            `新密碼：${user.employeeId}\n\n` +
+            `⚠️ 注意：\n` +
+            `• 密碼將立即重設為員工編號\n` +
+            `• 員工下次登入請使用新密碼\n` +
+            `• 建議員工登入後立即修改密碼\n\n` +
+            `確定要繼續嗎？`;
         
         if (!confirm(confirmMsg)) return;
         
         try {
-            await auth.sendPasswordResetEmail(user.email);
-            alert(
-                `✅ 已發送密碼重設郵件\n\n` +
-                `請通知 ${user.displayName} 檢查信箱：\n` +
-                `${user.email}\n\n` +
-                `注意事項：\n` +
-                `• 郵件可能需要幾分鐘才會送達\n` +
-                `• 請檢查垃圾郵件資料夾\n` +
-                `• 重設連結有效期 1 小時`
-            );
-        } catch (error) {
-            console.error('發送失敗:', error);
+            // 呼叫 Cloud Function 重設密碼
+            const resetPassword = firebase.functions().httpsCallable('resetUserPassword');
+            const result = await resetPassword({
+                email: user.email,
+                newPassword: user.employeeId
+            });
             
-            if (error.code === 'auth/user-not-found') {
-                const createAccount = confirm(
-                    `❌ Auth 系統中找不到此帳號\n\n` +
-                    `員工：${user.displayName}\n` +
-                    `Email：${user.email}\n\n` +
-                    `建議解決方案：\n` +
-                    `1. 請員工使用預設密碼（員工編號）首次登入\n` +
-                    `2. 系統會自動建立帳號\n` +
-                    `3. 登入後可修改密碼\n\n` +
-                    `如果員工編號不足 6 字元，\n` +
-                    `請使用「帳號診斷工具」協助處理。`
-                );
-            } else if (error.code === 'auth/too-many-requests') {
+            if (result.data.success) {
+                // 更新 Firestore 標記
+                await db.collection('users').doc(userId).update({
+                    passwordResetAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    passwordResetBy: auth.currentUser.uid,
+                    forcePasswordReset: true,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
                 alert(
-                    `❌ 請求過於頻繁\n\n` +
-                    `請稍後再試，或請員工檢查是否已收到郵件。`
+                    `✅ 密碼重設成功！\n\n` +
+                    `員工：${user.displayName}\n` +
+                    `新密碼：${user.employeeId}\n\n` +
+                    `請通知員工：\n` +
+                    `• 使用新密碼登入\n` +
+                    `• 登入後系統會要求修改密碼\n` +
+                    `• 請設定一個安全的新密碼`
                 );
             } else {
-                alert('❌ 發送失敗：' + error.message);
+                throw new Error(result.data.error || '重設失敗');
+            }
+            
+        } catch (error) {
+            console.error('重設密碼失敗:', error);
+            
+            if (error.message.includes('internal')) {
+                alert(
+                    `❌ 重設失敗：Cloud Function 未部署\n\n` +
+                    `請確認已部署 resetUserPassword 函數。\n\n` +
+                    `部署方法：\n` +
+                    `1. 檢查 functions/index.js\n` +
+                    `2. 執行 firebase deploy --only functions\n\n` +
+                    `暫時解決方案：\n` +
+                    `使用「批次發送重設郵件」功能`
+                );
+            } else {
+                alert(`❌ 重設失敗：${error.message}`);
             }
         }
     },
 
-    // --- 11. 批次重設密碼（使用員工編號） ---
-    batchResetPasswordsByEmployeeId: async function() {
+    // --- 11. 批次重設密碼為員工編號 ---
+    batchResetPasswordToEmployeeId: async function() {
         const confirm1 = confirm(
             `⚠️ 批次重設密碼為員工編號\n\n` +
-            `此功能需要後端 Cloud Function 支援。\n\n` +
-            `操作說明：\n` +
-            `1. 找出所有「已開通」的員工\n` +
+            `此功能將：\n` +
+            `1. 找出所有「啟用中」的員工\n` +
             `2. 將密碼統一重設為「員工編號」\n` +
-            `3. 需要 Firebase Admin SDK\n\n` +
+            `3. 員工下次登入時會被要求修改密碼\n\n` +
             `⚠️ 注意：\n` +
             `• 員工編號必須至少 6 個字元\n` +
-            `• 此操作無法在前端直接執行\n\n` +
-            `建議改用「批次發送重設郵件」功能，\n` +
-            `讓員工自行設定密碼更安全。\n\n` +
-            `仍要查看實作說明嗎？`
-        );
-        
-        if (!confirm1) return;
-        
-        alert(
-            `📘 批次重設密碼實作說明\n\n` +
-            `由於 Firebase 安全限制，\n` +
-            `前端無法直接修改 Auth 密碼。\n\n` +
-            `需要建立 Cloud Function：\n\n` +
-            `1. 安裝 Firebase Admin SDK\n` +
-            `2. 建立 HTTPS Function\n` +
-            `3. 使用 admin.auth().updateUser()\n\n` +
-            `範例程式碼請參考 Firebase 文件：\n` +
-            `https://firebase.google.com/docs/auth/admin/manage-users\n\n` +
-            `或使用「批次發送重設郵件」功能。`
-        );
-    },
-
-    // --- 12. 批次發送密碼重設郵件 ---
-    batchSendPasswordReset: async function() {
-        const confirm1 = confirm(
-            `⚠️ 批次發送密碼重設郵件\n\n` +
-            `此功能將：\n` +
-            `1. 找出所有「已開通且啟用」的員工\n` +
-            `2. 發送密碼重設郵件到他們的 Email\n` +
-            `3. 員工可自行設定新密碼\n\n` +
-            `注意事項：\n` +
-            `• 可能需要幾分鐘完成\n` +
-            `• 請提醒員工檢查垃圾郵件\n` +
-            `• 避免短時間內重複發送\n\n` +
+            `• 需要 Cloud Function 支援\n` +
+            `• 會立即生效，無法撤銷\n\n` +
             `確定要繼續嗎？`
         );
         
         if (!confirm1) return;
         
         try {
-            // 找出所有已開通且啟用的員工
+            // 找出所有啟用中的員工
             const snapshot = await db.collection('users')
-                .where('isRegistered', '==', true)
                 .where('isActive', '==', true)
                 .get();
             
             if (snapshot.empty) {
-                alert('✅ 沒有需要重設的帳號\n\n所有員工都尚未開通或已停用。');
+                alert('✅ 沒有需要重設的帳號');
                 return;
             }
             
-            const totalUsers = snapshot.size;
-            const confirm2 = confirm(
-                `找到 ${totalUsers} 位已開通的員工\n\n` +
-                `將對這些員工發送密碼重設郵件。\n\n` +
-                `預估時間：約 ${Math.ceil(totalUsers * 0.2)} 秒\n\n` +
-                `確定要開始嗎？`
-            );
+            // 過濾出員工編號足夠長的
+            const validUsers = [];
+            const invalidUsers = [];
             
-            if (!confirm2) return;
+            snapshot.docs.forEach(doc => {
+                const user = doc.data();
+                if (user.employeeId && user.employeeId.length >= 6) {
+                    validUsers.push({
+                        id: doc.id,
+                        email: user.email,
+                        employeeId: user.employeeId,
+                        displayName: user.displayName
+                    });
+                } else {
+                    invalidUsers.push({
+                        displayName: user.displayName,
+                        employeeId: user.employeeId || '(無)',
+                        length: (user.employeeId || '').length
+                    });
+                }
+            });
             
-            let success = 0;
-            let failed = 0;
-            const failedList = [];
+            // 顯示統計資訊
+            let message = `找到 ${snapshot.size} 位員工\n\n`;
+            message += `可重設：${validUsers.length} 位\n`;
             
-            // 顯示進度提示
+            if (invalidUsers.length > 0) {
+                message += `無法重設：${invalidUsers.length} 位\n`;
+                message += `（員工編號不足 6 字元）\n\n`;
+                
+                if (invalidUsers.length <= 5) {
+                    message += `無法重設的員工：\n`;
+                    invalidUsers.forEach(u => {
+                        message += `• ${u.displayName} (${u.employeeId}, ${u.length}字元)\n`;
+                    });
+                } else {
+                    message += `無法重設的員工（前5位）：\n`;
+                    invalidUsers.slice(0, 5).forEach(u => {
+                        message += `• ${u.displayName} (${u.employeeId}, ${u.length}字元)\n`;
+                    });
+                    message += `... 還有 ${invalidUsers.length - 5} 位\n`;
+                }
+                message += `\n`;
+            }
+            
+            message += `\n確定要重設 ${validUsers.length} 位員工的密碼嗎？`;
+            
+            if (!confirm(message)) return;
+            
+            // 顯示進度
             const progressDiv = document.createElement('div');
             progressDiv.style.cssText = `
                 position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -734,65 +729,93 @@ const staffManager = {
             `;
             progressDiv.innerHTML = `
                 <i class="fas fa-spinner fa-spin" style="font-size:3rem;color:#3498db;"></i>
-                <p style="margin-top:20px;font-size:1.1rem;font-weight:bold;">批次發送中...</p>
-                <p id="batchProgress" style="margin-top:10px;color:#7f8c8d;">0 / ${totalUsers}</p>
+                <p style="margin-top:20px;font-size:1.1rem;font-weight:bold;">批次重設中...</p>
+                <p id="batchResetProgress" style="margin-top:10px;color:#7f8c8d;">0 / ${validUsers.length}</p>
             `;
             document.body.appendChild(progressDiv);
             
-            // 逐一發送郵件
-            let processedCount = 0;
-            for (const doc of snapshot.docs) {
-                const user = doc.data();
-                try {
-                    await auth.sendPasswordResetEmail(user.email);
-                    success++;
-                    
-                    // 避免觸發 Firebase 速率限制（每秒約 5-10 封）
-                    await new Promise(resolve => setTimeout(resolve, 200));
-                    
-                } catch (error) {
-                    failed++;
-                    const errorMsg = error.code === 'auth/user-not-found' 
-                        ? '帳號不存在' 
-                        : error.code === 'auth/too-many-requests'
-                        ? '請求過於頻繁'
-                        : error.code;
-                    failedList.push(`${user.displayName} (${user.email}): ${errorMsg}`);
+            let success = 0;
+            let failed = 0;
+            const failedList = [];
+            
+            // 呼叫 Cloud Function 批次重設
+            try {
+                const batchResetPassword = firebase.functions().httpsCallable('batchResetPasswords');
+                const result = await batchResetPassword({ users: validUsers });
+                
+                success = result.data.success || 0;
+                failed = result.data.failed || 0;
+                
+                if (result.data.errors && result.data.errors.length > 0) {
+                    result.data.errors.forEach(err => {
+                        failedList.push(`${err.displayName} (${err.email}): ${err.error}`);
+                    });
                 }
                 
-                // 更新進度
-                processedCount++;
-                const progressText = document.getElementById('batchProgress');
-                if (progressText) {
-                    progressText.textContent = `${processedCount} / ${totalUsers}`;
+                // 更新 Firestore 標記（成功的）
+                if (success > 0) {
+                    const batch = db.batch();
+                    validUsers.forEach(user => {
+                        const userRef = db.collection('users').doc(user.id);
+                        batch.update(userRef, {
+                            passwordResetAt: firebase.firestore.FieldValue.serverTimestamp(),
+                            passwordResetBy: auth.currentUser.uid,
+                            forcePasswordReset: true,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    });
+                    await batch.commit();
                 }
+                
+            } catch (error) {
+                console.error('批次重設失敗:', error);
+                document.body.removeChild(progressDiv);
+                
+                if (error.message.includes('internal')) {
+                    alert(
+                        `❌ 批次重設失敗：Cloud Function 未部署\n\n` +
+                        `請確認已部署以下函數：\n` +
+                        `• batchResetPasswords\n\n` +
+                        `部署方法：\n` +
+                        `1. 檢查 functions/index.js\n` +
+                        `2. 執行 firebase deploy --only functions\n\n` +
+                        `或使用單一重設功能。`
+                    );
+                } else {
+                    alert(`❌ 批次重設失敗：${error.message}`);
+                }
+                return;
             }
             
             // 移除進度提示
             document.body.removeChild(progressDiv);
             
             // 顯示結果
-            let message = `✅ 批次發送完成\n\n`;
-            message += `成功：${success} 筆\n`;
-            message += `失敗：${failed} 筆\n\n`;
+            let resultMessage = `✅ 批次重設完成\n\n`;
+            resultMessage += `成功：${success} 位\n`;
+            resultMessage += `失敗：${failed} 位\n`;
+            
+            if (invalidUsers.length > 0) {
+                resultMessage += `跳過：${invalidUsers.length} 位（編號不足6字元）\n`;
+            }
             
             if (failedList.length > 0) {
-                message += `失敗清單：\n${failedList.slice(0, 10).join('\n')}`;
+                resultMessage += `\n失敗清單：\n${failedList.slice(0, 10).join('\n')}`;
                 if (failedList.length > 10) {
-                    message += `\n... 還有 ${failedList.length - 10} 筆`;
+                    resultMessage += `\n... 還有 ${failedList.length - 10} 位`;
                 }
             }
             
-            message += `\n\n請提醒員工：\n`;
-            message += `1. 檢查信箱（包含垃圾郵件）\n`;
-            message += `2. 點擊郵件中的連結重設密碼\n`;
-            message += `3. 如未收到，可使用「重設密碼」按鈕`;
+            resultMessage += `\n\n請通知員工：\n`;
+            resultMessage += `1. 密碼已重設為員工編號\n`;
+            resultMessage += `2. 登入後系統會要求修改密碼\n`;
+            resultMessage += `3. 請設定一個安全的新密碼`;
             
-            alert(message);
+            alert(resultMessage);
             
         } catch (error) {
-            console.error('批次發送失敗:', error);
-            alert(`❌ 批次發送失敗\n\n錯誤訊息：${error.message}`);
+            console.error('批次重設失敗:', error);
+            alert(`❌ 操作失敗：${error.message}`);
         }
     },
 
