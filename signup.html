@@ -312,14 +312,32 @@
 
                 // 準備新資料（使用第一筆記錄的資料）
                 const baseData = allDocs[0].data;
+                
+                // 記錄原始資料以供除錯
+                console.log('[遷移] 原始資料:', baseData);
+                
+                // 確保保留所有原始欄位
                 const newData = {
-                    ...baseData,
+                    ...baseData,  // 保留所有原始欄位
                     uid: uid,
                     isRegistered: true,
                     isActive: true,
                     activatedAt: firebase.firestore.FieldValue.serverTimestamp(),
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 };
+                
+                // 確認關鍵欄位存在
+                console.log('[遷移] 新資料:', {
+                    employeeId: newData.employeeId,
+                    displayName: newData.displayName,
+                    email: newData.email,
+                    unitId: newData.unitId,
+                    role: newData.role,
+                    level: newData.level,
+                    uid: newData.uid,
+                    isRegistered: newData.isRegistered,
+                    totalFields: Object.keys(newData).length
+                });
 
                 // 使用 Batch 操作
                 const batch = db.batch();
@@ -328,6 +346,7 @@
                 const newDocRef = db.collection('users').doc(uid);
                 batch.set(newDocRef, newData);
                 console.log('[遷移] 建立新文件:', uid);
+                console.log('[遷移] 包含欄位:', Object.keys(newData).join(', '));
                 
                 // 刪除所有舊的文件
                 allDocs.forEach(doc => {
@@ -339,6 +358,21 @@
 
                 await batch.commit();
                 console.log('[遷移] Firestore 資料遷移成功');
+                
+                // 驗證新文件
+                const verifyDoc = await db.collection('users').doc(uid).get();
+                if (verifyDoc.exists) {
+                    const verifyData = verifyDoc.data();
+                    console.log('[驗證] 新文件資料確認:', {
+                        employeeId: verifyData.employeeId,
+                        displayName: verifyData.displayName,
+                        unitId: verifyData.unitId,
+                        role: verifyData.role,
+                        level: verifyData.level
+                    });
+                } else {
+                    console.error('[驗證] 警告：新文件不存在！');
+                }
 
             } catch (error) {
                 console.error('[驗證] 失敗:', error);
