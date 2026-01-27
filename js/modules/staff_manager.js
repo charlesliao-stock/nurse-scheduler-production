@@ -336,21 +336,40 @@ const staffManager = {
         if (!confirm(confirmMsg)) return;
 
         try {
-            // 檢查 Auth 是否已存在
+            console.log('[快速開通] 開始處理:', u.email);
+            
+            // 步驟 1: 檢查 Auth 是否已存在
             const signInMethods = await auth.fetchSignInMethodsForEmail(u.email);
             if (signInMethods.length > 0) {
                 alert('❌ 此 Email 已在 Auth 系統中註冊\n\n請使用「帳號診斷工具」檢查。');
                 return;
             }
 
-            // 建立 Auth 帳號
+            // 步驟 2: 記住當前管理員資訊（在建立新帳號前）
+            const adminUser = auth.currentUser;
+            if (!adminUser) {
+                alert('❌ 請先登入管理員帳號');
+                return;
+            }
+            console.log('[快速開通] 記住管理員:', adminUser.uid);
+
+            // 步驟 3: 建立 Auth 帳號
+            console.log('[快速開通] 建立 Auth 帳號...');
             const userCredential = await auth.createUserWithEmailAndPassword(u.email, defaultPwd);
             const newUid = userCredential.user.uid;
+            console.log('[快速開通] Auth 帳號建立成功, UID:', newUid);
 
-            // 登出新建立的帳號
+            // 步驟 4: 立即登出新建立的帳號
+            console.log('[快速開通] 登出新帳號...');
             await auth.signOut();
+            console.log('[快速開通] 新帳號已登出');
+            
+            // 步驟 5: 等待登出完成
+            await new Promise(resolve => setTimeout(resolve, 500));
 
-            // 更新 Firestore 記錄
+            // 步驟 6: 使用 Admin 權限更新 Firestore（無需登入）
+            // 注意：這裡不需要重新登入，因為 Firestore 規則允許創建
+            console.log('[快速開通] 更新 Firestore 記錄...');
             const batch = db.batch();
             
             // 建立新文件（ID = UID）
@@ -368,6 +387,7 @@ const staffManager = {
             batch.delete(db.collection('users').doc(id));
             
             await batch.commit();
+            console.log('[快速開通] Firestore 更新完成');
 
             alert(
                 '✅ 快速開通成功！\n\n' +
@@ -378,20 +398,31 @@ const staffManager = {
                 `⚠️ 您需要重新登入管理員帳號`
             );
 
+            // 步驟 7: 導向登入頁面讓管理員重新登入
             setTimeout(() => {
                 window.location.href = 'index.html';
-            }, 2000);
+            }, 1500);
 
         } catch (error) {
             console.error('[快速開通] 失敗:', error);
             
+            // 如果失敗，嘗試刪除可能建立的 Auth 帳號
             if (auth.currentUser) {
                 try {
+                    console.log('[快速開通] 清理失敗的帳號...');
                     await auth.currentUser.delete();
-                } catch(e) {}
+                    console.log('[快速開通] 已刪除失敗的帳號');
+                } catch(e) {
+                    console.error('[快速開通] 清理失敗:', e);
+                }
             }
             
             alert('❌ 快速開通失敗：\n\n' + error.message);
+            
+            // 導向登入頁面
+            setTimeout(() => {
+                window.location.href = 'index.html';
+            }, 1000);
         }
     },
 
