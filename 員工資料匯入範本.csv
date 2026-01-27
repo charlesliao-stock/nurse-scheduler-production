@@ -1,0 +1,6 @@
+unitId,employeeId,displayName,email,level,hireDate,groupId
+9B,N1001,王小明,N1001@hospital.com,N1,2024-01-15,A
+9B,N1002,李小華,N1002@hospital.com,N2,2023-06-20,B
+9B,N1003,張小美,N1003@hospital.com,N3,2022-03-10,A
+ICU,N2001,陳大同,N2001@hospital.com,N1,2024-02-01,C
+ICU,N2002,林小芳,N2002@hospital.com,N,2023-11-15,D
