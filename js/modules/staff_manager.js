@@ -335,109 +335,13 @@ const staffManager = {
 
         if (!confirm(confirmMsg)) return;
 
+        let newUid = null;
+        let authCreated = false;
+
         try {
             console.log('[快速開通] 開始處理:', u.email);
             
-            // 步驟 1: 檢查 Auth 是否已存在
-            console.log('[快速開通] 檢查 Auth 狀態...');
-            let signInMethods = [];
-            try {
-                signInMethods = await auth.fetchSignInMethodsForEmail(u.email);
-            } catch (checkError) {
-                console.error('[快速開通] 檢查 Auth 失敗:', checkError);
-            }
-            
-            if (signInMethods.length > 0) {
-                console.warn('[快速開通] Email 已在 Auth 中註冊');
-                
-                const useExisting = confirm(
-                    `⚠️ 此 Email 已在 Auth 系統中註冊\n\n` +
-                    `可能情況：\n` +
-                    `1. 之前已經開通過\n` +
-                    `2. 開通失敗留下的殘餘\n\n` +
-                    `您可以：\n` +
-                    `A. 取消，使用「帳號診斷工具」檢查\n` +
-                    `B. 繼續，嘗試修復（將連結現有 Auth 帳號）\n\n` +
-                    `是否要繼續嘗試修復？`
-                );
-                
-                if (!useExisting) {
-                    alert('❌ 已取消\n\n建議使用「帳號診斷工具」檢查此 Email');
-                    return;
-                }
-                
-                // 用戶選擇繼續修復
-                console.log('[快速開通] 用戶選擇繼續修復現有 Auth 帳號');
-                
-                // 嘗試使用預設密碼登入
-                try {
-                    console.log('[快速開通] 嘗試使用預設密碼登入...');
-                    const loginResult = await auth.signInWithEmailAndPassword(u.email, defaultPwd);
-                    const existingUid = loginResult.user.uid;
-                    console.log('[快速開通] 使用預設密碼登入成功, UID:', existingUid);
-                    
-                    // 立即登出
-                    await auth.signOut();
-                    console.log('[快速開通] 已登出');
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    
-                    // 更新 Firestore（使用現有的 UID）
-                    console.log('[快速開通] 更新 Firestore...');
-                    const batch = db.batch();
-                    
-                    const newDocRef = db.collection('users').doc(existingUid);
-                    batch.set(newDocRef, {
-                        ...u,
-                        uid: existingUid,
-                        isRegistered: true,
-                        passwordChanged: false,
-                        activatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    // 刪除舊文件
-                    if (id !== existingUid) {
-                        batch.delete(db.collection('users').doc(id));
-                    }
-                    
-                    await batch.commit();
-                    console.log('[快速開通] 修復完成');
-                    
-                    alert(
-                        '✅ 修復成功！\n\n' +
-                        `已連結現有的 Auth 帳號\n` +
-                        `員工：${u.displayName}\n` +
-                        `Email：${u.email}\n` +
-                        `密碼：${defaultPwd}\n\n` +
-                        `⚠️ 您需要重新登入管理員帳號`
-                    );
-                    
-                    setTimeout(() => {
-                        window.location.href = 'index.html';
-                    }, 1500);
-                    return;
-                    
-                } catch (loginError) {
-                    console.error('[快速開通] 預設密碼登入失敗:', loginError);
-                    
-                    alert(
-                        `❌ 無法使用預設密碼登入現有帳號\n\n` +
-                        `錯誤：${loginError.message}\n\n` +
-                        `可能原因：\n` +
-                        `1. 密碼已被修改\n` +
-                        `2. Auth 帳號狀態異常\n\n` +
-                        `建議：\n` +
-                        `1. 使用「帳號診斷工具」檢查\n` +
-                        `2. 或在 Firebase Console 手動刪除 Auth 帳號後重試`
-                    );
-                    return;
-                }
-            }
-
-            // Auth 不存在，正常建立流程
-            console.log('[快速開通] Auth 不存在，開始建立新帳號');
-            
-            // 步驟 2: 記住當前管理員資訊（在建立新帳號前）
+            // 記住當前管理員資訊
             const adminUser = auth.currentUser;
             if (!adminUser) {
                 alert('❌ 請先登入管理員帳號');
@@ -445,21 +349,66 @@ const staffManager = {
             }
             console.log('[快速開通] 記住管理員:', adminUser.uid);
 
-            // 步驟 3: 建立 Auth 帳號
-            console.log('[快速開通] 建立 Auth 帳號...');
-            const userCredential = await auth.createUserWithEmailAndPassword(u.email, defaultPwd);
-            const newUid = userCredential.user.uid;
-            console.log('[快速開通] Auth 帳號建立成功, UID:', newUid);
-
-            // 步驟 4: 立即登出新建立的帳號
-            console.log('[快速開通] 登出新帳號...');
-            await auth.signOut();
-            console.log('[快速開通] 新帳號已登出');
+            // 嘗試建立 Auth 帳號
+            console.log('[快速開通] 嘗試建立 Auth 帳號...');
             
-            // 步驟 5: 等待登出完成
+            try {
+                const userCredential = await auth.createUserWithEmailAndPassword(u.email, defaultPwd);
+                newUid = userCredential.user.uid;
+                authCreated = true;
+                console.log('[快速開通] Auth 帳號建立成功, UID:', newUid);
+            } catch (createError) {
+                console.log('[快速開通] 建立失敗:', createError.code, createError.message);
+                
+                // 如果是 Email 已存在
+                if (createError.code === 'auth/email-already-in-use') {
+                    console.log('[快速開通] Email 已註冊，嘗試修復模式');
+                    
+                    const useExisting = confirm(
+                        `⚠️ 此 Email 已在 Auth 系統中註冊\n\n` +
+                        `可能情況：\n` +
+                        `• 之前已經開通過\n` +
+                        `• 開通失敗留下的殘餘\n\n` +
+                        `是否嘗試使用預設密碼連結現有帳號？\n\n` +
+                        `（如果預設密碼不正確，請使用「帳號診斷工具」）`
+                    );
+                    
+                    if (!useExisting) {
+                        throw new Error('用戶取消操作');
+                    }
+                    
+                    // 嘗試使用預設密碼登入
+                    try {
+                        console.log('[快速開通] 嘗試使用預設密碼登入現有帳號...');
+                        const loginResult = await auth.signInWithEmailAndPassword(u.email, defaultPwd);
+                        newUid = loginResult.user.uid;
+                        console.log('[快速開通] 登入成功, UID:', newUid);
+                    } catch (loginError) {
+                        console.error('[快速開通] 登入失敗:', loginError);
+                        
+                        throw new Error(
+                            `無法使用預設密碼登入現有帳號\n\n` +
+                            `原因: ${loginError.message}\n\n` +
+                            `建議操作：\n` +
+                            `1. 使用「帳號診斷工具」檢查此 Email\n` +
+                            `2. 或在 Firebase Console 刪除 Auth 帳號後重試`
+                        );
+                    }
+                } else {
+                    // 其他錯誤
+                    throw createError;
+                }
+            }
+
+            // 登出（無論是新建還是登入的）
+            console.log('[快速開通] 登出...');
+            await auth.signOut();
+            console.log('[快速開通] 已登出');
+            
+            // 等待登出完成
             await new Promise(resolve => setTimeout(resolve, 500));
 
-            // 步驟 6: 使用 Admin 權限更新 Firestore（無需登入）
+            // 更新 Firestore
             console.log('[快速開通] 更新 Firestore 記錄...');
             const batch = db.batch();
             
@@ -469,27 +418,26 @@ const staffManager = {
                 ...u,
                 uid: newUid,
                 isRegistered: true,
-                passwordChanged: false,  // 標記為未修改密碼
+                passwordChanged: false,
                 activatedAt: firebase.firestore.FieldValue.serverTimestamp(),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
-            // 刪除舊文件
-            batch.delete(db.collection('users').doc(id));
+            // 刪除舊文件（如果不同）
+            if (id !== newUid) {
+                batch.delete(db.collection('users').doc(id));
+                console.log('[快速開通] 將刪除舊文件:', id);
+            }
             
             await batch.commit();
             console.log('[快速開通] Firestore 更新完成');
 
-            alert(
-                '✅ 快速開通成功！\n\n' +
-                `員工：${u.displayName}\n` +
-                `Email：${u.email}\n` +
-                `預設密碼：${defaultPwd}\n\n` +
-                `請將密碼告知員工，並提醒首次登入後修改密碼。\n\n` +
-                `⚠️ 您需要重新登入管理員帳號`
-            );
+            const successMsg = authCreated 
+                ? `✅ 快速開通成功！\n\n員工：${u.displayName}\nEmail：${u.email}\n預設密碼：${defaultPwd}\n\n請將密碼告知員工，並提醒首次登入後修改密碼。`
+                : `✅ 修復成功！\n\n已連結現有的 Auth 帳號\n員工：${u.displayName}\nEmail：${u.email}\n密碼：${defaultPwd}`;
 
-            // 步驟 7: 導向登入頁面讓管理員重新登入
+            alert(successMsg + '\n\n⚠️ 您需要重新登入管理員帳號');
+
             setTimeout(() => {
                 window.location.href = 'index.html';
             }, 1500);
@@ -497,18 +445,19 @@ const staffManager = {
         } catch (error) {
             console.error('[快速開通] 失敗:', error);
             
-            // 錯誤處理
-            let errorMessage = error.message;
+            // 組合錯誤訊息
+            let errorMessage = error.message || error.toString() || '未知錯誤';
             
-            if (error.code === 'auth/email-already-in-use') {
-                errorMessage = '此 Email 已被註冊（檢查時未發現，可能是時序問題）';
-            } else if (error.code === 'auth/invalid-email') {
+            // 處理常見錯誤
+            if (error.code === 'auth/invalid-email') {
                 errorMessage = 'Email 格式不正確';
             } else if (error.code === 'auth/weak-password') {
-                errorMessage = '密碼強度不足（預設密碼太短）';
+                errorMessage = '密碼強度不足（至少需要 6 個字元）\n\n請確認員工編號長度是否足夠';
+            } else if (error.code === 'permission-denied') {
+                errorMessage = '權限不足\n\n請確認 Firestore 規則是否正確部署';
             }
             
-            alert('❌ 快速開通失敗：\n\n' + errorMessage);
+            alert(`❌ 快速開通失敗\n\n${errorMessage}`);
             
             // 導向登入頁面
             setTimeout(() => {
