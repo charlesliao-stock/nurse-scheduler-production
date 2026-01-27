@@ -1,0 +1,1359 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase 帳號管理工具</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 0.95rem;
+        }
+        
+        .tabs {
+            display: flex;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e9ecef;
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 500;
+            border: none;
+            background: transparent;
+        }
+        
+        .tab:hover {
+            background: #e9ecef;
+        }
+        
+        .tab.active {
+            background: white;
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
+        }
+        
+        .tab-content {
+            display: none;
+            padding: 30px;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .tool-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .tool-section h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e9ecef;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #495057;
+        }
+        
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 0.95rem;
+        }
+        
+        .form-group textarea {
+            resize: vertical;
+            min-height: 100px;
+            font-family: monospace;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: all 0.3s;
+            margin-right: 10px;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+        
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #218838;
+        }
+        
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+        
+        .btn-warning:hover {
+            background: #e0a800;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .result-box {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+        
+        .result-box.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .result-box.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        .result-box.warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+        
+        .result-box.info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        
+        table th,
+        table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        table tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .badge-success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .badge-danger {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .badge-warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .badge-info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .stat-card h4 {
+            color: #6c757d;
+            font-size: 0.85rem;
+            margin-bottom: 8px;
+        }
+        
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .loading i {
+            font-size: 2rem;
+            color: #667eea;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        
+        .alert-info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        
+        .alert-warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+        
+        .alert-danger {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        code {
+            background: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-tools"></i> Firebase 帳號管理工具</h1>
+            <p>完整的 Firestore 與 Auth 帳號管理、診斷與修復工具</p>
+        </div>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('overview')">
+                <i class="fas fa-chart-pie"></i> 總覽
+            </button>
+            <button class="tab" onclick="switchTab('diagnosis')">
+                <i class="fas fa-stethoscope"></i> 帳號診斷
+            </button>
+            <button class="tab" onclick="switchTab('sync')">
+                <i class="fas fa-sync"></i> 同步修復
+            </button>
+            <button class="tab" onclick="switchTab('cleanup')">
+                <i class="fas fa-broom"></i> 清理工具
+            </button>
+            <button class="tab" onclick="switchTab('batch')">
+                <i class="fas fa-layer-group"></i> 批次操作
+            </button>
+        </div>
+        
+        <!-- 總覽 Tab -->
+        <div id="overview" class="tab-content active">
+            <h2 style="margin-bottom: 20px;">系統狀態總覽</h2>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h4>Firestore 記錄總數</h4>
+                    <div class="value" id="stat-firestore-total">-</div>
+                </div>
+                <div class="stat-card" style="border-left-color: #28a745;">
+                    <h4>啟用中員工</h4>
+                    <div class="value" id="stat-firestore-active">-</div>
+                </div>
+                <div class="stat-card" style="border-left-color: #dc3545;">
+                    <h4>已停用員工</h4>
+                    <div class="value" id="stat-firestore-inactive">-</div>
+                </div>
+                <div class="stat-card" style="border-left-color: #ffc107;">
+                    <h4>有 UID 的記錄</h4>
+                    <div class="value" id="stat-firestore-with-uid">-</div>
+                </div>
+            </div>
+            
+            <div class="tool-section">
+                <h3><i class="fas fa-exclamation-triangle"></i> 潛在問題</h3>
+                <div id="issues-list">
+                    <div class="loading">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <p>正在掃描...</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="tool-section">
+                <h3><i class="fas fa-redo"></i> 快速操作</h3>
+                <button class="btn btn-primary" onclick="refreshOverview()">
+                    <i class="fas fa-sync"></i> 重新掃描
+                </button>
+                <button class="btn btn-success" onclick="switchTab('diagnosis')">
+                    <i class="fas fa-stethoscope"></i> 診斷帳號
+                </button>
+                <button class="btn btn-warning" onclick="switchTab('cleanup')">
+                    <i class="fas fa-broom"></i> 清理重複
+                </button>
+            </div>
+        </div>
+        
+        <!-- 帳號診斷 Tab -->
+        <div id="diagnosis" class="tab-content">
+            <div class="tool-section">
+                <h3><i class="fas fa-search"></i> 查詢帳號狀態</h3>
+                <div class="alert alert-info">
+                    <strong><i class="fas fa-info-circle"></i> 功能說明</strong><br>
+                    輸入 Email 查詢該帳號在 Firestore 和 Auth 的完整狀態，包括是否同步、是否有重複記錄等。
+                </div>
+                
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="diagnosisEmail" placeholder="example@hospital.com">
+                </div>
+                
+                <button class="btn btn-primary" onclick="diagnoseAccount()">
+                    <i class="fas fa-stethoscope"></i> 開始診斷
+                </button>
+                
+                <div id="diagnosisResult" class="result-box"></div>
+            </div>
+        </div>
+        
+        <!-- 同步修復 Tab -->
+        <div id="sync" class="tab-content">
+            <div class="tool-section">
+                <h3><i class="fas fa-sync"></i> Firestore ↔ Auth 同步修復</h3>
+                <div class="alert alert-warning">
+                    <strong><i class="fas fa-exclamation-triangle"></i> 注意</strong><br>
+                    此工具會修復 Firestore 和 Auth 之間的不一致問題，包括：<br>
+                    • Firestore 有記錄但 Auth 沒有<br>
+                    • Auth 有帳號但 Firestore 沒有記錄<br>
+                    • 文件 ID 與 UID 不一致
+                </div>
+                
+                <div class="form-group">
+                    <label>要修復的 Email</label>
+                    <input type="email" id="syncEmail" placeholder="example@hospital.com">
+                </div>
+                
+                <button class="btn btn-primary" onclick="syncAccount()">
+                    <i class="fas fa-sync"></i> 執行同步
+                </button>
+                
+                <div id="syncResult" class="result-box"></div>
+            </div>
+            
+            <div class="tool-section">
+                <h3><i class="fas fa-magic"></i> 自動修復所有不一致</h3>
+                <div class="alert alert-danger">
+                    <strong><i class="fas fa-skull-crossbones"></i> 危險操作</strong><br>
+                    此操作會掃描並自動修復所有發現的不一致問題。建議先備份資料。
+                </div>
+                
+                <button class="btn btn-danger" onclick="autoFixAll()">
+                    <i class="fas fa-magic"></i> 自動修復所有問題
+                </button>
+                
+                <div id="autoFixResult" class="result-box"></div>
+            </div>
+        </div>
+        
+        <!-- 清理工具 Tab -->
+        <div id="cleanup" class="tab-content">
+            <div class="tool-section">
+                <h3><i class="fas fa-copy"></i> 掃描重複 Email</h3>
+                <div class="alert alert-info">
+                    找出 Firestore 中有相同 Email 的多筆記錄，協助清理重複資料。
+                </div>
+                
+                <button class="btn btn-primary" onclick="scanDuplicates()">
+                    <i class="fas fa-search"></i> 開始掃描
+                </button>
+                
+                <div id="duplicateResult" class="result-box"></div>
+            </div>
+            
+            <div class="tool-section">
+                <h3><i class="fas fa-ghost"></i> 掃描孤兒帳號</h3>
+                <div class="alert alert-info">
+                    找出 Auth 中有帳號但 Firestore 沒有對應記錄的「孤兒帳號」。
+                </div>
+                
+                <div class="alert alert-warning">
+                    <strong>注意：</strong>此功能需要 Firebase Admin SDK 或手動逐一檢查。
+                    目前僅能透過已知 Email 清單檢查。
+                </div>
+                
+                <div class="form-group">
+                    <label>已知 Email 清單（每行一個）</label>
+                    <textarea id="orphanEmails" placeholder="email1@hospital.com&#10;email2@hospital.com"></textarea>
+                </div>
+                
+                <button class="btn btn-primary" onclick="scanOrphans()">
+                    <i class="fas fa-search"></i> 檢查孤兒帳號
+                </button>
+                
+                <div id="orphanResult" class="result-box"></div>
+            </div>
+            
+            <div class="tool-section">
+                <h3><i class="fas fa-trash"></i> 刪除 Auth 帳號</h3>
+                <div class="alert alert-danger">
+                    <strong><i class="fas fa-exclamation-triangle"></i> 危險操作</strong><br>
+                    刪除 Auth 帳號後無法復原。請確認該帳號確實不再需要。
+                </div>
+                
+                <div class="form-group">
+                    <label>要刪除的 Email</label>
+                    <input type="email" id="deleteAuthEmail" placeholder="example@hospital.com">
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="confirmDelete">
+                        我確認要刪除此 Auth 帳號
+                    </label>
+                </div>
+                
+                <button class="btn btn-danger" onclick="deleteAuthAccount()">
+                    <i class="fas fa-trash"></i> 刪除 Auth 帳號
+                </button>
+                
+                <div id="deleteResult" class="result-box"></div>
+            </div>
+        </div>
+        
+        <!-- 批次操作 Tab -->
+        <div id="batch" class="tab-content">
+            <div class="tool-section">
+                <h3><i class="fas fa-file-export"></i> 匯出所有帳號資料</h3>
+                <div class="alert alert-info">
+                    匯出 Firestore 中所有員工的資料為 CSV 格式，包含 UID、isActive 等資訊。
+                </div>
+                
+                <button class="btn btn-success" onclick="exportAllAccounts()">
+                    <i class="fas fa-download"></i> 匯出為 CSV
+                </button>
+            </div>
+            
+            <div class="tool-section">
+                <h3><i class="fas fa-database"></i> 批次更新 UID</h3>
+                <div class="alert alert-warning">
+                    將所有有 UID 但文件 ID 不等於 UID 的記錄遷移到正確的文件 ID。
+                </div>
+                
+                <button class="btn btn-warning" onclick="batchMigrateUIDs()">
+                    <i class="fas fa-exchange-alt"></i> 批次遷移
+                </button>
+                
+                <div id="batchMigrateResult" class="result-box"></div>
+            </div>
+            
+            <div class="tool-section">
+                <h3><i class="fas fa-shield-alt"></i> 驗證系統完整性</h3>
+                <div class="alert alert-info">
+                    全面檢查系統的資料完整性，包括：<br>
+                    • 所有記錄的必要欄位是否完整<br>
+                    • UID 與文件 ID 是否一致<br>
+                    • Email 格式是否正確<br>
+                    • 是否有重複記錄
+                </div>
+                
+                <button class="btn btn-primary" onclick="verifyIntegrity()">
+                    <i class="fas fa-check-circle"></i> 開始驗證
+                </button>
+                
+                <div id="verifyResult" class="result-box"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="js/config.js"></script>
+    <script>
+        // ==================== 工具函數 ====================
+        
+        function switchTab(tabName) {
+            // 隱藏所有 tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // 移除所有 tab 的 active class
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // 顯示選中的 tab
+            document.getElementById(tabName).classList.add('active');
+            event.target.closest('.tab').classList.add('active');
+        }
+        
+        function showResult(elementId, message, type = 'info') {
+            const resultBox = document.getElementById(elementId);
+            resultBox.className = `result-box ${type}`;
+            resultBox.innerHTML = message;
+            resultBox.style.display = 'block';
+        }
+        
+        function hideResult(elementId) {
+            document.getElementById(elementId).style.display = 'none';
+        }
+        
+        // ==================== 總覽功能 ====================
+        
+        async function refreshOverview() {
+            console.log('[總覽] 開始掃描系統狀態');
+            
+            try {
+                // 取得所有 Firestore 記錄
+                const snapshot = await db.collection('users').get();
+                const allUsers = [];
+                snapshot.forEach(doc => {
+                    allUsers.push({ id: doc.id, ...doc.data() });
+                });
+                
+                // 統計
+                const totalCount = allUsers.length;
+                const activeCount = allUsers.filter(u => u.isActive !== false).length;
+                const inactiveCount = allUsers.filter(u => u.isActive === false).length;
+                const withUidCount = allUsers.filter(u => u.uid).length;
+                
+                // 更新統計卡片
+                document.getElementById('stat-firestore-total').textContent = totalCount;
+                document.getElementById('stat-firestore-active').textContent = activeCount;
+                document.getElementById('stat-firestore-inactive').textContent = inactiveCount;
+                document.getElementById('stat-firestore-with-uid').textContent = withUidCount;
+                
+                // 掃描問題
+                const issues = [];
+                
+                // 1. 檢查重複 Email
+                const emailMap = {};
+                allUsers.forEach(u => {
+                    if (u.email) {
+                        if (!emailMap[u.email]) {
+                            emailMap[u.email] = [];
+                        }
+                        emailMap[u.email].push(u);
+                    }
+                });
+                
+                const duplicateEmails = Object.keys(emailMap).filter(email => emailMap[email].length > 1);
+                if (duplicateEmails.length > 0) {
+                    issues.push({
+                        type: 'warning',
+                        icon: 'fa-copy',
+                        title: '發現重複 Email',
+                        message: `${duplicateEmails.length} 個 Email 有多筆記錄`,
+                        action: 'switchTab("cleanup")'
+                    });
+                }
+                
+                // 2. 檢查 UID 不一致
+                const uidMismatch = allUsers.filter(u => u.uid && u.id !== u.uid);
+                if (uidMismatch.length > 0) {
+                    issues.push({
+                        type: 'danger',
+                        icon: 'fa-exclamation-triangle',
+                        title: '文件 ID 與 UID 不一致',
+                        message: `${uidMismatch.length} 筆記錄需要遷移`,
+                        action: 'switchTab("batch")'
+                    });
+                }
+                
+                // 3. 檢查無 Email 記錄
+                const noEmail = allUsers.filter(u => !u.email);
+                if (noEmail.length > 0) {
+                    issues.push({
+                        type: 'warning',
+                        icon: 'fa-envelope',
+                        title: '缺少 Email',
+                        message: `${noEmail.length} 筆記錄沒有 Email`
+                    });
+                }
+                
+                // 4. 檢查無 employeeId 記錄
+                const noEmpId = allUsers.filter(u => !u.employeeId);
+                if (noEmpId.length > 0) {
+                    issues.push({
+                        type: 'warning',
+                        icon: 'fa-id-card',
+                        title: '缺少員工編號',
+                        message: `${noEmpId.length} 筆記錄沒有員工編號`
+                    });
+                }
+                
+                // 顯示問題清單
+                const issuesList = document.getElementById('issues-list');
+                if (issues.length === 0) {
+                    issuesList.innerHTML = `
+                        <div class="alert alert-success">
+                            <i class="fas fa-check-circle"></i> <strong>系統狀態良好</strong><br>
+                            未發現任何問題
+                        </div>
+                    `;
+                } else {
+                    let html = '';
+                    issues.forEach(issue => {
+                        html += `
+                            <div class="alert alert-${issue.type}">
+                                <i class="fas ${issue.icon}"></i> <strong>${issue.title}</strong><br>
+                                ${issue.message}
+                                ${issue.action ? `<button class="btn btn-sm btn-primary" onclick="${issue.action}" style="margin-top:10px;">前往處理</button>` : ''}
+                            </div>
+                        `;
+                    });
+                    issuesList.innerHTML = html;
+                }
+                
+                console.log('[總覽] 掃描完成');
+                
+            } catch (error) {
+                console.error('[總覽] 掃描失敗:', error);
+                document.getElementById('issues-list').innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle"></i> 掃描失敗<br>
+                        ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        // ==================== 帳號診斷功能 ====================
+        
+        async function diagnoseAccount() {
+            const email = document.getElementById('diagnosisEmail').value.trim();
+            
+            if (!email) {
+                showResult('diagnosisResult', '❌ 請輸入 Email', 'error');
+                return;
+            }
+            
+            showResult('diagnosisResult', '<i class="fas fa-spinner fa-spin"></i> 診斷中...', 'info');
+            
+            try {
+                console.log('[診斷] 開始診斷:', email);
+                
+                // 1. 檢查 Firestore
+                const firestoreQuery = await db.collection('users')
+                    .where('email', '==', email)
+                    .get();
+                
+                const firestoreDocs = [];
+                firestoreQuery.forEach(doc => {
+                    firestoreDocs.push({ id: doc.id, ...doc.data() });
+                });
+                
+                // 2. 檢查 Auth
+                let authExists = false;
+                try {
+                    const signInMethods = await auth.fetchSignInMethodsForEmail(email);
+                    authExists = signInMethods.length > 0;
+                } catch (e) {
+                    console.warn('[診斷] Auth 檢查失敗:', e);
+                }
+                
+                // 3. 生成診斷報告
+                let report = '<h4>📋 診斷報告</h4>';
+                report += '<hr style="margin: 15px 0;">';
+                
+                // Firestore 狀態
+                report += '<h5><i class="fas fa-database"></i> Firestore 狀態</h5>';
+                if (firestoreDocs.length === 0) {
+                    report += '<p style="color:#dc3545;">❌ 未找到記錄</p>';
+                } else if (firestoreDocs.length === 1) {
+                    const doc = firestoreDocs[0];
+                    report += '<p style="color:#28a745;">✓ 找到 1 筆記錄</p>';
+                    report += `<table>
+                        <tr><th>欄位</th><th>值</th></tr>
+                        <tr><td>文件 ID</td><td><code>${doc.id}</code></td></tr>
+                        <tr><td>UID</td><td><code>${doc.uid || '(無)'}</code></td></tr>
+                        <tr><td>員工編號</td><td>${doc.employeeId || '(無)'}</td></tr>
+                        <tr><td>姓名</td><td>${doc.displayName || '(無)'}</td></tr>
+                        <tr><td>單位</td><td>${doc.unitId || '(無)'}</td></tr>
+                        <tr><td>狀態</td><td>${doc.isActive === false ? '<span class="badge badge-danger">已停用</span>' : '<span class="badge badge-success">啟用中</span>'}</td></tr>
+                        <tr><td>文件 ID = UID</td><td>${doc.uid && doc.id === doc.uid ? '<span class="badge badge-success">一致</span>' : '<span class="badge badge-danger">不一致</span>'}</td></tr>
+                    </table>`;
+                } else {
+                    report += `<p style="color:#ffc107;">⚠️ 找到 ${firestoreDocs.length} 筆重複記錄</p>`;
+                    report += '<ul>';
+                    firestoreDocs.forEach(doc => {
+                        report += `<li>ID: <code>${doc.id}</code>, 姓名: ${doc.displayName}, 狀態: ${doc.isActive === false ? '已停用' : '啟用'}</li>`;
+                    });
+                    report += '</ul>';
+                }
+                
+                report += '<br><h5><i class="fas fa-key"></i> Auth 狀態</h5>';
+                report += authExists 
+                    ? '<p style="color:#28a745;">✓ Auth 帳號存在</p>'
+                    : '<p style="color:#dc3545;">❌ Auth 帳號不存在</p>';
+                
+                // 4. 問題與建議
+                report += '<br><h5><i class="fas fa-lightbulb"></i> 診斷結論</h5>';
+                
+                if (firestoreDocs.length === 0 && !authExists) {
+                    report += '<div class="alert alert-info">此 Email 未在系統中使用，可以正常建立新帳號。</div>';
+                } else if (firestoreDocs.length === 0 && authExists) {
+                    report += '<div class="alert alert-danger">孤兒 Auth 帳號：Auth 有帳號但 Firestore 沒有記錄。<br>建議刪除 Auth 帳號。</div>';
+                    report += `<button class="btn btn-danger" onclick="deleteAuthAccountDirect('${email}')"><i class="fas fa-trash"></i> 刪除 Auth 帳號</button>`;
+                } else if (firestoreDocs.length === 1 && !authExists) {
+                    report += '<div class="alert alert-warning">Firestore 有記錄但 Auth 沒有帳號。<br>員工首次登入時會自動建立 Auth 帳號。</div>';
+                } else if (firestoreDocs.length === 1 && authExists) {
+                    const doc = firestoreDocs[0];
+                    if (doc.id === doc.uid) {
+                        report += '<div class="alert alert-success">資料狀態正常，無需處理。</div>';
+                    } else {
+                        report += '<div class="alert alert-warning">文件 ID 與 UID 不一致，建議遷移。</div>';
+                        report += `<button class="btn btn-warning" onclick="migrateDocument('${doc.id}', '${doc.uid}')"><i class="fas fa-exchange-alt"></i> 執行遷移</button>`;
+                    }
+                } else if (firestoreDocs.length > 1) {
+                    report += '<div class="alert alert-danger">發現重複記錄，需要清理。</div>';
+                    report += `<button class="btn btn-danger" onclick="cleanupDuplicates('${email}')"><i class="fas fa-broom"></i> 清理重複</button>`;
+                }
+                
+                showResult('diagnosisResult', report, 'info');
+                
+            } catch (error) {
+                console.error('[診斷] 失敗:', error);
+                showResult('diagnosisResult', `❌ 診斷失敗<br>${error.message}`, 'error');
+            }
+        }
+        
+        // ==================== 同步修復功能 ====================
+        
+        async function syncAccount() {
+            const email = document.getElementById('syncEmail').value.trim();
+            
+            if (!email) {
+                showResult('syncResult', '❌ 請輸入 Email', 'error');
+                return;
+            }
+            
+            showResult('syncResult', '<i class="fas fa-spinner fa-spin"></i> 同步中...', 'info');
+            
+            try {
+                // 調用診斷功能的邏輯，然後自動修復
+                alert('此功能與診斷功能整合，請使用診斷功能查看並選擇修復方案。');
+                document.getElementById('diagnosisEmail').value = email;
+                switchTab('diagnosis');
+                diagnoseAccount();
+                
+            } catch (error) {
+                showResult('syncResult', `❌ 同步失敗<br>${error.message}`, 'error');
+            }
+        }
+        
+        // ==================== 清理工具功能 ====================
+        
+        async function scanDuplicates() {
+            showResult('duplicateResult', '<i class="fas fa-spinner fa-spin"></i> 掃描中...', 'info');
+            
+            try {
+                const snapshot = await db.collection('users').get();
+                const emailMap = {};
+                
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.email) {
+                        if (!emailMap[data.email]) {
+                            emailMap[data.email] = [];
+                        }
+                        emailMap[data.email].push({ id: doc.id, ...data });
+                    }
+                });
+                
+                const duplicates = Object.keys(emailMap).filter(email => emailMap[email].length > 1);
+                
+                if (duplicates.length === 0) {
+                    showResult('duplicateResult', '✅ 未發現重複的 Email', 'success');
+                    return;
+                }
+                
+                let report = `<h4>找到 ${duplicates.length} 個重複的 Email</h4><hr>`;
+                
+                duplicates.forEach(email => {
+                    const docs = emailMap[email];
+                    report += `<div style="margin-bottom: 20px; padding: 15px; background: white; border-radius: 4px;">`;
+                    report += `<h5><i class="fas fa-envelope"></i> ${email}</h5>`;
+                    report += `<p>共 ${docs.length} 筆記錄：</p>`;
+                    report += '<table><tr><th>文件 ID</th><th>姓名</th><th>員工編號</th><th>狀態</th><th>UID</th><th>操作</th></tr>';
+                    
+                    docs.forEach(doc => {
+                        const statusBadge = doc.isActive === false 
+                            ? '<span class="badge badge-danger">已停用</span>'
+                            : '<span class="badge badge-success">啟用</span>';
+                        
+                        report += `<tr>
+                            <td><code>${doc.id}</code></td>
+                            <td>${doc.displayName || '-'}</td>
+                            <td>${doc.employeeId || '-'}</td>
+                            <td>${statusBadge}</td>
+                            <td>${doc.uid ? '<code>' + doc.uid + '</code>' : '-'}</td>
+                            <td><button class="btn btn-sm btn-danger" onclick="deleteFirestoreDoc('${doc.id}')">刪除</button></td>
+                        </tr>`;
+                    });
+                    
+                    report += '</table>';
+                    report += `<button class="btn btn-warning" onclick="cleanupDuplicates('${email}')"><i class="fas fa-broom"></i> 自動清理</button>`;
+                    report += '</div>';
+                });
+                
+                showResult('duplicateResult', report, 'warning');
+                
+            } catch (error) {
+                showResult('duplicateResult', `❌ 掃描失敗<br>${error.message}`, 'error');
+            }
+        }
+        
+        async function cleanupDuplicates(email) {
+            if (!confirm(`確定要自動清理 ${email} 的重複記錄嗎？\n\n將保留最新的啟用記錄，刪除其他重複項。`)) {
+                return;
+            }
+            
+            try {
+                const snapshot = await db.collection('users')
+                    .where('email', '==', email)
+                    .get();
+                
+                const docs = [];
+                snapshot.forEach(doc => {
+                    docs.push({ id: doc.id, ...doc.data(), ref: doc.ref });
+                });
+                
+                // 分類
+                const active = docs.filter(d => d.isActive !== false);
+                const inactive = docs.filter(d => d.isActive === false);
+                
+                // 保留最新的啟用記錄
+                let keepDoc = null;
+                if (active.length > 0) {
+                    // 有 UID 且 ID = UID 的優先
+                    keepDoc = active.find(d => d.uid && d.id === d.uid);
+                    if (!keepDoc) {
+                        // 否則保留最新的
+                        keepDoc = active.sort((a, b) => {
+                            const timeA = a.updatedAt?.toMillis?.() || a.createdAt?.toMillis?.() || 0;
+                            const timeB = b.updatedAt?.toMillis?.() || b.createdAt?.toMillis?.() || 0;
+                            return timeB - timeA;
+                        })[0];
+                    }
+                } else if (inactive.length > 0) {
+                    // 全部停用，保留最新的
+                    keepDoc = inactive.sort((a, b) => {
+                        const timeA = a.updatedAt?.toMillis?.() || a.createdAt?.toMillis?.() || 0;
+                        const timeB = b.updatedAt?.toMillis?.() || b.createdAt?.toMillis?.() || 0;
+                        return timeB - timeA;
+                    })[0];
+                }
+                
+                // 刪除其他記錄
+                const batch = db.batch();
+                let deleteCount = 0;
+                
+                docs.forEach(doc => {
+                    if (doc.id !== keepDoc.id) {
+                        batch.delete(doc.ref);
+                        deleteCount++;
+                    }
+                });
+                
+                await batch.commit();
+                
+                alert(`✅ 清理完成\n\n保留: ${keepDoc.id}\n刪除: ${deleteCount} 筆`);
+                
+                // 重新掃描
+                scanDuplicates();
+                
+            } catch (error) {
+                alert(`❌ 清理失敗\n\n${error.message}`);
+            }
+        }
+        
+        async function deleteFirestoreDoc(docId) {
+            if (!confirm(`確定要刪除文件 ${docId}？\n\n此操作無法復原。`)) {
+                return;
+            }
+            
+            try {
+                await db.collection('users').doc(docId).delete();
+                alert('✅ 刪除成功');
+                scanDuplicates();
+            } catch (error) {
+                alert(`❌ 刪除失敗\n\n${error.message}`);
+            }
+        }
+        
+        async function scanOrphans() {
+            const emailsText = document.getElementById('orphanEmails').value.trim();
+            
+            if (!emailsText) {
+                showResult('orphanResult', '❌ 請輸入要檢查的 Email 清單', 'error');
+                return;
+            }
+            
+            showResult('orphanResult', '<i class="fas fa-spinner fa-spin"></i> 檢查中...', 'info');
+            
+            try {
+                const emails = emailsText.split('\n').map(e => e.trim()).filter(e => e);
+                const orphans = [];
+                
+                for (const email of emails) {
+                    // 檢查 Auth
+                    let authExists = false;
+                    try {
+                        const signInMethods = await auth.fetchSignInMethodsForEmail(email);
+                        authExists = signInMethods.length > 0;
+                    } catch (e) {
+                        continue;
+                    }
+                    
+                    if (!authExists) continue;
+                    
+                    // 檢查 Firestore
+                    const snapshot = await db.collection('users')
+                        .where('email', '==', email)
+                        .get();
+                    
+                    if (snapshot.empty) {
+                        orphans.push(email);
+                    }
+                }
+                
+                if (orphans.length === 0) {
+                    showResult('orphanResult', '✅ 未發現孤兒帳號', 'success');
+                } else {
+                    let report = `<h4>找到 ${orphans.length} 個孤兒 Auth 帳號</h4><hr>`;
+                    report += '<ul>';
+                    orphans.forEach(email => {
+                        report += `<li>${email} <button class="btn btn-sm btn-danger" onclick="deleteAuthAccountDirect('${email}')">刪除</button></li>`;
+                    });
+                    report += '</ul>';
+                    showResult('orphanResult', report, 'warning');
+                }
+                
+            } catch (error) {
+                showResult('orphanResult', `❌ 檢查失敗<br>${error.message}`, 'error');
+            }
+        }
+        
+        async function deleteAuthAccount() {
+            const email = document.getElementById('deleteAuthEmail').value.trim();
+            const confirmed = document.getElementById('confirmDelete').checked;
+            
+            if (!email) {
+                showResult('deleteResult', '❌ 請輸入 Email', 'error');
+                return;
+            }
+            
+            if (!confirmed) {
+                showResult('deleteResult', '❌ 請勾選確認checkbox', 'error');
+                return;
+            }
+            
+            showResult('deleteResult', '<div class="alert alert-danger"><strong>⚠️ 重要提醒</strong><br><br>直接刪除 Auth 帳號的功能需要：<br>1. Firebase Admin SDK（後端）<br>2. 或在 Firebase Console 手動操作<br><br>前端無法直接刪除其他使用者的 Auth 帳號。<br><br><strong>建議操作流程：</strong><br>1. 前往 Firebase Console<br>2. Authentication → Users<br>3. 搜尋該 Email<br>4. 點擊刪除</div>', 'warning');
+        }
+        
+        async function deleteAuthAccountDirect(email) {
+            alert(
+                `⚠️ 無法直接刪除 Auth 帳號\n\n` +
+                `前端無法直接刪除其他使用者的 Auth 帳號。\n\n` +
+                `請前往 Firebase Console：\n` +
+                `Authentication → Users → 搜尋 ${email} → 刪除`
+            );
+        }
+        
+        // ==================== 批次操作功能 ====================
+        
+        async function exportAllAccounts() {
+            try {
+                const snapshot = await db.collection('users').get();
+                const users = [];
+                
+                snapshot.forEach(doc => {
+                    users.push({ id: doc.id, ...doc.data() });
+                });
+                
+                // 生成 CSV
+                let csv = 'ID,UID,Email,員工編號,姓名,單位,職級,角色,狀態\n';
+                
+                users.forEach(u => {
+                    csv += `"${u.id}","${u.uid || ''}","${u.email || ''}","${u.employeeId || ''}","${u.displayName || ''}","${u.unitId || ''}","${u.level || ''}","${u.role || ''}","${u.isActive === false ? '已停用' : '啟用'}"\n`;
+                });
+                
+                // 下載
+                const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `員工帳號資料_${new Date().toISOString().slice(0,10)}.csv`;
+                link.click();
+                
+                alert(`✅ 匯出成功\n\n共 ${users.length} 筆記錄`);
+                
+            } catch (error) {
+                alert(`❌ 匯出失敗\n\n${error.message}`);
+            }
+        }
+        
+        async function batchMigrateUIDs() {
+            if (!confirm('確定要批次遷移所有 UID 不一致的記錄嗎？\n\n此操作會：\n1. 建立新文件（ID = UID）\n2. 刪除舊文件')) {
+                return;
+            }
+            
+            showResult('batchMigrateResult', '<i class="fas fa-spinner fa-spin"></i> 遷移中...', 'info');
+            
+            try {
+                const snapshot = await db.collection('users').get();
+                const toMigrate = [];
+                
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.uid && doc.id !== data.uid) {
+                        toMigrate.push({ oldId: doc.id, uid: data.uid, data: data });
+                    }
+                });
+                
+                if (toMigrate.length === 0) {
+                    showResult('batchMigrateResult', '✅ 沒有需要遷移的記錄', 'success');
+                    return;
+                }
+                
+                let successCount = 0;
+                let errorCount = 0;
+                
+                for (const item of toMigrate) {
+                    try {
+                        const batch = db.batch();
+                        
+                        // 建立新文件
+                        const newDocRef = db.collection('users').doc(item.uid);
+                        batch.set(newDocRef, {
+                            ...item.data,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        
+                        // 刪除舊文件
+                        batch.delete(db.collection('users').doc(item.oldId));
+                        
+                        await batch.commit();
+                        successCount++;
+                        
+                    } catch (error) {
+                        console.error(`遷移失敗: ${item.oldId}`, error);
+                        errorCount++;
+                    }
+                }
+                
+                showResult('batchMigrateResult', 
+                    `✅ 遷移完成<br><br>成功: ${successCount} 筆<br>失敗: ${errorCount} 筆`, 
+                    errorCount > 0 ? 'warning' : 'success');
+                
+            } catch (error) {
+                showResult('batchMigrateResult', `❌ 遷移失敗<br>${error.message}`, 'error');
+            }
+        }
+        
+        async function verifyIntegrity() {
+            showResult('verifyResult', '<i class="fas fa-spinner fa-spin"></i> 驗證中...', 'info');
+            
+            try {
+                const snapshot = await db.collection('users').get();
+                const issues = [];
+                
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const docId = doc.id;
+                    
+                    // 檢查必要欄位
+                    if (!data.email) {
+                        issues.push({ type: 'error', message: `文件 ${docId} 缺少 email` });
+                    }
+                    if (!data.employeeId) {
+                        issues.push({ type: 'warning', message: `文件 ${docId} 缺少 employeeId` });
+                    }
+                    if (!data.displayName) {
+                        issues.push({ type: 'warning', message: `文件 ${docId} 缺少 displayName` });
+                    }
+                    
+                    // 檢查 Email 格式
+                    if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+                        issues.push({ type: 'error', message: `文件 ${docId} 的 email 格式不正確: ${data.email}` });
+                    }
+                    
+                    // 檢查 UID 一致性
+                    if (data.uid && docId !== data.uid) {
+                        issues.push({ type: 'warning', message: `文件 ${docId} 的 ID 與 UID 不一致 (UID: ${data.uid})` });
+                    }
+                });
+                
+                let report = `<h4>驗證完成</h4><hr>`;
+                report += `<p>掃描記錄數: ${snapshot.size}</p>`;
+                report += `<p>發現問題: ${issues.length} 個</p>`;
+                
+                if (issues.length === 0) {
+                    report += '<div class="alert alert-success"><i class="fas fa-check-circle"></i> 資料完整性良好</div>';
+                } else {
+                    report += '<h5>問題清單：</h5><ul>';
+                    issues.forEach(issue => {
+                        const icon = issue.type === 'error' ? 'fa-exclamation-circle' : 'fa-exclamation-triangle';
+                        const color = issue.type === 'error' ? '#dc3545' : '#ffc107';
+                        report += `<li style="color:${color}"><i class="fas ${icon}"></i> ${issue.message}</li>`;
+                    });
+                    report += '</ul>';
+                }
+                
+                showResult('verifyResult', report, issues.length > 0 ? 'warning' : 'success');
+                
+            } catch (error) {
+                showResult('verifyResult', `❌ 驗證失敗<br>${error.message}`, 'error');
+            }
+        }
+        
+        async function migrateDocument(oldId, uid) {
+            if (!confirm(`確定要遷移此文件嗎？\n\n舊 ID: ${oldId}\n新 ID: ${uid}`)) {
+                return;
+            }
+            
+            try {
+                const oldDoc = await db.collection('users').doc(oldId).get();
+                if (!oldDoc.exists) {
+                    alert('❌ 舊文件不存在');
+                    return;
+                }
+                
+                const batch = db.batch();
+                
+                // 建立新文件
+                const newDocRef = db.collection('users').doc(uid);
+                batch.set(newDocRef, {
+                    ...oldDoc.data(),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                // 刪除舊文件
+                batch.delete(oldDoc.ref);
+                
+                await batch.commit();
+                
+                alert('✅ 遷移成功');
+                diagnoseAccount();
+                
+            } catch (error) {
+                alert(`❌ 遷移失敗\n\n${error.message}`);
+            }
+        }
+        
+        async function autoFixAll() {
+            if (!confirm('⚠️ 此操作會自動修復所有發現的問題，包括：\n\n1. 清理重複 Email\n2. 遷移 UID 不一致的記錄\n\n確定要繼續嗎？')) {
+                return;
+            }
+            
+            showResult('autoFixResult', '<i class="fas fa-spinner fa-spin"></i> 自動修復中...', 'info');
+            
+            try {
+                let report = '<h4>自動修復報告</h4><hr>';
+                
+                // 1. 清理重複
+                report += '<h5>步驟 1: 清理重複 Email</h5>';
+                const snapshot = await db.collection('users').get();
+                const emailMap = {};
+                
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.email) {
+                        if (!emailMap[data.email]) {
+                            emailMap[data.email] = [];
+                        }
+                        emailMap[data.email].push({ id: doc.id, ...data, ref: doc.ref });
+                    }
+                });
+                
+                const duplicates = Object.keys(emailMap).filter(email => emailMap[email].length > 1);
+                let cleanupCount = 0;
+                
+                for (const email of duplicates) {
+                    const docs = emailMap[email];
+                    const active = docs.filter(d => d.isActive !== false);
+                    const keepDoc = active.length > 0 ? active[0] : docs[0];
+                    
+                    const batch = db.batch();
+                    docs.forEach(doc => {
+                        if (doc.id !== keepDoc.id) {
+                            batch.delete(doc.ref);
+                            cleanupCount++;
+                        }
+                    });
+                    
+                    await batch.commit();
+                }
+                
+                report += `<p>清理了 ${cleanupCount} 筆重複記錄</p>`;
+                
+                // 2. 遷移 UID
+                report += '<h5>步驟 2: 遷移 UID 不一致記錄</h5>';
+                const snapshot2 = await db.collection('users').get();
+                let migrateCount = 0;
+                
+                for (const doc of snapshot2.docs) {
+                    const data = doc.data();
+                    if (data.uid && doc.id !== data.uid) {
+                        const batch = db.batch();
+                        batch.set(db.collection('users').doc(data.uid), {
+                            ...data,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        batch.delete(doc.ref);
+                        await batch.commit();
+                        migrateCount++;
+                    }
+                }
+                
+                report += `<p>遷移了 ${migrateCount} 筆記錄</p>`;
+                
+                report += '<hr><div class="alert alert-success"><i class="fas fa-check-circle"></i> 自動修復完成</div>';
+                
+                showResult('autoFixResult', report, 'success');
+                refreshOverview();
+                
+            } catch (error) {
+                showResult('autoFixResult', `❌ 自動修復失敗<br>${error.message}`, 'error');
+            }
+        }
+        
+        // ==================== 初始化 ====================
+        
+        window.addEventListener('load', () => {
+            // 檢查登入狀態
+            auth.onAuthStateChanged(async (user) => {
+                if (!user) {
+                    alert('請先登入');
+                    window.location.href = 'index.html';
+                    return;
+                }
+                
+                // 檢查權限
+                const userDoc = await db.collection('users').doc(user.uid).get();
+                if (!userDoc.exists || userDoc.data().role !== 'system_admin') {
+                    alert('此工具僅限系統管理員使用');
+                    window.location.href = 'dashboard.html';
+                    return;
+                }
+                
+                // 載入總覽
+                refreshOverview();
+            });
+        });
+    </script>
+</body>
+</html>
