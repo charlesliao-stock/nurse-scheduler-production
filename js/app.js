@@ -227,6 +227,9 @@ const app = {
 
             await this.renderMenu();
             
+            // [新增] 檢查是否需要修改密碼
+            await this.checkPasswordChange();
+            
             // 非同步更新最後登入時間
             db.collection('users').doc(uid).update({
                 lastLogin: firebase.firestore.FieldValue.serverTimestamp()
@@ -495,6 +498,79 @@ const app = {
             console.error('❌ 清除模擬狀態失敗:', error);
             alert('清除失敗: ' + error.message);
         }
+    },
+
+    // --- 7. 首次登入檢查密碼 ---
+    checkPasswordChange: async function() {
+        try {
+            const userDoc = await db.collection('users').doc(this.currentUser.uid).get();
+            if (!userDoc.exists) return;
+            
+            const userData = userDoc.data();
+            
+            // 檢查是否使用預設密碼（從未修改過）
+            if (!userData.passwordChanged) {
+                this.showPasswordChangePrompt();
+            }
+        } catch (error) {
+            console.error('檢查密碼狀態失敗:', error);
+        }
+    },
+
+    // 顯示修改密碼提示
+    showPasswordChangePrompt: function() {
+        const modal = document.createElement('div');
+        modal.id = 'passwordChangeModal';
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;z-index:10000;';
+        modal.innerHTML = `
+            <div style="background:white;padding:40px;border-radius:12px;max-width:500px;box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+                <div style="text-align:center;margin-bottom:25px;">
+                    <i class="fas fa-exclamation-triangle" style="font-size:48px;color:#ffc107;margin-bottom:15px;"></i>
+                    <h2 style="margin:0 0 10px 0;color:#2c3e50;">⚠️ 首次登入提醒</h2>
+                    <p style="margin:0;color:#666;line-height:1.6;">
+                        為了您的帳號安全，建議您修改預設密碼。<br>
+                        預設密碼為您的員工編號，容易被猜測。
+                    </p>
+                </div>
+                
+                <div style="background:#fff3cd;padding:15px;border-radius:8px;margin-bottom:20px;border-left:4px solid #ffc107;">
+                    <p style="margin:0;color:#856404;font-size:0.95rem;">
+                        <strong>密碼安全建議：</strong><br>
+                        • 長度至少 8 個字元<br>
+                        • 包含英文大小寫、數字<br>
+                        • 避免使用生日、電話等個人資訊
+                    </p>
+                </div>
+                
+                <div style="display:flex;gap:15px;margin-top:25px;">
+                    <button onclick="app.goToChangePassword()" 
+                            style="flex:1;padding:15px;background:#e74c3c;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold;font-size:16px;">
+                        <i class="fas fa-key"></i> 立即修改密碼
+                    </button>
+                    <button onclick="app.dismissPasswordPrompt()" 
+                            style="flex:1;padding:15px;background:#95a5a6;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold;font-size:16px;">
+                        <i class="fas fa-times"></i> 稍後再說
+                    </button>
+                </div>
+                
+                <p style="margin:20px 0 0 0;text-align:center;color:#999;font-size:0.85rem;">
+                    您可以隨時在「個人設定」中修改密碼
+                </p>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    },
+
+    // 前往修改密碼頁面
+    goToChangePassword: function() {
+        this.dismissPasswordPrompt();
+        window.location.href = 'change_password.html';
+    },
+
+    // 關閉密碼提示
+    dismissPasswordPrompt: function() {
+        const modal = document.getElementById('passwordChangeModal');
+        if (modal) modal.remove();
     }
 };
 
