@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_manager.js
-// 🔧 最終整合版 v2：新增包班人數限制設定
+// 🔧 最終整合版 v3：修正顯示問題
 
 const preScheduleManager = {
     currentUnitId: null,
@@ -164,6 +164,7 @@ const preScheduleManager = {
         this.fillForm(data);
         this.renderStaffList();
         this.renderDailyNeedsTable(data.dailyNeeds);
+        this.renderBundleLimitSettings(data.bundleLimits || {});
         this.renderSpecificNeedsUI(data.specificNeeds || {}); 
         this.renderGroupLimitsTable(data.groupLimits);
     },
@@ -181,11 +182,6 @@ const preScheduleManager = {
         document.getElementById('inputDailyReserve').value = s.dailyReserved;
         document.getElementById('checkShowAllNames').checked = s.showAllNames;
         document.getElementById('inputShiftMode').value = s.shiftTypeMode;
-        
-        // 🆕 載入包班人數限制
-        const bundleLimits = data.bundleLimits || {};
-        document.getElementById('bundleLimit_E').value = bundleLimits.E || '';
-        document.getElementById('bundleLimit_N').value = bundleLimits.N || '';
         
         this.toggleThreeShiftOption();
         if(s.shiftTypeMode === "2") document.getElementById('checkAllowThree').checked = s.allowThreeShifts;
@@ -220,10 +216,20 @@ const preScheduleManager = {
         });
         
         tableHTML += '</tbody></table>';
-        
-        // 🆕 新增包班人數限制設定區塊
-        tableHTML += `
-        <div style="border-left:3px solid #e74c3c; padding-left:15px; margin-top:25px; background:#f9f9f9; padding:20px; border-radius:8px;">
+        container.innerHTML = html + tableHTML;
+    },
+
+    // 🆕 包班限制設定獨立函數
+    renderBundleLimitSettings: function(bundleLimits = {}) {
+        // 清除舊的包班設定區塊（如果存在）
+        const oldBlock = document.getElementById('bundleLimitBlock');
+        if (oldBlock) oldBlock.remove();
+
+        const container = document.getElementById('dailyNeedsTable');
+        if (!container) return;
+
+        const html = `
+        <div id="bundleLimitBlock" style="border-left:3px solid #e74c3c; padding:20px; margin-top:25px; background:#f9f9f9; border-radius:8px;">
             <h4 style="margin-top:0; color:#e74c3c;">📦 包班人數限制設定</h4>
             <p style="color:#666; font-size:0.9rem; margin-bottom:15px;">
                 設定各夜班允許的包班人數，系統會在排班前檢查並提示
@@ -239,6 +245,7 @@ const preScheduleManager = {
                            min="0" 
                            max="20" 
                            placeholder="例如: 4"
+                           value="${bundleLimits.E || ''}"
                            style="width:100%; padding:10px; font-size:1.1rem; border:1px solid #ddd; border-radius:4px;">
                     <small style="display:block; margin-top:8px; color:#666;">
                         留空表示不限制
@@ -254,6 +261,7 @@ const preScheduleManager = {
                            min="0" 
                            max="20" 
                            placeholder="例如: 3"
+                           value="${bundleLimits.N || ''}"
                            style="width:100%; padding:10px; font-size:1.1rem; border:1px solid #ddd; border-radius:4px;">
                     <small style="display:block; margin-top:8px; color:#666;">
                         留空表示不限制
@@ -266,7 +274,7 @@ const preScheduleManager = {
             </div>
         </div>`;
         
-        container.innerHTML = html + tableHTML;
+        container.insertAdjacentHTML('beforeend', html);
     },
 
     renderSpecificNeedsUI: function(specificNeeds = {}) {
@@ -336,15 +344,17 @@ const preScheduleManager = {
     },
 
     renderGroupLimitsTable: function(savedLimits = {}) {
-        const container = document.getElementById('groupLimitTable');
+        const container = document.getElementById('groupLimitTableContainer');
         if(!container) return;
         
+        let html = `<h4 style="margin-top:20px; border-bottom:1px solid #eee; padding-bottom:10px; color:#2c3e50;">3. 組別人力限制</h4>`;
+        
         if(this.currentUnitGroups.length === 0) {
-            container.innerHTML = '<p style="color:#999;">此單位尚無組別</p>';
+            container.innerHTML = html + '<p style="color:#999;">此單位尚無組別</p>';
             return;
         }
 
-        let html = '<table class="table table-bordered table-sm text-center"><thead><tr style="background:#f8f9fa;"><th>組別</th><th>班別</th><th>每日最少人數</th><th>每日最多人數</th></tr></thead><tbody>';
+        html += '<div id="groupLimitTable"><table class="table table-bordered table-sm text-center"><thead><tr style="background:#f8f9fa;"><th>組別</th><th>班別</th><th>每日最少人數</th><th>每日最多人數</th></tr></thead><tbody>';
         this.currentUnitGroups.forEach(g => {
             this.activeShifts.forEach((s, idx) => {
                 const minVal = savedLimits[g]?.[s.code]?.min ?? '';
@@ -357,7 +367,7 @@ const preScheduleManager = {
                     </tr>`;
             });
         });
-        html += '</tbody></table>';
+        html += '</tbody></table></div>';
         container.innerHTML = html;
     },
 
@@ -399,17 +409,13 @@ const preScheduleManager = {
             document.getElementById('checkShowAllNames').checked = s.showAllNames !== false;
             document.getElementById('inputShiftMode').value = s.shiftTypeMode || "3";
             
-            // 🆕 載入包班人數限制
-            const bundleLimits = data.bundleLimits || {};
-            document.getElementById('bundleLimit_E').value = bundleLimits.E || '';
-            document.getElementById('bundleLimit_N').value = bundleLimits.N || '';
-            
             this.toggleThreeShiftOption(); 
             if (s.shiftTypeMode === "2") {
                 document.getElementById('checkAllowThree').checked = s.allowThreeShifts === true;
             }
 
             this.renderDailyNeedsTable(data.dailyNeeds || {});
+            this.renderBundleLimitSettings(data.bundleLimits || {});
             this.renderGroupLimitsTable(data.groupLimits || {});
 
             alert(`✅ 已成功帶入 ${prevYear}/${prevMonth} 的設定!\n請切換至「2. 人力需求設定」檢查內容。`);
@@ -484,7 +490,7 @@ const preScheduleManager = {
             groupLimits,
             dailyNeeds,
             specificNeeds,
-            bundleLimits,  // 🆕 新增欄位
+            bundleLimits,
             staffList: this.staffListSnapshot,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
@@ -502,7 +508,7 @@ const preScheduleManager = {
                             dailyNeeds: dailyNeeds,
                             specificNeeds: specificNeeds,
                             groupLimits: groupLimits,
-                            bundleLimits: bundleLimits,  // 🆕 同步包班限制
+                            bundleLimits: bundleLimits,
                             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                         });
                     }
