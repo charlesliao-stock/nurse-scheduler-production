@@ -185,6 +185,8 @@ const preScheduleManager = {
         
         this.toggleThreeShiftOption();
         if(s.shiftTypeMode === "2") document.getElementById('checkAllowThree').checked = s.allowThreeShifts;
+        
+        // 🔥 移除這裡的包班限制設定，改由 renderBundleLimitSettings 處理
     },
 
     renderDailyNeedsTable: function(savedNeeds = {}) {
