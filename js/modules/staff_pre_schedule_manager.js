@@ -1,5 +1,5 @@
 // js/modules/staff_pre_schedule_manager.js
-// 🔧 最終完美版：支援「週起始日」切換 + 完整統計與防呆
+// 🔧 修正版：修復星期六可預班人數計算錯誤
 
 const staffPreScheduleManager = {
     docId: null,
@@ -8,30 +8,27 @@ const staffPreScheduleManager = {
     allUsersMap: {},  
     shifts: [],
     
-    // 資料狀態
-    userRequest: {},      // 我的預班 (編輯中)
-    allAssignments: {},   // 所有人的預班 (唯讀，用於統計)
+    userRequest: {},
+    allAssignments: {},
     
-    // 規則與限制
     rules: {
-        maxOff: 8,         // 每月最大預休數
-        maxHoliday: 8,     // 假日數
-        dailyLimit: 2,     // 每日預休上限
-        showNames: true,   // 是否顯示名單
-        weekStartDay: 1    // [新增] 每週起始日 (0:週日, 1:週一)，預設週一
+        maxOff: 8,
+        maxHoliday: 8,
+        dailyLimit: 2,
+        showNames: true,
+        weekStartDay: 1
     },
     
     isReadOnly: false,
     selectedDay: null,
     globalClickListener: null,
     
-    // --- 1. 初始化 ---
     open: function(id) {
         window.location.hash = `/staff/pre_schedule?id=${id}`;
     },
 
     init: async function(id) {
-        console.log("Staff Pre-Schedule Init (WeekStart Support):", id);
+        console.log("Staff Pre-Schedule Init (Fixed DayOfWeek):", id);
         this.docId = id;
         
         if (!app.currentUser) { alert("請先登入"); return; }
@@ -41,20 +38,17 @@ const staffPreScheduleManager = {
         if(grid) grid.innerHTML = '<div style="padding:20px; text-align:center;">資料載入中...</div>';
 
         try {
-            // [關鍵 1] 先載入主檔，確保取得 unitId
             await this.loadData(); 
-
-            // [關鍵 2] 並行載入：使用者資料、名單、班別、以及「單位規則」
             await Promise.all([
                 this.loadUserProfile(), 
                 this.loadAllUserNames(),
                 this.loadShifts(),
-                this.loadUnitRules() // [新增] 載入單位規則以取得 weekStartDay
+                this.loadUnitRules()
             ]);
             
             this.parseRules();         
             this.renderSidebar();      
-            this.renderCalendar();     // 這裡會依照 weekStartDay 渲染
+            this.renderCalendar();
             this.updateSidebarStats(); 
             this.setupEvents();
             this.initContextMenu();
@@ -83,8 +77,6 @@ const staffPreScheduleManager = {
         }
     },
 
-    // --- 2. 資料載入 ---
-    
     loadData: async function() {
         const doc = await db.collection('pre_schedules').doc(this.docId).get();
         if (!doc.exists) throw new Error("找不到預班表");
@@ -95,7 +87,6 @@ const staffPreScheduleManager = {
         this.userRequest = (this.allAssignments[uid]) ? JSON.parse(JSON.stringify(this.allAssignments[uid])) : {};
         this.isReadOnly = (this.data.status !== 'open');
         
-        // UI 更新
         const titleEl = document.getElementById('staffPreTitle');
         if(titleEl) titleEl.innerText = `${this.data.year}年 ${this.data.month}月 預班表`;
         
@@ -140,15 +131,12 @@ const staffPreScheduleManager = {
         this.shifts = snapshot.docs.map(d => d.data());
     },
 
-    // [新增] 載入單位規則 (為了取得 weekStartDay)
     loadUnitRules: async function() {
         if(!this.data || !this.data.unitId) return;
         try {
             const doc = await db.collection('units').doc(this.data.unitId).get();
             if(doc.exists) {
                 const r = doc.data().schedulingRules || {};
-                // 讀取 weekStartDay (0=週日, 1=週一)，預設為 1 (週一)
-                // 注意：這裡使用 nullish coalescing (??) 確保 0 不會變成 1
                 this.rules.weekStartDay = (r.hard?.weekStartDay !== undefined && r.hard?.weekStartDay !== null) 
                                           ? parseInt(r.hard.weekStartDay) : 1;
             }
@@ -163,9 +151,9 @@ const staffPreScheduleManager = {
         this.rules.maxHoliday = parseInt(settings.maxHolidayOffs) || 0;
         this.rules.dailyLimit = parseInt(settings.dailyReserved) || 0;
         this.rules.showNames = (settings.showAllNames !== false); 
-        // this.rules.weekStartDay 已經在 loadUnitRules 中設定
     },
 
+    // 🔥 修正：正確計算 dayOfWeek 索引
     getDailyQuota: function(day) {
         if (!this.data) return 0;
         const totalStaff = (this.data.staffList || []).length;
@@ -173,7 +161,12 @@ const staffPreScheduleManager = {
         const month = this.data.month;
         const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const dateObj = new Date(year, month - 1, day);
-        const dayOfWeek = dateObj.getDay(); 
+        
+        // 🔥 關鍵修正：轉換 JS 的 getDay() 到 dailyNeeds 的索引
+        // JS getDay(): 0=週日, 1=週一, 2=週二, 3=週三, 4=週四, 5=週五, 6=週六
+        // dailyNeeds 索引: 0=週一, 1=週二, 2=週三, 3=週四, 4=週五, 5=週六, 6=週日
+        const jsDay = dateObj.getDay();
+        const dayOfWeek = (jsDay === 0) ? 6 : jsDay - 1;
         
         let dailyNeedCount = 0;
         
@@ -196,7 +189,6 @@ const staffPreScheduleManager = {
         return Math.max(0, totalStaff - dailyNeedCount - dailyReserved);
     },
 
-    // --- 3. 渲染側邊欄 ---
     renderSidebar: function() {
         const bundleSelect = document.getElementById('inputBundleShift');
         const bundleGroup = document.getElementById('bundleGroup');
@@ -315,7 +307,6 @@ const staffPreScheduleManager = {
         return count;
     },
 
-    // --- 4. 核心渲染：日曆視圖 (含週起始日調整) ---
     renderCalendar: function() {
         const grid = document.getElementById('calendarGrid');
         if(!grid) return;
@@ -325,17 +316,15 @@ const staffPreScheduleManager = {
         const month = this.data.month;
         const daysInMonth = new Date(year, month, 0).getDate();
         
-        // 取得本月 1 號是星期幾 (0=週日, 1=週一 ...)
         const firstDayObj = new Date(year, month - 1, 1);
         const firstDayOfWeek = firstDayObj.getDay(); 
 
-        const weekStart = this.rules.weekStartDay; // 0 或 1
+        const weekStart = this.rules.weekStartDay;
 
-        // 1. 產生表頭
         let weekHeaders = [];
-        if (weekStart === 1) { // 週一開始
+        if (weekStart === 1) {
             weekHeaders = ['一','二','三','四','五','六','日'];
-        } else { // 週日開始
+        } else {
             weekHeaders = ['日','一','二','三','四','五','六'];
         }
 
@@ -346,13 +335,10 @@ const staffPreScheduleManager = {
             grid.appendChild(div);
         });
 
-        // 2. 計算空白格 (Offset)
         let emptyCount = 0;
-        if (weekStart === 1) { // 週一開始
-            // 如果 1 號是週日(0)，前面要補 6 格；如果是週一(1)，補 0 格
+        if (weekStart === 1) {
             emptyCount = (firstDayOfWeek === 0) ? 6 : firstDayOfWeek - 1;
-        } else { // 週日開始
-            // 直接補 dayOfWeek 格
+        } else {
             emptyCount = firstDayOfWeek;
         }
 
@@ -362,7 +348,6 @@ const staffPreScheduleManager = {
             grid.appendChild(div);
         }
 
-        // 3. 渲染日期格
         for(let d=1; d<=daysInMonth; d++) {
             const div = document.createElement('div');
             div.className = 'calendar-day';
@@ -372,12 +357,10 @@ const staffPreScheduleManager = {
             const isWeekend = (dateObj.getDay() === 0 || dateObj.getDay() === 6);
             if(isWeekend) div.classList.add('weekend');
 
-            // 先判斷個人預班
             const key = `current_${d}`;
             const myVal = this.userRequest[key];
             let isMySelection = false;
             
-            // 統計計算
             const offCount = this.calculateDailyOffCount(d);
             const limit = this.getDailyQuota(d);
             const isFull = (limit > 0 && offCount >= limit);
@@ -390,7 +373,6 @@ const staffPreScheduleManager = {
                 else div.classList.add('quota-available');        
             }
 
-            // Tooltip
             let tooltipText = `預休: ${offCount} 人 / 可預休上限: ${limit} 人`;
             if (this.rules.showNames && offCount > 0) {
                 const names = this.getDailyOffNames(d);
@@ -398,7 +380,6 @@ const staffPreScheduleManager = {
             }
             div.title = tooltipText;
 
-            // 內容顯示
             let content = '';
             if (myVal) {
                 if (myVal === 'REQ_OFF') {
@@ -434,8 +415,6 @@ const staffPreScheduleManager = {
         }
     },
 
-    // --- 5. 統計與輔助函式 ---
-    
     calculateDailyOffCount: function(day) {
         let count = 0;
         const key = `current_${day}`;
@@ -467,8 +446,6 @@ const staffPreScheduleManager = {
         Object.values(this.userRequest).forEach(v => { if(v === 'REQ_OFF') count++; });
         return count;
     },
-
-    // --- 6. 互動事件 ---
 
     handleLeftClick: function(day) {
         if(this.isReadOnly) return;
