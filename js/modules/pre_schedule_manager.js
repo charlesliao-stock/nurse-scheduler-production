@@ -683,3 +683,8 @@ const preScheduleManager = {
 
     manage: function(id) { window.location.hash = `/admin/pre_schedule_matrix?id=${id}`; }
 };
+
+// 匯出供其他模組使用
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = preScheduleManager;
+}
