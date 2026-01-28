@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_matrix_manager.js
-// 🔧 完整版：嚴格上月讀取 + 完整資料傳遞 (含偏好注入)
+// 🔧 完整版：嚴格上月讀取 + 完整資料傳遞 (含偏好注入) + saveData 功能
 
 const matrixManager = {
     docId: null, data: null, shifts: [], localAssignments: {}, usersMap: {}, isLoading: false,
@@ -13,6 +13,7 @@ const matrixManager = {
             this.showLoading();
             await Promise.all([this.loadShifts(), this.loadUsers(), this.loadScheduleData()]);
             this.restoreTableStructure(); 
+            this.updateTitle(); // 更新標題
             this.renderMatrix(); 
             this.updateStats(); 
             this.setupEvents();
@@ -21,6 +22,21 @@ const matrixManager = {
     },
 
     showLoading: function() { document.getElementById('matrixBody').innerHTML = '<tr><td colspan="35">載入中...</td></tr>'; },
+    
+    updateTitle: function() {
+        if (!this.data) return;
+        const title = document.getElementById('matrixTitle');
+        const status = document.getElementById('matrixStatus');
+        if (title) {
+            title.textContent = `${this.data.year} 年 ${this.data.month} 月 預班管理`;
+        }
+        if (status) {
+            const statusMap = { 'open': '開放中', 'closed': '已鎖定' };
+            const statusColor = this.data.status === 'open' ? '#2ecc71' : '#95a5a6';
+            status.textContent = statusMap[this.data.status] || '未知';
+            status.style.background = statusColor;
+        }
+    },
     
     loadShifts: async function() { 
         if(!this.docId) return;
@@ -392,6 +408,28 @@ const matrixManager = {
             [`historyCorrections.${uid}.${key}`]: val === null ? firebase.firestore.FieldValue.delete() : val
         });
         this.renderMatrix();
+    },
+
+    // [新增] 儲存草稿功能
+    saveData: async function() {
+        if (this.isLoading) return;
+        this.isLoading = true;
+        
+        try {
+            // 更新預班表的 assignments 和 historyCorrections
+            await db.collection('pre_schedules').doc(this.docId).update({
+                assignments: this.localAssignments,
+                historyCorrections: this.historyCorrections,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            alert("✅ 草稿已儲存");
+        } catch(e) {
+            console.error("儲存失敗:", e);
+            alert("❌ 儲存失敗: " + e.message);
+        } finally {
+            this.isLoading = false;
+        }
     },
 
     // [修正] 執行排班：複製資料 (人員、偏好、上月資料、本月預班)
