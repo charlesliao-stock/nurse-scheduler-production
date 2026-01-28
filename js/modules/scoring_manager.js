@@ -1,5 +1,5 @@
 // js/modules/scoring_manager.js
-// 🚀 最終強化版：具備結構防呆機制，解決 'efficiency' undefined 報錯
+// 🚀 最終強化版：具備結構防呆機制 + 評分方向性支援 + 改善錯誤處理
 // 修正：嚴格遵循 score_settings_manager.js 的啟用狀態與權重配分
 
 const scoringManager = {
@@ -38,7 +38,8 @@ const scoringManager = {
             weights: s.weights || d.weights,
             thresholds: s.thresholds || d.thresholds,
             enables: s.enables || d.enables,
-            tiers: s.tiers || d.tiers
+            tiers: s.tiers || d.tiers,
+            directions: s.directions || d.directions  // 🔥 新增：評分方向
         };
     },
 
@@ -87,7 +88,6 @@ const scoringManager = {
             const subKeys = metricMap[key] || [];
             let groupWeight = 0;
             let groupScoreSum = 0;
-            let enabledSubCount = 0;
 
             subKeys.forEach(sk => {
                 if (enables[sk]) {
@@ -99,7 +99,6 @@ const scoringManager = {
                     subResults[sk] = subWeightedScore; // 更新為權重得分
                     groupScoreSum += subWeightedScore;
                     groupWeight += subWeight;
-                    enabledSubCount++;
                 }
             });
 
@@ -124,23 +123,28 @@ const scoringManager = {
         const scores = [];
         const tiers = settings.tiers || {};
         const enables = settings.enables || {};
+        const directions = settings.directions || {};
 
         if (enables.hoursDiff) {
             const hours = staffList.map(s => this.sumWorkHours(scheduleData[s.uid]));
-            const s = this.getScoreByTier(this.getStdDev(hours), tiers.hoursDiff);
-            scores.push(s); if(subResults) subResults.hoursDiff = s;
+            const stdDev = this.getStdDev(hours);
+            const s = this.getScoreByTier(stdDev, tiers.hoursDiff, directions.hoursDiff || 'lower_is_better');
+            scores.push(s); 
+            if(subResults) subResults.hoursDiff = s;
         }
         if (enables.nightDiff) {
             const counts = staffList.map(s => this.countShifts(scheduleData[s.uid], ['N', 'EN', 'AN']));
             const diff = Math.max(...counts) - Math.min(...counts);
-            const s = this.getScoreByTier(diff, tiers.nightDiff);
-            scores.push(s); if(subResults) subResults.nightDiff = s;
+            const s = this.getScoreByTier(diff, tiers.nightDiff, directions.nightDiff || 'lower_is_better');
+            scores.push(s); 
+            if(subResults) subResults.nightDiff = s;
         }
         if (enables.holidayDiff) {
             const holidayOffs = staffList.map(s => this.countHolidayOff(scheduleData[s.uid], year, month, days));
             const diff = Math.max(...holidayOffs) - Math.min(...holidayOffs);
-            const s = this.getScoreByTier(diff, tiers.holidayDiff);
-            scores.push(s); if(subResults) subResults.holidayDiff = s;
+            const s = this.getScoreByTier(diff, tiers.holidayDiff, directions.holidayDiff || 'lower_is_better');
+            scores.push(s); 
+            if(subResults) subResults.holidayDiff = s;
         }
         return scores.length ? this.average(scores) : 0;
     },
@@ -149,6 +153,7 @@ const scoringManager = {
         const scores = [];
         const tiers = settings.tiers || {};
         const enables = settings.enables || {};
+        const directions = settings.directions || {};
 
         if (enables.wishRate) {
             let totalReq = 0, hit = 0;
@@ -157,17 +162,20 @@ const scoringManager = {
                 for (let d=1; d<=days; d++) {
                     if (params[`current_${d}`] === 'REQ_OFF') {
                         totalReq++;
-                        if (scheduleData[s.uid]?.[`current_${d}`] === 'OFF') hit++;
+                        if (scheduleData[s.uid]?.[`current_${d}`] === 'OFF' || 
+                            scheduleData[s.uid]?.[`current_${d}`] === 'REQ_OFF') hit++;
                     }
                 }
             });
-            const failRate = totalReq === 0 ? 0 : ((totalReq - hit) / totalReq) * 100;
-            const s = this.getScoreByTier(failRate, tiers.wishRate);
-            scores.push(s); if(subResults) subResults.wishRate = s;
+            const rate = totalReq === 0 ? 100 : (hit / totalReq) * 100;
+            const s = this.getScoreByTier(rate, tiers.wishRate, directions.wishRate || 'higher_is_better');
+            scores.push(s); 
+            if(subResults) subResults.wishRate = s;
         }
         if (enables.prefRate) {
             const s = 4.0; // 預設值
-            scores.push(s); if(subResults) subResults.prefRate = s;
+            scores.push(s); 
+            if(subResults) subResults.prefRate = s;
         }
         return scores.length ? this.average(scores) : 0;
     },
@@ -176,6 +184,7 @@ const scoringManager = {
         const scores = [];
         const tiers = settings.tiers || {};
         const enables = settings.enables || {};
+        const directions = settings.directions || {};
 
         if (enables.consWork) {
             let totalVio = 0;
@@ -183,22 +192,30 @@ const scoringManager = {
                 let cons = 0;
                 for (let d=1; d<=days; d++) {
                     const shift = scheduleData[s.uid]?.[`current_${d}`];
-                    if (shift && shift !== 'OFF') {
-                        cons++; if (cons > 6) totalVio++;
+                    if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
+                        cons++; 
+                        if (cons > 6) totalVio++;
                     } else cons = 0;
                 }
             });
-            const s = this.getScoreByTier(totalVio, tiers.consWork);
-            scores.push(s); if(subResults) subResults.consWork = s;
+            const s = this.getScoreByTier(totalVio, tiers.consWork, directions.consWork || 'lower_is_better');
+            scores.push(s); 
+            if(subResults) subResults.consWork = s;
         }
         if (enables.nToD) {
-            const s = 4.2; scores.push(s); if(subResults) subResults.nToD = s;
+            const s = 4.2; 
+            scores.push(s); 
+            if(subResults) subResults.nToD = s;
         }
         if (enables.offTargetRate) {
-            const s = 4.5; scores.push(s); if(subResults) subResults.offTargetRate = s;
+            const s = 4.5; 
+            scores.push(s); 
+            if(subResults) subResults.offTargetRate = s;
         }
         if (enables.weeklyNight) {
-            const s = 3.8; scores.push(s); if(subResults) subResults.weeklyNight = s;
+            const s = 3.8; 
+            scores.push(s); 
+            if(subResults) subResults.weeklyNight = s;
         }
         return scores.length ? this.average(scores) : 0;
     },
@@ -207,13 +224,19 @@ const scoringManager = {
         const enables = settings.enables || {};
         const scores = [];
         if (enables.shortageRate) {
-            const s = 4.0; scores.push(s); if(subResults) subResults.shortageRate = s;
+            const s = 4.0; 
+            scores.push(s); 
+            if(subResults) subResults.shortageRate = s;
         }
         if (enables.seniorDist) {
-            const s = 4.2; scores.push(s); if(subResults) subResults.seniorDist = s;
+            const s = 4.2; 
+            scores.push(s); 
+            if(subResults) subResults.seniorDist = s;
         }
         if (enables.juniorDist) {
-            const s = 3.9; scores.push(s); if(subResults) subResults.juniorDist = s;
+            const s = 3.9; 
+            scores.push(s); 
+            if(subResults) subResults.juniorDist = s;
         }
         return scores.length ? this.average(scores) : 0;
     },
@@ -222,23 +245,48 @@ const scoringManager = {
         const enables = settings.enables || {};
         const scores = [];
         if (enables.overtimeRate) {
-            const s = 4.5; scores.push(s); if(subResults) subResults.overtimeRate = s;
+            const s = 4.5; 
+            scores.push(s); 
+            if(subResults) subResults.overtimeRate = s;
         }
         return scores.length ? this.average(scores) : 0;
     },
 
     // --- 4. 輔助工具 ---
 
-    getScoreByTier: function(value, tierList) {
+    /**
+     * 🔥 改善版：支援評分方向性的分段評分
+     * @param {number} value - 實際數值
+     * @param {array} tierList - 評分區間列表 [{limit, score, label}]
+     * @param {string} direction - 'lower_is_better' 或 'higher_is_better'
+     */
+    getScoreByTier: function(value, tierList, direction = 'lower_is_better') {
         if (!tierList || !tierList.length) return 3;
-        // 邏輯：找到所有符合 value >= limit 的區間中，limit 最大的那一個
-        // 先按 limit 由大到小排序
-        const sorted = [...tierList].sort((a, b) => b.limit - a.limit);
-        for (let t of sorted) {
-            if (value >= t.limit) return t.score;
+        
+        if (direction === 'lower_is_better') {
+            // 數值越低越好（如差異值、錯誤次數）
+            // 排序：由小到大
+            const sorted = [...tierList].sort((a, b) => a.limit - b.limit);
+            for (let t of sorted) {
+                if (value <= t.limit) return t.score;
+            }
+            // 如果超過所有上限，回傳最後一個（最寬鬆）區間的分數
+            return sorted[sorted.length - 1].score;
+            
+        } else if (direction === 'higher_is_better') {
+            // 數值越高越好（如達成率、滿意度）
+            // 排序：由大到小
+            const sorted = [...tierList].sort((a, b) => b.limit - a.limit);
+            for (let t of sorted) {
+                if (value >= t.limit) return t.score;
+            }
+            // 如果低於所有下限，回傳最後一個（最低）區間的分數
+            return sorted[sorted.length - 1].score;
         }
-        // 如果連最小的下限都不滿足，則回傳排序後最後一個（通常是下限最小的）區間的分數
-        return sorted[sorted.length - 1].score;
+        
+        // 預設回傳中間分數
+        console.warn(`⚠️ 未知的評分方向: ${direction}`);
+        return 3;
     },
 
     getStdDev: function(array) {
@@ -289,6 +337,22 @@ const scoringManager = {
                 consWork: 8, nToD: 7, offTargetRate: 5, weeklyNight: 5,
                 shortageRate: 8, seniorDist: 4, juniorDist: 3,
                 overtimeRate: 5
+            },
+            // 🔥 新增：預設評分方向
+            directions: {
+                hoursDiff: 'lower_is_better',
+                nightDiff: 'lower_is_better',
+                holidayDiff: 'lower_is_better',
+                prefRate: 'higher_is_better',
+                wishRate: 'higher_is_better',
+                consWork: 'lower_is_better',
+                nToD: 'lower_is_better',
+                offTargetRate: 'higher_is_better',
+                weeklyNight: 'lower_is_better',
+                shortageRate: 'lower_is_better',
+                seniorDist: 'higher_is_better',
+                juniorDist: 'higher_is_better',
+                overtimeRate: 'lower_is_better'
             },
             tiers: {}
         };
