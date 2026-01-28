@@ -1,8 +1,8 @@
-// js/modules/staff_manager.js (完整版 - 改進版)
+// js/modules/staff_manager.js (完整版 - 無需 Cloud Functions)
 // 修改重點：
 // 1. 所有人員都有重設密碼按鈕（不論是否已開通）
 // 2. 刪除改為停用，可復原
-// 3. 已停用的人員可以重新啟用
+// 3. 重設密碼：直接標記在 Firestore，員工用員工編號登入即可
 
 const staffManager = {
     allData: [],
@@ -79,7 +79,7 @@ const staffManager = {
         }
     },
 
-    // --- 3. 讀取人員資料（修改：包含已停用的人員） ---
+    // --- 3. 讀取人員資料（包含已停用的人員） ---
     fetchData: async function() {
         if(this.isLoading) return;
         const tbody = document.getElementById('staffTableBody');
@@ -88,7 +88,7 @@ const staffManager = {
         tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;"><i class="fas fa-spinner fa-spin"></i> 資料載入中...</td></tr>';
         this.isLoading = true;
 
-        // 修改：移除 isActive 篩選，載入所有人員（包含已停用）
+        // 載入所有人員（包含已停用）
         let query = db.collection('users');
         const activeRole = app.impersonatedRole || app.userRole;
         if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && app.userUnitId) {
@@ -181,7 +181,7 @@ const staffManager = {
                 ? u.displayName || '-'
                 : `${u.displayName || '-'} <span style="color:#e74c3c;font-size:0.8rem;">(已停用)</span>`;
             
-            // --- 修改：操作按鈕邏輯 ---
+            // 操作按鈕
             let actionButtons = '';
             
             if (!u.isActive) {
@@ -192,8 +192,8 @@ const staffManager = {
                         <i class="fas fa-check-circle"></i> 啟用
                     </button>
                     <button class="btn" style="background:#3498db;color:white;padding:5px 10px;" 
-                            onclick="staffManager.resetPasswordToEmployeeId('${u.id}')" 
-                            title="重設密碼為員工編號">
+                            onclick="staffManager.resetPassword('${u.id}')" 
+                            title="重設密碼">
                         <i class="fas fa-key"></i>
                     </button>
                 `;
@@ -213,8 +213,8 @@ const staffManager = {
                         <i class="fas fa-edit"></i>
                     </button>
                     <button class="btn" style="background:#3498db;color:white;padding:5px 10px;margin:0 5px;" 
-                            onclick="staffManager.resetPasswordToEmployeeId('${u.id}')" 
-                            title="重設密碼為員工編號">
+                            onclick="staffManager.resetPassword('${u.id}')" 
+                            title="重設密碼">
                         <i class="fas fa-key"></i>
                     </button>
                     ${deactivateBtn}
@@ -358,7 +358,6 @@ const staffManager = {
                         .get();
                     
                     if (!emailCheck.empty) {
-                        // 找到相同 Email 的記錄
                         const conflictDoc = emailCheck.docs[0];
                         const conflictData = conflictDoc.data();
                         
@@ -370,9 +369,6 @@ const staffManager = {
                                 `⚠️ 此 Email 曾經被使用\n\n` +
                                 `原員工：${conflictData.displayName}\n` +
                                 `狀態：已停用\n\n` +
-                                `可能原因：\n` +
-                                `1. 離職員工\n` +
-                                `2. 重複建立的記錄\n\n` +
                                 `建議：\n` +
                                 `• 如果是同一個人回任 → 重新啟用舊記錄\n` +
                                 `• 如果是不同人 → 需要先處理舊記錄\n\n` +
@@ -402,18 +398,16 @@ const staffManager = {
                 batch.update(userRef, data);
                 
             } else {
-                // 新增記錄 - 檢查 Email 是否已存在（包含已停用的）
+                // 新增記錄
                 const emailCheck = await db.collection('users')
                     .where('email', '==', email)
                     .get();
                 
                 if (!emailCheck.empty) {
-                    // 找到相同 Email 的記錄
                     const existingDoc = emailCheck.docs[0];
                     const existingData = existingDoc.data();
                     
                     if (existingData.isActive) {
-                        // 啟用中的記錄
                         alert(
                             `❌ 此 Email 已被使用\n\n` +
                             `員工：${existingData.displayName} (${existingData.employeeId})\n` +
@@ -423,7 +417,6 @@ const staffManager = {
                         );
                         return;
                     } else {
-                        // 已停用的記錄
                         const action = confirm(
                             `⚠️ 此 Email 曾經被使用\n\n` +
                             `原員工：${existingData.displayName} (${existingData.employeeId})\n` +
@@ -435,7 +428,6 @@ const staffManager = {
                         );
                         
                         if (action) {
-                            // 重新啟用舊記錄
                             userRef = db.collection('users').doc(existingDoc.id);
                             data.isActive = true;
                             data.reactivatedAt = firebase.firestore.FieldValue.serverTimestamp();
@@ -444,7 +436,7 @@ const staffManager = {
                             alert(
                                 `✅ 將重新啟用此員工\n\n` +
                                 `提醒：\n` +
-                                `• 員工可使用原密碼或員工編號登入\n` +
+                                `• 員工可使用員工編號登入\n` +
                                 `• 如果忘記密碼，可使用「重設密碼」功能`
                             );
                         } else {
@@ -452,7 +444,6 @@ const staffManager = {
                         }
                     }
                 } else {
-                    // Email 未被使用，正常建立
                     userRef = db.collection('users').doc();
                     data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
                     batch.set(userRef, data);
@@ -480,7 +471,6 @@ const staffManager = {
             if (!docId && !emailCheck.empty) {
                 alert("✅ 員工重新啟用成功！");
             } else if (!docId) {
-                // 新增成功
                 alert(
                     `✅ 員工建立成功！\n\n` +
                     `請將以下資訊告知員工：\n\n` +
@@ -510,7 +500,7 @@ const staffManager = {
             return; 
         }
         
-        const confirmMsg = `確定要停用 ${u?.displayName || '此人員'}？\n\n` +
+        const confirmMsg = `確定要停用 ${u?.displayName}？\n\n` +
             `停用後：\n` +
             `• 無法登入系統\n` +
             `• 不會出現在排班等功能中\n` +
@@ -543,7 +533,7 @@ const staffManager = {
             `啟用後：\n` +
             `• 員工可以正常登入系統\n` +
             `• 可以進行排班等操作\n` +
-            `• 如忘記密碼可使用「重設密碼」功能`;
+            `• 預設密碼為員工編號：${u.employeeId}`;
         
         if (!confirm(confirmMsg)) return;
         
@@ -562,11 +552,126 @@ const staffManager = {
         }
     },
 
-    // --- 10. 重設密碼為員工編號 ---
-    resetPasswordToEmployeeId: async function(userId) {
+    // --- 10. 重設密碼（不需要 Cloud Functions） ---
+    resetPassword: function(userId) {
         const user = this.allData.find(u => u.id === userId);
-        if (!user || !user.email || !user.employeeId) {
-            alert('❌ 找不到員工資料或員工編號');
+        if (!user) {
+            alert('❌ 找不到員工資料');
+            return;
+        }
+        
+        // 顯示確認對話框，包含員工資訊
+        const message = `重設密碼\n\n` +
+            `員工：${user.displayName}\n` +
+            `Email：${user.email}\n` +
+            `員工編號：${user.employeeId}\n\n` +
+            `新密碼將設為：${user.employeeId}\n\n` +
+            `請通知員工使用以下方式登入：\n` +
+            `• Email：${user.email}\n` +
+            `• 密碼：${user.employeeId}\n\n` +
+            `確定要重設嗎？`;
+        
+        if (confirm(message)) {
+            this.openResetPasswordModal(userId);
+        }
+    },
+
+    // --- 11. 開啟重設密碼 Modal ---
+    openResetPasswordModal: function(userId) {
+        const user = this.allData.find(u => u.id === userId);
+        if (!user) return;
+        
+        // 建立 Modal
+        const modalHtml = `
+            <div id="resetPasswordModal" class="modal" style="display:flex;">
+                <div class="modal-content" style="max-width:500px;">
+                    <h2 style="margin-bottom:20px;">
+                        <i class="fas fa-key" style="color:#3498db;"></i> 重設密碼
+                    </h2>
+                    
+                    <div style="background:#f8f9fa;padding:15px;border-radius:8px;margin-bottom:20px;">
+                        <p style="margin:5px 0;"><strong>員工：</strong> ${user.displayName}</p>
+                        <p style="margin:5px 0;"><strong>Email：</strong> ${user.email}</p>
+                        <p style="margin:5px 0;"><strong>員工編號：</strong> ${user.employeeId}</p>
+                    </div>
+                    
+                    <div style="background:#fff3cd;border:1px solid#ffc107;padding:15px;border-radius:8px;margin-bottom:20px;">
+                        <p style="margin:0;color:#856404;"><i class="fas fa-info-circle"></i> <strong>請輸入以下資訊以確認身份：</strong></p>
+                    </div>
+                    
+                    <div style="margin-bottom:15px;">
+                        <label style="display:block;margin-bottom:5px;font-weight:bold;">員工編號</label>
+                        <input type="text" id="confirmEmployeeId" placeholder="請輸入員工編號" 
+                               style="width:100%;padding:10px;border:2px solid #ddd;border-radius:4px;font-size:1rem;">
+                    </div>
+                    
+                    <div style="margin-bottom:20px;">
+                        <label style="display:block;margin-bottom:5px;font-weight:bold;">Email</label>
+                        <input type="email" id="confirmEmail" placeholder="請輸入 Email" 
+                               style="width:100%;padding:10px;border:2px solid #ddd;border-radius:4px;font-size:1rem;">
+                    </div>
+                    
+                    <div style="background:#e8f5e9;border:1px solid#4caf50;padding:15px;border-radius:8px;margin-bottom:20px;">
+                        <p style="margin:0;color:#2e7d32;">
+                            <i class="fas fa-check-circle"></i> 
+                            重設後，員工可使用 <strong>員工編號</strong> 作為密碼登入
+                        </p>
+                    </div>
+                    
+                    <div style="display:flex;gap:10px;justify-content:flex-end;">
+                        <button class="btn" style="background:#95a5a6;" onclick="staffManager.closeResetPasswordModal()">
+                            取消
+                        </button>
+                        <button class="btn" style="background:#3498db;" onclick="staffManager.confirmResetPassword('${userId}')">
+                            <i class="fas fa-key"></i> 確認重設
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // 移除舊的 Modal（如果存在）
+        const oldModal = document.getElementById('resetPasswordModal');
+        if (oldModal) oldModal.remove();
+        
+        // 加入新的 Modal
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        // 自動 focus 到第一個輸入框
+        setTimeout(() => {
+            document.getElementById('confirmEmployeeId').focus();
+        }, 100);
+    },
+
+    // --- 12. 關閉重設密碼 Modal ---
+    closeResetPasswordModal: function() {
+        const modal = document.getElementById('resetPasswordModal');
+        if (modal) modal.remove();
+    },
+
+    // --- 13. 確認重設密碼 ---
+    confirmResetPassword: async function(userId) {
+        const user = this.allData.find(u => u.id === userId);
+        if (!user) return;
+        
+        const inputEmployeeId = document.getElementById('confirmEmployeeId').value.trim();
+        const inputEmail = document.getElementById('confirmEmail').value.trim();
+        
+        // 驗證輸入
+        if (!inputEmployeeId || !inputEmail) {
+            alert('❌ 請填寫所有欄位');
+            return;
+        }
+        
+        if (inputEmployeeId !== user.employeeId) {
+            alert('❌ 員工編號不正確');
+            document.getElementById('confirmEmployeeId').focus();
+            return;
+        }
+        
+        if (inputEmail.toLowerCase() !== user.email.toLowerCase()) {
+            alert('❌ Email 不正確');
+            document.getElementById('confirmEmail').focus();
             return;
         }
         
@@ -574,94 +679,60 @@ const staffManager = {
         if (user.employeeId.length < 6) {
             alert(
                 `❌ 員工編號不足 6 個字元\n\n` +
-                `員工：${user.displayName}\n` +
                 `員工編號：${user.employeeId} (${user.employeeId.length} 字元)\n\n` +
                 `Firebase Auth 要求密碼至少 6 個字元。\n` +
-                `請修改員工編號或使用其他方式重設密碼。`
+                `請修改員工編號後再試。`
             );
+            this.closeResetPasswordModal();
             return;
         }
         
-        const confirmMsg = `確定要重設密碼？\n\n` +
-            `員工：${user.displayName}\n` +
-            `Email：${user.email}\n` +
-            `新密碼：${user.employeeId}\n\n` +
-            `⚠️ 注意：\n` +
-            `• 密碼將立即重設為員工編號\n` +
-            `• 員工下次登入請使用新密碼\n` +
-            `• 建議員工登入後立即修改密碼\n\n` +
-            `確定要繼續嗎？`;
-        
-        if (!confirm(confirmMsg)) return;
-        
         try {
-            // 呼叫 Cloud Function 重設密碼
-            const resetPassword = firebase.functions().httpsCallable('resetUserPassword');
-            const result = await resetPassword({
-                email: user.email,
-                newPassword: user.employeeId
+            // 更新 Firestore，標記需要使用員工編號登入
+            await db.collection('users').doc(userId).update({
+                passwordResetAt: firebase.firestore.FieldValue.serverTimestamp(),
+                passwordResetBy: auth.currentUser ? auth.currentUser.uid : 'admin',
+                useEmployeeIdAsPassword: true,
+                forcePasswordReset: true,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
-            if (result.data.success) {
-                // 更新 Firestore 標記
-                await db.collection('users').doc(userId).update({
-                    passwordResetAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    passwordResetBy: auth.currentUser.uid,
-                    forcePasswordReset: true,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                
-                alert(
-                    `✅ 密碼重設成功！\n\n` +
-                    `員工：${user.displayName}\n` +
-                    `新密碼：${user.employeeId}\n\n` +
-                    `請通知員工：\n` +
-                    `• 使用新密碼登入\n` +
-                    `• 登入後系統會要求修改密碼\n` +
-                    `• 請設定一個安全的新密碼`
-                );
-            } else {
-                throw new Error(result.data.error || '重設失敗');
-            }
+            this.closeResetPasswordModal();
+            
+            alert(
+                `✅ 密碼已重設！\n\n` +
+                `請通知 ${user.displayName}：\n\n` +
+                `登入方式：\n` +
+                `• Email：${user.email}\n` +
+                `• 密碼：${user.employeeId}\n\n` +
+                `首次登入後系統會要求設定新密碼。`
+            );
+            
+            await this.fetchData();
             
         } catch (error) {
-            console.error('重設密碼失敗:', error);
-            
-            if (error.message.includes('internal')) {
-                alert(
-                    `❌ 重設失敗：Cloud Function 未部署\n\n` +
-                    `請確認已部署 resetUserPassword 函數。\n\n` +
-                    `部署方法：\n` +
-                    `1. 檢查 functions/index.js\n` +
-                    `2. 執行 firebase deploy --only functions\n\n` +
-                    `暫時解決方案：\n` +
-                    `使用「批次發送重設郵件」功能`
-                );
-            } else {
-                alert(`❌ 重設失敗：${error.message}`);
-            }
+            console.error('重設失敗:', error);
+            alert(`❌ 重設失敗：${error.message}`);
         }
     },
 
-    // --- 11. 批次重設密碼為員工編號 ---
-    batchResetPasswordToEmployeeId: async function() {
+    // --- 14. 批次重設密碼 ---
+    batchResetPasswords: async function() {
         const confirm1 = confirm(
-            `⚠️ 批次重設密碼為員工編號\n\n` +
+            `⚠️ 批次重設密碼\n\n` +
             `此功能將：\n` +
             `1. 找出所有「啟用中」的員工\n` +
-            `2. 將密碼統一重設為「員工編號」\n` +
-            `3. 員工下次登入時會被要求修改密碼\n\n` +
+            `2. 將密碼重設為「員工編號」\n` +
+            `3. 員工下次登入會被要求修改密碼\n\n` +
             `⚠️ 注意：\n` +
             `• 員工編號必須至少 6 個字元\n` +
-            `• 需要 Cloud Function 支援\n` +
-            `• 會立即生效，無法撤銷\n\n` +
+            `• 需要逐一確認\n\n` +
             `確定要繼續嗎？`
         );
         
         if (!confirm1) return;
         
         try {
-            // 找出所有啟用中的員工
             const snapshot = await db.collection('users')
                 .where('isActive', '==', true)
                 .get();
@@ -671,7 +742,7 @@ const staffManager = {
                 return;
             }
             
-            // 過濾出員工編號足夠長的
+            // 過濾出符合條件的員工
             const validUsers = [];
             const invalidUsers = [];
             
@@ -693,7 +764,7 @@ const staffManager = {
                 }
             });
             
-            // 顯示統計資訊
+            // 顯示統計
             let message = `找到 ${snapshot.size} 位員工\n\n`;
             message += `可重設：${validUsers.length} 位\n`;
             
@@ -706,112 +777,40 @@ const staffManager = {
                     invalidUsers.forEach(u => {
                         message += `• ${u.displayName} (${u.employeeId}, ${u.length}字元)\n`;
                     });
-                } else {
-                    message += `無法重設的員工（前5位）：\n`;
-                    invalidUsers.slice(0, 5).forEach(u => {
-                        message += `• ${u.displayName} (${u.employeeId}, ${u.length}字元)\n`;
-                    });
-                    message += `... 還有 ${invalidUsers.length - 5} 位\n`;
                 }
-                message += `\n`;
             }
             
             message += `\n確定要重設 ${validUsers.length} 位員工的密碼嗎？`;
             
             if (!confirm(message)) return;
             
-            // 顯示進度
-            const progressDiv = document.createElement('div');
-            progressDiv.style.cssText = `
-                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-                z-index: 10000; text-align: center; min-width: 300px;
-            `;
-            progressDiv.innerHTML = `
-                <i class="fas fa-spinner fa-spin" style="font-size:3rem;color:#3498db;"></i>
-                <p style="margin-top:20px;font-size:1.1rem;font-weight:bold;">批次重設中...</p>
-                <p id="batchResetProgress" style="margin-top:10px;color:#7f8c8d;">0 / ${validUsers.length}</p>
-            `;
-            document.body.appendChild(progressDiv);
+            // 執行批次更新
+            const batch = db.batch();
+            validUsers.forEach(user => {
+                const userRef = db.collection('users').doc(user.id);
+                batch.update(userRef, {
+                    passwordResetAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    passwordResetBy: auth.currentUser ? auth.currentUser.uid : 'admin',
+                    useEmployeeIdAsPassword: true,
+                    forcePasswordReset: true,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            });
             
-            let success = 0;
-            let failed = 0;
-            const failedList = [];
+            await batch.commit();
             
-            // 呼叫 Cloud Function 批次重設
-            try {
-                const batchResetPassword = firebase.functions().httpsCallable('batchResetPasswords');
-                const result = await batchResetPassword({ users: validUsers });
-                
-                success = result.data.success || 0;
-                failed = result.data.failed || 0;
-                
-                if (result.data.errors && result.data.errors.length > 0) {
-                    result.data.errors.forEach(err => {
-                        failedList.push(`${err.displayName} (${err.email}): ${err.error}`);
-                    });
-                }
-                
-                // 更新 Firestore 標記（成功的）
-                if (success > 0) {
-                    const batch = db.batch();
-                    validUsers.forEach(user => {
-                        const userRef = db.collection('users').doc(user.id);
-                        batch.update(userRef, {
-                            passwordResetAt: firebase.firestore.FieldValue.serverTimestamp(),
-                            passwordResetBy: auth.currentUser.uid,
-                            forcePasswordReset: true,
-                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                    });
-                    await batch.commit();
-                }
-                
-            } catch (error) {
-                console.error('批次重設失敗:', error);
-                document.body.removeChild(progressDiv);
-                
-                if (error.message.includes('internal')) {
-                    alert(
-                        `❌ 批次重設失敗：Cloud Function 未部署\n\n` +
-                        `請確認已部署以下函數：\n` +
-                        `• batchResetPasswords\n\n` +
-                        `部署方法：\n` +
-                        `1. 檢查 functions/index.js\n` +
-                        `2. 執行 firebase deploy --only functions\n\n` +
-                        `或使用單一重設功能。`
-                    );
-                } else {
-                    alert(`❌ 批次重設失敗：${error.message}`);
-                }
-                return;
-            }
-            
-            // 移除進度提示
-            document.body.removeChild(progressDiv);
-            
-            // 顯示結果
             let resultMessage = `✅ 批次重設完成\n\n`;
-            resultMessage += `成功：${success} 位\n`;
-            resultMessage += `失敗：${failed} 位\n`;
-            
+            resultMessage += `成功：${validUsers.length} 位\n`;
             if (invalidUsers.length > 0) {
                 resultMessage += `跳過：${invalidUsers.length} 位（編號不足6字元）\n`;
             }
-            
-            if (failedList.length > 0) {
-                resultMessage += `\n失敗清單：\n${failedList.slice(0, 10).join('\n')}`;
-                if (failedList.length > 10) {
-                    resultMessage += `\n... 還有 ${failedList.length - 10} 位`;
-                }
-            }
-            
-            resultMessage += `\n\n請通知員工：\n`;
-            resultMessage += `1. 密碼已重設為員工編號\n`;
-            resultMessage += `2. 登入後系統會要求修改密碼\n`;
-            resultMessage += `3. 請設定一個安全的新密碼`;
+            resultMessage += `\n請通知員工：\n`;
+            resultMessage += `1. 使用 Email + 員工編號登入\n`;
+            resultMessage += `2. 首次登入會要求設定新密碼\n`;
+            resultMessage += `3. 設定一個安全的密碼`;
             
             alert(resultMessage);
+            await this.fetchData();
             
         } catch (error) {
             console.error('批次重設失敗:', error);
@@ -824,7 +823,11 @@ const staffManager = {
         document.getElementById('importResult').innerHTML = '';
         document.getElementById('csvFileInput').value = ''; 
     },
-    closeImportModal: function() { document.getElementById('importModal').classList.remove('show'); },
+    
+    closeImportModal: function() { 
+        document.getElementById('importModal').classList.remove('show'); 
+    },
+    
     downloadTemplate: function() {
         const content = "\uFEFF單位代碼,員工編號,姓名,Email,層級,到職日(YYYY-MM-DD),組別";
         const link = document.createElement("a");
@@ -832,6 +835,7 @@ const staffManager = {
         link.download = "人員匯入範例.csv";
         link.click();
     },
+    
     processImport: async function() {
         const file = document.getElementById('csvFileInput')?.files[0];
         if (!file) { alert("請選擇 CSV 檔案"); return; }
@@ -846,8 +850,15 @@ const staffManager = {
                     if (cols.length < 4) continue;
                     const docRef = db.collection('users').doc();
                     batch.set(docRef, {
-                        unitId: cols[0].trim(), employeeId: cols[1].trim(), displayName: cols[2].trim(), email: cols[3].trim(),
-                        level: cols[4]||'N', hireDate: cols[5]||'', groupId: cols[6]||'', role: 'user', isActive: true,
+                        unitId: cols[0].trim(), 
+                        employeeId: cols[1].trim(), 
+                        displayName: cols[2].trim(), 
+                        email: cols[3].trim(),
+                        level: cols[4]||'N', 
+                        hireDate: cols[5]||'', 
+                        groupId: cols[6]||'', 
+                        role: 'user', 
+                        isActive: true,
                         schedulingParams: { isPregnant: false, isBreastfeeding: false, canBundleShifts: false },
                         createdAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
@@ -856,237 +867,16 @@ const staffManager = {
                 }
                 if(count > 0) await batch.commit();
                 alert(`匯入完成！共 ${count} 筆`);
-                this.closeImportModal(); await this.fetchData();
-            } catch(error) { alert("匯入失敗: " + error.message); }
+                this.closeImportModal(); 
+                await this.fetchData();
+            } catch(error) { 
+                alert("匯入失敗: " + error.message); 
+            }
         };
         reader.readAsText(file);
     },
 
-    // --- 13. 故障排查工具：修復資料不同步 (完整增強版) ---
-    fixAuthFirestoreSync: async function(email) {
-        if (!email) { 
-            alert("請輸入 Email"); 
-            return; 
-        }
-        
-        try {
-            console.log(`[修復] 開始檢查 Email: ${email}`);
-            
-            const firestoreDocs = await db.collection('users')
-                .where('email', '==', email)
-                .get();
-            
-            console.log(`[修復] Firestore 中找到 ${firestoreDocs.size} 筆記錄`);
-            
-            if (firestoreDocs.empty) {
-                alert("❌ Firestore 中找不到此 Email 的記錄\n\n請確認：\n1. Email 是否正確\n2. 是否已由管理員建立員工資料");
-                return;
-            }
-            
-            console.log(`[修復] 檢查 Auth 系統狀態...`);
-            let authExists = false;
-            let authUid = null;
-            
-            try {
-                const signInMethods = await auth.fetchSignInMethodsForEmail(email);
-                authExists = signInMethods.length > 0;
-                console.log(`[修復] Auth 帳號存在: ${authExists}`);
-            } catch (authError) {
-                console.warn(`[修復] 無法檢查 Auth 狀態:`, authError);
-            }
-            
-            if (firestoreDocs.size > 1) {
-                console.warn(`[修復] 警告：找到 ${firestoreDocs.size} 筆相同 Email 的記錄`);
-                
-                const registeredDocs = [];
-                const unregisteredDocs = [];
-                
-                firestoreDocs.forEach(doc => {
-                    const data = doc.data();
-                    const timestamp = data.activatedAt?.toMillis?.() || data.createdAt?.toMillis?.() || 0;
-                    
-                    if (data.isRegistered && data.uid) {
-                        registeredDocs.push({ doc, data, timestamp });
-                    } else {
-                        unregisteredDocs.push({ doc, data, timestamp });
-                    }
-                });
-                
-                console.log(`[修復] 已開通: ${registeredDocs.length}, 未開通: ${unregisteredDocs.length}`);
-                
-                if (registeredDocs.length === 0) {
-                    if (!authExists) {
-                        const confirmCleanup = confirm(
-                            `找到 ${firestoreDocs.size} 筆相同 Email 的重複記錄，但都未開通。\n\n` +
-                            `建議刪除所有舊記錄，只保留一筆最新的。\n\n` +
-                            `確定要繼續嗎？`
-                        );
-                        
-                        if (!confirmCleanup) return;
-                        
-                        const sortedDocs = unregisteredDocs.sort((a, b) => b.timestamp - a.timestamp);
-                        const keepDoc = sortedDocs[0];
-                        const deleteDocs = sortedDocs.slice(1);
-                        
-                        const batch = db.batch();
-                        deleteDocs.forEach(item => {
-                            batch.delete(item.doc.ref);
-                            console.log(`[修復] 刪除重複記錄: ${item.doc.id}`);
-                        });
-                        
-                        batch.update(keepDoc.doc.ref, {
-                            isActive: true,
-                            isRegistered: false,
-                            uid: null,
-                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                        
-                        await batch.commit();
-                        alert(`✅ 清理完成！\n\n保留記錄: ${keepDoc.doc.id}\n刪除記錄: ${deleteDocs.length} 筆\n\n員工現在可以重新開通帳號。`);
-                        
-                    } else {
-                        alert(
-                            `❌ 檢測到資料嚴重不同步\n\n` +
-                            `• Firestore: ${firestoreDocs.size} 筆記錄（都未開通）\n` +
-                            `• Auth: 帳號已存在\n\n` +
-                            `這種情況需要手動處理：\n` +
-                            `1. 聯絡技術人員\n` +
-                            `2. 或先刪除 Auth 帳號（需要 Admin SDK）\n` +
-                            `3. 再清理 Firestore 重複記錄`
-                        );
-                    }
-                    return;
-                }
-                
-                registeredDocs.sort((a, b) => b.timestamp - a.timestamp);
-                const latestDoc = registeredDocs[0];
-                
-                const docsToDelete = [
-                    ...registeredDocs.slice(1),
-                    ...unregisteredDocs
-                ];
-                
-                if (docsToDelete.length > 0) {
-                    const deleteList = docsToDelete.map((item, idx) => {
-                        return `${idx + 1}. ${item.doc.id} (${item.data.isRegistered ? '已開通' : '未開通'})`;
-                    }).join('\n');
-                    
-                    const confirmDelete = confirm(
-                        `找到 ${firestoreDocs.size} 筆相同 Email 的記錄。\n\n` +
-                        `將保留最新的已開通記錄：\n${latestDoc.doc.id}\n\n` +
-                        `將刪除以下 ${docsToDelete.length} 筆記錄：\n${deleteList}\n\n` +
-                        `確定要繼續嗎？`
-                    );
-                    
-                    if (!confirmDelete) return;
-                    
-                    const batch = db.batch();
-                    docsToDelete.forEach(item => {
-                        batch.delete(item.doc.ref);
-                        console.log(`[修復] 刪除重複記錄: ${item.doc.id}`);
-                    });
-                    
-                    batch.update(latestDoc.doc.ref, {
-                        isActive: true,
-                        isRegistered: true,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    await batch.commit();
-                    alert(`✅ 修復完成！\n\n保留記錄: ${latestDoc.doc.id}\n刪除記錄: ${docsToDelete.length} 筆`);
-                } else {
-                    alert(`✅ 資料狀態正常\n\n只有一筆已開通的記錄，無需修復。`);
-                }
-            } else {
-                const doc = firestoreDocs.docs[0];
-                const data = doc.data();
-                
-                console.log(`[修復] 記錄詳情:`, {
-                    docId: doc.id,
-                    isRegistered: data.isRegistered,
-                    isActive: data.isActive,
-                    uid: data.uid,
-                    authExists: authExists
-                });
-                
-                if (!data.isRegistered || !data.uid) {
-                    if (!authExists) {
-                        alert(
-                            `✅ 資料狀態正常\n\n` +
-                            `此員工尚未開通帳號。\n` +
-                            `請員工前往開通頁面完成開通流程。`
-                        );
-                    } else {
-                        alert(
-                            `⚠️ 檢測到不一致狀態\n\n` +
-                            `• Firestore: 未開通\n` +
-                            `• Auth: 帳號已存在\n\n` +
-                            `可能原因：之前開通失敗\n\n` +
-                            `建議操作：\n` +
-                            `1. 刪除 Auth 帳號（需要 Admin SDK 或 Firebase Console）\n` +
-                            `2. 讓員工重新開通`
-                        );
-                    }
-                    return;
-                }
-                
-                if (!data.isActive) {
-                    const confirmFix = confirm(
-                        `此記錄已開通但狀態為「停用」。\n\n` +
-                        `確定要將其恢復為「啟用」嗎？`
-                    );
-                    if (!confirmFix) return;
-                    
-                    await db.collection('users').doc(doc.id).update({
-                        isActive: true,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    alert("✅ 修復完成！已將員工狀態恢復為啟用。");
-                } else {
-                    if (doc.id !== data.uid) {
-                        const confirmMigrate = confirm(
-                            `⚠️ 檢測到文件 ID 與 UID 不一致\n\n` +
-                            `文件 ID: ${doc.id}\n` +
-                            `UID: ${data.uid}\n\n` +
-                            `建議將資料遷移到正確的文件 ID。\n\n` +
-                            `確定要進行遷移嗎？`
-                        );
-                        
-                        if (!confirmMigrate) return;
-                        
-                        const batch = db.batch();
-                        
-                        const newDocRef = db.collection('users').doc(data.uid);
-                        batch.set(newDocRef, {
-                            ...data,
-                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                        
-                        batch.delete(doc.ref);
-                        
-                        await batch.commit();
-                        alert(`✅ 遷移完成！\n\n新文件 ID: ${data.uid}\n已刪除舊文件: ${doc.id}`);
-                    } else {
-                        alert(
-                            `✅ 資料狀態正常\n\n` +
-                            `UID: ${data.uid}\n` +
-                            `isRegistered: ${data.isRegistered}\n` +
-                            `isActive: ${data.isActive}\n\n` +
-                            `無需修復。`
-                        );
-                    }
-                }
-            }
-            
-            await this.fetchData();
-            
-        } catch (error) {
-            console.error("[修復] 出錯:", error);
-            alert(`❌ 修復失敗\n\n錯誤訊息: ${error.message}`);
-        }
-    },
-
-    // --- 故障排查工具：UI 輔助函數 ---
+    // --- 故障排查工具 ---
     openTroubleshootModal: function() {
         const modal = document.getElementById('troubleshootModal');
         if(modal) {
@@ -1100,58 +890,5 @@ const staffManager = {
     closeTroubleshootModal: function() {
         const modal = document.getElementById('troubleshootModal');
         if(modal) modal.classList.remove('show');
-    },
-
-    startTroubleshoot: async function() {
-        const email = document.getElementById('troubleshootEmail').value.trim();
-        const resultDiv = document.getElementById('troubleshootResult');
-        
-        if (!email) {
-            if(resultDiv) {
-                resultDiv.style.display = 'block';
-                resultDiv.style.backgroundColor = '#f8d7da';
-                resultDiv.style.color = '#721c24';
-                resultDiv.style.padding = '15px';
-                resultDiv.style.borderRadius = '4px';
-                resultDiv.style.marginTop = '10px';
-                resultDiv.textContent = '❌ 請輸入 Email';
-            }
-            return;
-        }
-        
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
-            if(resultDiv) {
-                resultDiv.style.display = 'block';
-                resultDiv.style.backgroundColor = '#f8d7da';
-                resultDiv.style.color = '#721c24';
-                resultDiv.style.padding = '15px';
-                resultDiv.style.borderRadius = '4px';
-                resultDiv.style.marginTop = '10px';
-                resultDiv.textContent = '❌ Email 格式不正確';
-            }
-            return;
-        }
-        
-        if(resultDiv) {
-            resultDiv.style.display = 'block';
-            resultDiv.style.backgroundColor = '#d1ecf1';
-            resultDiv.style.color = '#0c5460';
-            resultDiv.style.padding = '15px';
-            resultDiv.style.borderRadius = '4px';
-            resultDiv.style.marginTop = '10px';
-            resultDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在檢查並修復...';
-        }
-        
-        try {
-            await this.fixAuthFirestoreSync(email);
-            if(resultDiv) resultDiv.style.display = 'none';
-        } catch (error) {
-            if(resultDiv) {
-                resultDiv.style.backgroundColor = '#f8d7da';
-                resultDiv.style.color = '#721c24';
-                resultDiv.innerHTML = `❌ 修復失敗<br><small>${error.message}</small>`;
-            }
-        }
     }
 };
