@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 最終完整版 v3 (Full)：含存檔資料驗證 + 完整排班操作功能
+// 🚀 最終完整版 v4：含改善的錯誤處理、資源管理與資料驗證
 
 const scheduleEditorManager = {
     scheduleId: null, 
@@ -12,7 +12,8 @@ const scheduleEditorManager = {
     isLoading: false,
     lastMonthData: {}, 
     lastMonthDays: 31,
-    lastScoreResult: null, 
+    lastScoreResult: null,
+    contextMenuHandler: null,  // 🔥 新增：儲存事件處理器引用
 
     init: async function(id) { 
         console.log("Schedule Editor Init:", id);
@@ -51,9 +52,14 @@ const scheduleEditorManager = {
             this.setupEvents();
             this.initContextMenu();
         } catch (e) { 
-            console.error(e);
+            console.error("❌ 初始化失敗:", e);
             const body = document.getElementById('schBody');
-            if (body) body.innerHTML = `<tr><td colspan="20" style="color:red; text-align:center; padding:20px;">初始化失敗: ${e.message}</td></tr>`;
+            if (body) {
+                body.innerHTML = `<tr><td colspan="20" style="color:red; text-align:center; padding:20px;">
+                    初始化失敗: ${e.message}<br>
+                    <button onclick="location.reload()" style="margin-top:10px; padding:5px 15px;">重新載入</button>
+                </td></tr>`;
+            }
         }
         finally { this.isLoading = false; }
     },
@@ -260,7 +266,11 @@ const scheduleEditorManager = {
             await this.saveDraft(true);
             
             alert("AI 排班完成!");
-        } catch (e) { console.error(e); alert("AI 失敗: " + e.message); this.renderMatrix(); }
+        } catch (e) { 
+            console.error("❌ AI 排班失敗:", e); 
+            alert("AI 失敗: " + e.message); 
+            this.renderMatrix(); 
+        }
         finally { this.isLoading = false; }
     },
 
@@ -269,6 +279,7 @@ const scheduleEditorManager = {
             Object.keys(res.assignments).forEach(uid => {
                 const cleanUid = uid.trim();
                 if(!this.assignments[cleanUid]) this.assignments[cleanUid] = {};
+                // 🔥 修正：使用 cleanUid 來取得資料
                 this.assignments[cleanUid] = { 
                     ...this.assignments[cleanUid], 
                     ...res.assignments[uid] 
@@ -302,13 +313,21 @@ const scheduleEditorManager = {
         }
     },
 
-    // 🔥 驗證並儲存 (核心修改 v3)
+    // 🔥 改善版：驗證並儲存
     saveDraft: async function(silent) {
         try {
-            console.log("Saving draft...");
+            console.log("💾 開始儲存草稿...");
             
-            // 1. 確保 Assignments 完整性與正確性
-            // 我們會過濾掉 undefined 或 null 的值，確保 Firestore 不會報錯
+            // 1. 驗證資料完整性
+            if (!this.scheduleId || !this.data) {
+                throw new Error("排班資料不完整，無法儲存");
+            }
+            
+            if (!this.data.staffList || this.data.staffList.length === 0) {
+                throw new Error("人員名單為空，無法儲存");
+            }
+            
+            // 2. 清洗 Assignments（確保沒有 undefined 或 null）
             const cleanAssignments = {};
             Object.keys(this.assignments).forEach(uid => {
                 cleanAssignments[uid] = {};
@@ -330,31 +349,48 @@ const scheduleEditorManager = {
                 });
             });
 
-            // 2. 根據乾淨的 Assignments 生成矩陣 (Verification)
+            // 資料驗證警告
+            if (Object.keys(cleanAssignments).length === 0) {
+                console.warn("⚠️ 班表資料為空");
+            }
+
+            // 3. 根據乾淨的 Assignments 生成矩陣
             const scheduleMatrix = this.generateMatrixFromAssignments(cleanAssignments);
             
-            // 3. 寫入資料庫
+            // 4. 寫入資料庫
             await db.collection('schedules').doc(this.scheduleId).update({
                 assignments: cleanAssignments, 
-                schedule: scheduleMatrix, // 同步更新矩陣
+                schedule: scheduleMatrix,
                 adjustments: this.data.adjustments || {},
                 adjustmentCount: this.data.adjustmentCount || 0,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
+            console.log("✅ 儲存成功");
             if(!silent) alert("儲存成功！資料驗證通過。");
+            
         } catch(e) { 
-            console.error("儲存失敗", e); 
-            if(!silent) alert("儲存失敗: " + e.message); 
+            console.error("❌ 儲存失敗:", e);
+            
+            // 根據錯誤類型提供不同的提示
+            let errorMsg = "儲存失敗: ";
+            if (e.code === 'permission-denied') {
+                errorMsg += "權限不足，請檢查登入狀態";
+            } else if (e.message.includes('不完整') || e.message.includes('為空')) {
+                errorMsg += e.message;
+            } else {
+                errorMsg += e.message;
+            }
+            
+            if(!silent) alert(errorMsg);
+            throw e; // 重新拋出以供上層處理
         }
     },
 
-    // 反向生成矩陣 (v3：接受參數以支援驗證)
     generateMatrixFromAssignments: function(sourceAssignments) {
         const matrix = {};
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
         
-        // 使用傳入的乾淨 assignments，若無則用當前的
         const targetAssign = sourceAssignments || this.assignments;
 
         for(let d=1; d<=daysInMonth; d++) {
@@ -385,7 +421,7 @@ const scheduleEditorManager = {
         }
 
         try {
-            // 發布前強制存檔，確保資料結構正確
+            // 發布前強制存檔
             await this.saveDraft(true);
             
             await db.collection('schedules').doc(this.scheduleId).update({
@@ -395,7 +431,10 @@ const scheduleEditorManager = {
             this.data.status = 'published';
             this.renderToolbar();
             alert("班表已發布！");
-        } catch(e) { alert("發布失敗: " + e.message); }
+        } catch(e) { 
+            console.error("❌ 發布失敗:", e);
+            alert("發布失敗: " + e.message); 
+        }
     },
     
     checkShortages: function() {
@@ -439,7 +478,9 @@ const scheduleEditorManager = {
         return list;
     },
     
-    showLoading: function() { document.getElementById('schBody').innerHTML='<tr><td colspan="35">載入中...</td></tr>'; },
+    showLoading: function() { 
+        document.getElementById('schBody').innerHTML='<tr><td colspan="35" style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> 載入中...</td></tr>'; 
+    },
     
     loadShifts: async function() {
         const snap = await db.collection('shifts').where('unitId', '==', this.data.unitId).orderBy('startTime').get();
@@ -524,8 +565,46 @@ const scheduleEditorManager = {
         document.getElementById('schContextMenu').style.display = 'none';
     },
     
+    // 🔥 改善版：事件綁定（儲存處理器引用）
     bindEvents: function() {
-        document.addEventListener('click', () => { const m = document.getElementById('schContextMenu'); if(m) m.style.display='none'; });
+        // 移除舊的事件監聽器（如果存在）
+        if (this.contextMenuHandler) {
+            document.removeEventListener('click', this.contextMenuHandler);
+        }
+        
+        // 建立新的處理器
+        this.contextMenuHandler = () => { 
+            const m = document.getElementById('schContextMenu'); 
+            if(m) m.style.display='none'; 
+        };
+        
+        // 綁定新的事件監聽器
+        document.addEventListener('click', this.contextMenuHandler);
+    },
+    
+    // 🔥 新增：清理函數
+    cleanup: function() {
+        console.log("🧹 開始清理排班編輯器資源...");
+        
+        // 清理事件監聽器
+        if (this.contextMenuHandler) {
+            document.removeEventListener('click', this.contextMenuHandler);
+            this.contextMenuHandler = null;
+        }
+        
+        // 清理大型資料結構
+        this.assignments = {};
+        this.staffMap = {};
+        this.usersMap = {};
+        this.lastMonthData = {};
+        this.shifts = [];
+        this.data = null;
+        
+        // 清理 DOM
+        const menu = document.getElementById('schContextMenu');
+        if (menu) menu.remove();
+        
+        console.log("✅ 資源清理完成");
     },
     
     updateRealTimeStats: function() {
@@ -642,7 +721,10 @@ const scheduleEditorManager = {
             this.data.status = 'draft';
             this.renderToolbar();
             alert("已取消");
-        } catch(e) { alert("失敗"); }
+        } catch(e) { 
+            console.error("❌ 取消發布失敗:", e);
+            alert("失敗: " + e.message); 
+        }
     },
     
     resetSchedule: async function() {
