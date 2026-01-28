@@ -1,9 +1,9 @@
 // js/modules/pre_schedule_matrix_manager.js
-// 🔧 完整版：嚴格上月讀取 + 完整資料傳遞 (含偏好注入) + saveData 功能
+// 🔧 完整版 v2：右鍵選單跟隨鼠標位置
 
 const matrixManager = {
     docId: null, data: null, shifts: [], localAssignments: {}, usersMap: {}, isLoading: false,
-    historyCorrections: {}, // 儲存歷史修正
+    historyCorrections: {},
 
     init: async function(id) { 
         if(!id) { alert("ID遺失"); return; }
@@ -13,7 +13,7 @@ const matrixManager = {
             this.showLoading();
             await Promise.all([this.loadShifts(), this.loadUsers(), this.loadScheduleData()]);
             this.restoreTableStructure(); 
-            this.updateTitle(); // 更新標題
+            this.updateTitle();
             this.renderMatrix(); 
             this.updateStats(); 
             this.setupEvents();
@@ -61,7 +61,6 @@ const matrixManager = {
         await this.loadLastMonthSchedule();
     },
 
-    // [修正] 嚴格讀取「已發布」的上月班表
     loadLastMonthSchedule: async function() {
         const { unitId, year, month } = this.data;
         let lastYear = year;
@@ -75,7 +74,7 @@ const matrixManager = {
             .where('unitId', '==', unitId)
             .where('year', '==', lastYear)
             .where('month', '==', lastMonth)
-            .where('status', '==', 'published') // 嚴格限制：只讀已發布
+            .where('status', '==', 'published')
             .limit(1)
             .get();
 
@@ -87,7 +86,7 @@ const matrixManager = {
             console.log(`✅ 已載入上個月 (${lastYear}-${lastMonth}) 已發布班表`);
         } else {
             console.warn(`⚠️ 找不到上個月 (${lastYear}-${lastMonth}) 的已發布班表，將留白供手動輸入。`);
-            this.lastMonthDays = new Date(lastYear, lastMonth, 0).getDate(); // 仍需知道上個月有幾天
+            this.lastMonthDays = new Date(lastYear, lastMonth, 0).getDate();
         }
     },
 
@@ -165,14 +164,12 @@ const matrixManager = {
                     ${prefDisplay || '<i class="fas fa-cog" style="color:#ccc;"></i>'}
                 </td>`;
             
-            // 渲染上月最後 6 天 (優先讀取歷史修正 -> 其次讀取原始資料)
             const lastAssign = this.lastMonthAssignments[uid] || {};
             for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
                 const historyKey = `last_${d}`;
                 const originalVal = lastAssign[`current_${d}`] || lastAssign[d] || '';
                 const correctedVal = this.historyCorrections[uid]?.[historyKey];
                 
-                // 如果原始資料不存在(未發布)，且無修正，則留白
                 const displayVal = (correctedVal !== undefined) ? correctedVal : originalVal;
                 
                 const bgStyle = (correctedVal !== undefined) 
@@ -329,6 +326,7 @@ const matrixManager = {
         document.addEventListener('click', () => { document.getElementById('customContextMenu').style.display='none'; });
     },
 
+    // 🔥 修正：右鍵選單跟隨鼠標位置
     handleRightClick: function(e, uid, day, type) {
         const menu = document.getElementById('customContextMenu');
         const options = document.getElementById('contextMenuOptions');
@@ -343,7 +341,7 @@ const matrixManager = {
                 ${dateDisplay}
             </div>
             <ul style="list-style:none; padding:0; margin:0;">
-                <li onclick="${funcName}('${uid}','${targetKey}','${isHistory ? 'OFF' : 'REQ_OFF'}')" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee;">
+                <li onclick="${funcName}('${uid}','${targetKey}','${isHistory ? 'OFF' : 'REQ_OFF}')" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee;">
                     <i class="fas fa-bed" style="width:20px; color:#27ae60;"></i> ${isHistory ? 'OFF (休)' : '排休 (OFF)'}
                 </li>
         `;
@@ -374,16 +372,50 @@ const matrixManager = {
         </ul>`;
         
         options.innerHTML = html;
-        menu.style.display = 'block';
         
-        const menuWidth = 160;
+        // 🔥 先顯示選單以計算實際高度
+        menu.style.display = 'block';
+        menu.style.visibility = 'hidden';
+        
+        // 強制瀏覽器重新計算布局
+        menu.offsetHeight;
+        
+        // 計算選單尺寸與位置
+        const menuWidth = menu.offsetWidth || 200;
         const menuHeight = menu.offsetHeight;
-        let top = e.pageY + 5;
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
+        const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+        
+        // 計算初始位置（鼠標右下方）
         let left = e.pageX + 5;
-        if (left + menuWidth > window.innerWidth) left = window.innerWidth - menuWidth - 10;
-        if (top + menuHeight > window.innerHeight) top = window.innerHeight - menuHeight - 10;
+        let top = e.pageY + 5;
+        
+        // 檢查是否超出右邊界
+        if (left + menuWidth > scrollX + viewportWidth) {
+            left = e.pageX - menuWidth - 5;
+        }
+        
+        // 檢查是否超出下邊界
+        if (top + menuHeight > scrollY + viewportHeight) {
+            top = e.pageY - menuHeight - 5;
+        }
+        
+        // 確保不超出左邊界
+        if (left < scrollX) {
+            left = scrollX + 5;
+        }
+        
+        // 確保不超出上邊界
+        if (top < scrollY) {
+            top = scrollY + 5;
+        }
+        
+        // 設定最終位置並顯示
         menu.style.left = left + 'px';
         menu.style.top = top + 'px';
+        menu.style.visibility = 'visible';
     },
 
     setShift: function(uid, key, val) {
@@ -410,13 +442,11 @@ const matrixManager = {
         this.renderMatrix();
     },
 
-    // [新增] 儲存草稿功能
     saveData: async function() {
         if (this.isLoading) return;
         this.isLoading = true;
         
         try {
-            // 更新預班表的 assignments 和 historyCorrections
             await db.collection('pre_schedules').doc(this.docId).update({
                 assignments: this.localAssignments,
                 historyCorrections: this.historyCorrections,
@@ -432,7 +462,6 @@ const matrixManager = {
         }
     },
 
-    // [修正] 執行排班：複製資料 (人員、偏好、上月資料、本月預班)
     executeSchedule: async function() {
         if(!confirm("確定執行排班? 將鎖定預班並建立正式草稿。")) return;
         this.isLoading = true; this.showLoading();
@@ -444,9 +473,7 @@ const matrixManager = {
                 });
             }
 
-            // 1. 處理上月資料 (Published + History Correction)
             const lastMonthData = {};
-            // 取得所有相關人員 ID (本月有的人 + 上個月有的人)
             const allUids = new Set([
                 ...Object.keys(this.localAssignments), 
                 ...Object.keys(this.lastMonthAssignments || {}),
@@ -457,7 +484,6 @@ const matrixManager = {
                 const userAssign = this.lastMonthAssignments[uid] || {};
                 const lastDay = this.lastMonthDays || 31;
                 
-                // 優先讀取手動修正，其次讀取原始資料，若皆無則為 OFF
                 const lastDayCorrected = this.historyCorrections[uid]?.[`last_${lastDay}`];
                 const lastDayOriginal = userAssign[`current_${lastDay}`] || userAssign[lastDay] || 'OFF';
 
@@ -465,7 +491,6 @@ const matrixManager = {
                     lastShift: (lastDayCorrected !== undefined) ? lastDayCorrected : lastDayOriginal
                 };
                 
-                // 帶入最後 6 天
                 for (let i = 0; i < 6; i++) {
                     const d = lastDay - i;
                     const originalVal = userAssign[`current_${d}`] || userAssign[d] || 'OFF';
@@ -474,29 +499,28 @@ const matrixManager = {
                 }
             });
 
-            // 2. [關鍵] 將偏好設定注入 staffList，讓 SchedulerV2 讀取
             const staffListForSchedule = (this.data.staffList || []).map(staff => {
                 const uid = staff.uid || staff.id;
                 const assign = this.localAssignments[uid] || {};
                 const prefs = assign.preferences || {};
                 
-                // 注入偏好到 staff 物件
                 return {
                     ...staff,
                     prefs: prefs, 
-                    schedulingParams: assign // 將整包 assignments 也放進去備查
+                    schedulingParams: assign
                 };
             });
 
             const scheduleData = {
                 unitId: this.data.unitId, year: this.data.year, month: this.data.month,
                 sourceId: this.docId, status: 'draft',
-                staffList: staffListForSchedule, // 更新後的人員名單 (含偏好)
+                staffList: staffListForSchedule,
                 assignments: initialAssignments,
-                lastMonthData: lastMonthData,    // 完整上個月資料
+                lastMonthData: lastMonthData,
                 dailyNeeds: this.data.dailyNeeds || {},
                 specificNeeds: this.data.specificNeeds || {}, 
                 groupLimits: this.data.groupLimits || {},
+                bundleLimits: this.data.bundleLimits || {},
                 settings: this.data.settings || {},
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
