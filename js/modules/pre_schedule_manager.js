@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_manager.js
-// 🔧 最終整合版:載入修復、上月帶入、防呆驗證、同步機制
+// 🔧 最終整合版:載入修復、上月帶入、防呆驗證、同步機制、人員搜尋
 
 const preScheduleManager = {
     currentUnitId: null,
@@ -520,6 +520,154 @@ const preScheduleManager = {
     
     updateStaffGroup: function(index, val) { this.staffListSnapshot[index].group = val; },
     removeStaff: function(index) { this.staffListSnapshot.splice(index, 1); this.renderStaffList(); },
+    
+    // 搜尋全域人員 (用於加入支援人員)
+    searchStaff: async function() {
+        const keyword = document.getElementById('inputSearchStaff').value.trim();
+        if (!keyword) {
+            alert("請輸入搜尋關鍵字 (姓名或員編)");
+            return;
+        }
+
+        const resultsContainer = document.getElementById('searchResults');
+        resultsContainer.innerHTML = '<div style="padding:10px; color:#666;">搜尋中...</div>';
+
+        try {
+            // 搜尋所有啟用的使用者
+            const snapshot = await db.collection('users')
+                .where('isActive', '==', true)
+                .get();
+
+            const results = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                const name = data.displayName || '';
+                const empId = data.employeeId || '';
+                
+                // 關鍵字匹配 (姓名或員編)
+                if (name.includes(keyword) || empId.includes(keyword)) {
+                    // 檢查是否已在名單中
+                    const alreadyAdded = this.staffListSnapshot.some(s => s.uid === doc.id);
+                    if (!alreadyAdded) {
+                        results.push({
+                            uid: doc.id,
+                            name: name,
+                            empId: empId,
+                            unitName: data.unitName || '未知單位',
+                            level: data.level || 'N',
+                            unitId: data.unitId
+                        });
+                    }
+                }
+            });
+
+            if (results.length === 0) {
+                resultsContainer.innerHTML = '<div style="padding:10px; color:#999;">找不到符合的人員 (或已在名單中)</div>';
+                return;
+            }
+
+            // 顯示搜尋結果
+            let html = `<div style="border:1px solid #ddd; margin-top:10px; border-radius:4px; max-height:200px; overflow-y:auto;">
+                <table class="table table-sm" style="margin:0;">
+                    <thead style="position:sticky; top:0; background:#f8f9fa;">
+                        <tr>
+                            <th style="width:15%;">員編</th>
+                            <th style="width:20%;">姓名</th>
+                            <th style="width:25%;">單位</th>
+                            <th style="width:15%;">層級</th>
+                            <th style="width:25%;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+            
+            results.forEach(r => {
+                const isCrossUnit = r.unitId !== this.currentUnitId;
+                const badge = isCrossUnit ? '<span class="badge badge-warning">跨單位</span>' : '<span class="badge" style="background:#95a5a6;">本單位</span>';
+                
+                html += `<tr>
+                    <td>${r.empId}</td>
+                    <td>${r.name}</td>
+                    <td>${r.unitName}</td>
+                    <td>${r.level}</td>
+                    <td>
+                        ${badge}
+                        <button class="btn btn-sm btn-add" onclick="preScheduleManager.addSupportStaff('${r.uid}', '${r.name}', '${r.empId}', '${r.level}', ${isCrossUnit})" style="margin-left:5px;">
+                            <i class="fas fa-plus"></i> 加入
+                        </button>
+                    </td>
+                </tr>`;
+            });
+            
+            html += `</tbody></table></div>`;
+            resultsContainer.innerHTML = html;
+
+        } catch (e) {
+            console.error("搜尋錯誤:", e);
+            resultsContainer.innerHTML = '<div style="padding:10px; color:red;">搜尋失敗: ' + e.message + '</div>';
+        }
+    },
+
+    // 加入支援人員
+    addSupportStaff: function(uid, name, empId, level, isCrossUnit) {
+        // 再次確認是否已存在
+        if (this.staffListSnapshot.some(s => s.uid === uid)) {
+            alert("該人員已在名單中");
+            return;
+        }
+
+        this.staffListSnapshot.push({
+            uid: uid,
+            name: name,
+            empId: empId,
+            level: level,
+            group: '',
+            isSupport: isCrossUnit // 跨單位的標記為支援
+        });
+
+        this.renderStaffList();
+        
+        // 清空搜尋結果
+        document.getElementById('searchResults').innerHTML = '';
+        document.getElementById('inputSearchStaff').value = '';
+        
+        alert(`✅ 已加入 ${name} (${empId})`);
+    },
+
+    // 排序功能
+    sortStaff: function(field) {
+        const state = this.staffSortState;
+        
+        // 切換排序方向
+        if (state.field === field) {
+            state.order = state.order === 'asc' ? 'desc' : 'asc';
+        } else {
+            state.field = field;
+            state.order = 'asc';
+        }
+
+        // 執行排序
+        this.staffListSnapshot.sort((a, b) => {
+            let valA = a[field] || '';
+            let valB = b[field] || '';
+            
+            // 特殊處理：isSupport 欄位 (本單位優先)
+            if (field === 'isSupport') {
+                valA = a.isSupport ? 1 : 0;
+                valB = b.isSupport ? 1 : 0;
+            }
+            
+            if (typeof valA === 'string') valA = valA.toLowerCase();
+            if (typeof valB === 'string') valB = valB.toLowerCase();
+            
+            if (state.order === 'asc') {
+                return valA > valB ? 1 : valA < valB ? -1 : 0;
+            } else {
+                return valA < valB ? 1 : valA > valB ? -1 : 0;
+            }
+        });
+
+        this.renderStaffList();
+    },
     
     deleteSchedule: async function(id) { 
         if(confirm("確定刪除?")) { await db.collection('pre_schedules').doc(id).delete(); this.loadData(); } 
