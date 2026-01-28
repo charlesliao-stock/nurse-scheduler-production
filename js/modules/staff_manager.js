@@ -345,6 +345,7 @@ const staffManager = {
         try {
             const batch = db.batch();
             let userRef;
+            let emailCheck = null; // 在外部宣告變數
             
             if(docId) {
                 // 更新現有記錄
@@ -399,7 +400,7 @@ const staffManager = {
                 
             } else {
                 // 新增記錄
-                const emailCheck = await db.collection('users')
+                emailCheck = await db.collection('users')
                     .where('email', '==', email)
                     .get();
                 
