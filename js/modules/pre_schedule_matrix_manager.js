@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_matrix_manager.js
-// 🔧 完整版 v2：右鍵選單跟隨鼠標位置
+// 🔧 完整版 v2：右鍵選單跟隨鼠標位置 + 語法錯誤修正
 
 const matrixManager = {
     docId: null, data: null, shifts: [], localAssignments: {}, usersMap: {}, isLoading: false,
@@ -326,7 +326,7 @@ const matrixManager = {
         document.addEventListener('click', () => { document.getElementById('customContextMenu').style.display='none'; });
     },
 
-    // 🔥 修正：右鍵選單跟隨鼠標位置
+    // 🔥 修正：右鍵選單跟隨鼠標位置 + 語法錯誤修正
     handleRightClick: function(e, uid, day, type) {
         const menu = document.getElementById('customContextMenu');
         const options = document.getElementById('contextMenuOptions');
@@ -348,9 +348,11 @@ const matrixManager = {
         
         html += `<li style="padding:5px 12px; font-size:0.8rem; color:#999; background:#fafafa;">指定班別</li>`;
         this.shifts.forEach(s => {
+            // 🔥 關鍵修正：先計算顏色值，避免模板字串內嵌套
+            const shiftColor = s.color || '#333';
             html += `
                 <li onclick="${funcName}('${uid}','${targetKey}','${s.code}')" style="padding:8px 12px; cursor:pointer;">
-                    <span style="font-weight:bold; color:${s.color || '#333'};">${s.code}</span> - ${s.name}
+                    <span style="font-weight:bold; color:${shiftColor};">${s.code}</span> - ${s.name}
                 </li>`;
         });
 
