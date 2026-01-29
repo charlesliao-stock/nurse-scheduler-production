@@ -1,5 +1,6 @@
 // js/modules/schedule_rule_manager.js
 // 🔧 最終完美版 - 徹底修復週日(0)的 讀取 與 儲存 問題
+// 🆕 新增：缺額處理優先順序設定（基於單位班別動態生成）
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -115,6 +116,10 @@ const scheduleRuleManager = {
             if (r.policy?.nightEnd) document.getElementById('rule_nightEnd').value = r.policy.nightEnd;
             this.renderNightShiftOptions(r.policy?.noNightAfterOff_List || []);
 
+            // 🔥 新增：缺額處理優先順序
+            const shortagePriority = r.policy?.shortageHandling?.priorityOrder || [];
+            this.renderShortagePriorityList(shortagePriority);
+
             // Pattern Rules
             setCheck('rule_consecutivePref', r.pattern?.consecutivePref !== false);
             setVal('rule_minConsecutive', r.pattern?.minConsecutive || 2);
@@ -154,6 +159,9 @@ const scheduleRuleManager = {
         };
 
         const rotationOrder = this.getRotationOrderFromDOM();
+        
+        // 🔥 新增：取得缺額處理優先順序
+        const shortagePriority = this.getShortagePriorityFromDOM();
 
         const rules = {
             hard: {
@@ -178,7 +186,12 @@ const scheduleRuleManager = {
                 prioritizePref: getVal('rule_prioritize_pref'),
                 prioritizePreReq: getVal('rule_prioritize_prereq'),
                 prioritizeAvoid: getVal('rule_prioritize_avoid'),
-                enableRelaxation: getCheck('rule_enableRelaxation') 
+                enableRelaxation: getCheck('rule_enableRelaxation'),
+                // 🔥 新增：缺額處理設定
+                shortageHandling: {
+                    enabled: shortagePriority.length > 0,
+                    priorityOrder: shortagePriority
+                }
             },
             pattern: {
                 dayStartShift: getVal('rule_dayStartShift'),
@@ -208,6 +221,100 @@ const scheduleRuleManager = {
             });
             alert("規則已儲存成功！");
         } catch(e) { console.error(e); alert("儲存失敗: " + e.message); }
+    },
+
+    // 🔥 新增：渲染缺額處理優先順序列表（完全基於 activeShifts）
+    renderShortagePriorityList: function(savedOrder) {
+        const container = document.getElementById('shortagePriorityList');
+        if (!container) return;
+        
+        // 如果沒有班別資料，顯示提示
+        if (this.activeShifts.length === 0) {
+            container.innerHTML = '<div style="color:#999; text-align:center; padding:20px;">請先在「班別管理」中設定班別</div>';
+            return;
+        }
+        
+        // 建立順序陣列
+        let order = [];
+        
+        if (savedOrder && savedOrder.length > 0) {
+            // 使用儲存的順序，但只保留仍存在的班別
+            order = savedOrder.filter(code => 
+                this.activeShifts.some(s => s.code === code)
+            );
+        }
+        
+        // 將新增的班別（尚未在順序中的）加到最後
+        this.activeShifts.forEach(shift => {
+            if (!order.includes(shift.code)) {
+                order.push(shift.code);
+            }
+        });
+        
+        // 如果順序為空，使用智能預設順序（夜班優先）
+        if (order.length === 0) {
+            const nightShifts = [];
+            const dayShifts = [];
+            
+            this.activeShifts.forEach(s => {
+                const start = this.parseTime(s.startTime);
+                // 判斷是否為夜班（22:00-06:00）
+                const isNight = start >= 22 || start <= 6;
+                
+                if (isNight) {
+                    nightShifts.push(s.code);
+                } else {
+                    dayShifts.push(s.code);
+                }
+            });
+            
+            // 夜班在前，白班在後
+            order = [...nightShifts, ...dayShifts];
+        }
+        
+        // 渲染列表
+        container.innerHTML = '';
+        
+        order.forEach((code, index) => {
+            const shift = this.activeShifts.find(s => s.code === code);
+            if (!shift) return;
+            
+            const item = document.createElement('div');
+            item.className = 'sortable-item shortage-priority-item';
+            item.draggable = true;
+            item.dataset.code = code;
+            
+            const priorityLabel = index === 0 ? '最優先' : 
+                                  index === order.length - 1 ? '可接受缺額' : '';
+            
+            const shiftColor = shift.color || '#666';
+            
+            item.innerHTML = `
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <i class="fas fa-grip-lines-vertical" style="color:#999; cursor:grab;"></i>
+                    <span class="priority-badge">${index + 1}</span>
+                    <div style="flex:1;">
+                        <strong style="color:${shiftColor};">${code}</strong> - ${shift.name}
+                        <small style="color:#999; margin-left:8px;">${shift.startTime}-${shift.endTime}</small>
+                    </div>
+                    <span style="color:#666; font-size:0.85rem; font-style:italic; min-width:80px; text-align:right;">
+                        ${priorityLabel}
+                    </span>
+                </div>
+            `;
+            
+            container.appendChild(item);
+            this.addDragEvents(item, container);
+        });
+    },
+
+    // 🔥 新增：從 DOM 取得缺額處理優先順序
+    getShortagePriorityFromDOM: function() {
+        const container = document.getElementById('shortagePriorityList');
+        if (!container) return [];
+        
+        return Array.from(container.querySelectorAll('.shortage-priority-item'))
+            .map(item => item.dataset.code);
     },
 
     renderStartShiftSelect: function(currentVal) {
