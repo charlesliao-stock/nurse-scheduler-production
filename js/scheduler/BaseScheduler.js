@@ -277,18 +277,25 @@ class BaseScheduler {
             return true;
         }
 
-        let prevEndTimeAbs = prev.end;
+        // 🔥 修正：正確計算跨日間隔
+        let gap;
         
-        if (prev.end < prev.start) {
-            prevEndTimeAbs = prev.end + 24;
+        // 情況 1：prev 不跨日 (例如 D班 08:00-16:00)
+        if (prev.end >= prev.start) {
+            gap = (curr.start + 24) - prev.end;  // 次日上班
+        }
+        // 情況 2：prev 跨日 (例如 N班 22:00-08:00)
+        else {
+            const prevEndAbs = prev.end + 24;  // 08:00 → 32:00
+            const currStartAbs = curr.start + 24;  // 例如 14:00 → 38:00
+            gap = currStartAbs - prevEndAbs;
         }
 
-        const currStartTimeAbs = curr.start + 24;
-        const gap = currStartTimeAbs - prevEndTimeAbs;
+        const minGap = this.rule_minGapHours || 11;
 
         if (gap < 0) {
             console.warn(`⚠️ 休息時間計算出現負值: ${prevShift}(${prev.start}-${prev.end}) → ${currShift}(${curr.start}-${curr.end}), gap=${gap}`);
-            return false;
+            return true;  // 計算錯誤時，保守允許
         }
         
         if (gap > 48) {
@@ -296,13 +303,12 @@ class BaseScheduler {
             return true;
         }
 
-        const isValid = gap >= this.rule_minGapHours;
-        
-        if (!isValid) {
-            console.log(`❌ 休息時間不足: ${prevShift}(結束${prevEndTimeAbs-24}點) → ${currShift}(開始${curr.start}點), 間隔${gap.toFixed(1)}小時 < 要求${this.rule_minGapHours}小時`);
+        if (gap < minGap) {
+            console.warn(`❌ 休息不足: ${prevShift}(${prev.start}-${prev.end}) → ${currShift}(${curr.start}-${curr.end}), 間隔=${gap.toFixed(1)}h < ${minGap}h`);
+            return false;  // 🔥 嚴格拒絕
         }
 
-        return isValid;
+        return true;
     }
 
     getYesterdayShift(uid, dateStr) {
