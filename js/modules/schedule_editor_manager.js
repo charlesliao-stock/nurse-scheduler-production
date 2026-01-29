@@ -350,7 +350,7 @@ const scheduleEditorManager = {
                 } else if (bundleQuota > 26) {
                     status = 'critical';
                     warningLevel = 2;
-                    warningMsg = `配額過高（> 26班），將導致工作過量，<strong>禁止執行</strong>`;
+                    warningMsg = `配額過高（> 26班），可能導致工作過量`;  // 🔥 移除「禁止執行」文字
                 } else if (bundleQuota > 22) {
                     status = 'high';
                     warningLevel = 1;
@@ -380,7 +380,7 @@ const scheduleEditorManager = {
         const maxWarningLevel = Math.max(...Object.values(analysis).map(a => a.warningLevel));
         
         return {
-            canExecute: maxWarningLevel < 2,
+            canExecute: true,  // 🔥 修改：所有情況都允許執行（僅警告不禁止）
             hasWarning: maxWarningLevel > 0,
             analysis: analysis,
             daysInMonth: daysInMonth
@@ -515,34 +515,32 @@ const scheduleEditorManager = {
             });
             modalHtml += '</ul>';
             
-            if (canExecute) {
-                modalHtml += '<p style="color:#ff9800; margin:10px 0 0 0;">建議返回調整，或點擊「強制執行排班」繼續</p>';
-            } else {
-                modalHtml += '<p style="color:#e74c3c; font-weight:bold; margin:10px 0 0 0;">⛔ 配置不合理，強烈建議返回調整</p>';
-            }
+            // 🔥 修改：統一顯示警告訊息，不再區分「禁止」和「允許」
+            modalHtml += '<p style="color:#ff9800; margin:10px 0 0 0;">⚠️ 建議返回調整包班設定，或點擊「確認執行排班」繼續</p>';
         }
         
         modalHtml += `</div>`;
         
-        // 按鈕
+        // 按鈕區（🔥 修改：統一顯示，不再根據 warningLevel 禁止執行）
         modalHtml += `
             <div style="display:flex; gap:15px; justify-content:flex-end;">
                 <button onclick="scheduleEditorManager.closeBundleCheck()" style="padding:10px 20px; border:1px solid #95a5a6; background:#fff; border-radius:4px; cursor:pointer; font-size:1rem;">
                     <i class="fas fa-arrow-left"></i> 返回調整
                 </button>`;
         
-        if (canExecute) {
-            if (hasWarning) {
-                modalHtml += `
-                <button onclick="scheduleEditorManager.forceExecuteAI()" style="padding:10px 20px; border:none; background:#ff9800; color:white; border-radius:4px; cursor:pointer; font-size:1rem; font-weight:bold;">
-                    ⚠️ 強制執行排班
+        // 🔥 統一顯示執行按鈕，根據警告等級改變顏色和文字
+        if (hasWarning) {
+            const btnColor = issues.some(([_, data]) => data.warningLevel === 2) ? '#e74c3c' : '#ff9800';
+            const btnText = issues.some(([_, data]) => data.warningLevel === 2) ? '⚠️ 確認執行排班（有嚴重警告）' : '⚠️ 確認執行排班';
+            modalHtml += `
+                <button onclick="scheduleEditorManager.forceExecuteAI()" style="padding:10px 20px; border:none; background:${btnColor}; color:white; border-radius:4px; cursor:pointer; font-size:1rem; font-weight:bold;">
+                    ${btnText}
                 </button>`;
-            } else {
-                modalHtml += `
+        } else {
+            modalHtml += `
                 <button onclick="scheduleEditorManager.confirmExecuteAI()" style="padding:10px 20px; border:none; background:#2ecc71; color:white; border-radius:4px; cursor:pointer; font-size:1rem; font-weight:bold;">
                     ✅ 確認執行排班
                 </button>`;
-            }
         }
         
         modalHtml += `
@@ -561,7 +559,7 @@ const scheduleEditorManager = {
     },
 
     forceExecuteAI: function() {
-        if (confirm('⚠️ 確定要在有警告的情況下執行排班嗎？\n\n可能導致：\n• 休假天數分配不均\n• 工作負擔過重或過輕\n• 排班結果不符合預期\n\n建議：返回調整包班人數或偏好設定')) {
+        if (confirm('⚠️ 確定要執行排班嗎？\n\n目前包班配額有警告：\n• 可能導致休假天數分配不均\n• 可能導致工作負擔過重或過輕\n• 排班結果可能需要較多手動調整\n\n建議：返回調整包班人數或人力需求設定')) {
             this.closeBundleCheck();
             this.executeAI();
         }
