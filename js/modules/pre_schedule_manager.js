@@ -703,7 +703,52 @@ const preScheduleManager = {
         else opt.style.display = 'none';
     },
 
-    manage: function(id) { window.location.hash = `/admin/pre_schedule_matrix?id=${id}`; }
+    manage: function(id) { window.location.hash = `/admin/pre_schedule_matrix?id=${id}`; },
+
+    importLastSettings: async function() {
+        if(!this.currentUnitId) return;
+        try {
+            const snapshot = await db.collection('pre_schedules')
+                .where('unitId', '==', this.currentUnitId)
+                .orderBy('year', 'desc').orderBy('month', 'desc')
+                .limit(1)
+                .get();
+
+            if (snapshot.empty) {
+                alert("找不到上個月的預班表設定。");
+                return;
+            }
+
+            const lastData = snapshot.docs[0].data();
+            
+            // 填寫基本設定
+            const s = lastData.settings || {};
+            document.getElementById('inputMaxOff').value = s.maxOffDays || 8;
+            document.getElementById('inputMaxHoliday').value = s.maxHolidayOffs || 2;
+            document.getElementById('inputDailyReserve').value = s.dailyReserved || 1;
+            document.getElementById('checkShowAllNames').checked = s.showAllNames !== false;
+            document.getElementById('inputShiftMode').value = s.shiftTypeMode || "3";
+            this.toggleThreeShiftOption();
+            if(s.shiftTypeMode === "2") document.getElementById('checkAllowThree').checked = s.allowThreeShifts;
+
+            // 重新渲染表格
+            this.renderDailyNeedsTable(lastData.dailyNeeds || {});
+            this.renderBundleLimitSettings(lastData.bundleLimits || {});
+            this.renderSpecificNeedsUI(lastData.specificNeeds || {});
+            this.renderGroupLimitsTable(lastData.groupLimits || {});
+
+            // 如果有人員名單也一併帶入
+            if (lastData.staffList && lastData.staffList.length > 0) {
+                this.staffListSnapshot = JSON.parse(JSON.stringify(lastData.staffList));
+                this.renderStaffList();
+            }
+
+            alert(`✅ 已成功帶入 ${lastData.year}-${lastData.month} 的設定。`);
+        } catch(e) {
+            console.error("Import Last Settings Error:", e);
+            alert("帶入設定失敗: " + e.message);
+        }
+    }
 };
 
 if (typeof module !== 'undefined' && module.exports) {
