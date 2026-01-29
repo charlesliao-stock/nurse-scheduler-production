@@ -159,6 +159,38 @@
                         開啟後，系統將忽略「必定滿足」的限制，並允許違反部分軟性規則 (如連上天數) 以填滿缺額。
                     </div>
                 </div>
+
+                <!-- 🔥 新增：缺額處理優先順序 -->
+                <div class="rule-card" style="background:#f0f8ff; border-left:5px solid #e74c3c; margin-top:25px;">
+                    <div class="rule-header" style="display:flex; align-items:center; gap:8px; color:#2c3e50;">
+                        <i class="fas fa-sort-amount-down" style="color:#e74c3c;"></i> 
+                        7. 缺額處理優先順序
+                    </div>
+                    <div class="rule-body">
+                        <div class="alert alert-info" style="margin:10px 0; background:#e8f4fd; border-left:4px solid #3498db; padding:12px; border-radius:4px;">
+                            <i class="fas fa-info-circle"></i> 
+                            <strong>說明：</strong>當 AI 排班遇到無法滿足所有班別需求時，會優先完成上方班別的人力配置，缺額將落在下方班別。
+                            <br>
+                            <small style="color:#666; margin-top:5px; display:block;">
+                                💡 建議將夜班放在上方（優先保證），白班放在下方（可接受缺額），因為白班較容易找代班人力。
+                            </small>
+                        </div>
+                        
+                        <div id="shortagePriorityList" class="sortable-list shortage-priority-list">
+                            <!-- 動態生成可拖拉的項目 -->
+                        </div>
+                        
+                        <div style="margin-top:10px; padding:10px; background:#fff3cd; border-radius:4px; font-size:0.9rem;">
+                            <i class="fas fa-lightbulb" style="color:#f39c12;"></i> 
+                            <strong>提示：</strong>
+                            <ul style="margin:5px 0 0 20px; padding:0;">
+                                <li>拖曳 <i class="fas fa-grip-lines-vertical"></i> 圖示可調整順序</li>
+                                <li>排在第 1 位的班別將獲得最高優先保證</li>
+                                <li>排在最後的班別在人力不足時可能出現缺額</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div id="tab-pattern" class="tab-content">
@@ -298,21 +330,17 @@
         border-radius: 8px; 
         padding: 20px; 
         margin-bottom: 15px; 
-        
-        /* 預設：灰色側框 */
         border-left: 5px solid #bdc3c7; 
         transition: all 0.2s ease-in-out; 
     }
 
     .rule-card:hover { 
-        /* 懸停：藍色側框 + 輕微藍底 */
         border-left-color: #3498db !important; 
         background-color: #ebf5fb !important; 
         transform: translateY(-2px); 
         box-shadow: 0 5px 15px rgba(52, 152, 219, 0.15); 
     }
     
-    /* 標題與說明文字的層次設定 */
     .rule-header { 
         font-size: 16px; 
         font-weight: bold; 
@@ -349,6 +377,72 @@
     .sortable-item:hover { background: #ebf5fb; transform: translateY(-2px); }
     .sortable-item:active { cursor: grabbing; }
     .sortable-item i { color: #bdc3c7; font-size: 0.8rem; margin-left: 5px; }
+
+    /* 🔥 新增：缺額處理優先順序樣式 */
+    .shortage-priority-list {
+        border: 2px dashed #ddd;
+        border-radius: 6px;
+        padding: 15px;
+        background: #fafafa;
+        min-height: 100px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .shortage-priority-item {
+        background: white;
+        padding: 14px 16px;
+        border-radius: 6px;
+        border: 2px solid #e0e0e0;
+        cursor: move;
+        transition: all 0.2s ease;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    .shortage-priority-item:hover {
+        border-color: #3498db;
+        box-shadow: 0 3px 8px rgba(52, 152, 219, 0.15);
+        transform: translateY(-1px);
+    }
+
+    .shortage-priority-item.dragging {
+        opacity: 0.4;
+        border-style: dashed;
+    }
+
+    .shortage-priority-item .priority-badge {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 6px 10px;
+        border-radius: 50%;
+        font-weight: bold;
+        font-size: 0.9rem;
+        min-width: 32px;
+        height: 32px;
+        text-align: center;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+    }
+
+    .shortage-priority-item:first-child .priority-badge {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+
+    .shortage-priority-item:last-child .priority-badge {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    }
+
+    .shortage-priority-item i.fa-grip-lines-vertical {
+        cursor: grab;
+        font-size: 1.2rem;
+    }
+
+    .shortage-priority-item i.fa-grip-lines-vertical:active {
+        cursor: grabbing;
+    }
 
     @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 </style>
