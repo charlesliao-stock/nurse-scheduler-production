@@ -341,7 +341,7 @@ const matrixManager = {
                 ${dateDisplay}
             </div>
             <ul style="list-style:none; padding:0; margin:0;">
-                <li onclick="${funcName}('${uid}','${targetKey}','${isHistory ? 'OFF' : 'REQ_OFF}')" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee;">
+                <li onclick="${funcName}('${uid}','${targetKey}','${isHistory ? 'OFF' : 'REQ_OFF'}')" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee;">
                     <i class="fas fa-bed" style="width:20px; color:#27ae60;"></i> ${isHistory ? 'OFF (休)' : '排休 (OFF)'}
                 </li>
         `;
