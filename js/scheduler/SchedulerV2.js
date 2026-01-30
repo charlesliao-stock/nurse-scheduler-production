@@ -40,6 +40,9 @@ class SchedulerV2 extends BaseScheduler {
         // 🔥 新增：檢測需要轉換夜班的人員
         this.detectBundleTransitions();
         
+        // 🔥 新增：優先處理假日
+        this.prioritizeWeekendOffs();
+        
         // 設定分段平衡點
         const segments = Math.max(3, this.rules.aiParams?.balancingSegments || 3);
         const interval = Math.floor(this.daysInMonth / segments);
@@ -638,6 +641,39 @@ class SchedulerV2 extends BaseScheduler {
         return recovered;
     }
 
+    // 🔥 新增：優先安排假日休假
+    prioritizeWeekendOffs() {
+        console.log('📅 優先安排假日休假...');
+        
+        let weekendOffCount = 0;
+        
+        for (let d = 1; d <= this.daysInMonth; d++) {
+            const date = new Date(this.year, this.month - 1, d);
+            const dayOfWeek = date.getDay();
+            
+            // 0=週日, 6=週六
+            if (dayOfWeek === 0 || dayOfWeek === 6) {
+                const dateStr = this.getDateStr(d);
+                const dayName = dayOfWeek === 0 ? '週日' : '週六';
+                
+                // 統計目前有多少人休假
+                let currentOffCount = 0;
+                this.staffList.forEach(staff => {
+                    const shift = this.getShiftByDate(dateStr, staff.id);
+                    if (shift === 'OFF' || shift === 'REQ_OFF') {
+                        currentOffCount++;
+                    }
+                });
+                
+                console.log(`  第 ${d} 天（${dayName}）：目前 ${currentOffCount}/${this.staffList.length} 人休假`);
+                weekendOffCount += currentOffCount;
+            }
+        }
+        
+        console.log(`✅ 假日總休假人次：${weekendOffCount}`);
+    }
+
+
     // 🔥 改善版：效能優化的平衡處理
     postProcessBalancing(limitDay, isFinal = false) {
         const rounds = isFinal ? 500 : 50; 
@@ -958,7 +994,57 @@ class SchedulerV2 extends BaseScheduler {
         if (prefs.favShift3 === shiftCode) { score += 200; isPreferred = true; }
         if ((prefs.favShift || bundleShift) && !isPreferred) score -= 999999; 
         if (staff.schedulingParams?.[dateStr] === '!' + shiftCode) score -= 999999;
-        return { totalScore: score, isPreferred: isPreferred };
+
+    // 🔥 新增：孤兒休懲罰與連休獎勵
+    if (shiftCode === 'OFF' || shiftCode === 'REQ_OFF') {
+        const day = parseInt(dateStr.split('-')[2]);
+        const prevDay = day - 1;
+        const nextDay = day + 1;
+        
+        const prevShift = prevDay >= 1 ? this.getShiftByDate(this.getDateStr(prevDay), staff.id) : null;
+        const nextShift = nextDay <= this.daysInMonth ? this.getShiftByDate(this.getDateStr(nextDay), staff.id) : null;
+        
+        const prevIsWork = prevShift && prevShift !== 'OFF' && prevShift !== 'REQ_OFF';
+        const nextIsWork = nextShift && nextShift !== 'OFF' && nextShift !== 'REQ_OFF';
+        const prevIsOff = prevShift === 'OFF' || prevShift === 'REQ_OFF';
+        const nextIsOff = nextShift === 'OFF' || nextShift === 'REQ_OFF';
+        
+        // 孤兒休（前後都是工作日）- 強烈懲罰
+        if (prevIsWork && nextIsWork) {
+            score -= 50;
+            details.push(`孤兒休懲罰 -50`);
+        }
+        
+        // 連休獎勵（至少一邊是 OFF）
+        if (prevIsOff || nextIsOff) {
+            score += 25;
+            details.push(`連休獎勵 +25`);
+            
+            // 兩邊都是 OFF（三連休）- 額外獎勵
+            if (prevIsOff && nextIsOff) {
+                score += 15;
+                details.push(`三連休額外獎勵 +15`);
+            }
+        }
+    }
+    
+    // 🔥 新增：假日權重
+    const day = parseInt(dateStr.split('-')[2]);
+    const date = new Date(this.year, this.month - 1, day);
+    const dayOfWeek = date.getDay();
+    const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+    
+    if (isWeekend) {
+        if (shiftCode === 'OFF' || shiftCode === 'REQ_OFF') {
+            score += 15;
+            details.push(`假日休假獎勵 +15`);
+        } else {
+            score -= 5;
+            details.push(`假日上班小懲罰 -5`);
+        }
+    }
+    
+            return { totalScore: score, isPreferred: isPreferred };
     }
 
     classifyStaffByBundle() {
