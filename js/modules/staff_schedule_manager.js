@@ -1,12 +1,21 @@
 // js/modules/staff_schedule_manager.js
-// 最終完整版：支援模擬、修正所有函數
+// 完整版：支援模擬、換班選擇、所有人可見全單位班表
 
 const staffScheduleManager = {
     currentYear: new Date().getFullYear(),
     currentMonth: new Date().getMonth() + 1,
     scheduleData: null,
     currentUid: null,
-    viewMode: 'personal', // 'personal' 或 'unit'
+    viewMode: 'personal',
+    
+    // 換班選擇相關
+    swapMode: false,
+    swapSelection: {
+        firstCell: null,
+        firstUid: null,
+        firstDay: null,
+        firstShift: null
+    },
 
     init: async function() {
         this.currentUid = app.getUid();
@@ -46,7 +55,6 @@ const staffScheduleManager = {
                     </div>
                 `;
                 
-                // 移除舊的資訊框（如果存在）
                 const oldInfo = document.getElementById('currentUserInfo');
                 if (oldInfo) oldInfo.remove();
                 
@@ -65,21 +73,22 @@ const staffScheduleManager = {
     setupMonthPicker: function() {
         const input = document.getElementById('monthPicker');
         if (!input) {
-            console.warn('找不到 monthPicker 元素');
+            console.warn('⚠️ 找不到 monthPicker 元素');
             return;
         }
 
         input.value = `${this.currentYear}-${String(this.currentMonth).padStart(2, '0')}`;
         
-        input.addEventListener('change', (e) => {
+        input.removeEventListener('change', this.monthChangeHandler);
+        this.monthChangeHandler = (e) => {
             const [year, month] = e.target.value.split('-');
             this.currentYear = parseInt(year);
             this.currentMonth = parseInt(month);
             this.loadSchedule();
-        });
+        };
+        input.addEventListener('change', this.monthChangeHandler);
     },
 
-    // 按鈕會呼叫的函數
     loadData: async function() {
         await this.loadSchedule();
     },
@@ -87,7 +96,7 @@ const staffScheduleManager = {
     loadSchedule: async function() {
         const container = document.getElementById('scheduleTableContainer');
         if (!container) {
-            console.error('找不到 scheduleTableContainer 元素');
+            console.error('❌ 找不到 scheduleTableContainer 元素');
             return;
         }
 
@@ -95,7 +104,6 @@ const staffScheduleManager = {
 
         try {
             console.log(`🔍 查詢 ${this.currentYear}/${this.currentMonth} 的班表`);
-            console.log(`   UID: ${this.currentUid}`);
             
             const unitId = app.getUnitId();
             if (!unitId) {
@@ -103,7 +111,7 @@ const staffScheduleManager = {
                 return;
             }
 
-            console.log(`   單位: ${unitId}`);
+            console.log(`   單位: ${unitId}, UID: ${this.currentUid}`);
 
             const snapshot = await db.collection('schedules')
                 .where('unitId', '==', unitId)
@@ -123,13 +131,12 @@ const staffScheduleManager = {
             this.scheduleData = { id: doc.id, ...doc.data() };
             
             console.log(`✅ 找到班表: ${doc.id}`);
-            console.log(`📋 班表人員數: ${this.scheduleData.staffList?.length || 0}`);
-            console.log(`📋 Assignments 包含 UID: ${Object.keys(this.scheduleData.assignments || {}).length} 位`);
+            console.log(`📋 班表人員: ${this.scheduleData.staffList?.length || 0} 位`);
+            console.log(`📋 Assignments UID 數: ${Object.keys(this.scheduleData.assignments || {}).length}`);
 
             if (this.scheduleData.assignments && this.scheduleData.assignments[this.currentUid]) {
                 console.log(`✅ 找到 UID ${this.currentUid} 的班表資料`);
                 
-                // 根據當前檢視模式渲染
                 if (this.viewMode === 'unit') {
                     this.renderAllStaff();
                 } else {
@@ -139,7 +146,6 @@ const staffScheduleManager = {
                 this.renderStatistics();
             } else {
                 console.warn(`⚠️ UID ${this.currentUid} 不在班表中`);
-                console.log('📋 班表中的前 5 個 UID:', Object.keys(this.scheduleData.assignments || {}).slice(0, 5));
                 this.showError('您不在本月班表中');
             }
 
@@ -156,7 +162,7 @@ const staffScheduleManager = {
         const daysInMonth = new Date(this.currentYear, this.currentMonth, 0).getDate();
         const assignments = this.scheduleData.assignments[this.currentUid] || {};
         
-        console.log(`📅 渲染個人班表 - ${this.currentYear}/${this.currentMonth} (${daysInMonth} 天)`);
+        console.log(`📅 渲染個人班表 - ${daysInMonth} 天`);
 
         let html = '<div style="overflow-x: auto;"><table class="schedule-table"><thead><tr><th style="min-width: 100px;">姓名</th>';
         
@@ -199,16 +205,9 @@ const staffScheduleManager = {
         
         container.innerHTML = html;
         
-        // 更新檢視模式切換按鈕狀態
         const showAllCheckbox = document.getElementById('showAllStaff');
         if (showAllCheckbox) {
             showAllCheckbox.checked = false;
-            const currentRole = app.impersonatedRole || app.userRole;
-            if (currentRole === 'unit_manager' || currentRole === 'unit_scheduler' || currentRole === 'system_admin') {
-                showAllCheckbox.parentElement.style.display = 'inline-block';
-            } else {
-                showAllCheckbox.parentElement.style.display = 'none';
-            }
         }
     },
 
@@ -219,9 +218,7 @@ const staffScheduleManager = {
         const assignments = this.scheduleData.assignments[this.currentUid] || {};
         const daysInMonth = new Date(this.currentYear, this.currentMonth, 0).getDate();
         
-        let workDays = 0;
-        let offDays = 0;
-        let nightShifts = 0;
+        let workDays = 0, offDays = 0, nightShifts = 0;
         const shiftCounts = {};
         
         for (let d = 1; d <= daysInMonth; d++) {
@@ -231,16 +228,13 @@ const staffScheduleManager = {
                 offDays++;
             } else {
                 workDays++;
-                if (shift === 'N' || shift.includes('夜')) {
-                    nightShifts++;
-                }
+                if (shift === 'N' || shift.includes('夜')) nightShifts++;
             }
             
             shiftCounts[shift] = (shiftCounts[shift] || 0) + 1;
         }
         
-        let maxConsecutive = 0;
-        let currentConsecutive = 0;
+        let maxConsecutive = 0, currentConsecutive = 0;
         for (let d = 1; d <= daysInMonth; d++) {
             const shift = assignments[`current_${d}`] || 'OFF';
             if (shift !== 'OFF' && shift !== 'REQ_OFF') {
@@ -252,7 +246,6 @@ const staffScheduleManager = {
         }
         
         let html = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:15px; margin-top:20px;">';
-        
         html += `
             <div class="stat-card">
                 <div class="stat-icon" style="background:#4caf50;"><i class="fas fa-briefcase"></i></div>
@@ -275,7 +268,6 @@ const staffScheduleManager = {
                 <div class="stat-label">最長連上</div>
             </div>
         `;
-        
         html += '</div>';
         
         html += '<div style="margin-top:20px; padding:15px; background:#f5f5f5; border-radius:8px;">';
@@ -292,15 +284,11 @@ const staffScheduleManager = {
             });
         
         html += '</div></div>';
-        
         statsDiv.innerHTML = html;
     },
 
     getUserName: function() {
-        if (!this.scheduleData || !this.scheduleData.staffList) {
-            return '查無姓名';
-        }
-        
+        if (!this.scheduleData || !this.scheduleData.staffList) return '查無姓名';
         const staff = this.scheduleData.staffList.find(s => s.uid === this.currentUid);
         return staff ? (staff.name || staff.displayName || '未命名') : '查無姓名';
     },
@@ -336,12 +324,8 @@ const staffScheduleManager = {
         if (statsDiv) statsDiv.innerHTML = '';
     },
 
-    // 🔥 新增：檢視模式切換（HTML 會呼叫）
     toggleViewMode: function(checkbox) {
-        if (!checkbox) {
-            checkbox = document.getElementById('showAllStaff');
-        }
-        
+        if (!checkbox) checkbox = document.getElementById('showAllStaff');
         const isChecked = checkbox ? checkbox.checked : false;
         
         console.log(`🔄 切換檢視模式: ${isChecked ? '全單位' : '個人'}`);
@@ -355,7 +339,6 @@ const staffScheduleManager = {
         }
     },
 
-    // 🔥 舊版相容：toggleAllStaff
     toggleAllStaff: function(checked) {
         this.toggleViewMode({ checked: checked });
     },
@@ -369,7 +352,21 @@ const staffScheduleManager = {
         
         console.log(`📋 渲染全單位班表 - ${staffList.length} 位人員`);
 
-        let html = '<div style="overflow-x: auto;"><table class="schedule-table"><thead><tr><th style="min-width: 100px;">姓名</th>';
+        let html = '<div style="overflow-x: auto;">';
+        
+        // 🔥 新增：換班按鈕
+        html += `
+            <div style="margin-bottom: 15px; padding: 10px; background: #fff3cd; border-radius: 8px; border-left: 4px solid #ffc107;">
+                <button id="swapModeBtn" class="btn btn-warning" onclick="staffScheduleManager.toggleSwapMode()">
+                    <i class="fas fa-exchange-alt"></i> 啟用換班模式
+                </button>
+                <span id="swapModeHint" style="margin-left: 15px; color: #856404; display: none;">
+                    <i class="fas fa-info-circle"></i> 請先點擊自己的班，再點擊要換班的同事的班
+                </span>
+            </div>
+        `;
+        
+        html += '<table class="schedule-table"><thead><tr><th style="min-width: 100px;">姓名</th>';
         
         for (let d = 1; d <= daysInMonth; d++) {
             const date = new Date(this.currentYear, this.currentMonth - 1, d);
@@ -401,7 +398,14 @@ const staffScheduleManager = {
                     'background:#e8f5e9; color:#2e7d32;' : 
                     'background:#e3f2fd; color:#1565c0;';
                 
-                html += `<td style="${cellStyle} text-align:center; padding: 8px;">${shift}</td>`;
+                // 🔥 可點擊的儲存格（用於換班）
+                html += `<td class="shift-cell" 
+                    data-uid="${staff.uid}" 
+                    data-day="${d}" 
+                    data-shift="${shift}"
+                    data-name="${staff.name || staff.displayName}"
+                    style="${cellStyle} text-align:center; padding: 8px; cursor: pointer;"
+                    onclick="staffScheduleManager.handleCellClick(this)">${shift}</td>`;
             }
             
             html += '</tr>';
@@ -410,10 +414,147 @@ const staffScheduleManager = {
         html += '</tbody></table></div>';
         container.innerHTML = html;
         
-        // 更新檢視模式切換按鈕狀態
         const showAllCheckbox = document.getElementById('showAllStaff');
         if (showAllCheckbox) {
             showAllCheckbox.checked = true;
         }
+    },
+
+    // 🔥 新增：切換換班模式
+    toggleSwapMode: function() {
+        this.swapMode = !this.swapMode;
+        
+        const btn = document.getElementById('swapModeBtn');
+        const hint = document.getElementById('swapModeHint');
+        
+        if (this.swapMode) {
+            btn.className = 'btn btn-danger';
+            btn.innerHTML = '<i class="fas fa-times"></i> 取消換班模式';
+            hint.style.display = 'inline';
+            console.log('🔄 已啟用換班模式');
+        } else {
+            btn.className = 'btn btn-warning';
+            btn.innerHTML = '<i class="fas fa-exchange-alt"></i> 啟用換班模式';
+            hint.style.display = 'none';
+            this.clearSwapSelection();
+            console.log('⏹️ 已關閉換班模式');
+        }
+    },
+
+    // 🔥 新增：處理儲存格點擊
+    handleCellClick: function(cell) {
+        if (!this.swapMode) return;
+        
+        const uid = cell.dataset.uid;
+        const day = parseInt(cell.dataset.day);
+        const shift = cell.dataset.shift;
+        const name = cell.dataset.name;
+        
+        // 不能換 OFF
+        if (shift === 'OFF' || shift === 'REQ_OFF') {
+            alert('休假日無法換班');
+            return;
+        }
+        
+        // 第一次點擊：必須是自己的班
+        if (!this.swapSelection.firstCell) {
+            if (uid !== this.currentUid) {
+                alert('請先點擊自己的班！');
+                return;
+            }
+            
+            this.swapSelection.firstCell = cell;
+            this.swapSelection.firstUid = uid;
+            this.swapSelection.firstDay = day;
+            this.swapSelection.firstShift = shift;
+            
+            cell.style.border = '3px solid #ff9800';
+            cell.style.boxShadow = '0 0 10px rgba(255, 152, 0, 0.5)';
+            
+            console.log(`✅ 已選擇: ${name} 的 ${day} 日 ${shift} 班`);
+        }
+        // 第二次點擊：必須是同一天、不同人
+        else {
+            if (day !== this.swapSelection.firstDay) {
+                alert('必須選擇同一天！');
+                return;
+            }
+            
+            if (uid === this.currentUid) {
+                alert('不能跟自己換班！');
+                return;
+            }
+            
+            // 確認換班
+            this.confirmSwap(uid, day, shift, name);
+        }
+    },
+
+    // 🔥 新增：確認換班
+    confirmSwap: function(targetUid, day, targetShift, targetName) {
+        const myShift = this.swapSelection.firstShift;
+        const myName = this.getUserName();
+        
+        const message = `確定要申請換班嗎？\n\n${myName} 的 ${myShift} 班 ⇄ ${targetName} 的 ${targetShift} 班\n日期: ${this.currentYear}/${this.currentMonth}/${day}`;
+        
+        if (confirm(message)) {
+            this.submitSwapRequest(targetUid, day, targetShift);
+        }
+        
+        this.clearSwapSelection();
+    },
+
+    // 🔥 新增：提交換班申請
+    submitSwapRequest: async function(targetUid, day, targetShift) {
+        const myShift = this.swapSelection.firstShift;
+        
+        try {
+            // 取得雙方姓名
+            const myData = await db.collection('users').doc(this.currentUid).get();
+            const targetData = await db.collection('users').doc(targetUid).get();
+            
+            const reqData = {
+                scheduleId: this.scheduleData.id,
+                year: this.currentYear,
+                month: this.currentMonth,
+                day: day,
+                requesterId: this.currentUid,
+                requesterName: myData.data().displayName || myData.data().name,
+                requesterShift: myShift,
+                targetId: targetUid,
+                targetName: targetData.data().displayName || targetData.data().name,
+                targetShift: targetShift,
+                status: 'pending_target',
+                reasonCategory: 'personal_factors',
+                reason: '同仁間協調換班',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            
+            await db.collection('shift_requests').add(reqData);
+            
+            alert('✅ 換班申請已送出！\n請等待對方同意及護理長核准。');
+            
+            // 關閉換班模式
+            this.toggleSwapMode();
+            
+        } catch (error) {
+            console.error('提交換班申請失敗:', error);
+            alert('提交失敗: ' + error.message);
+        }
+    },
+
+    // 🔥 新增：清除選擇
+    clearSwapSelection: function() {
+        if (this.swapSelection.firstCell) {
+            this.swapSelection.firstCell.style.border = '';
+            this.swapSelection.firstCell.style.boxShadow = '';
+        }
+        
+        this.swapSelection = {
+            firstCell: null,
+            firstUid: null,
+            firstDay: null,
+            firstShift: null
+        };
     }
 };
