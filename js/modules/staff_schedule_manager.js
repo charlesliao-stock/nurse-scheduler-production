@@ -8,7 +8,6 @@ const staffScheduleManager = {
     currentUid: null,
 
     init: async function() {
-        // 🔥 修正：使用 app.getUid() 取得當前使用者 UID（支援模擬）
         this.currentUid = app.getUid();
         
         if (!this.currentUid) {
@@ -18,17 +17,11 @@ const staffScheduleManager = {
 
         console.log(`📋 初始化個人班表查詢 - UID: ${this.currentUid}`);
         
-        // 🔥 新增：顯示當前查詢的人員資訊
         await this.displayCurrentUser();
-        
-        // 設定月份選擇器
         this.setupMonthPicker();
-        
-        // 載入班表
         await this.loadSchedule();
     },
 
-    // 🔥 新增：顯示當前查詢的人員資訊
     displayCurrentUser: async function() {
         try {
             const userDoc = await db.collection('users').doc(this.currentUid).get();
@@ -37,7 +30,6 @@ const staffScheduleManager = {
                 const userName = userData.displayName || userData.name || '未命名';
                 const userUnit = userData.unitId || '未設定';
                 
-                // 在頁面上顯示當前查詢的人員
                 const infoDiv = document.createElement('div');
                 infoDiv.style.cssText = 'background: #e3f2fd; padding: 12px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #2196f3;';
                 infoDiv.innerHTML = `
@@ -50,7 +42,6 @@ const staffScheduleManager = {
                     </div>
                 `;
                 
-                // 插入到月份選擇器之前
                 const monthPicker = document.querySelector('.month-picker');
                 if (monthPicker && monthPicker.parentNode) {
                     monthPicker.parentNode.insertBefore(infoDiv, monthPicker);
@@ -67,16 +58,19 @@ const staffScheduleManager = {
         const input = document.getElementById('monthPicker');
         if (!input) return;
 
-        // 設定預設值為當前月份
         input.value = `${this.currentYear}-${String(this.currentMonth).padStart(2, '0')}`;
         
-        // 監聽變更事件
         input.addEventListener('change', (e) => {
             const [year, month] = e.target.value.split('-');
             this.currentYear = parseInt(year);
             this.currentMonth = parseInt(month);
             this.loadSchedule();
         });
+    },
+
+    // 🔥 新增：loadData 函數（按鈕會呼叫）
+    loadData: async function() {
+        await this.loadSchedule();
     },
 
     loadSchedule: async function() {
@@ -88,7 +82,6 @@ const staffScheduleManager = {
         try {
             console.log(`🔍 查詢 ${this.currentYear}/${this.currentMonth} 的班表 - UID: ${this.currentUid}`);
             
-            // 🔥 修正：使用當前 UID 查詢
             const unitId = app.getUnitId();
             if (!unitId) {
                 this.showError('無法取得單位資訊');
@@ -97,7 +90,6 @@ const staffScheduleManager = {
 
             console.log(`📍 查詢單位: ${unitId}`);
 
-            // 查詢該單位該月份的已發布班表
             const snapshot = await db.collection('schedules')
                 .where('unitId', '==', unitId)
                 .where('year', '==', this.currentYear)
@@ -119,7 +111,6 @@ const staffScheduleManager = {
             console.log(`📋 班表人員數: ${this.scheduleData.staffList?.length || 0}`);
             console.log(`📋 Assignments 包含 UID 數: ${Object.keys(this.scheduleData.assignments || {}).length}`);
 
-            // 🔥 關鍵：檢查當前 UID 是否在班表中
             if (this.scheduleData.assignments && this.scheduleData.assignments[this.currentUid]) {
                 console.log(`✅ 找到 UID ${this.currentUid} 的班表資料`);
                 this.renderSchedule();
@@ -147,7 +138,6 @@ const staffScheduleManager = {
 
         let html = '<table class="schedule-table"><thead><tr><th>姓名</th>';
         
-        // 表頭：日期
         for (let d = 1; d <= daysInMonth; d++) {
             const date = new Date(this.currentYear, this.currentMonth - 1, d);
             const dayOfWeek = date.getDay();
@@ -161,19 +151,14 @@ const staffScheduleManager = {
         
         html += '<th>統計</th></tr></thead><tbody><tr>';
         
-        // 第一欄：姓名
         const userName = this.getUserName();
         html += `<td style="position:sticky; left:0; background:#f5f5f5; font-weight:bold; z-index:10;">${userName}</td>`;
         
-        // 每一天的班別
         const shiftCounts = {};
         for (let d = 1; d <= daysInMonth; d++) {
             const shift = assignments[`current_${d}`] || 'OFF';
-            
-            // 統計班別
             shiftCounts[shift] = (shiftCounts[shift] || 0) + 1;
             
-            // 判斷班別類型
             const isOff = shift === 'OFF' || shift === 'REQ_OFF';
             const cellStyle = isOff ? 
                 'background:#e8f5e9; color:#2e7d32;' : 
@@ -182,19 +167,16 @@ const staffScheduleManager = {
             html += `<td style="${cellStyle} text-align:center; font-weight:bold;">${shift}</td>`;
         }
         
-        // 最後一欄：統計
         const statsHtml = Object.entries(shiftCounts)
             .sort((a, b) => b[1] - a[1])
             .map(([shift, count]) => `<div>${shift}: ${count}</div>`)
             .join('');
         
         html += `<td style="font-size:0.85rem; line-height:1.5;">${statsHtml}</td>`;
-        
         html += '</tr></tbody></table>';
         
         container.innerHTML = html;
         
-        // 顯示「顯示全單位班表」勾選框（如果有權限）
         const showAllCheckbox = document.getElementById('showAllStaff');
         if (showAllCheckbox) {
             const currentRole = app.impersonatedRole || app.userRole;
@@ -213,7 +195,6 @@ const staffScheduleManager = {
         const assignments = this.scheduleData.assignments[this.currentUid] || {};
         const daysInMonth = new Date(this.currentYear, this.currentMonth, 0).getDate();
         
-        // 統計各類班別
         let workDays = 0;
         let offDays = 0;
         let nightShifts = 0;
@@ -234,7 +215,6 @@ const staffScheduleManager = {
             shiftCounts[shift] = (shiftCounts[shift] || 0) + 1;
         }
         
-        // 計算連續上班天數
         let maxConsecutive = 0;
         let currentConsecutive = 0;
         for (let d = 1; d <= daysInMonth; d++) {
@@ -247,7 +227,6 @@ const staffScheduleManager = {
             }
         }
         
-        // 渲染統計卡片
         let html = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:15px; margin-top:20px;">';
         
         html += `
@@ -275,7 +254,6 @@ const staffScheduleManager = {
         
         html += '</div>';
         
-        // 詳細班別統計
         html += '<div style="margin-top:20px; padding:15px; background:#f5f5f5; border-radius:8px;">';
         html += '<h4 style="margin:0 0 10px 0;"><i class="fas fa-chart-pie"></i> 班別分佈</h4>';
         html += '<div style="display:flex; flex-wrap:wrap; gap:10px;">';
@@ -334,7 +312,6 @@ const staffScheduleManager = {
         if (statsDiv) statsDiv.innerHTML = '';
     },
 
-    // 顯示/隱藏全單位班表
     toggleAllStaff: function(checked) {
         if (checked) {
             this.renderAllStaff();
@@ -354,7 +331,6 @@ const staffScheduleManager = {
 
         let html = '<table class="schedule-table"><thead><tr><th>姓名</th>';
         
-        // 表頭
         for (let d = 1; d <= daysInMonth; d++) {
             const date = new Date(this.currentYear, this.currentMonth - 1, d);
             const dayOfWeek = date.getDay();
@@ -368,7 +344,6 @@ const staffScheduleManager = {
         
         html += '</tr></thead><tbody>';
         
-        // 每位人員的班表
         staffList.forEach(staff => {
             const assignments = this.scheduleData.assignments[staff.uid] || {};
             const isCurrent = staff.uid === this.currentUid;
