@@ -1,4 +1,4 @@
-// js/app.js (修正模擬角色退出問題 + 修正 uid 為 null 的問題)
+// js/app.js (完整修正版 - 包含選單權限、模擬功能、密碼檢查)
 
 const app = {
     currentUser: null,
@@ -259,16 +259,36 @@ const app = {
         menuList.innerHTML = '<li style="padding:10px; text-align:center;"><i class="fas fa-spinner fa-spin"></i></li>';
 
         try {
-            const snapshot = await db.collection('system_menus').where('isActive', '==', true).orderBy('order').get();
+            const snapshot = await db.collection('system_menus')
+                .where('isActive', '==', true)
+                .orderBy('order')
+                .get();
+            
             menuList.innerHTML = '';
             let menuCount = 0;
             
             const activeRole = this.impersonatedRole || this.userRole;
+            
+            console.log(`🔍 選單權限檢查 - 當前角色: ${activeRole}`);
 
             snapshot.forEach(doc => {
                 const menu = doc.data();
                 const allowedRoles = menu.allowedRoles || [];
-                const hasRoleAccess = allowedRoles.length === 0 || allowedRoles.includes(activeRole);
+                
+                console.log(`📋 選單: ${menu.label}, 允許角色: [${allowedRoles.join(', ') || '無限制'}]`);
+                
+                let hasRoleAccess = false;
+                
+                if (allowedRoles.length === 0) {
+                    hasRoleAccess = true;
+                    console.log(`  ✅ ${menu.label}: 無限制，所有人可見`);
+                } else if (allowedRoles.includes(activeRole)) {
+                    hasRoleAccess = true;
+                    console.log(`  ✅ ${menu.label}: 角色 ${activeRole} 符合權限`);
+                } else {
+                    hasRoleAccess = false;
+                    console.log(`  ❌ ${menu.label}: 角色 ${activeRole} 無權限 (需要: ${allowedRoles.join(', ')})`);
+                }
                 
                 if(hasRoleAccess) {
                     const li = document.createElement('li');
@@ -277,7 +297,9 @@ const app = {
                     menuCount++;
                 }
             });
-            console.log(`✅ 載入 ${menuCount} 個選單項目 (角色: ${activeRole})`);
+            
+            console.log(`✅ 載入 ${menuCount} 個選單項目 (角色: ${activeRole}, 總選單數: ${snapshot.size})`);
+            
         } catch (e) {
             console.error("Menu Render Error:", e);
             menuList.innerHTML = '<li style="padding:10px; text-align:center; color:red;">選單載入失敗</li>';
@@ -313,7 +335,6 @@ const app = {
         return map[role] || role;
     },
 
-    // 🔥 修正版：renderImpersonationTool
     renderImpersonationTool: async function() {
         let tool = document.getElementById('impersonation-tool');
         if (!tool) {
@@ -334,22 +355,19 @@ const app = {
             console.error("取得單位失敗:", e); 
         }
 
-        // 🔥 修正：確保 uid 正確載入
         if (!this._allUsersForImp) {
             this._allUsersForImp = [];
             try {
                 const userSnap = await db.collection('users').where('isActive', '==', true).get();
                 userSnap.forEach(doc => {
                     const data = doc.data();
-                    // 🔥 關鍵修正：uid 放在最後，確保不被 data 中的 uid 覆蓋
                     this._allUsersForImp.push({ 
                         ...data,
-                        uid: doc.id  // 使用文件 ID 作為 uid，放在最後
+                        uid: doc.id
                     });
                 });
                 console.log(`📋 載入 ${this._allUsersForImp.length} 位使用者供模擬選擇`);
                 
-                // 🔥 新增：檢查是否有無效資料
                 const invalidUsers = this._allUsersForImp.filter(u => !u.uid);
                 if (invalidUsers.length > 0) {
                     console.error(`❌ 發現 ${invalidUsers.length} 位使用者缺少 uid:`, invalidUsers);
@@ -387,7 +405,6 @@ const app = {
         }
     },
 
-    // 🔥 修正版：updateImpUserList
     updateImpUserList: function(unitId) {
         const userSelect = document.getElementById('impUserSelect');
         if (!userSelect) {
@@ -415,7 +432,6 @@ const app = {
         let invalidCount = 0;
 
         filteredUsers.forEach(u => {
-            // 🔥 防禦性檢查：跳過無效使用者
             if (!u.uid) {
                 console.warn('⚠️ 跳過無效使用者（缺少 uid）:', u);
                 invalidCount++;
@@ -439,7 +455,6 @@ const app = {
         console.log(`📋 更新人員清單: ${validCount} 位有效人員${invalidCount > 0 ? `, ${invalidCount} 位無效` : ''}`);
     },
 
-    // 🔥 修正版：impersonateUser
     impersonateUser: function(jsonStr) {
         if (!jsonStr) {
             console.log('取消模擬');
@@ -450,7 +465,6 @@ const app = {
             const userData = JSON.parse(jsonStr);
             console.log('🎭 開始模擬:', userData);
             
-            // 🔥 詳細驗證
             const errors = [];
             if (!userData.uid) errors.push('uid (使用者ID)');
             if (!userData.role) errors.push('role (角色)');
