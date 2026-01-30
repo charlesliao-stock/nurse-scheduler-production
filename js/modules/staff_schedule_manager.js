@@ -1,11 +1,12 @@
 // js/modules/staff_schedule_manager.js
-// 完整修正版：支援模擬人員查看班表
+// 最終完整版：支援模擬、修正所有函數
 
 const staffScheduleManager = {
     currentYear: new Date().getFullYear(),
     currentMonth: new Date().getMonth() + 1,
     scheduleData: null,
     currentUid: null,
+    viewMode: 'personal', // 'personal' 或 'unit'
 
     init: async function() {
         this.currentUid = app.getUid();
@@ -16,6 +17,8 @@ const staffScheduleManager = {
         }
 
         console.log(`📋 初始化個人班表查詢 - UID: ${this.currentUid}`);
+        console.log(`📍 使用單位: ${app.getUnitId()}`);
+        console.log(`👤 使用角色: ${app.impersonatedRole || app.userRole}`);
         
         await this.displayCurrentUser();
         this.setupMonthPicker();
@@ -31,6 +34,7 @@ const staffScheduleManager = {
                 const userUnit = userData.unitId || '未設定';
                 
                 const infoDiv = document.createElement('div');
+                infoDiv.id = 'currentUserInfo';
                 infoDiv.style.cssText = 'background: #e3f2fd; padding: 12px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #2196f3;';
                 infoDiv.innerHTML = `
                     <div style="display: flex; align-items: center; gap: 10px;">
@@ -41,6 +45,10 @@ const staffScheduleManager = {
                         </div>
                     </div>
                 `;
+                
+                // 移除舊的資訊框（如果存在）
+                const oldInfo = document.getElementById('currentUserInfo');
+                if (oldInfo) oldInfo.remove();
                 
                 const monthPicker = document.querySelector('.month-picker');
                 if (monthPicker && monthPicker.parentNode) {
@@ -56,7 +64,10 @@ const staffScheduleManager = {
 
     setupMonthPicker: function() {
         const input = document.getElementById('monthPicker');
-        if (!input) return;
+        if (!input) {
+            console.warn('找不到 monthPicker 元素');
+            return;
+        }
 
         input.value = `${this.currentYear}-${String(this.currentMonth).padStart(2, '0')}`;
         
@@ -68,19 +79,23 @@ const staffScheduleManager = {
         });
     },
 
-    // 🔥 新增：loadData 函數（按鈕會呼叫）
+    // 按鈕會呼叫的函數
     loadData: async function() {
         await this.loadSchedule();
     },
 
     loadSchedule: async function() {
         const container = document.getElementById('scheduleTableContainer');
-        if (!container) return;
+        if (!container) {
+            console.error('找不到 scheduleTableContainer 元素');
+            return;
+        }
 
         container.innerHTML = '<div style="text-align:center; padding:40px;"><i class="fas fa-spinner fa-spin" style="font-size:2rem;"></i><p>載入中...</p></div>';
 
         try {
-            console.log(`🔍 查詢 ${this.currentYear}/${this.currentMonth} 的班表 - UID: ${this.currentUid}`);
+            console.log(`🔍 查詢 ${this.currentYear}/${this.currentMonth} 的班表`);
+            console.log(`   UID: ${this.currentUid}`);
             
             const unitId = app.getUnitId();
             if (!unitId) {
@@ -88,7 +103,7 @@ const staffScheduleManager = {
                 return;
             }
 
-            console.log(`📍 查詢單位: ${unitId}`);
+            console.log(`   單位: ${unitId}`);
 
             const snapshot = await db.collection('schedules')
                 .where('unitId', '==', unitId)
@@ -109,15 +124,22 @@ const staffScheduleManager = {
             
             console.log(`✅ 找到班表: ${doc.id}`);
             console.log(`📋 班表人員數: ${this.scheduleData.staffList?.length || 0}`);
-            console.log(`📋 Assignments 包含 UID 數: ${Object.keys(this.scheduleData.assignments || {}).length}`);
+            console.log(`📋 Assignments 包含 UID: ${Object.keys(this.scheduleData.assignments || {}).length} 位`);
 
             if (this.scheduleData.assignments && this.scheduleData.assignments[this.currentUid]) {
                 console.log(`✅ 找到 UID ${this.currentUid} 的班表資料`);
-                this.renderSchedule();
+                
+                // 根據當前檢視模式渲染
+                if (this.viewMode === 'unit') {
+                    this.renderAllStaff();
+                } else {
+                    this.renderSchedule();
+                }
+                
                 this.renderStatistics();
             } else {
                 console.warn(`⚠️ UID ${this.currentUid} 不在班表中`);
-                console.log('📋 班表中的 UID 列表:', Object.keys(this.scheduleData.assignments || {}));
+                console.log('📋 班表中的前 5 個 UID:', Object.keys(this.scheduleData.assignments || {}).slice(0, 5));
                 this.showError('您不在本月班表中');
             }
 
@@ -134,9 +156,9 @@ const staffScheduleManager = {
         const daysInMonth = new Date(this.currentYear, this.currentMonth, 0).getDate();
         const assignments = this.scheduleData.assignments[this.currentUid] || {};
         
-        console.log(`📅 渲染班表 - ${this.currentYear}/${this.currentMonth} (${daysInMonth} 天)`);
+        console.log(`📅 渲染個人班表 - ${this.currentYear}/${this.currentMonth} (${daysInMonth} 天)`);
 
-        let html = '<table class="schedule-table"><thead><tr><th>姓名</th>';
+        let html = '<div style="overflow-x: auto;"><table class="schedule-table"><thead><tr><th style="min-width: 100px;">姓名</th>';
         
         for (let d = 1; d <= daysInMonth; d++) {
             const date = new Date(this.currentYear, this.currentMonth - 1, d);
@@ -144,12 +166,12 @@ const staffScheduleManager = {
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
             const weekdayName = ['日', '一', '二', '三', '四', '五', '六'][dayOfWeek];
             
-            html += `<th style="background:${isWeekend ? '#ffebee' : '#fff'}; color:${isWeekend ? '#d32f2f' : '#333'}">
+            html += `<th style="background:${isWeekend ? '#ffebee' : '#fff'}; color:${isWeekend ? '#d32f2f' : '#333'}; min-width: 50px;">
                 ${d}<br><small>${weekdayName}</small>
             </th>`;
         }
         
-        html += '<th>統計</th></tr></thead><tbody><tr>';
+        html += '<th style="min-width: 120px;">統計</th></tr></thead><tbody><tr>';
         
         const userName = this.getUserName();
         html += `<td style="position:sticky; left:0; background:#f5f5f5; font-weight:bold; z-index:10;">${userName}</td>`;
@@ -164,24 +186,26 @@ const staffScheduleManager = {
                 'background:#e8f5e9; color:#2e7d32;' : 
                 'background:#e3f2fd; color:#1565c0;';
             
-            html += `<td style="${cellStyle} text-align:center; font-weight:bold;">${shift}</td>`;
+            html += `<td style="${cellStyle} text-align:center; font-weight:bold; padding: 8px;">${shift}</td>`;
         }
         
         const statsHtml = Object.entries(shiftCounts)
             .sort((a, b) => b[1] - a[1])
-            .map(([shift, count]) => `<div>${shift}: ${count}</div>`)
+            .map(([shift, count]) => `<div style="padding: 2px 0;">${shift}: ${count}</div>`)
             .join('');
         
         html += `<td style="font-size:0.85rem; line-height:1.5;">${statsHtml}</td>`;
-        html += '</tr></tbody></table>';
+        html += '</tr></tbody></table></div>';
         
         container.innerHTML = html;
         
+        // 更新檢視模式切換按鈕狀態
         const showAllCheckbox = document.getElementById('showAllStaff');
         if (showAllCheckbox) {
+            showAllCheckbox.checked = false;
             const currentRole = app.impersonatedRole || app.userRole;
-            if (currentRole === 'unit_manager' || currentRole === 'unit_scheduler') {
-                showAllCheckbox.parentElement.style.display = 'block';
+            if (currentRole === 'unit_manager' || currentRole === 'unit_scheduler' || currentRole === 'system_admin') {
+                showAllCheckbox.parentElement.style.display = 'inline-block';
             } else {
                 showAllCheckbox.parentElement.style.display = 'none';
             }
@@ -312,12 +336,28 @@ const staffScheduleManager = {
         if (statsDiv) statsDiv.innerHTML = '';
     },
 
-    toggleAllStaff: function(checked) {
-        if (checked) {
+    // 🔥 新增：檢視模式切換（HTML 會呼叫）
+    toggleViewMode: function(checkbox) {
+        if (!checkbox) {
+            checkbox = document.getElementById('showAllStaff');
+        }
+        
+        const isChecked = checkbox ? checkbox.checked : false;
+        
+        console.log(`🔄 切換檢視模式: ${isChecked ? '全單位' : '個人'}`);
+        
+        if (isChecked) {
+            this.viewMode = 'unit';
             this.renderAllStaff();
         } else {
+            this.viewMode = 'personal';
             this.renderSchedule();
         }
+    },
+
+    // 🔥 舊版相容：toggleAllStaff
+    toggleAllStaff: function(checked) {
+        this.toggleViewMode({ checked: checked });
     },
 
     renderAllStaff: function() {
@@ -329,7 +369,7 @@ const staffScheduleManager = {
         
         console.log(`📋 渲染全單位班表 - ${staffList.length} 位人員`);
 
-        let html = '<table class="schedule-table"><thead><tr><th>姓名</th>';
+        let html = '<div style="overflow-x: auto;"><table class="schedule-table"><thead><tr><th style="min-width: 100px;">姓名</th>';
         
         for (let d = 1; d <= daysInMonth; d++) {
             const date = new Date(this.currentYear, this.currentMonth - 1, d);
@@ -337,7 +377,7 @@ const staffScheduleManager = {
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
             const weekdayName = ['日', '一', '二', '三', '四', '五', '六'][dayOfWeek];
             
-            html += `<th style="background:${isWeekend ? '#ffebee' : '#fff'}; color:${isWeekend ? '#d32f2f' : '#333'}">
+            html += `<th style="background:${isWeekend ? '#ffebee' : '#fff'}; color:${isWeekend ? '#d32f2f' : '#333'}; min-width: 50px;">
                 ${d}<br><small>${weekdayName}</small>
             </th>`;
         }
@@ -361,13 +401,19 @@ const staffScheduleManager = {
                     'background:#e8f5e9; color:#2e7d32;' : 
                     'background:#e3f2fd; color:#1565c0;';
                 
-                html += `<td style="${cellStyle} text-align:center;">${shift}</td>`;
+                html += `<td style="${cellStyle} text-align:center; padding: 8px;">${shift}</td>`;
             }
             
             html += '</tr>';
         });
         
-        html += '</tbody></table>';
+        html += '</tbody></table></div>';
         container.innerHTML = html;
+        
+        // 更新檢視模式切換按鈕狀態
+        const showAllCheckbox = document.getElementById('showAllStaff');
+        if (showAllCheckbox) {
+            showAllCheckbox.checked = true;
+        }
     }
 };
