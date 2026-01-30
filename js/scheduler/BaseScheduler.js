@@ -325,6 +325,65 @@ class BaseScheduler {
         return this.getShiftByDate(this.getDateStrFromDate(yesterday), uid) || 'OFF';
     }
 
+    // 🔥 新增：檢測本月是否有長假
+    hasLongVacationInMonth(uid) {
+        let maxConsecutiveOff = 0;
+        let currentOff = 0;
+        
+        for (let d = 1; d <= this.daysInMonth; d++) {
+            const dateStr = this.getDateStr(d);
+            const shift = this.getShiftByDate(dateStr, uid);
+            
+            if (shift === 'OFF' || shift === 'REQ_OFF') {
+                currentOff++;
+                maxConsecutiveOff = Math.max(maxConsecutiveOff, currentOff);
+            } else {
+                currentOff = 0;
+            }
+        }
+        
+        const hasLongVacation = maxConsecutiveOff >= this.rule_longVacationDays;
+        
+        if (hasLongVacation) {
+            console.log(`📅 ${uid} 本月有長假（連續 ${maxConsecutiveOff} 天 OFF）`);
+        }
+        
+        return hasLongVacation;
+    }
+
+    // 🔥 新增：改進的連續上班檢查
+    checkConsecutiveDaysImproved(day, staff, shiftCode, isHard = false) {
+        if (shiftCode === 'OFF' || shiftCode === 'REQ_OFF') return true;
+        
+        // 救火模式時，軟性檢查可放寬
+        if (this.rule_enableRelaxation && !isHard) {
+            console.log(`🔥 救火模式：放寬 ${staff.id} 的連續上班限制`);
+            return true;
+        }
+        
+        if (!this.rule_limitConsecutive && !isHard) return true;
+        
+        // 計算連續上班天數（包含今天）
+        let consecutiveCount = 1;
+        for (let d = day - 1; d >= 1; d--) {
+            const shift = this.getShiftByDate(this.getDateStr(d), staff.id);
+            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') break;
+            consecutiveCount++;
+        }
+        
+        // 🔥 檢查是否有長假
+        const hasLongVacation = this.hasLongVacationInMonth(staff.id);
+        const maxAllowed = hasLongVacation ? this.rule_longVacationWorkLimit : this.rule_maxConsDays;
+        
+        if (consecutiveCount >= maxAllowed) {
+            console.warn(`⚠️ ${staff.id} 第 ${day} 天：已連續上班 ${consecutiveCount} 天（上限 ${maxAllowed}${hasLongVacation ? '，有長假' : ''}）`);
+            return false;
+        }
+        
+        return true;
+    }
+
+
     getShiftByDate(dateStr, uid) {
         if (!this.schedule[dateStr]) return null;
         for (const code of Object.keys(this.schedule[dateStr])) {
