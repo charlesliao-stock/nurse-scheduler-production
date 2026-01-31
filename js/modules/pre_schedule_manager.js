@@ -1,12 +1,12 @@
 // js/modules/pre_schedule_manager.js
-// 🔧 最終整合版 v4：加強權限控制（比照 staff_manager.js）
+// 🔧 完整修復版 v6：修復所有函數名稱和表格渲染問題
 
 const preScheduleManager = {
     currentUnitId: null,
     currentUnitGroups: [],
     activeShifts: [], 
     staffListSnapshot: [], 
-    staffSortState: { field: 'isSupport', order: 'asc' },
+    staffSortState: { field: 'empId', order: 'asc' },
     isLoading: false,
     tempSpecificNeeds: {},
 
@@ -183,7 +183,7 @@ const preScheduleManager = {
             name: doc.data().displayName,
             empId: doc.data().employeeId,
             level: doc.data().level,
-            group: doc.data().groupId,
+            group: doc.data().groupId || '',
             isSupport: false 
         }));
         
@@ -245,18 +245,17 @@ const preScheduleManager = {
         }
 
         this.fillForm(data);
-        this.renderStaffList();
-        this.renderDailyNeedsTable(data.dailyNeeds);
-        this.renderBundleLimitSettings(data.bundleLimits || {});
+        this.renderDailyNeedsUI(data.dailyNeeds || {});
         this.renderSpecificNeedsUI(data.specificNeeds || {}); 
-        this.renderGroupLimitsTable(data.groupLimits);
+        this.renderGroupLimitsUI(data.groupLimits || {});
+        this.renderStaffList();
     },
 
     fillForm: function(data) {
         // ✅ 安全設定：檢查元素是否存在再設值
         const setInputValue = (id, value) => {
             const el = document.getElementById(id);
-            if (el) el.value = value;
+            if (el) el.value = value || '';
         };
         
         const setCheckboxValue = (id, value) => {
@@ -272,19 +271,20 @@ const preScheduleManager = {
         const s = data.settings || {};
         setInputValue('inputOpenDate', s.openDate || '');
         setInputValue('inputCloseDate', s.closeDate || '');
-        setInputValue('inputMaxOff', s.maxOffDays);
-        setInputValue('inputMaxHoliday', s.maxHolidayOffs);
-        setInputValue('inputDailyReserve', s.dailyReserved);
-        setCheckboxValue('checkShowAllNames', s.showAllNames);
-        setInputValue('inputShiftMode', s.shiftTypeMode);
+        setInputValue('inputMaxOff', s.maxOffDays || 8);
+        setInputValue('inputMaxHoliday', s.maxHolidayOffs || 2);
+        setInputValue('inputDailyReserve', s.dailyReserved || 1);
+        setCheckboxValue('checkShowAllNames', s.showAllNames !== false);
+        setInputValue('inputShiftMode', s.shiftTypeMode || "3");
         
         this.toggleThreeShiftOption();
         if(s.shiftTypeMode === "2") {
-            setCheckboxValue('checkAllowThree', s.allowThreeShifts);
+            setCheckboxValue('checkAllowThree', s.allowThreeShifts || false);
         }
     },
 
-    saveModal: async function() {
+    // ✅ HTML 中調用的是 saveData，所以這裡改名
+    saveData: async function() {
         const docId = document.getElementById('preScheduleDocId')?.value;
         const ymInput = document.getElementById('inputPreYearMonth')?.value;
         
@@ -304,7 +304,6 @@ const preScheduleManager = {
         }
 
         const dailyNeeds = this.getDailyNeedsFromDOM();
-        const bundleLimits = this.getBundleLimitsFromDOM();
         const specificNeeds = this.getSpecificNeedsFromDOM();
         const groupLimits = this.getGroupLimitsFromDOM();
 
@@ -327,7 +326,6 @@ const preScheduleManager = {
                     : null
             },
             dailyNeeds,
-            bundleLimits,
             specificNeeds,
             groupLimits,
             staffList: this.staffListSnapshot,
@@ -352,32 +350,54 @@ const preScheduleManager = {
         }
     },
 
-    renderDailyNeedsTable: function(savedData) {
-        const tbody = document.getElementById('dailyNeedsTableBody');
-        if(!tbody) return;
-        tbody.innerHTML = '';
+    // ✅ 渲染每日人力需求表格 - 使用正確的容器 ID
+    renderDailyNeedsUI: function(savedData) {
+        const container = document.getElementById('dailyNeedsTable');
+        if(!container) {
+            console.error('dailyNeedsTable container not found');
+            return;
+        }
         
         const ymInput = document.getElementById('inputPreYearMonth')?.value;
-        if (!ymInput) return;
+        if (!ymInput) {
+            container.innerHTML = '<p style="color:#999;">請先選擇預班月份</p>';
+            return;
+        }
         
         const [year, month] = ymInput.split('-').map(Number);
         const daysInMonth = new Date(year, month, 0).getDate();
 
+        let html = `
+            <div class="section-title" style="margin-bottom:15px; border-bottom:2px solid #3498db; padding-bottom:5px;">
+                每日人力需求設定
+            </div>
+            <div style="overflow-x:auto; max-height:400px; border:1px solid #ddd;">
+                <table class="table table-sm">
+                    <thead class="sticky-th">
+                        <tr>
+                            <th style="width:60px;">日期</th>`;
+        
+        this.activeShifts.forEach(s => {
+            html += `<th style="background:${s.color||'#eee'}; color:#fff;">${s.code}</th>`;
+        });
+        html += `</tr></thead><tbody>`;
+
         for(let d=1; d<=daysInMonth; d++) {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${d}</td>`;
-            
+            html += `<tr><td style="font-weight:bold;">${d}</td>`;
             this.activeShifts.forEach(s => {
                 const val = savedData[d] ? (savedData[d][s.code] || '') : '';
-                tr.innerHTML += `<td><input type="number" min="0" class="metric-input" data-day="${d}" data-shift="${s.code}" value="${val}" placeholder="0"></td>`;
+                html += `<td><input type="number" min="0" class="limit-input" style="width:60px;" data-day="${d}" data-shift="${s.code}" value="${val}" placeholder="0"></td>`;
             });
-            tbody.appendChild(tr);
+            html += `</tr>`;
         }
+        html += `</tbody></table></div>`;
+        
+        container.innerHTML = html;
     },
 
     getDailyNeedsFromDOM: function() {
         const result = {};
-        document.querySelectorAll('#dailyNeedsTableBody input').forEach(input => {
+        document.querySelectorAll('#dailyNeedsTable input').forEach(input => {
             const day = parseInt(input.dataset.day);
             const shift = input.dataset.shift;
             const val = parseInt(input.value) || 0;
@@ -388,34 +408,38 @@ const preScheduleManager = {
         return result;
     },
 
-    renderBundleLimitSettings: function(savedData) {
-        const container = document.getElementById('bundleLimitsContainer');
-        if(!container) return;
-        container.innerHTML = '';
-
-        this.activeShifts.forEach(s => {
-            const limit = savedData[s.code] || 2;
-            const div = document.createElement('div');
-            div.style.cssText = 'display:flex; align-items:center; margin-bottom:10px;';
-            div.innerHTML = `
-                <label style="width:120px; font-weight:bold; color:${s.color||'#333'};">${s.code} (${s.name})</label>
-                <input type="number" min="1" max="31" class="metric-input" style="width:80px;" data-shift="${s.code}" value="${limit}">
-                <span style="margin-left:8px; color:#666;">天</span>
-            `;
-            container.appendChild(div);
-        });
-    },
-
-    getBundleLimitsFromDOM: function() {
-        const result = {};
-        document.querySelectorAll('#bundleLimitsContainer input').forEach(input => {
-            result[input.dataset.shift] = parseInt(input.value) || 2;
-        });
-        return result;
-    },
-
+    // ✅ 渲染特定日期需求 UI
     renderSpecificNeedsUI: function(savedData) {
         this.tempSpecificNeeds = JSON.parse(JSON.stringify(savedData || {}));
+        
+        const container = document.getElementById('specificNeedsContainer');
+        if (!container) {
+            console.error('specificNeedsContainer not found');
+            return;
+        }
+
+        let html = `
+            <div class="section-title" style="margin-top:30px; margin-bottom:15px; border-bottom:2px solid #e74c3c; padding-bottom:5px;">
+                特定日期需求加成
+            </div>
+            <div style="background:#f9f9f9; padding:15px; border-radius:4px; margin-bottom:15px;">
+                <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+                    <input type="number" id="inputSpecificDay" placeholder="日期" min="1" max="31" class="form-control" style="width:80px;">
+                    <select id="inputSpecificShift" class="form-control" style="width:100px;">
+                        <option value="">選擇班別</option>`;
+        
+        this.activeShifts.forEach(s => {
+            html += `<option value="${s.code}">${s.code}</option>`;
+        });
+        
+        html += `</select>
+                    <input type="number" id="inputSpecificNeed" placeholder="需求人數" min="1" class="form-control" style="width:100px;">
+                    <button class="btn btn-add" onclick="preScheduleManager.addSpecificNeed()">新增</button>
+                </div>
+                <div id="specificNeedsList"></div>
+            </div>`;
+        
+        container.innerHTML = html;
         this.refreshSpecificNeedsList();
     },
 
@@ -433,7 +457,7 @@ const preScheduleManager = {
         keys.forEach(day => {
             const dayData = this.tempSpecificNeeds[day];
             const div = document.createElement('div');
-            div.style.cssText = 'border:1px solid #ddd; padding:10px; margin-bottom:8px; border-radius:4px; background:#f9f9f9;';
+            div.style.cssText = 'border:1px solid #ddd; padding:10px; margin-bottom:8px; border-radius:4px; background:#fff;';
             
             let shiftStr = '';
             for(let shift in dayData) {
@@ -476,31 +500,50 @@ const preScheduleManager = {
         return this.tempSpecificNeeds;
     },
 
-    renderGroupLimitsTable: function(savedData) {
-        const tbody = document.getElementById('groupLimitsTableBody');
-        if(!tbody) return;
-        tbody.innerHTML = '';
-
-        if(this.currentUnitGroups.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="99" style="text-align:center; color:#999;">此單位未設定組別</td></tr>';
+    // ✅ 渲染組別限制表格
+    renderGroupLimitsUI: function(savedData) {
+        const container = document.getElementById('groupLimitTableContainer');
+        if(!container) {
+            console.error('groupLimitTableContainer not found');
             return;
         }
 
+        if(this.currentUnitGroups.length === 0) {
+            container.innerHTML = '<p style="color:#999; padding:20px;">此單位未設定組別</p>';
+            return;
+        }
+
+        let html = `
+            <div class="section-title" style="margin-top:30px; margin-bottom:15px; border-bottom:2px solid #9b59b6; padding-bottom:5px;">
+                組別人力上限設定
+            </div>
+            <div style="overflow-x:auto; border:1px solid #ddd;">
+                <table class="table table-sm">
+                    <thead class="sticky-th">
+                        <tr>
+                            <th style="width:100px;">組別</th>`;
+        
+        this.activeShifts.forEach(s => {
+            html += `<th style="background:${s.color||'#eee'}; color:#fff;">${s.code}</th>`;
+        });
+        html += `</tr></thead><tbody>`;
+
         this.currentUnitGroups.forEach(g => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${g}</td>`;
-            
+            html += `<tr><td style="font-weight:bold;">${g}</td>`;
             this.activeShifts.forEach(s => {
                 const val = savedData[g] ? (savedData[g][s.code] || '') : '';
-                tr.innerHTML += `<td><input type="number" min="0" class="metric-input" data-group="${g}" data-shift="${s.code}" value="${val}" placeholder="0"></td>`;
+                html += `<td><input type="number" min="0" class="limit-input" style="width:60px;" data-group="${g}" data-shift="${s.code}" value="${val}" placeholder="0"></td>`;
             });
-            tbody.appendChild(tr);
+            html += `</tr>`;
         });
+        
+        html += `</tbody></table></div>`;
+        container.innerHTML = html;
     },
 
     getGroupLimitsFromDOM: function() {
         const result = {};
-        document.querySelectorAll('#groupLimitsTableBody input').forEach(input => {
+        document.querySelectorAll('#groupLimitTableContainer input').forEach(input => {
             const group = input.dataset.group;
             const shift = input.dataset.shift;
             const val = parseInt(input.value) || 0;
@@ -511,42 +554,41 @@ const preScheduleManager = {
         return result;
     },
 
+    // ✅ 渲染人員列表 - 使用正確的 tbody ID
     renderStaffList: function() {
-        const tbody = document.getElementById('staffListBody');
-        if(!tbody) return;
+        const tbody = document.getElementById('preStaffBody');
+        if(!tbody) {
+            console.error('preStaffBody not found');
+            return;
+        }
         tbody.innerHTML = '';
 
         if (this.staffListSnapshot.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px; color:#999;">尚無人員<br><button class="btn btn-sm btn-add" onclick="preScheduleManager.openSearchModal()" style="margin-top:10px;">搜尋並加入人員</button></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#999;">尚無人員，請使用上方搜尋功能加入人員</td></tr>';
             return;
         }
 
-        // 更新排序圖示
-        document.querySelectorAll('th i[id^="sort_icon_staff_"]').forEach(i => {
-            i.className = 'fas fa-sort';
-        });
-        const activeIcon = document.getElementById(`sort_icon_staff_${this.staffSortState.field}`);
-        if(activeIcon) {
-            activeIcon.className = this.staffSortState.order === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
-        }
+        // 排序
+        this.sortStaffList();
 
         // 渲染人員列表
         this.staffListSnapshot.forEach((staff, index) => {
             const supportBadge = staff.isSupport 
-                ? '<span class="badge badge-warning" style="margin-left:5px;">支援</span>' 
-                : '';
+                ? '<span class="badge badge-warning" style="background:#f39c12;">支援</span>' 
+                : '<span class="badge" style="background:#95a5a6;">本單位</span>';
             
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${staff.empId || '-'}</td>
-                <td>${staff.name}${supportBadge}</td>
+                <td>${staff.name}</td>
                 <td>${staff.level || '-'}</td>
                 <td>
-                    <select class="form-control" style="padding:4px 8px;" onchange="preScheduleManager.updateStaffGroup(${index}, this.value)">
+                    <select class="form-control" style="padding:4px 8px; font-size:0.9rem;" onchange="preScheduleManager.updateStaffGroup(${index}, this.value)">
                         <option value="">(未分組)</option>
                         ${this.currentUnitGroups.map(g => `<option value="${g}" ${staff.group === g ? 'selected' : ''}>${g}</option>`).join('')}
                     </select>
                 </td>
+                <td>${supportBadge}</td>
                 <td>
                     <button class="btn btn-sm btn-delete" onclick="preScheduleManager.removeStaff(${index})">
                         <i class="fas fa-trash"></i>
@@ -558,6 +600,35 @@ const preScheduleManager = {
 
         const badge = document.getElementById('staffCountBadge');
         if (badge) badge.innerText = this.staffListSnapshot.length;
+    },
+
+    sortStaff: function(field) {
+        if (this.staffSortState.field === field) {
+            this.staffSortState.order = this.staffSortState.order === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.staffSortState.field = field;
+            this.staffSortState.order = 'asc';
+        }
+        this.renderStaffList();
+    },
+
+    sortStaffList: function() {
+        const field = this.staffSortState.field;
+        const order = this.staffSortState.order;
+        
+        this.staffListSnapshot.sort((a, b) => {
+            let valA = a[field] || '';
+            let valB = b[field] || '';
+            
+            if (field === 'isSupport') {
+                valA = a.isSupport ? 1 : 0;
+                valB = b.isSupport ? 1 : 0;
+            }
+            
+            if (valA < valB) return order === 'asc' ? -1 : 1;
+            if (valA > valB) return order === 'asc' ? 1 : -1;
+            return 0;
+        });
     },
 
     updateStaffGroup: function(index, groupId) {
@@ -574,36 +645,20 @@ const preScheduleManager = {
         }
     },
 
-    openSearchModal: function() {
-        const modal = document.getElementById('searchStaffModal');
-        if(!modal) return;
-        
-        modal.classList.add('show');
-        const searchInput = document.getElementById('inputSearchStaff');
-        if (searchInput) searchInput.value = '';
-        
-        const resultsDiv = document.getElementById('searchResults');
-        if (resultsDiv) resultsDiv.innerHTML = '';
-    },
-
-    closeSearchModal: function() {
-        const modal = document.getElementById('searchStaffModal');
-        if(modal) modal.classList.remove('show');
-    },
-
     searchStaff: async function() {
         const keyword = document.getElementById('inputSearchStaff')?.value.trim();
         const resultsContainer = document.getElementById('searchResults');
         
         if (!keyword || keyword.length < 2) {
             if (resultsContainer) {
-                resultsContainer.innerHTML = '<div style="padding:10px; color:#999;">請輸入至少2個字元</div>';
+                resultsContainer.innerHTML = '<div style="padding:10px; color:#999; position:absolute; background:#fff; border:1px solid #ddd; border-radius:4px; z-index:1000; box-shadow:0 2px 8px rgba(0,0,0,0.1);">請輸入至少2個字元</div>';
+                setTimeout(() => { resultsContainer.innerHTML = ''; }, 2000);
             }
             return;
         }
 
         if (resultsContainer) {
-            resultsContainer.innerHTML = '<div style="padding:10px;">搜尋中...</div>';
+            resultsContainer.innerHTML = '<div style="padding:10px; position:absolute; background:#fff; border:1px solid #ddd; border-radius:4px; z-index:1000;">搜尋中...</div>';
         }
 
         try {
@@ -635,11 +690,12 @@ const preScheduleManager = {
             if (!resultsContainer) return;
 
             if (results.length === 0) {
-                resultsContainer.innerHTML = '<div style="padding:10px; color:#999;">找不到符合的人員 (或已在名單中)</div>';
+                resultsContainer.innerHTML = '<div style="padding:10px; color:#999; position:absolute; background:#fff; border:1px solid #ddd; border-radius:4px; z-index:1000;">找不到符合的人員 (或已在名單中)</div>';
+                setTimeout(() => { resultsContainer.innerHTML = ''; }, 3000);
                 return;
             }
 
-            let html = `<div style="border:1px solid #ddd; margin-top:10px; border-radius:4px; max-height:200px; overflow-y:auto;">
+            let html = `<div style="position:absolute; background:#fff; border:1px solid #ddd; border-radius:4px; z-index:1000; box-shadow:0 4px 12px rgba(0,0,0,0.15); max-width:600px; max-height:300px; overflow-y:auto;">
                 <table class="table table-sm" style="margin:0;">
                     <thead style="position:sticky; top:0; background:#f8f9fa;">
                         <tr>
@@ -655,7 +711,7 @@ const preScheduleManager = {
             results.forEach(r => {
                 const isCrossUnit = r.unitId !== this.currentUnitId;
                 const badge = isCrossUnit 
-                    ? '<span class="badge badge-warning">跨單位</span>' 
+                    ? '<span class="badge badge-warning" style="background:#f39c12;">跨單位</span>' 
                     : '<span class="badge" style="background:#95a5a6;">本單位</span>';
                 
                 html += `<tr>
@@ -665,30 +721,29 @@ const preScheduleManager = {
                     <td>${r.level}</td>
                     <td>
                         ${badge}
-                        <button class="btn btn-sm btn-add" onclick="preScheduleManager.addSupportStaff('${r.uid}', '${r.name}', '${r.empId}', '${r.level}', ${isCrossUnit})" style="margin-left:5px;">
+                        <button class="btn btn-sm btn-add" onclick="preScheduleManager.addStaff('${r.uid}', '${r.name}', '${r.empId}', '${r.level}', ${isCrossUnit})" style="margin-left:5px;">
                             <i class="fas fa-plus"></i> 加入
                         </button>
                     </td>
                 </tr>`;
             });
             
-            html += `</tbody></table></div>`;
+            html += `</tbody></table>
+                <div style="text-align:right; padding:10px; border-top:1px solid #eee; background:#f9f9f9;">
+                    <button class="btn btn-sm" onclick="document.getElementById('searchResults').innerHTML = ''">關閉</button>
+                </div>
+            </div>`;
             resultsContainer.innerHTML = html;
 
         } catch (e) {
             console.error("搜尋錯誤:", e);
             if (resultsContainer) {
-                resultsContainer.innerHTML = '<div style="padding:10px; color:red;">搜尋失敗: ' + e.message + '</div>';
+                resultsContainer.innerHTML = '<div style="padding:10px; color:red; position:absolute; background:#fff; border:1px solid #ddd; border-radius:4px; z-index:1000;">搜尋失敗: ' + e.message + '</div>';
             }
         }
     },
 
-    searchSupportStaff: async function() {
-        // 保留此函數作為向後相容
-        return this.searchStaff();
-    },
-
-    addSupportStaff: function(uid, name, empId, level, isCrossUnit) {
+    addStaff: function(uid, name, empId, level, isCrossUnit) {
         // 檢查是否已加入
         if (this.staffListSnapshot.some(s => s.uid === uid)) {
             alert("此人員已在名單中");
@@ -706,21 +761,22 @@ const preScheduleManager = {
         });
 
         this.renderStaffList();
-        this.closeSearchModal();
+        document.getElementById('searchResults').innerHTML = '';
+        document.getElementById('inputSearchStaff').value = '';
         
         alert(`✅ 已加入 ${name}${isCrossUnit ? ' (跨單位支援)' : ''}`);
     },
 
     toggleThreeShiftOption: function() {
         const mode = document.getElementById('inputShiftMode')?.value;
-        const container = document.getElementById('allowThreeShiftContainer');
+        const container = document.getElementById('threeShiftOption');
         
         if (container) {
             container.style.display = (mode === "2") ? 'block' : 'none';
         }
     },
 
-    importLastMonthSettings: async function() {
+    importLastSettings: async function() {
         if (!this.currentUnitId) {
             alert("請先選擇單位");
             return;
@@ -768,10 +824,9 @@ const preScheduleManager = {
             }
 
             // 重新渲染表格
-            this.renderDailyNeedsTable(lastData.dailyNeeds || {});
-            this.renderBundleLimitSettings(lastData.bundleLimits || {});
+            this.renderDailyNeedsUI(lastData.dailyNeeds || {});
             this.renderSpecificNeedsUI(lastData.specificNeeds || {});
-            this.renderGroupLimitsTable(lastData.groupLimits || {});
+            this.renderGroupLimitsUI(lastData.groupLimits || {});
 
             // 如果有人員名單也一併帶入
             if (lastData.staffList && lastData.staffList.length > 0) {
