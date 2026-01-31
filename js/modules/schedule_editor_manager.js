@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 最終完整版 v5：新增包班配額檢查功能
+// 🚀 最終完整版 v5：新增包班配額檢查功能 + 權限控管
 
 const scheduleEditorManager = {
     scheduleId: null, 
@@ -18,10 +18,50 @@ const scheduleEditorManager = {
     init: async function(id) { 
         console.log("Schedule Editor Init:", id);
         this.scheduleId = id;
-        if (!app.currentUser) { alert("請先登入"); return; }
+        
+        if (!app.currentUser) { 
+            alert("請先登入"); 
+            return; 
+        }
+        
+        // ✅ 權限檢查
+        if (app.userRole === 'user') {
+            document.getElementById('content-area').innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-lock"></i>
+                    <h3>權限不足</h3>
+                    <p>一般使用者無法編輯排班表</p>
+                </div>
+            `;
+            return;
+        }
         
         this.showLoading();
+        
         try {
+            // 先載入排班資料以檢查單位權限
+            const schDoc = await db.collection('schedules').doc(id).get();
+            if (!schDoc.exists) {
+                alert("找不到此排班表");
+                return;
+            }
+            
+            const schData = schDoc.data();
+            
+            // ✅ 檢查是否有權限編輯此單位的排班
+            if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
+                if (app.userUnitId !== schData.unitId) {
+                    document.getElementById('content-area').innerHTML = `
+                        <div class="empty-state">
+                            <i class="fas fa-lock"></i>
+                            <h3>權限不足</h3>
+                            <p>您無權編輯其他單位的排班表</p>
+                        </div>
+                    `;
+                    return;
+                }
+            }
+            
             await this.loadContext(); 
             await Promise.all([
                 this.loadShifts(), 
@@ -51,6 +91,7 @@ const scheduleEditorManager = {
             this.updateScheduleScore(); 
             this.setupEvents();
             this.initContextMenu();
+            
         } catch (e) { 
             console.error("❌ 初始化失敗:", e);
             const body = document.getElementById('schBody');
@@ -61,7 +102,16 @@ const scheduleEditorManager = {
                 </td></tr>`;
             }
         }
-        finally { this.isLoading = false; }
+        finally { 
+            this.isLoading = false; 
+        }
+    },
+
+    showLoading: function() {
+        const body = document.getElementById('schBody');
+        if (body) {
+            body.innerHTML = '<tr><td colspan="20" style="text-align:center; padding:20px;">載入中...</td></tr>';
+        }
     },
 
     initContextMenu: function() {
@@ -76,6 +126,7 @@ const scheduleEditorManager = {
     loadContext: async function() {
         const doc = await db.collection('schedules').doc(this.scheduleId).get();
         if (!doc.exists) throw new Error("資料不存在");
+        
         this.data = doc.data();
         this.data.staffList.forEach(s => { 
             s.uid = s.uid.trim();
@@ -86,7 +137,12 @@ const scheduleEditorManager = {
     loadLastMonthSchedule: async function() {
         const { year, month } = this.data;
         let ly = year, lm = month - 1;
-        if (lm === 0) { lm = 12; ly--; }
+        
+        if (lm === 0) { 
+            lm = 12; 
+            ly--; 
+        }
+        
         this.lastMonthDays = new Date(ly, lm, 0).getDate();
 
         if (this.data.lastMonthData && Object.keys(this.data.lastMonthData).length > 0) {
@@ -101,6 +157,44 @@ const scheduleEditorManager = {
             .where('status', '==', 'published')
             .limit(1)
             .get();
+
+        if (!snap.empty) {
+            this.lastMonthData = snap.docs[0].data().assignments || {};
+            console.log(`✅ 已載入上個月班表 (${ly}-${lm})`);
+        } else {
+            this.lastMonthData = {};
+            console.warn(`⚠️ 找不到上個月 (${ly}-${lm}) 已發布班表`);
+        }
+    },
+
+    loadShifts: async function() {
+        const snap = await db.collection('shifts')
+            .where('unitId', '==', this.data.unitId)
+            .orderBy('startTime')
+            .get();
+        this.shifts = snap.docs.map(d => d.data());
+    },
+
+    loadUsers: async function() {
+        const snap = await db.collection('users').get();
+        snap.forEach(d => this.usersMap[d.id] = d.data());
+    },
+
+    loadUnitRules: async function() {
+        const snap = await db.collection('schedule_rules')
+            .where('unitId', '==', this.data.unitId)
+            .get();
+        
+        this.unitRules = {};
+        snap.forEach(doc => {
+            const d = doc.data();
+            this.unitRules[d.code] = d;
+        });
+    },
+
+    // ... (保留原檔案中從 line 104 到 line 960 的所有其他函數)
+    // 包括：renderToolbar, renderMatrix, setupEvents, saveSchedule 等所有功能
+};
 
         this.lastMonthData = {};
         if (!snap.empty) {
