@@ -192,22 +192,6 @@ const scheduleEditorManager = {
         });
     },
 
-
-
-        this.lastMonthData = {};
-        if (!snap.empty) {
-            const lastData = snap.docs[0].data();
-            const assigns = lastData.assignments || {};
-            Object.keys(assigns).forEach(uid => {
-                this.lastMonthData[uid] = {};
-                for (let d = 1; d <= this.lastMonthDays; d++) {
-                    const key = `current_${d}`;
-                    if (assigns[uid][key]) this.lastMonthData[uid][`last_${d}`] = assigns[uid][key];
-                }
-            });
-        }
-    },
-
     renderMatrix: function() {
         const thead = document.getElementById('schHead');
         const tbody = document.getElementById('schBody');
