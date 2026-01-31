@@ -2,7 +2,7 @@
 
 const staffPreScheduleListManager = {
     unitsMap: {},
-    isLoading: false,
+    allSchedules: [], // 暫存撈出的原始資料，方便前端快速篩選
 
     init: async function() {
         console.log("Staff Pre-Schedule List Init");
@@ -24,100 +24,127 @@ const staffPreScheduleListManager = {
         } catch(e) { console.error("Load Units Error:", e); }
     },
 
-    // 2. 載入與過濾預班表
+    // 2. 渲染單位篩選器 (根據權限過濾選項)
+    renderUnitFilter: function() {
+        const filterContainer = document.getElementById('unitFilterContainer');
+        if (!filterContainer) return;
+
+        // 找出目前列表資料中所有出現過的單位 ID
+        const activeUnitIds = [...new Set(this.allSchedules.map(s => s.unitId))];
+        
+        let html = `
+            <div style="margin-bottom: 20px; background: #f8f9fa; padding: 15px; border-radius: 8px; display: flex; align-items: center; gap: 10px;">
+                <label style="font-weight: bold; color: #555;"><i class="fas fa-filter"></i> 單位篩選：</label>
+                <select id="staffPreUnitFilter" class="form-control" style="width: 200px;" onchange="staffPreScheduleListManager.applyFilter()">
+                    <option value="all">全部單位</option>`;
+        
+        activeUnitIds.forEach(uid => {
+            html += `<option value="${uid}">${this.unitsMap[uid] || uid}</option>`;
+        });
+
+        html += `</select></div>`;
+        filterContainer.innerHTML = html;
+    },
+
+    // 3. 載入原始數據
     loadMySchedules: async function() {
         const tbody = document.getElementById('myScheduleTableBody');
         if(!tbody) return;
         
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">載入中...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">載入中...</td></tr>';
         
         try {
-            // 策略：撈取所有最新的預班表 (例如最近 20 筆，跨所有單位)，然後在前端過濾
-            // 這樣可以解決 "如何查詢我在哪個 array 裡" 的問題 (Firestore array-contains 限制)
             const snapshot = await db.collection('pre_schedules')
                 .orderBy('year', 'desc')
                 .orderBy('month', 'desc')
-                .limit(50) // 假設全院預班表數量，取 50 筆通常足夠覆蓋近期活躍的
+                .limit(100)
                 .get();
 
-            if (snapshot.empty) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:30px; color:#999;">目前沒有預班表</td></tr>';
-                return;
-            }
-
-            tbody.innerHTML = '';
             const uid = app.getUid();
-            const today = new Date().toISOString().split('T')[0];
-            let count = 0;
+            const unitId = app.getUnitId();
+            const isSystemAdmin = (app.userRole === 'system_admin');
 
+            // 存入 allSchedules
+            this.allSchedules = [];
             snapshot.forEach(doc => {
                 const d = doc.data();
-                const staffList = d.staffList || [];
+                const isMember = (d.unitId === unitId) || (d.staffList || []).some(s => s.uid === uid);
                 
-                // [關鍵] 雙重過濾邏輯：
-                // 1. 我是參與者 (包含支援人員)
-                const isParticipant = staffList.some(u => u.uid === uid);
-                // 2. 這是我的主單位預班表
-                const isMyUnit = (d.unitId === app.userUnitId);
-                
-                // 系統管理員可以看到全部 (方便測試)
-                const isSystemAdmin = (app.userRole === 'system_admin');
-
-                if (isParticipant || isMyUnit || isSystemAdmin) {
-                    count++;
-                    const unitName = this.unitsMap[d.unitId] || d.unitId;
-                    const s = d.settings || {};
-                    const openDate = s.openDate || '9999-12-31';
-                    const closeDate = s.closeDate || '1970-01-01';
-                    const period = `${openDate} ~ ${closeDate}`;
-
-                    // 狀態判斷
-                    let statusText = '未知';
-                    let statusColor = '#95a5a6';
-                    let canEdit = false;
-
-                    if (d.status === 'closed') {
-                        statusText = '已截止 (鎖定)';
-                        statusColor = '#e74c3c';
-                    } else if (today < openDate) {
-                        statusText = '準備中';
-                        statusColor = '#f39c12';
-                    } else if (today > closeDate) {
-                        statusText = '已截止 (日期)';
-                        statusColor = '#e74c3c';
-                    } else {
-                        statusText = '開放中';
-                        statusColor = '#2ecc71';
-                        canEdit = true;
-                    }
-
-                    // 按鈕
-                    let btnHtml = '';
-                    if (canEdit) {
-                        btnHtml = `<button class="btn btn-add" onclick="staffPreScheduleManager.open('${doc.id}')"><i class="fas fa-edit"></i> 填寫預班</button>`;
-                    } else {
-                        btnHtml = `<button class="btn" style="background:#95a5a6;" onclick="staffPreScheduleManager.open('${doc.id}')"><i class="fas fa-eye"></i> 檢視</button>`;
-                    }
-
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td style="font-weight:bold; color:#2c3e50;">${unitName}</td>
-                        <td style="font-weight:bold;">${d.year} 年 ${d.month} 月</td>
-                        <td><small>${period}</small></td>
-                        <td><span class="badge" style="background:${statusColor};">${statusText}</span></td>
-                        <td>${btnHtml}</td>
-                    `;
-                    tbody.appendChild(tr);
+                // 系統管理員看全部，一般使用者只看有關聯的
+                if (isSystemAdmin || isMember) {
+                    this.allSchedules.push({ id: doc.id, ...d });
                 }
             });
 
-            if (count === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:30px; color:#999;">目前沒有您需要參與的預班表</td></tr>';
-            }
+            this.renderUnitFilter();
+            this.applyFilter(); // 執行初次渲染
 
         } catch(e) {
             console.error(e);
-            tbody.innerHTML = `<tr><td colspan="5" style="color:red;">載入失敗: ${e.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6" style="color:red;">載入失敗: ${e.message}</td></tr>`;
+        }
+    },
+
+    // 4. 執行篩選與渲染表格
+    applyFilter: function() {
+        const tbody = document.getElementById('myScheduleTableBody');
+        const filterValue = document.getElementById('staffPreUnitFilter')?.value || 'all';
+        if(!tbody) return;
+
+        const filtered = filterValue === 'all' 
+            ? this.allSchedules 
+            : this.allSchedules.filter(s => s.unitId === filterValue);
+
+        tbody.innerHTML = '';
+        const isSystemAdmin = (app.userRole === 'system_admin');
+
+        filtered.forEach(d => {
+            const unitName = this.unitsMap[d.unitId] || d.unitId;
+            const period = `${d.settings?.openDate || ''} ~ ${d.settings?.closeDate || ''}`;
+            
+            // 🟢 調用全域統一狀態判定
+            const statusInfo = app.getPreScheduleStatus(d);
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="font-weight:bold; color:#2c3e50;">${unitName}</td>
+                <td style="font-weight:bold;">${d.year} 年 ${d.month} 月</td>
+                <td><small>${period}</small></td>
+                <td><span class="badge" style="background:${statusInfo.color};">${statusInfo.text}</span></td>
+                <td>
+                    <div style="display:flex; gap:5px;">
+                        <button class="btn ${statusInfo.canEdit ? 'btn-add' : ''}" 
+                                style="${!statusInfo.canEdit ? 'background:#95a5a6;' : ''}"
+                                onclick="staffPreScheduleManager.open('${d.id}')">
+                            <i class="fas ${statusInfo.canEdit ? 'fa-edit' : 'fa-eye'}"></i> 
+                            ${statusInfo.canEdit ? '填寫預班' : '檢視'}
+                        </button>
+                        ${isSystemAdmin ? `
+                        <button class="btn btn-danger" onclick="staffPreScheduleListManager.deleteSchedule('${d.id}')">
+                            <i class="fas fa-trash"></i> 刪除
+                        </button>` : ''}
+                    </div>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:#999;">沒有符合條件的預班表</td></tr>';
+        }
+    },
+
+    // 5. [系統管理員] 刪除預班表
+    deleteSchedule: async function(docId) {
+        if (!confirm("⚠️ 警告：系統管理員權限\n確定要刪除此預班表嗎？相關的所有填寫資料也將一併刪除且無法恢復！")) return;
+
+        try {
+            await db.collection('pre_schedules').doc(docId).delete();
+            alert("✅ 預班表已成功刪除");
+            await this.loadMySchedules(); // 重新載入
+        } catch(e) {
+            console.error("Delete Error:", e);
+            alert("刪除失敗: " + e.message);
         }
     }
 };
