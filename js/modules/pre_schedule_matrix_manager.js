@@ -174,7 +174,12 @@ const matrixManager = {
         if (tfoot) tfoot.innerHTML = '';
     },
 
-
+    renderMatrix: function() {
+        const thead = document.getElementById('matrixHead');
+        const tbody = document.getElementById('matrixBody');
+        const year = this.data.year;
+        const month = this.data.month;
+        const daysInMonth = new Date(year, month, 0).getDate();
         
         let h1 = `<tr>
             <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa;">職編</th>
