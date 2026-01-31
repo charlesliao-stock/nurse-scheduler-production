@@ -192,9 +192,7 @@ const scheduleEditorManager = {
         });
     },
 
-    // ... (保留原檔案中從 line 104 到 line 960 的所有其他函數)
-    // 包括：renderToolbar, renderMatrix, setupEvents, saveSchedule 等所有功能
-};
+
 
         this.lastMonthData = {};
         if (!snap.empty) {
