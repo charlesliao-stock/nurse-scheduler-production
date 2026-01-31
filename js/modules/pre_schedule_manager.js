@@ -966,7 +966,7 @@ const preScheduleManager = {
 
     manage: function(docId) {
         // 導向預班管理介面
-        window.location.href = `/admin/pre_schedules/manage.html?id=${docId}`;
+        window.location.href = `/admin/pre_schedule_matrix?id=${id}`;
     }
 };
 
