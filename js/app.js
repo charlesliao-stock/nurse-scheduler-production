@@ -1,4 +1,4 @@
-// js/app.js (統一狀態邏輯優化版)
+// js/app.js
 
 const app = {
     currentUser: null,
@@ -48,32 +48,20 @@ const app = {
 
     /**
      * 🟢 全域預班狀態判定引擎 (唯一權威來源)
-     * @param {Object} d - 預班表文件的 data()
-     * @returns {Object} { code: 狀態碼, text: 顯示文字, color: 代表顏色, canEdit: 是否可填寫 }
      */
     getPreScheduleStatus: function(d) {
         const today = new Date().toISOString().split('T')[0];
         const s = d.settings || {};
         
-        // 1. 管理者手動狀態優先
-        if (d.status === 'published') {
-            return { code: 'published', text: '已公佈', color: '#3498db', canEdit: false };
-        }
-        if (d.status === 'closed') {
-            return { code: 'closed', text: '已鎖定', color: '#7f8c8d', canEdit: false };
-        }
+        if (d.status === 'published') return { code: 'published', text: '已公佈', color: '#3498db', canEdit: false };
+        if (d.status === 'closed') return { code: 'closed', text: '已鎖定', color: '#7f8c8d', canEdit: false };
         
-        // 2. 自動日期判定
         const openDate = s.openDate || '9999-12-31';
         const closeDate = s.closeDate || '1970-01-01';
 
-        if (today < openDate) {
-            return { code: 'preparing', text: '準備中', color: '#f1c40f', canEdit: false };
-        } else if (today > closeDate) {
-            return { code: 'expired', text: '已截止', color: '#e67e22', canEdit: false };
-        }
+        if (today < openDate) return { code: 'preparing', text: '準備中', color: '#f1c40f', canEdit: false };
+        if (today > closeDate) return { code: 'expired', text: '已截止', color: '#e67e22', canEdit: false };
         
-        // 3. 符合日期且未被鎖定
         return { code: 'open', text: '開放中', color: '#2ecc71', canEdit: true };
     },
 
@@ -94,7 +82,6 @@ const app = {
         const pass = document.getElementById('loginPassword')?.value;
         const errorMsg = document.getElementById('loginError');
         if(!email || !pass) return;
-
         try {
             await auth.signInWithEmailAndPassword(email, pass);
         } catch (e) {
@@ -125,7 +112,6 @@ const app = {
         this.userRole = data.role || 'user';
         this.userUnitId = data.unitId;
 
-        // 處理管理員模擬身分
         const savedImpersonation = localStorage.getItem('impersonatedUser');
         if (this.userRole === 'system_admin' && savedImpersonation) {
             const impData = JSON.parse(savedImpersonation);
@@ -138,31 +124,25 @@ const app = {
         if (this.userRole === 'system_admin') await this.renderImpersonationTool();
         
         const activeRole = this.impersonatedRole || this.userRole;
-        const displayRoleName = this.translateRole(activeRole);
-        
         if(document.getElementById('displayUserName')) 
             document.getElementById('displayUserName').textContent = data.displayName || '使用者';
-        if(document.getElementById('displayUserRole')) 
-            document.getElementById('displayUserRole').textContent = displayRoleName;
+        if(document.getElementById('displayUserRole')) {
+            const roleText = this.translateRole(activeRole);
+            document.getElementById('displayUserRole').innerHTML = this.impersonatedUid ? 
+                `${roleText} <span style="font-size:0.7rem; color:#e74c3c; font-weight:bold;">(模擬中)</span>` : roleText;
+        }
     },
 
     renderMenu: async function() {
         const menuList = document.getElementById('dynamicMenu');
         if(!menuList) return;
-        
         try {
-            const snapshot = await db.collection('system_menus')
-                .where('isActive', '==', true)
-                .orderBy('order')
-                .get();
-            
+            const snapshot = await db.collection('system_menus').where('isActive', '==', true).orderBy('order').get();
             menuList.innerHTML = '';
             const activeRole = this.impersonatedRole || this.userRole;
-
             snapshot.forEach(doc => {
                 const menu = doc.data();
-                const allowedRoles = menu.allowedRoles || [];
-                if (allowedRoles.length === 0 || allowedRoles.includes(activeRole)) {
+                if ((menu.allowedRoles || []).length === 0 || (menu.allowedRoles || []).includes(activeRole)) {
                     const li = document.createElement('li');
                     li.innerHTML = `<a class="menu-link" href="#${menu.path}"><i class="${menu.icon}"></i> ${menu.label}</a>`;
                     menuList.appendChild(li);
@@ -175,68 +155,70 @@ const app = {
     getUnitId: function() { return this.impersonatedUnitId || this.userUnitId; },
     
     translateRole: function(role) {
-        const map = { 
-            'system_admin': '系統管理員', 
-            'unit_manager': '單位護理長', 
-            'unit_scheduler': '排班人員', 
-            'user': '護理同仁' 
-        };
+        const map = { 'system_admin': '系統管理員', 'unit_manager': '單位護理長', 'unit_scheduler': '排班人員', 'user': '護理同仁' };
         return map[role] || role;
     },
 
-    // 模擬工具 (僅限管理員)
+    // 🟢 恢復原樣：側邊欄身分模擬工具
     renderImpersonationTool: async function() {
-        const toolId = 'admin-imp-tool';
-        let tool = document.getElementById(toolId);
-        if(!tool) {
+        let tool = document.getElementById('impersonation-tool');
+        if (!tool) {
             tool = document.createElement('div');
-            tool.id = toolId;
-            tool.className = 'admin-only-tool';
-            document.body.appendChild(tool);
+            tool.id = 'impersonation-tool';
+            tool.style.cssText = 'padding: 15px; border-top: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); font-size: 0.85rem; color: white;';
+            const sidebar = document.getElementById('sidebar');
+            const logoutContainer = sidebar?.querySelector('div[style*="padding:20px"]');
+            if (logoutContainer) sidebar.insertBefore(tool, logoutContainer);
+            else if (sidebar) sidebar.appendChild(tool);
         }
 
-        const activeRole = this.impersonatedRole || this.userRole;
-        const isImp = !!this.impersonatedUid;
+        let units = [];
+        const unitSnap = await db.collection('units').get();
+        unitSnap.forEach(doc => units.push({ id: doc.id, ...doc.data() }));
 
-        tool.innerHTML = `
-            <div style="background:#2c3e50; color:white; padding:10px; font-size:12px; border-radius:8px 8px 0 0;">
-                <i class="fas fa-user-secret"></i> 身分模擬系統
-            </div>
-            <div style="padding:10px; background:#f8f9fa; border:1px solid #ddd; border-top:none; border-radius:0 0 8px 8px;">
-                ${isImp ? `<div style="color:#e74c3c; margin-bottom:8px; font-weight:bold;">目前模擬中: ${this.translateRole(activeRole)}</div>` : ''}
-                <select id="impUserSelect" style="width:100%; margin-bottom:8px; padding:5px;"></select>
-                <div style="display:flex; gap:5px;">
-                    <button onclick="app.startImpersonation()" style="flex:1; padding:5px; background:#3498db; color:white; border:none; border-radius:4px;">模擬</button>
-                    ${isImp ? `<button onclick="app.stopImpersonation()" style="flex:1; padding:5px; background:#95a5a6; color:white; border:none; border-radius:4px;">恢復</button>` : ''}
-                </div>
-            </div>
-        `;
-
-        if(!this._allUsersForImp) {
-            const snap = await db.collection('users').get();
-            this._allUsersForImp = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+        if (!this._allUsersForImp) {
+            const userSnap = await db.collection('users').where('isActive', '==', true).get();
+            this._allUsersForImp = userSnap.docs.map(doc => ({ ...doc.data(), uid: doc.id }));
         }
 
+        let html = '<div style="color:rgba(255,255,255,0.7); margin-bottom:8px; font-weight:bold;"><i class="fas fa-user-secret"></i> 身分模擬</div>';
+        
+        // 單位選擇
+        html += '<select id="impUnitSelect" onchange="app.updateImpUserList(this.value)" style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:#2c3e50; color:white; margin-bottom:5px;">';
+        html += '<option value="">--- 選擇單位 ---</option>';
+        units.forEach(u => html += `<option value="${u.id}" ${this.impersonatedUnitId === u.id ? 'selected' : ''}>${u.name}</option>`);
+        html += '</select>';
+
+        // 人員選擇
+        html += '<select id="impUserSelect" onchange="app.impersonateUser(this.value)" style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:#2c3e50; color:white; margin-bottom:5px;">';
+        html += '<option value="">--- 選擇人員 ---</option></select>';
+
+        if (this.impersonatedUid) {
+            html += `<button onclick="app.clearImpersonation()" style="width:100%; padding:6px; background:#e74c3c; color:white; border:none; border-radius:4px; font-size:0.8rem; cursor:pointer; margin-top:5px;">恢復原始身分</button>`;
+        }
+
+        tool.innerHTML = html;
+        if (this.impersonatedUnitId) this.updateImpUserList(this.impersonatedUnitId);
+    },
+
+    updateImpUserList: function(unitId) {
         const select = document.getElementById('impUserSelect');
-        select.innerHTML = '<option value="">請選擇對象...</option>';
-        this._allUsersForImp.forEach(u => {
-            const opt = document.createElement('option');
-            opt.value = u.uid;
-            opt.textContent = `${u.displayName} (${this.translateRole(u.role)})`;
-            if(this.impersonatedUid === u.uid) opt.selected = true;
-            select.appendChild(opt);
+        if (!select) return;
+        select.innerHTML = '<option value="">--- 選擇人員 ---</option>';
+        const filtered = unitId ? this._allUsersForImp.filter(u => u.unitId === unitId) : this._allUsersForImp;
+        filtered.forEach(u => {
+            const data = { uid: u.uid, role: u.role, unitId: u.unitId, name: u.displayName };
+            select.innerHTML += `<option value='${JSON.stringify(data)}' ${this.impersonatedUid === u.uid ? 'selected' : ''}>${u.displayName} (${this.translateRole(u.role)})</option>`;
         });
     },
 
-    startImpersonation: function() {
-        const uid = document.getElementById('impUserSelect').value;
-        if(!uid) return;
-        const u = this._allUsersForImp.find(x => x.uid === uid);
-        localStorage.setItem('impersonatedUser', JSON.stringify({ uid: u.uid, role: u.role, unitId: u.unitId }));
+    impersonateUser: function(jsonStr) {
+        if (!jsonStr) return;
+        localStorage.setItem('impersonatedUser', jsonStr);
         location.reload();
     },
 
-    stopImpersonation: function() {
+    clearImpersonation: function() {
         localStorage.removeItem('impersonatedUser');
         location.reload();
     }
