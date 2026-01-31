@@ -224,53 +224,82 @@ const preScheduleManager = {
             const btnImportLast = document.getElementById('btnImportLast');
             if (btnImportLast) btnImportLast.style.display = 'inline-block';
             
+            const nextMonth = new Date(); 
+            nextMonth.setMonth(nextMonth.getMonth() + 1);
+            data = {
+                year: nextMonth.getFullYear(),
+                month: nextMonth.getMonth() + 1,
+                settings: { 
+                    maxOffDays: 8, 
+                    maxHolidayOffs: 2, 
+                    dailyReserved: 1, 
+                    shiftTypeMode: "3", 
+                    showAllNames: true 
+                },
+                groupLimits: {}, 
+                dailyNeeds: {}, 
+                specificNeeds: {}, 
+                bundleLimits: {}
+            };
             await this.loadCurrentUnitStaff();
         }
 
+        this.fillForm(data);
+        this.renderStaffList();
+        this.renderDailyNeedsTable(data.dailyNeeds);
+        this.renderBundleLimitSettings(data.bundleLimits || {});
+        this.renderSpecificNeedsUI(data.specificNeeds || {}); 
+        this.renderGroupLimitsTable(data.groupLimits);
+    },
+
+    fillForm: function(data) {
         // ✅ 安全設定：檢查元素是否存在再設值
         const setInputValue = (id, value) => {
             const el = document.getElementById(id);
             if (el) el.value = value;
-            else console.warn(`Element not found: ${id}`);
         };
         
         const setCheckboxValue = (id, value) => {
             const el = document.getElementById(id);
             if (el) el.checked = value;
-            else console.warn(`Element not found: ${id}`);
         };
 
-        setInputValue('inputPreYear', data.year || new Date().getFullYear());
-        setInputValue('inputPreMonth', data.month || (new Date().getMonth() + 1));
-        setInputValue('inputOpenDate', data.settings?.openDate || '');
-        setInputValue('inputCloseDate', data.settings?.closeDate || '');
-        setInputValue('inputMaxOff', data.settings?.maxOffDays || 8);
-        setInputValue('inputMaxHoliday', data.settings?.maxHolidayOffs || 2);
-        setInputValue('inputDailyReserve', data.settings?.dailyReserved || 1);
-        setCheckboxValue('checkShowAllNames', data.settings?.showAllNames !== false);
-        setInputValue('inputShiftMode', data.settings?.shiftTypeMode || "3");
+        if(data.year && data.month) {
+            const m = data.month < 10 ? '0'+data.month : data.month;
+            setInputValue('inputPreYearMonth', `${data.year}-${m}`);
+        }
+        
+        const s = data.settings || {};
+        setInputValue('inputOpenDate', s.openDate || '');
+        setInputValue('inputCloseDate', s.closeDate || '');
+        setInputValue('inputMaxOff', s.maxOffDays);
+        setInputValue('inputMaxHoliday', s.maxHolidayOffs);
+        setInputValue('inputDailyReserve', s.dailyReserved);
+        setCheckboxValue('checkShowAllNames', s.showAllNames);
+        setInputValue('inputShiftMode', s.shiftTypeMode);
         
         this.toggleThreeShiftOption();
-        
-        if(data.settings?.shiftTypeMode === "2") {
-            setCheckboxValue('checkAllowThree', data.settings?.allowThreeShifts);
+        if(s.shiftTypeMode === "2") {
+            setCheckboxValue('checkAllowThree', s.allowThreeShifts);
         }
-
-        this.renderDailyNeedsTable(data.dailyNeeds || {});
-        this.renderBundleLimitSettings(data.bundleLimits || {});
-        this.renderSpecificNeedsUI(data.specificNeeds || {});
-        this.renderGroupLimitsTable(data.groupLimits || {});
-        this.renderStaffList();
     },
 
     saveModal: async function() {
-        const year = parseInt(document.getElementById('inputPreYear').value);
-        const month = parseInt(document.getElementById('inputPreMonth').value);
-        const openDate = document.getElementById('inputOpenDate').value;
-        const closeDate = document.getElementById('inputCloseDate').value;
+        const docId = document.getElementById('preScheduleDocId')?.value;
+        const ymInput = document.getElementById('inputPreYearMonth')?.value;
         
-        if(!year || !month || !openDate || !closeDate) {
-            alert("請填寫必填欄位");
+        if (!ymInput) {
+            alert("請選擇年月");
+            return;
+        }
+
+        const [year, month] = ymInput.split('-').map(Number);
+        
+        const openDate = document.getElementById('inputOpenDate')?.value;
+        const closeDate = document.getElementById('inputCloseDate')?.value;
+        
+        if (!openDate || !closeDate) {
+            alert("請設定開放與截止日期");
             return;
         }
 
@@ -288,12 +317,14 @@ const preScheduleManager = {
             settings: {
                 openDate, 
                 closeDate, 
-                maxOffDays: parseInt(document.getElementById('inputMaxOff').value),
-                maxHolidayOffs: parseInt(document.getElementById('inputMaxHoliday').value),
-                dailyReserved: parseInt(document.getElementById('inputDailyReserve').value),
-                showAllNames: document.getElementById('checkShowAllNames').checked,
-                shiftTypeMode: document.getElementById('inputShiftMode').value,
-                allowThreeShifts: (document.getElementById('inputShiftMode').value === "2") ? document.getElementById('checkAllowThree').checked : null
+                maxOffDays: parseInt(document.getElementById('inputMaxOff')?.value) || 8,
+                maxHolidayOffs: parseInt(document.getElementById('inputMaxHoliday')?.value) || 2,
+                dailyReserved: parseInt(document.getElementById('inputDailyReserve')?.value) || 1,
+                showAllNames: document.getElementById('checkShowAllNames')?.checked !== false,
+                shiftTypeMode: document.getElementById('inputShiftMode')?.value || "3",
+                allowThreeShifts: (document.getElementById('inputShiftMode')?.value === "2") 
+                    ? (document.getElementById('checkAllowThree')?.checked || false) 
+                    : null
             },
             dailyNeeds,
             bundleLimits,
@@ -306,7 +337,6 @@ const preScheduleManager = {
         };
 
         try {
-            const docId = document.getElementById('preScheduleDocId').value;
             if (docId) {
                 await db.collection('pre_schedules').doc(docId).update(doc);
                 alert("已更新預班表");
@@ -482,35 +512,59 @@ const preScheduleManager = {
     },
 
     renderStaffList: function() {
-        const tbody = document.getElementById('staffListTableBody');
+        const tbody = document.getElementById('staffListBody');
         if(!tbody) return;
         tbody.innerHTML = '';
 
-        if(this.staffListSnapshot.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#999;">尚無人員</td></tr>';
+        if (this.staffListSnapshot.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px; color:#999;">尚無人員<br><button class="btn btn-sm btn-add" onclick="preScheduleManager.openSearchModal()" style="margin-top:10px;">搜尋並加入人員</button></td></tr>';
             return;
         }
 
-        const badge = document.getElementById('staffCountBadge');
-        if (badge) badge.innerText = this.staffListSnapshot.length;
+        // 更新排序圖示
+        document.querySelectorAll('th i[id^="sort_icon_staff_"]').forEach(i => {
+            i.className = 'fas fa-sort';
+        });
+        const activeIcon = document.getElementById(`sort_icon_staff_${this.staffSortState.field}`);
+        if(activeIcon) {
+            activeIcon.className = this.staffSortState.order === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
+        }
 
-        this.staffListSnapshot.forEach((s, i) => {
-            const supportBadge = s.isSupport 
-                ? '<span class="badge badge-warning">支援</span>' 
-                : '<span class="badge" style="background:#95a5a6;">本單位</span>';
+        // 渲染人員列表
+        this.staffListSnapshot.forEach((staff, index) => {
+            const supportBadge = staff.isSupport 
+                ? '<span class="badge badge-warning" style="margin-left:5px;">支援</span>' 
+                : '';
             
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td>${i+1}</td>
-                <td>${s.empId}</td>
-                <td>${s.name}</td>
-                <td>${s.level}</td>
-                <td>${s.group || '-'}</td>
-                <td>${supportBadge}</td>
-                <td><button class="btn btn-sm btn-delete" onclick="preScheduleManager.removeStaff(${i})">×</button></td>
+                <td>${staff.empId || '-'}</td>
+                <td>${staff.name}${supportBadge}</td>
+                <td>${staff.level || '-'}</td>
+                <td>
+                    <select class="form-control" style="padding:4px 8px;" onchange="preScheduleManager.updateStaffGroup(${index}, this.value)">
+                        <option value="">(未分組)</option>
+                        ${this.currentUnitGroups.map(g => `<option value="${g}" ${staff.group === g ? 'selected' : ''}>${g}</option>`).join('')}
+                    </select>
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-delete" onclick="preScheduleManager.removeStaff(${index})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
             `;
             tbody.appendChild(tr);
         });
+
+        const badge = document.getElementById('staffCountBadge');
+        if (badge) badge.innerText = this.staffListSnapshot.length;
+    },
+
+    updateStaffGroup: function(index, groupId) {
+        if (this.staffListSnapshot[index]) {
+            this.staffListSnapshot[index].group = groupId;
+            console.log(`更新 ${this.staffListSnapshot[index].name} 組別: ${groupId}`);
+        }
     },
 
     removeStaff: function(index) {
@@ -520,19 +574,39 @@ const preScheduleManager = {
         }
     },
 
-    searchSupportStaff: async function() {
-        const keyword = document.getElementById('inputSearchStaff').value.trim();
+    openSearchModal: function() {
+        const modal = document.getElementById('searchStaffModal');
+        if(!modal) return;
+        
+        modal.classList.add('show');
+        const searchInput = document.getElementById('inputSearchStaff');
+        if (searchInput) searchInput.value = '';
+        
+        const resultsDiv = document.getElementById('searchResults');
+        if (resultsDiv) resultsDiv.innerHTML = '';
+    },
+
+    closeSearchModal: function() {
+        const modal = document.getElementById('searchStaffModal');
+        if(modal) modal.classList.remove('show');
+    },
+
+    searchStaff: async function() {
+        const keyword = document.getElementById('inputSearchStaff')?.value.trim();
         const resultsContainer = document.getElementById('searchResults');
         
         if (!keyword || keyword.length < 2) {
-            resultsContainer.innerHTML = '<div style="padding:10px; color:#999;">請輸入至少2個字元</div>';
+            if (resultsContainer) {
+                resultsContainer.innerHTML = '<div style="padding:10px; color:#999;">請輸入至少2個字元</div>';
+            }
             return;
         }
 
-        resultsContainer.innerHTML = '<div style="padding:10px;">搜尋中...</div>';
+        if (resultsContainer) {
+            resultsContainer.innerHTML = '<div style="padding:10px;">搜尋中...</div>';
+        }
 
         try {
-            // ✅ 只搜尋啟用的人員
             const snapshot = await db.collection('users')
                 .where('isActive', '==', true)
                 .get();
@@ -557,6 +631,8 @@ const preScheduleManager = {
                     }
                 }
             });
+
+            if (!resultsContainer) return;
 
             if (results.length === 0) {
                 resultsContainer.innerHTML = '<div style="padding:10px; color:#999;">找不到符合的人員 (或已在名單中)</div>';
@@ -601,124 +677,16 @@ const preScheduleManager = {
 
         } catch (e) {
             console.error("搜尋錯誤:", e);
-            resultsContainer.innerHTML = '<div style="padding:10px; color:red;">搜尋失敗: ' + e.message + '</div>';
-        }
-    },
-
-    addSupportStaff: function(uid, name, empId, level, isCrossUnit) {
-        if (this.staffListSnapshot.some(s => s.uid === uid)) {
-            alert("該人員已在名單中");
-            return;
-        }
-
-        this.staffListSnapshot.push({
-            uid: uid,
-            name: name,
-            empId: empId,
-            level: level,
-            group: '',
-            isSupport: isCrossUnit
-        });
-
-        this.renderStaffList();
-        
-        document.getElementById('searchResults').innerHTML = '';
-        document.getElementById('inputSearchStaff').value = '';
-        
-        alert(`✅ 已加入 ${name} (${empId})`);
-    },
-
-    sortStaff: function(field) {
-        const state = this.staffSortState;
-        
-        if (state.field === field) {
-            state.order = state.order === 'asc' ? 'desc' : 'asc';
-        } else {
-            state.field = field;
-            state.order = 'asc';
-        }
-
-        this.staffListSnapshot.sort((a, b) => {
-            let valA = a[field] || '';
-            let valB = b[field] || '';
-            
-            if (field === 'isSupport') {
-                valA = a.isSupport ? 1 : 0;
-                valB = b.isSupport ? 1 : 0;
+            if (resultsContainer) {
+                resultsContainer.innerHTML = '<div style="padding:10px; color:red;">搜尋失敗: ' + e.message + '</div>';
             }
-            
-            if (typeof valA === 'string') valA = valA.toLowerCase();
-            if (typeof valB === 'string') valB = valB.toLowerCase();
-            
-            if (state.order === 'asc') {
-                return valA > valB ? 1 : valA < valB ? -1 : 0;
-            } else {
-                return valA < valB ? 1 : valA > valB ? -1 : 0;
-            }
-        });
-
-        this.renderStaffList();
-    },
-    
-    deleteSchedule: async function(id) { 
-        if(confirm("確定刪除此預班表？")) { 
-            await db.collection('pre_schedules').doc(id).delete(); 
-            this.loadData(); 
-        } 
-    },
-    
-    toggleThreeShiftOption: function() {
-        const mode = document.getElementById('inputShiftMode')?.value;
-        const opt = document.getElementById('threeShiftOption');
-        if(opt && mode) {
-            opt.style.display = (mode === '2') ? 'block' : 'none';
         }
     },
 
-    manage: function(id) { 
-        window.location.hash = `/admin/pre_schedule_matrix?id=${id}`; 
+    searchSupportStaff: async function() {
+        // 保留此函數作為向後相容
+        return this.searchStaff();
     },
-
-    importLastSettings: async function() {
-        if(!this.currentUnitId) return;
-        
-        try {
-            const snapshot = await db.collection('pre_schedules')
-                .where('unitId', '==', this.currentUnitId)
-                .orderBy('year', 'desc')
-                .orderBy('month', 'desc')
-                .limit(1)
-                .get();
-
-            if (snapshot.empty) {
-                alert("找不到上個月的預班表設定。");
-                return;
-            }
-
-            const lastData = snapshot.docs[0].data();
-            
-            // ✅ 安全設定：檢查元素是否存在再設值
-            const setInputValue = (id, value) => {
-                const el = document.getElementById(id);
-                if (el) el.value = value;
-            };
-            
-            const setCheckboxValue = (id, value) => {
-                const el = document.getElementById(id);
-                if (el) el.checked = value;
-            };
-            
-            // 填寫基本設定
-            const s = lastData.settings || {};
-            setInputValue('inputMaxOff', s.maxOffDays || 8);
-            setInputValue('inputMaxHoliday', s.maxHolidayOffs || 2);
-            setInputValue('inputDailyReserve', s.dailyReserved || 1);
-            setCheckboxValue('checkShowAllNames', s.showAllNames !== false);
-            setInputValue('inputShiftMode', s.shiftTypeMode || "3");
-            
-            this.toggleThreeShiftOption();
-            
-            if(s.shiftTypeMode === "2") {
                 setCheckboxValue('checkAllowThree', s.allowThreeShifts);
             }
 
