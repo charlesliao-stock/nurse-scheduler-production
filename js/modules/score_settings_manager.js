@@ -1,5 +1,5 @@
 // js/modules/score_settings_manager.js
-// 🔥 強化版：新增評分方向標示與視覺化改善
+// 🔥 強化版 v2：加強權限控制 + 評分方向標示與視覺化改善
 
 const scoreSettingsManager = {
     currentUnitId: null,
@@ -13,8 +13,8 @@ const scoreSettingsManager = {
                     label: "(1) 工時差異 (標準差)", 
                     desc: "所有員工工時與平均工時的標準差差異程度", 
                     weight: 10, 
-                    direction: 'lower_is_better',  // 🔥 新增
-                    unit: '小時',  // 🔥 新增
+                    direction: 'lower_is_better',
+                    unit: '小時',
                     tiers: [
                         {limit: 0, score: 5, label: "極佳"},
                         {limit: 1, score: 4, label: "良好"},
@@ -27,8 +27,8 @@ const scoreSettingsManager = {
                     label: "(2) 夜班差異 (次)", 
                     desc: "員工之間夜班天數差異程度 (Max - Min)", 
                     weight: 10, 
-                    direction: 'lower_is_better',  // 🔥 新增
-                    unit: '次',  // 🔥 新增
+                    direction: 'lower_is_better',
+                    unit: '次',
                     tiers: [
                         {limit: 0, score: 5, label: "極佳"},
                         {limit: 1, score: 4, label: "良好"},
@@ -41,8 +41,8 @@ const scoreSettingsManager = {
                     label: "(3) 假日差異 (天)", 
                     desc: "員工之間假日放假天數差異程度 (Max - Min)", 
                     weight: 10, 
-                    direction: 'lower_is_better',  // 🔥 新增
-                    unit: '天',  // 🔥 新增
+                    direction: 'lower_is_better',
+                    unit: '天',
                     tiers: [
                         {limit: 0, score: 5, label: "極佳"},
                         {limit: 1, score: 4, label: "良好"},
@@ -60,8 +60,8 @@ const scoreSettingsManager = {
                     label: "(1) 排班偏好滿足度 (%)", 
                     desc: "符合員工偏好的程度", 
                     weight: 15, 
-                    direction: 'higher_is_better',  // 🔥 新增
-                    unit: '%',  // 🔥 新增
+                    direction: 'higher_is_better',
+                    unit: '%',
                     tiers: [
                         {limit: 0, score: 1, label: "極差"},
                         {limit: 60, score: 2, label: "待改進"},
@@ -74,8 +74,8 @@ const scoreSettingsManager = {
                     label: "(2) 預班達成率 (%)", 
                     desc: "符合員工預班OFF的程度", 
                     weight: 10, 
-                    direction: 'higher_is_better',  // 🔥 新增
-                    unit: '%',  // 🔥 新增
+                    direction: 'higher_is_better',
+                    unit: '%',
                     tiers: [
                         {limit: 0, score: 1, label: "極差"},
                         {limit: 80, score: 2, label: "待改進"},
@@ -93,8 +93,8 @@ const scoreSettingsManager = {
                     label: "(1) 連續工作>6天 (人次)", 
                     desc: "最長連續工作天數達6天(以上)的人次", 
                     weight: 8, 
-                    direction: 'lower_is_better',  // 🔥 新增
-                    unit: '人次',  // 🔥 新增
+                    direction: 'lower_is_better',
+                    unit: '人次',
                     tiers: [
                         {limit: 0, score: 5, label: "極佳"},
                         {limit: 1, score: 4, label: "良好"},
@@ -107,8 +107,8 @@ const scoreSettingsManager = {
                     label: "(2) 大夜接白 (次)", 
                     desc: "前一天大夜，隔天早班的次數", 
                     weight: 7, 
-                    direction: 'lower_is_better',  // 🔥 新增
-                    unit: '次',  // 🔥 新增
+                    direction: 'lower_is_better',
+                    unit: '次',
                     tiers: [
                         {limit: 0, score: 5, label: "極佳"},
                         {limit: 1, score: 4, label: "良好"},
@@ -121,8 +121,8 @@ const scoreSettingsManager = {
                     label: "(3) 休假達標率 (%)", 
                     desc: "符合應放天數規定的員工比例", 
                     weight: 5, 
-                    direction: 'higher_is_better',  // 🔥 新增
-                    unit: '%',  // 🔥 新增
+                    direction: 'higher_is_better',
+                    unit: '%',
                     tiers: [
                         {limit: 0, score: 1, label: "極差"},
                         {limit: 85, score: 2, label: "待改進"},
@@ -135,8 +135,8 @@ const scoreSettingsManager = {
                     label: "(4) 週夜班頻率 (SD)", 
                     desc: "每位員工週平均夜班次數的標準差", 
                     weight: 5, 
-                    direction: 'lower_is_better',  // 🔥 新增
-                    unit: '',  // 🔥 新增
+                    direction: 'lower_is_better',
+                    unit: '',
                     tiers: [
                         {limit: 0, score: 5, label: "極佳"},
                         {limit: 0.3, score: 4, label: "良好"},
@@ -154,8 +154,8 @@ const scoreSettingsManager = {
                     label: "(1) 缺班率 (%)", 
                     desc: "未成功分配人員的班次比例", 
                     weight: 8, 
-                    direction: 'lower_is_better',  // 🔥 新增
-                    unit: '%',  // 🔥 新增
+                    direction: 'lower_is_better',
+                    unit: '%',
                     tiers: [
                         {limit: 0, score: 5, label: "極佳"},
                         {limit: 1, score: 4, label: "良好"},
@@ -168,8 +168,8 @@ const scoreSettingsManager = {
                     label: "(2) 資深分佈 (%)", 
                     desc: "各班至少1位年資2年以上員工", 
                     weight: 4, 
-                    direction: 'higher_is_better',  // 🔥 新增
-                    unit: '%',  // 🔥 新增
+                    direction: 'higher_is_better',
+                    unit: '%',
                     tiers: [
                         {limit: 0, score: 1, label: "極差"},
                         {limit: 85, score: 2, label: "待改進"},
@@ -182,8 +182,8 @@ const scoreSettingsManager = {
                     label: "(3) 資淺分佈 (%)", 
                     desc: "各班最多1位年資2年以下員工", 
                     weight: 3, 
-                    direction: 'higher_is_better',  // 🔥 新增
-                    unit: '%',  // 🔥 新增
+                    direction: 'higher_is_better',
+                    unit: '%',
                     tiers: [
                         {limit: 0, score: 1, label: "極差"},
                         {limit: 70, score: 2, label: "待改進"},
@@ -193,99 +193,147 @@ const scoreSettingsManager = {
                     ] 
                 }
             }
-        },
-        cost: {
-            label: "5. 成本控制", displayId: 'cost_weight_display',
-            subs: {
-                overtimeRate: { 
-                    label: "(1) 加班費比率 (%)", 
-                    desc: "加班班數佔總班數比例", 
-                    weight: 5, 
-                    direction: 'lower_is_better',  // 🔥 新增
-                    unit: '%',  // 🔥 新增
-                    tiers: [
-                        {limit: 0, score: 5, label: "極佳"},
-                        {limit: 1, score: 4, label: "良好"},
-                        {limit: 2, score: 3, label: "普通"},
-                        {limit: 3, score: 2, label: "待改進"},
-                        {limit: 4, score: 1, label: "極差"}
-                    ] 
-                }
-            }
         }
     },
-
+    
     init: async function() {
         console.log("Score Settings Manager Loaded.");
+        
+        // ✅ 權限檢查
+        const activeRole = app.impersonatedRole || app.userRole;
+        if (activeRole === 'user') {
+            document.getElementById('content-area').innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-lock"></i>
+                    <h3>權限不足</h3>
+                    <p>一般使用者無法管理計分設定</p>
+                </div>
+            `;
+            return;
+        }
+        
         await this.loadUnitDropdown();
-        document.addEventListener('change', (e) => {
-            if (e.target.id.startsWith('metric_') || e.target.id.startsWith('val_')) {
-                this.calculateWeights();
-            }
+        
+        document.querySelectorAll('.metric-input').forEach(input => {
+            input.addEventListener('input', () => this.calculateWeights());
+        });
+        
+        document.querySelectorAll('[id^="metric_"]').forEach(chk => {
+            chk.addEventListener('change', () => this.calculateWeights());
         });
     },
 
     loadUnitDropdown: async function() {
         const select = document.getElementById('scoreUnitSelect');
         if(!select) return;
+        
         select.innerHTML = '<option value="">載入中...</option>';
+        
         try {
             let query = db.collection('units');
-            if (app.userRole !== 'system_admin' && app.userUnitId) {
-                query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
+            
+            // ✅ 權限過濾：使用 impersonatedRole 或 userRole
+            const activeRole = app.impersonatedRole || app.userRole;
+            if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
+                if(app.userUnitId) {
+                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
+                }
             }
-            const snap = await query.get();
+            
+            const snapshot = await query.get();
             select.innerHTML = '<option value="">請選擇單位</option>';
-            snap.forEach(doc => {
-                const opt = document.createElement('option');
-                opt.value = doc.id; opt.textContent = doc.data().name;
-                select.appendChild(opt);
+            
+            snapshot.forEach(doc => {
+                const option = document.createElement('option');
+                option.value = doc.id;
+                option.textContent = doc.data().name;
+                select.appendChild(option);
             });
-            select.onchange = () => this.loadData();
-        } catch(e) { console.error("Load Units Error:", e); }
+            
+            select.onchange = () => {
+                this.currentUnitId = select.value;
+                if (this.currentUnitId) {
+                    this.loadData();
+                } else {
+                    document.getElementById('scoreSettingsContainer').style.display = 'none';
+                }
+            };
+            
+            // ✅ 如果只有一個單位，自動選取並限制選單
+            if (snapshot.size === 1) {
+                select.selectedIndex = 1;
+                
+                // 單位護理長不需要看到選單
+                if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
+                    select.disabled = true;
+                    select.style.backgroundColor = '#f5f5f5';
+                }
+                
+                select.dispatchEvent(new Event('change'));
+            }
+            
+        } catch(e) {
+            console.error(e);
+            select.innerHTML = '<option value="">載入失敗</option>';
+        }
     },
 
     loadData: async function() {
-        const unitId = document.getElementById('scoreUnitSelect').value;
-        if(!unitId) return;
-        this.currentUnitId = unitId;
-
+        if(!this.currentUnitId) return;
+        
         try {
-            const doc = await db.collection('units').doc(unitId).get();
-            const data = doc.data()?.scoreSettings || {};
-            this.allSettings = data;
-
-            this.renderUI();
-
-            for (let group in this.config) {
-                for (let sub in this.config[group].subs) {
-                    const savedVal = data.thresholds?.[sub];
-                    const savedEnabled = data.enables?.[sub];
-                    if (savedVal !== undefined) document.getElementById(`val_${sub}`).value = savedVal;
-                    if (savedEnabled !== undefined) document.getElementById(`metric_${sub}`).checked = savedEnabled;
+            const doc = await db.collection('units').doc(this.currentUnitId).get();
+            if(!doc.exists) return;
+            
+            const data = doc.data();
+            this.allSettings = data.scoreSettings || {};
+            
+            const thresholds = this.allSettings.thresholds || {};
+            const enables = this.allSettings.enables || {};
+            
+            for (let groupKey in this.config) {
+                for (let subKey in this.config[groupKey].subs) {
+                    const sub = this.config[groupKey].subs[subKey];
+                    
+                    const metricCheckbox = document.getElementById(`metric_${subKey}`);
+                    if(metricCheckbox) {
+                        metricCheckbox.checked = (enables[subKey] !== false);
+                    }
+                    
+                    const valInput = document.getElementById(`val_${subKey}`);
+                    if(valInput) {
+                        valInput.value = thresholds[subKey] !== undefined ? thresholds[subKey] : sub.weight;
+                    }
                 }
             }
+            
+            this.renderMetrics();
             this.calculateWeights();
             document.getElementById('scoreSettingsContainer').style.display = 'block';
-        } catch(e) { console.error("Load Data Error:", e); }
+            
+        } catch(e) {
+            console.error(e);
+            alert("載入失敗: " + e.message);
+        }
     },
 
-    renderUI: function() {
-        for (let group in this.config) {
-            const container = document.getElementById(`metrics_${group}`);
-            if (!container) continue;
-            container.innerHTML = '';
-            for (let subKey in this.config[group].subs) {
-                const sub = this.config[group].subs[subKey];
+    renderMetrics: function() {
+        for (let groupKey in this.config) {
+            const group = this.config[groupKey];
+            for (let subKey in group.subs) {
+                const sub = group.subs[subKey];
                 
-                // 🔥 根據評分方向選擇圖示和顏色
-                const directionIcon = sub.direction === 'lower_is_better' 
-                    ? '<i class="fas fa-arrow-down" style="color:#e74c3c;" title="數值越低越好"></i>' 
-                    : '<i class="fas fa-arrow-up" style="color:#27ae60;" title="數值越高越好"></i>';
+                // 🔥 評分方向圖示
+                const directionIcon = sub.direction === 'lower_is_better'
+                    ? '<i class="fas fa-arrow-down" style="color:#e74c3c; margin-left:5px;" title="越低越好"></i>'
+                    : '<i class="fas fa-arrow-up" style="color:#27ae60; margin-left:5px;" title="越高越好"></i>';
                 
                 const directionText = sub.direction === 'lower_is_better' ? '越低越好' : '越高越好';
                 
-                container.innerHTML += `
+                const container = document.getElementById(`metric_${subKey}_container`);
+                if (!container) continue;
+                
+                container.innerHTML = `
                     <div class="metric-item">
                         <div class="metric-header">
                             <label class="switch">
