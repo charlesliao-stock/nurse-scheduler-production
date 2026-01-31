@@ -10,6 +10,18 @@ const systemStatisticsManager = {
     init: async function() {
         console.log("System Statistics Manager Init");
         
+        // ✅ 權限檢查
+        if (app.userRole === 'user') {
+            document.getElementById('content-area').innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-lock"></i>
+                    <h3>權限不足</h3>
+                    <p>一般使用者無法查看系統統計</p>
+                </div>
+            `;
+            return;
+        }
+        
         // 設置預設月份為當前月份
         const today = new Date();
         const year = today.getFullYear();
@@ -23,8 +35,18 @@ const systemStatisticsManager = {
     // --- 2. 載入單位列表 ---
     loadUnits: async function() {
         try {
-            const snapshot = await db.collection('units').get();
+            let query = db.collection('units');
             const unitSelect = document.getElementById('unitFilter');
+            
+            // ✅ 權限過濾
+            const activeRole = app.impersonatedRole || app.userRole;
+            if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
+                if(app.userUnitId) {
+                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
+                }
+            }
+            
+            const snapshot = await query.get();
             
             snapshot.forEach(doc => {
                 const option = document.createElement('option');
@@ -32,6 +54,13 @@ const systemStatisticsManager = {
                 option.textContent = doc.data().name || doc.id;
                 unitSelect.appendChild(option);
             });
+            
+            // ✅ 如果只有一個單位，自動選取並限制
+            if (snapshot.size === 1 && (activeRole === 'unit_manager' || activeRole === 'unit_scheduler')) {
+                unitSelect.selectedIndex = 1;
+                unitSelect.disabled = true;
+                unitSelect.style.backgroundColor = '#f5f5f5';
+            }
         } catch (e) {
             console.error('載入單位失敗:', e);
         }
@@ -58,10 +87,22 @@ const systemStatisticsManager = {
             const unitId = document.getElementById('unitFilter').value;
             const queryType = document.getElementById('queryType').value;
             
+            // ✅ 權限檢查：單位管理者必須選擇單位
+            const activeRole = app.impersonatedRole || app.userRole;
+            if (!unitId && (activeRole === 'unit_manager' || activeRole === 'unit_scheduler')) {
+                alert('請選擇單位');
+                return;
+            }
+            
             let scheduleQuery = db.collection('schedules');
             
             if (unitId) {
                 scheduleQuery = scheduleQuery.where('unitId', '==', unitId);
+            } else if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
+                // ✅ 如果是單位管理者但沒選單位，使用其單位ID
+                if (app.userUnitId) {
+                    scheduleQuery = scheduleQuery.where('unitId', '==', app.userUnitId);
+                }
             }
             
             // 根據查詢方式篩選
@@ -156,482 +197,232 @@ const systemStatisticsManager = {
         return statistics;
     },
     
-    // 聚合統計資料 (複製自 system_statistics_manager.js)
-    aggregateStatistics: async function(scheduleData, staffList, exchanges, year, month) {
-        try {
-            const vacancyStats = this.calculateVacancyRate(scheduleData, staffList, year, month);
-            const adjustmentStats = this.calculateAdjustmentRate(scheduleData, year, month);
-            const exchangeStats = this.calculateExchangeStats(exchanges);
-            
-            const originalScore = scheduleData.originalScore || 0;
-            const currentScore = scheduleData.currentScore || 0;
-            
-            const statistics = {
-                period: `${year}-${String(month).padStart(2, '0')}`,
-                generatedAt: new Date().toISOString(),
-                schedulingAttempts: scheduleData.schedulingAttempts || 1,
-                schedulingTime: scheduleData.schedulingTime || 0,
-                originalScore: originalScore,
-                currentScore: currentScore,
-                scoreImprovement: currentScore - originalScore,
-                vacancyStats: vacancyStats,
-                adjustmentStats: adjustmentStats,
-                exchangeStats: exchangeStats
-            };
-            
-            return statistics;
-        } catch (e) {
-            console.error('統計聚合失敗:', e);
-            throw e;
-        }
-    },
-    
-    // 計算缺班率
-    calculateVacancyRate: function(scheduleData, staffList, year, month) {
-        const daysInMonth = new Date(year, month, 0).getDate();
-        const shiftRequirements = scheduleData.shiftRequirements || {};
-        
-        const stats = {
-            overall: 0,
-            totalVacancies: 0,
-            totalRequired: 0,
-            byShift: {}
-        };
-        
-        Object.keys(shiftRequirements).forEach(shiftCode => {
-            const dailyRequired = shiftRequirements[shiftCode] || 0;
-            const totalRequired = dailyRequired * daysInMonth;
-            
-            let actualCount = 0;
-            const assignments = scheduleData.assignments || {};
-            
-            for (let d = 1; d <= daysInMonth; d++) {
-                const key = `current_${d}`;
-                staffList.forEach(staff => {
-                    const staffAssign = assignments[staff.uid] || {};
-                    if (staffAssign[key] === shiftCode) {
-                        actualCount++;
-                    }
-                });
-            }
-            
-            const vacancies = Math.max(0, totalRequired - actualCount);
-            const vacancyRate = totalRequired > 0 ? (vacancies / totalRequired * 100) : 0;
-            
-            stats.byShift[shiftCode] = {
-                rate: Math.round(vacancyRate * 10) / 10,
-                vacancies: vacancies,
-                required: totalRequired
-            };
-            
-            stats.totalVacancies += vacancies;
-            stats.totalRequired += totalRequired;
-        });
-        
-        stats.overall = stats.totalRequired > 0 
-            ? Math.round((stats.totalVacancies / stats.totalRequired * 100) * 10) / 10 
-            : 0;
-        
-        return stats;
-    },
-    
-    // 計算修正率
-    calculateAdjustmentRate: function(scheduleData, year, month) {
-        const daysInMonth = new Date(year, month, 0).getDate();
-        const shiftRequirements = scheduleData.shiftRequirements || {};
-        
-        let totalRequired = 0;
-        Object.keys(shiftRequirements).forEach(shiftCode => {
-            const dailyRequired = shiftRequirements[shiftCode] || 0;
-            totalRequired += dailyRequired * daysInMonth;
-        });
-        
-        const stats = {
-            totalAdjustments: scheduleData.adjustmentCount || 0,
-            adjustmentRate: 0,
-            byReason: {
-                vacancy: { count: 0 },
-                scheduling: { count: 0 },
-                staffing: { count: 0 }
-            }
-        };
-        
-        stats.adjustmentRate = totalRequired > 0 
-            ? Math.round((stats.totalAdjustments / totalRequired * 100) * 10) / 10 
-            : 0;
-        
-        return stats;
-    },
-    
-    // 計算換班統計
-    calculateExchangeStats: function(exchanges) {
-        const stats = {
-            totalExchanges: 0,
-            byReason: {
-                'unit_staffing_adjustment': { count: 0, percentage: 0 },
-                'public_holiday': { count: 0, percentage: 0 },
-                'sick_leave': { count: 0, percentage: 0 },
-                'bereavement': { count: 0, percentage: 0 },
-                'support': { count: 0, percentage: 0 },
-                'personal_factors': { count: 0, percentage: 0 },
-                'other': { count: 0, percentage: 0 }
-            }
-        };
-        
-        const approvedExchanges = exchanges.filter(ex => ex.status === 'approved');
-        stats.totalExchanges = approvedExchanges.length;
-        
-        approvedExchanges.forEach(ex => {
-            const reason = ex.reasonCategory || 'other';
-            if (stats.byReason[reason]) {
-                stats.byReason[reason].count++;
-            }
-        });
-        
-        if (stats.totalExchanges > 0) {
-            Object.keys(stats.byReason).forEach(reason => {
-                stats.byReason[reason].percentage = 
-                    Math.round((stats.byReason[reason].count / stats.totalExchanges * 100) * 10) / 10;
-            });
-        }
-        
-        return stats;
-    },
-    
     // --- 6. 顯示統計資料 ---
     displayStatistics: function(statistics, report) {
-        // 更新卡片式統計
-        document.getElementById('schedulingAttempts').textContent = statistics.schedulingAttempts;
-        document.getElementById('schedulingTime').textContent = `${statistics.schedulingTime.toFixed(2)}秒`;
-        document.getElementById('originalScore').textContent = `${statistics.originalScore}分`;
-        document.getElementById('currentScore').textContent = `${statistics.currentScore}分`;
+        const container = document.getElementById('statisticsDisplay');
+        if (!container) return;
         
-        const improvement = statistics.scoreImprovement;
-        const improvementElement = document.getElementById('scoreImprovement');
-        improvementElement.textContent = improvement >= 0 ? `+${improvement}分` : `${improvement}分`;
-        improvementElement.style.color = improvement >= 0 ? '#27ae60' : '#e74c3c';
-        
-        document.getElementById('overallVacancyRate').textContent = `${statistics.vacancyStats.overall}%`;
-        document.getElementById('totalAdjustments').textContent = statistics.adjustmentStats.totalAdjustments;
-        document.getElementById('adjustmentRate').textContent = `${statistics.adjustmentStats.adjustmentRate}%`;
-        document.getElementById('totalExchanges').textContent = statistics.exchangeStats.totalExchanges;
-        
-        // 更新班別缺班率表格
-        this.displayVacancyByShift(statistics.vacancyStats.byShift);
-        
-        // 更新調整原因分布表格
-        this.displayAdjustmentReasons(statistics.adjustmentStats.byReason);
-        
-        // 更新換班原因分布表格
-        this.displayExchangeReasons(statistics.exchangeStats.byReason);
+        // 根據顯示模式渲染
+        if (this.currentDisplayMode === 'cards') {
+            this.renderCardsView(statistics, container);
+        } else {
+            this.renderTableView(statistics, container);
+        }
         
         // 顯示分析報告
         if (report) {
-            this.displayAnalysisReport(report);
+            this.displayReport(report);
         }
     },
     
-    // 顯示班別缺班率
-    displayVacancyByShift: function(byShift) {
-        const tbody = document.getElementById('vacancyByShiftBody');
-        tbody.innerHTML = '';
+    // --- 7. 卡片視圖 ---
+    renderCardsView: function(statistics, container) {
+        const formatted = systemStatisticsCalculator.formatStatisticsForDisplay(statistics);
+        if (!formatted) return;
         
-        Object.keys(byShift).forEach(shiftCode => {
-            const data = byShift[shiftCode];
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${shiftCode}</td>
-                <td>${data.rate}%</td>
-                <td>${data.vacancies}</td>
-                <td>${data.required}</td>
-            `;
-            tbody.appendChild(tr);
-        });
+        container.innerHTML = `
+            <div class="statistics-cards">
+                <!-- 基本資訊卡 -->
+                <div class="stat-card">
+                    <div class="stat-card-header">
+                        <i class="fas fa-calendar"></i>
+                        <h3>基本資訊</h3>
+                    </div>
+                    <div class="stat-card-body">
+                        <div class="stat-item">
+                            <span class="stat-label">統計期間</span>
+                            <span class="stat-value">${formatted.period}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">排班嘗試次數</span>
+                            <span class="stat-value">${formatted.schedulingAttempts}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">排班耗時</span>
+                            <span class="stat-value">${formatted.schedulingTime}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 評分卡 -->
+                <div class="stat-card">
+                    <div class="stat-card-header">
+                        <i class="fas fa-star"></i>
+                        <h3>班表評分</h3>
+                    </div>
+                    <div class="stat-card-body">
+                        <div class="stat-item">
+                            <span class="stat-label">原始分數</span>
+                            <span class="stat-value">${formatted.originalScore}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">當前分數</span>
+                            <span class="stat-value">${formatted.currentScore}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">分數改善</span>
+                            <span class="stat-value ${statistics.scoreImprovement >= 0 ? 'positive' : 'negative'}">
+                                ${formatted.scoreImprovement}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 缺班統計卡 -->
+                <div class="stat-card">
+                    <div class="stat-card-header">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <h3>缺班統計</h3>
+                    </div>
+                    <div class="stat-card-body">
+                        <div class="stat-item">
+                            <span class="stat-label">整體缺班率</span>
+                            <span class="stat-value ${statistics.vacancyStats.overall > 5 ? 'warning' : 'success'}">
+                                ${formatted.overallVacancyRate}
+                            </span>
+                        </div>
+                        <div class="stat-detail">
+                            <h4>各班別缺班率</h4>
+                            ${Object.keys(formatted.vacancyByShift).map(shift => `
+                                <div class="shift-vacancy">
+                                    <span>${shift}</span>
+                                    <span class="${formatted.vacancyByShift[shift].rate > 5 ? 'warning' : 'success'}">
+                                        ${formatted.vacancyByShift[shift].rate}%
+                                    </span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 調整統計卡 -->
+                <div class="stat-card">
+                    <div class="stat-card-header">
+                        <i class="fas fa-edit"></i>
+                        <h3>調整統計</h3>
+                    </div>
+                    <div class="stat-card-body">
+                        <div class="stat-item">
+                            <span class="stat-label">總調整次數</span>
+                            <span class="stat-value">${formatted.totalAdjustments}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">調整率</span>
+                            <span class="stat-value ${statistics.adjustmentStats.adjustmentRate > 10 ? 'warning' : 'info'}">
+                                ${formatted.adjustmentRate}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 換班統計卡 -->
+                <div class="stat-card">
+                    <div class="stat-card-header">
+                        <i class="fas fa-exchange-alt"></i>
+                        <h3>換班統計</h3>
+                    </div>
+                    <div class="stat-card-body">
+                        <div class="stat-item">
+                            <span class="stat-label">總換班次數</span>
+                            <span class="stat-value">${formatted.totalExchanges}</span>
+                        </div>
+                        <div class="stat-detail">
+                            <h4>換班原因分布</h4>
+                            ${Object.keys(formatted.exchangeByReason).map(reason => `
+                                <div class="reason-item">
+                                    <span>${this.getReasonLabel(reason)}</span>
+                                    <span>${formatted.exchangeByReason[reason].count} (${formatted.exchangeByReason[reason].percentage}%)</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
     },
     
-    // 顯示調整原因分布
-    displayAdjustmentReasons: function(byReason) {
-        const tbody = document.getElementById('adjustmentReasonBody');
-        tbody.innerHTML = '';
-        
-        const reasonMap = {
-            'vacancy': '缺額調整',
-            'scheduling': '排班不順調整',
-            'staffing': '人力調整'
-        };
-        
-        Object.keys(byReason).forEach(reason => {
-            const data = byReason[reason];
-            if (data.count > 0) {
-                const tr = document.createElement('tr');
-                const percentage = data.count > 0 ? ((data.count / (byReason.vacancy.count + byReason.scheduling.count + byReason.staffing.count)) * 100).toFixed(1) : 0;
-                tr.innerHTML = `
-                    <td>${reasonMap[reason]}</td>
-                    <td>${data.count}</td>
-                    <td>${percentage}%</td>
-                `;
-                tbody.appendChild(tr);
-            }
-        });
+    // --- 8. 表格視圖 ---
+    renderTableView: function(statistics, container) {
+        // 實現表格視圖
+        container.innerHTML = '<p>表格視圖開發中...</p>';
     },
     
-    // 顯示換班原因分布
-    displayExchangeReasons: function(byReason) {
-        const tbody = document.getElementById('exchangeReasonBody');
-        tbody.innerHTML = '';
+    // --- 9. 顯示分析報告 ---
+    displayReport: function(report) {
+        const reportContainer = document.getElementById('analysisReport');
+        if (!reportContainer) return;
         
-        const reasonMap = {
+        reportContainer.innerHTML = `
+            <div class="report-section">
+                <h3>${report.title}</h3>
+                <div class="report-summary">
+                    ${report.summary}
+                </div>
+                <div class="report-recommendations">
+                    <h4>建議事項</h4>
+                    <ul>
+                        ${report.recommendations.map(rec => `<li>${rec}</li>`).join('')}
+                    </ul>
+                </div>
+            </div>
+        `;
+    },
+    
+    // --- 10. 切換顯示模式 ---
+    toggleDisplayMode: function(mode) {
+        this.currentDisplayMode = mode;
+        
+        // 更新按鈕狀態
+        document.querySelectorAll('.display-mode-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        event.target.classList.add('active');
+        
+        // 重新渲染
+        if (this.currentStatistics) {
+            this.displayStatistics(this.currentStatistics, this.currentReport);
+        }
+    },
+    
+    // --- 11. 匯出報告 ---
+    exportReport: function(format) {
+        if (!this.currentStatistics) {
+            alert('請先載入統計資料');
+            return;
+        }
+        
+        if (format === 'pdf') {
+            this.exportToPDF();
+        } else if (format === 'excel') {
+            this.exportToExcel();
+        } else if (format === 'csv') {
+            this.exportToCSV();
+        }
+    },
+    
+    exportToPDF: function() {
+        alert('PDF 匯出功能開發中');
+    },
+    
+    exportToExcel: function() {
+        alert('Excel 匯出功能開發中');
+    },
+    
+    exportToCSV: function() {
+        alert('CSV 匯出功能開發中');
+    },
+    
+    // --- 12. 工具函數 ---
+    getReasonLabel: function(reason) {
+        const labels = {
             'unit_staffing_adjustment': '單位人力調整',
-            'public_holiday': '公假',
+            'public_holiday': '國定假日',
             'sick_leave': '病假',
             'bereavement': '喪假',
             'support': '支援',
             'personal_factors': '個人因素',
             'other': '其他'
         };
-        
-        Object.keys(byReason).forEach(reason => {
-            const data = byReason[reason];
-            if (data.count > 0) {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${reasonMap[reason]}</td>
-                    <td>${data.count}</td>
-                    <td>${data.percentage}%</td>
-                `;
-                tbody.appendChild(tr);
-            }
-        });
-    },
-    
-    // 顯示分析報告
-    displayAnalysisReport: function(report) {
-        const section = document.getElementById('analysisReportSection');
-        const insightsContainer = document.getElementById('insightsContainer');
-        const recommendationsContainer = document.getElementById('recommendationsContainer');
-        
-        insightsContainer.innerHTML = '<h4>分析洞察</h4>';
-        report.insights.forEach(insight => {
-            const div = document.createElement('div');
-            div.className = `insight-item ${insight.severity}`;
-            div.innerHTML = `<strong>${insight.message}</strong>`;
-            insightsContainer.appendChild(div);
-        });
-        
-        recommendationsContainer.innerHTML = '<h4>改進建議</h4>';
-        report.recommendations.forEach(rec => {
-            const div = document.createElement('div');
-            div.className = 'recommendation-item';
-            div.textContent = rec;
-            recommendationsContainer.appendChild(div);
-        });
-        
-        section.style.display = 'block';
-    },
-    
-    // --- 7. 切換呈現方式 ---
-    switchDisplayMode: function() {
-        const mode = document.getElementById('displayMode').value;
-        this.currentDisplayMode = mode;
-        
-        document.getElementById('cardsView').style.display = mode === 'cards' ? 'block' : 'none';
-        document.getElementById('tableView').style.display = mode === 'table' ? 'block' : 'none';
-        document.getElementById('chartView').style.display = mode === 'chart' ? 'block' : 'none';
-        
-        if (mode === 'table') {
-            this.displayTableView();
-        } else if (mode === 'chart') {
-            this.displayChartView();
-        }
-    },
-    
-    // 表格式詳細列表
-    displayTableView: function() {
-        const tbody = document.getElementById('statisticsTableBody');
-        tbody.innerHTML = '';
-        
-        if (!this.currentStatistics) return;
-        
-        const stats = this.currentStatistics;
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>${stats.period}</td>
-            <td>${stats.schedulingAttempts}</td>
-            <td>${stats.schedulingTime.toFixed(2)}秒</td>
-            <td>${stats.originalScore}分</td>
-            <td>${stats.currentScore}分</td>
-            <td>${stats.scoreImprovement >= 0 ? '+' : ''}${stats.scoreImprovement}分</td>
-            <td>${stats.vacancyStats.overall}%</td>
-            <td>${stats.adjustmentStats.adjustmentRate}%</td>
-            <td>${stats.exchangeStats.totalExchanges}</td>
-            <td><button class="btn btn-sm btn-info" onclick="systemStatisticsManager.viewDetails()">查看詳情</button></td>
-        `;
-        tbody.appendChild(tr);
-    },
-    
-    // 圖表呈現
-    displayChartView: function() {
-        if (!this.currentStatistics) return;
-        
-        // 使用 Recharts 繪製圖表
-        this.drawScoreChart();
-        this.drawVacancyChart();
-        this.drawAdjustmentChart();
-    },
-    
-    // 繪製班表評分趨勢圖
-    drawScoreChart: function() {
-        const stats = this.currentStatistics;
-        const chartContainer = document.getElementById('scoreChart');
-        
-        // 使用簡單的 SVG 繪製
-        const data = [
-            { name: '原始評分', value: stats.originalScore },
-            { name: '調整後評分', value: stats.currentScore }
-        ];
-        
-        const maxValue = Math.max(...data.map(d => d.value), 100);
-        const width = chartContainer.offsetWidth || 800;
-        const height = 400;
-        const barWidth = width / (data.length * 2);
-        const padding = 50;
-        
-        let svg = `<svg width="${width}" height="${height}" style="border: 1px solid #ddd;">`;
-        
-        // Y軸
-        svg += `<line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="#333" stroke-width="2"/>`;
-        // X軸
-        svg += `<line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#333" stroke-width="2"/>`;
-        
-        // 繪製柱子
-        data.forEach((d, i) => {
-            const x = padding + (i + 1) * barWidth;
-            const barHeight = (d.value / maxValue) * (height - 2 * padding);
-            const y = height - padding - barHeight;
-            
-            const color = i === 0 ? '#3498db' : '#27ae60';
-            svg += `<rect x="${x}" y="${y}" width="${barWidth * 0.8}" height="${barHeight}" fill="${color}" />`;
-            svg += `<text x="${x + barWidth * 0.4}" y="${height - padding + 25}" text-anchor="middle" font-size="14">${d.name}</text>`;
-            svg += `<text x="${x + barWidth * 0.4}" y="${y - 10}" text-anchor="middle" font-size="14" font-weight="bold">${d.value}</text>`;
-        });
-        
-        svg += '</svg>';
-        chartContainer.innerHTML = svg;
-    },
-    
-    // 繪製缺班率趨勢圖
-    drawVacancyChart: function() {
-        const stats = this.currentStatistics;
-        const chartContainer = document.getElementById('vacancyChart');
-        
-        const data = Object.keys(stats.vacancyStats.byShift).map(shift => ({
-            name: shift,
-            value: stats.vacancyStats.byShift[shift].rate
-        }));
-        
-        const maxValue = Math.max(...data.map(d => d.value), 10);
-        const width = chartContainer.offsetWidth || 800;
-        const height = 400;
-        const barWidth = width / (data.length * 2);
-        const padding = 50;
-        
-        let svg = `<svg width="${width}" height="${height}" style="border: 1px solid #ddd;">`;
-        
-        // Y軸
-        svg += `<line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="#333" stroke-width="2"/>`;
-        // X軸
-        svg += `<line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#333" stroke-width="2"/>`;
-        
-        // 繪製柱子
-        data.forEach((d, i) => {
-            const x = padding + (i + 1) * barWidth;
-            const barHeight = (d.value / maxValue) * (height - 2 * padding);
-            const y = height - padding - barHeight;
-            
-            const color = d.value > 10 ? '#e74c3c' : d.value > 5 ? '#f39c12' : '#27ae60';
-            svg += `<rect x="${x}" y="${y}" width="${barWidth * 0.8}" height="${barHeight}" fill="${color}" />`;
-            svg += `<text x="${x + barWidth * 0.4}" y="${height - padding + 25}" text-anchor="middle" font-size="14">${d.name}</text>`;
-            svg += `<text x="${x + barWidth * 0.4}" y="${y - 10}" text-anchor="middle" font-size="14" font-weight="bold">${d.value}%</text>`;
-        });
-        
-        svg += '</svg>';
-        chartContainer.innerHTML = svg;
-    },
-    
-    // 繪製修正率趨勢圖
-    drawAdjustmentChart: function() {
-        const stats = this.currentStatistics;
-        const chartContainer = document.getElementById('adjustmentChart');
-        
-        const data = [
-            { name: '修正率', value: stats.adjustmentStats.adjustmentRate }
-        ];
-        
-        const maxValue = 20;
-        const width = chartContainer.offsetWidth || 800;
-        const height = 400;
-        const barWidth = width / 4;
-        const padding = 50;
-        
-        let svg = `<svg width="${width}" height="${height}" style="border: 1px solid #ddd;">`;
-        
-        // Y軸
-        svg += `<line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="#333" stroke-width="2"/>`;
-        // X軸
-        svg += `<line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#333" stroke-width="2"/>`;
-        
-        // 繪製柱子
-        const x = padding + barWidth;
-        const barHeight = (data[0].value / maxValue) * (height - 2 * padding);
-        const y = height - padding - barHeight;
-        
-        const color = data[0].value > 15 ? '#e74c3c' : data[0].value > 10 ? '#f39c12' : '#27ae60';
-        svg += `<rect x="${x}" y="${y}" width="${barWidth * 0.8}" height="${barHeight}" fill="${color}" />`;
-        svg += `<text x="${x + barWidth * 0.4}" y="${height - padding + 25}" text-anchor="middle" font-size="14">${data[0].name}</text>`;
-        svg += `<text x="${x + barWidth * 0.4}" y="${y - 10}" text-anchor="middle" font-size="14" font-weight="bold">${data[0].value}%</text>`;
-        
-        svg += '</svg>';
-        chartContainer.innerHTML = svg;
-    },
-    
-    // 查看詳情
-    viewDetails: function() {
-        if (this.currentReport) {
-            this.displayAnalysisReport(this.currentReport);
-        }
+        return labels[reason] || reason;
     }
-};
-
-// 新增 CSV 導出功能
-systemStatisticsManager.exportToCSV = function() {
-    if (!this.currentStatistics) {
-        alert('沒有統計資料可以導出');
-        return;
-    }
-    
-    const stats = this.currentStatistics;
-    const lines = [
-        '統計項目,數值',
-        '統計時間,' + stats.period,
-        '排班次數,' + stats.schedulingAttempts,
-        '排班時間(秒),' + stats.schedulingTime.toFixed(2),
-        '原始評分,' + stats.originalScore,
-        '調整後評分,' + stats.currentScore,
-        '評分變化,' + stats.scoreImprovement,
-        '整體缺班率(%),' + stats.vacancyStats.overall,
-        '修正次數,' + stats.adjustmentStats.totalAdjustments,
-        '修正率(%),' + stats.adjustmentStats.adjustmentRate,
-        '換班次數,' + stats.exchangeStats.totalExchanges
-    ];
-    
-    const csv = lines.join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', '統計_' + stats.period + '.csv');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
 };
