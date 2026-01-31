@@ -962,6 +962,7 @@ class SchedulerV2 extends BaseScheduler {
 
     calculateScoreInfo(staff, dateStr, shiftCode) {
         let score = 0;
+        let details = []; // ✅ 修正：新增此行宣告，避免 ReferenceError
         const policy = this.rules.policy || {};
         const pressure = this.staffStats[staff.id]?.workPressure || 0;
         score += (this.staffStats[staff.id]?.initialRandom || 0) * 10;
