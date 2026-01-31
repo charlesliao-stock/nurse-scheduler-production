@@ -357,72 +357,89 @@ const preScheduleManager = {
         }
     },
 
-    // ✅ 渲染每日人力需求表格 - 使用正確的容器 ID
+    // ✅ 渲染每日人力需求表格 - 週循環（橫軸：週一~日，縱軸：班別）
     renderDailyNeedsUI: function(savedData) {
         const container = document.getElementById('dailyNeedsTable');
         if(!container) {
             console.error('dailyNeedsTable container not found');
             return;
         }
-        
-        const ymInput = document.getElementById('inputPreYearMonth')?.value;
-        if (!ymInput) {
-            container.innerHTML = '<p style="color:#999;">請先選擇預班月份</p>';
+
+        // 防呆檢查
+        if (!this.activeShifts || this.activeShifts.length === 0) {
+            container.innerHTML = `<div style="color:red; padding:10px; background:#fff3cd;">⚠️ 未偵測到班別資料。請先至「班別管理」新增班別。</div>`;
             return;
         }
-        
-        const [year, month] = ymInput.split('-').map(Number);
-        const daysInMonth = new Date(year, month, 0).getDate();
+
+        const weekdays = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
+        const weekdayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
         let html = `
             <div class="section-title" style="margin-bottom:15px; border-bottom:2px solid #3498db; padding-bottom:5px;">
-                每日人力需求設定
+                1. 各班每日人力需求 (週循環) 
+                <small style="color:#666; font-weight:normal;">(依星期幾設定基本需求)</small>
             </div>
-            <div style="overflow-x:auto; max-height:400px; border:1px solid #ddd;">
-                <table class="table table-sm">
-                    <thead class="sticky-th">
+            <div style="overflow-x:auto; border:1px solid #ddd; border-radius:4px;">
+                <table class="table table-bordered table-sm text-center">
+                    <thead style="background:#f8f9fa;">
                         <tr>
-                            <th style="width:60px;">日期</th>`;
+                            <th style="position:sticky; left:0; background:#f8f9fa; z-index:2; min-width:120px;">班別 \\ 星期</th>`;
         
-        this.activeShifts.forEach(s => {
-            html += `<th style="background:${s.color||'#eee'}; color:#fff;">${s.code}</th>`;
+        weekdays.forEach((day, idx) => {
+            const isWeekend = idx >= 5;
+            const bgColor = isWeekend ? '#fff3e0' : '#f8f9fa';
+            html += `<th style="background:${bgColor}; min-width:70px;">${day}</th>`;
         });
         html += `</tr></thead><tbody>`;
 
-        for(let d=1; d<=daysInMonth; d++) {
-            html += `<tr><td style="font-weight:bold;">${d}</td>`;
-            this.activeShifts.forEach(s => {
-                let val = '';
-                if (savedData[d] && savedData[d][s.code] !== undefined) {
-                    const rawVal = savedData[d][s.code];
-                    val = (typeof rawVal === 'number' || !isNaN(rawVal)) ? rawVal : '';
-                }
-                html += `<td><input type="number" min="0" class="limit-input" style="width:60px;" data-day="${d}" data-shift="${s.code}" value="${val}" placeholder="0"></td>`;
+        this.activeShifts.forEach(shift => {
+            html += `<tr>
+                <td style="font-weight:bold; position:sticky; left:0; background:#fff; z-index:1; text-align:left;">
+                    <span style="display:inline-block; width:8px; height:8px; background:${shift.color||'#95a5a6'}; border-radius:50%; margin-right:5px;"></span>
+                    ${shift.name} (${shift.code})
+                </td>`;
+            
+            weekdayKeys.forEach((key, idx) => {
+                const isWeekend = idx >= 5;
+                const bgColor = isWeekend ? '#fffbf0' : '#fff';
+                const dataKey = `${shift.code}_${idx}`;  // 保持與原格式相容：D_0, D_1...
+                const val = (savedData && savedData[dataKey] !== undefined) ? savedData[dataKey] : '';
+                
+                html += `<td style="background:${bgColor};">
+                    <input type="number" min="0" max="99" class="limit-input needs-input" 
+                           data-key="${dataKey}" 
+                           value="${val}" 
+                           placeholder="0"
+                           style="width:100%; text-align:center; border:1px solid #ddd; padding:4px;">
+                </td>`;
             });
             html += `</tr>`;
-        }
-        html += `</tbody></table></div>`;
+        });
+        
+        html += `</tbody></table></div>
+            <div style="margin-top:10px; padding:10px; background:#e3f2fd; border-radius:4px; font-size:0.9em;">
+                <i class="fas fa-info-circle"></i> 
+                <strong>說明：</strong>設定每個星期幾各班別的基本人力需求。系統會依據實際日期的星期幾來套用這些需求值。
+            </div>`;
         
         container.innerHTML = html;
     },
 
     getDailyNeedsFromDOM: function() {
         const result = {};
-        document.querySelectorAll('#dailyNeedsTable input').forEach(input => {
-            const day = parseInt(input.dataset.day);
-            const shift = input.dataset.shift;
+        document.querySelectorAll('#dailyNeedsTable .needs-input').forEach(input => {
+            const key = input.dataset.key;  // 格式：D_0, D_1, E_0, E_1 等
             const val = parseInt(input.value);
             
-            // 只儲存有效的正數
-            if (!isNaN(val) && val > 0) {
-                if(!result[day]) result[day] = {};
-                result[day][shift] = val;
+            // 只儲存有效的數值
+            if (!isNaN(val) && val >= 0) {
+                result[key] = val;
             }
         });
         return result;
     },
 
-    // ✅ 渲染特定日期需求 UI
+    // ✅ 渲染特定日期需求 UI（臨時人力設定）
     renderSpecificNeedsUI: function(savedData) {
         this.tempSpecificNeeds = JSON.parse(JSON.stringify(savedData || {}));
         
@@ -434,23 +451,39 @@ const preScheduleManager = {
 
         let html = `
             <div class="section-title" style="margin-top:30px; margin-bottom:15px; border-bottom:2px solid #e74c3c; padding-bottom:5px;">
-                特定日期需求加成
+                2. 臨時人力設定 <small style="color:#666; font-weight:normal;">(指定日期覆蓋)</small>
             </div>
-            <div style="background:#f9f9f9; padding:15px; border-radius:4px; margin-bottom:15px;">
-                <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
-                    <input type="number" id="inputSpecificDay" placeholder="日期" min="1" max="31" class="form-control" style="width:80px;">
-                    <select id="inputSpecificShift" class="form-control" style="width:100px;">
+            
+            <div style="background:#f9f9f9; padding:15px; border-radius:4px; margin-bottom:15px; border:1px solid #ddd;">
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <input type="date" id="inputTempDate" class="form-control" style="width:150px;">
+                    <select id="inputTempShift" class="form-control" style="width:140px;">
                         <option value="">選擇班別</option>`;
         
         this.activeShifts.forEach(s => {
-            html += `<option value="${s.code}">${s.code}</option>`;
+            html += `<option value="${s.code}">${s.name} (${s.code})</option>`;
         });
         
         html += `</select>
-                    <input type="number" id="inputSpecificNeed" placeholder="需求人數" min="1" class="form-control" style="width:100px;">
-                    <button class="btn btn-add" onclick="preScheduleManager.addSpecificNeed()">新增</button>
+                    <input type="number" id="inputTempCount" class="form-control" placeholder="人數" min="0" max="99" style="width:80px;">
+                    <button class="btn btn-add" type="button" onclick="preScheduleManager.addSpecificNeed()">
+                        <i class="fas fa-plus"></i> 新增
+                    </button>
                 </div>
-                <div id="specificNeedsList"></div>
+            </div>
+
+            <div style="max-height:200px; overflow-y:auto; border:1px solid #ddd; border-radius:4px;">
+                <table class="table table-sm text-center" style="margin:0;">
+                    <thead style="position:sticky; top:0; background:#f8f9fa;">
+                        <tr>
+                            <th style="width:35%">日期</th>
+                            <th style="width:30%">班別</th>
+                            <th style="width:20%">需求人數</th>
+                            <th style="width:15%">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="specificNeedsBody"></tbody>
+                </table>
             </div>`;
         
         container.innerHTML = html;
@@ -458,55 +491,75 @@ const preScheduleManager = {
     },
 
     refreshSpecificNeedsList: function() {
-        const list = document.getElementById('specificNeedsList');
-        if(!list) return;
-        list.innerHTML = '';
+        const tbody = document.getElementById('specificNeedsBody');
+        if(!tbody) return;
+        
+        const rows = [];
+        Object.keys(this.tempSpecificNeeds).sort().forEach(dateStr => {
+            Object.keys(this.tempSpecificNeeds[dateStr]).forEach(shift => {
+                rows.push({ 
+                    date: dateStr, 
+                    shift: shift, 
+                    count: this.tempSpecificNeeds[dateStr][shift] 
+                });
+            });
+        });
 
-        const keys = Object.keys(this.tempSpecificNeeds);
-        if(keys.length === 0) {
-            list.innerHTML = '<div style="color:#999; padding:10px;">尚無特定日期需求</div>';
+        if(rows.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="color:#999; padding:15px;">尚無設定 (將採用週間規則)</td></tr>';
             return;
         }
 
-        keys.forEach(day => {
-            const dayData = this.tempSpecificNeeds[day];
-            const div = document.createElement('div');
-            div.style.cssText = 'border:1px solid #ddd; padding:10px; margin-bottom:8px; border-radius:4px; background:#fff;';
+        tbody.innerHTML = '';
+        rows.forEach(r => {
+            const shiftInfo = this.activeShifts.find(s => s.code === r.shift);
+            const shiftColor = shiftInfo ? shiftInfo.color : '#3498db';
             
-            let shiftStr = '';
-            for(let shift in dayData) {
-                if(dayData[shift] > 0) shiftStr += `${shift}:${dayData[shift]}人 `;
-            }
-
-            div.innerHTML = `
-                <strong style="color:#2980b9;">${day} 日</strong> → ${shiftStr}
-                <button class="btn btn-sm btn-delete" onclick="preScheduleManager.removeSpecificNeed('${day}')" style="float:right;">刪除</button>
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${r.date}</td>
+                <td><span class="badge" style="background:${shiftColor}; color:#fff; padding:4px 10px;">${r.shift}</span></td>
+                <td style="font-weight:bold; color:#e74c3c; font-size:1.1em;">${r.count} 人</td>
+                <td>
+                    <button class="btn btn-delete btn-sm" style="padding:4px 8px;" 
+                            onclick="preScheduleManager.removeSpecificNeed('${r.date}', '${r.shift}')"
+                            title="刪除此設定">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
             `;
-            list.appendChild(div);
+            tbody.appendChild(tr);
         });
     },
 
     addSpecificNeed: function() {
-        const day = parseInt(document.getElementById('inputSpecificDay').value);
-        const shift = document.getElementById('inputSpecificShift').value;
-        const need = parseInt(document.getElementById('inputSpecificNeed').value);
-
-        if(!day || !shift || !need) {
-            alert("請填寫完整");
-            return;
+        const date = document.getElementById('inputTempDate').value;
+        const shift = document.getElementById('inputTempShift').value;
+        const count = document.getElementById('inputTempCount').value;
+        
+        if(!date || !shift || !count) { 
+            alert("請填寫完整資訊"); 
+            return; 
         }
-
-        if(!this.tempSpecificNeeds[day]) this.tempSpecificNeeds[day] = {};
-        this.tempSpecificNeeds[day][shift] = need;
-
+        
+        if(!this.tempSpecificNeeds[date]) this.tempSpecificNeeds[date] = {};
+        this.tempSpecificNeeds[date][shift] = parseInt(count);
+        
         this.refreshSpecificNeedsList();
         
-        document.getElementById('inputSpecificDay').value = '';
-        document.getElementById('inputSpecificNeed').value = '';
+        // 清空輸入
+        document.getElementById('inputTempDate').value = '';
+        document.getElementById('inputTempShift').selectedIndex = 0;
+        document.getElementById('inputTempCount').value = '';
     },
 
-    removeSpecificNeed: function(day) {
-        delete this.tempSpecificNeeds[day];
+    removeSpecificNeed: function(date, shift) {
+        if(this.tempSpecificNeeds[date]) {
+            delete this.tempSpecificNeeds[date][shift];
+            if(Object.keys(this.tempSpecificNeeds[date]).length === 0) {
+                delete this.tempSpecificNeeds[date];
+            }
+        }
         this.refreshSpecificNeedsList();
     },
 
