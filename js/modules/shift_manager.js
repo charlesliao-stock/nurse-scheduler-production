@@ -46,7 +46,8 @@ const shiftManager = {
             let query = db.collection('units');
             
             // ✅ 權限過濾
-            if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
+            const activeRole = app.impersonatedRole || app.userRole;
+            if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                 if(app.userUnitId) {
                     query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
                 }
@@ -69,7 +70,7 @@ const shiftManager = {
                 modalSelect.disabled = true;
                 
                 // 單位護理長不需要看到篩選器
-                if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
+                if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                     filterSelect.disabled = true;
                     filterSelect.style.backgroundColor = '#f5f5f5';
                 }
@@ -93,7 +94,17 @@ const shiftManager = {
         this.isLoading = true;
 
         try {
-            const snapshot = await db.collection('shifts').get();
+            // ✅ 加入權限過濾
+            let query = db.collection('shifts');
+            const activeRole = app.impersonatedRole || app.userRole;
+            
+            if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
+                if(app.userUnitId) {
+                    query = query.where('unitId', '==', app.userUnitId);
+                }
+            }
+            
+            const snapshot = await query.get();
             this.allShifts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             this.renderTable();
         } catch (e) {
@@ -163,8 +174,10 @@ const shiftManager = {
         const modal = document.getElementById('shiftModal');
         const modalUnitSelect = document.getElementById('inputShiftUnit');
         const currentUnitId = document.getElementById('filterShiftUnit').value;
+        
+        const activeRole = app.impersonatedRole || app.userRole;
 
-        if (!currentUnitId && !shiftId && app.userRole !== 'system_admin') {
+        if (!currentUnitId && !shiftId && activeRole !== 'system_admin') {
             alert("請先在上方選擇一個單位！"); 
             return;
         }
@@ -187,7 +200,7 @@ const shiftManager = {
             modalUnitSelect.disabled = true;
         } else {
             if (currentUnitId) modalUnitSelect.value = currentUnitId;
-            modalUnitSelect.disabled = (app.userRole !== 'system_admin');
+            modalUnitSelect.disabled = (activeRole !== 'system_admin');
             document.getElementById('inputShiftCode').value = '';
             document.getElementById('inputShiftName').value = '';
             document.getElementById('inputStartTime').value = '08:00';
@@ -228,6 +241,15 @@ const shiftManager = {
             alert("請填寫完整資訊"); 
             return; 
         }
+        
+        // ✅ 權限檢查：確保只能操作自己單位的資料
+        const activeRole = app.impersonatedRole || app.userRole;
+        if ((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && app.userUnitId) {
+            if (unitId !== app.userUnitId) {
+                alert("您只能管理自己單位的班別！");
+                return;
+            }
+        }
 
         if (!docId) {
             const dup = this.allShifts.find(s => s.unitId === unitId && s.code.toLowerCase() === code.toLowerCase());
@@ -267,6 +289,18 @@ const shiftManager = {
     },
 
     deleteShift: async function(id) {
+        // ✅ 權限檢查：確保只能刪除自己單位的班別
+        const shift = this.allShifts.find(s => s.id === id);
+        if (!shift) return;
+        
+        const activeRole = app.impersonatedRole || app.userRole;
+        if ((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && app.userUnitId) {
+            if (shift.unitId !== app.userUnitId) {
+                alert("您只能刪除自己單位的班別！");
+                return;
+            }
+        }
+        
         if(confirm("確定刪除？")) {
             await db.collection('shifts').doc(id).delete();
             this.fetchData();
