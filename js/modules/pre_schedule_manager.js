@@ -357,11 +357,11 @@ const preScheduleManager = {
         if(!tbody) return;
         tbody.innerHTML = '';
         
-        const daysInMonth = new Date(
-            parseInt(document.getElementById('inputPreYear').value || new Date().getFullYear()),
-            parseInt(document.getElementById('inputPreMonth').value || (new Date().getMonth() + 1)),
-            0
-        ).getDate();
+        const ymInput = document.getElementById('inputPreYearMonth')?.value;
+        if (!ymInput) return;
+        
+        const [year, month] = ymInput.split('-').map(Number);
+        const daysInMonth = new Date(year, month, 0).getDate();
 
         for(let d=1; d<=daysInMonth; d++) {
             const tr = document.createElement('tr');
@@ -687,6 +687,83 @@ const preScheduleManager = {
         // 保留此函數作為向後相容
         return this.searchStaff();
     },
+
+    addSupportStaff: function(uid, name, empId, level, isCrossUnit) {
+        // 檢查是否已加入
+        if (this.staffListSnapshot.some(s => s.uid === uid)) {
+            alert("此人員已在名單中");
+            return;
+        }
+
+        // 加入人員
+        this.staffListSnapshot.push({
+            uid: uid,
+            name: name,
+            empId: empId,
+            level: level,
+            group: '',
+            isSupport: isCrossUnit
+        });
+
+        this.renderStaffList();
+        this.closeSearchModal();
+        
+        alert(`✅ 已加入 ${name}${isCrossUnit ? ' (跨單位支援)' : ''}`);
+    },
+
+    toggleThreeShiftOption: function() {
+        const mode = document.getElementById('inputShiftMode')?.value;
+        const container = document.getElementById('allowThreeShiftContainer');
+        
+        if (container) {
+            container.style.display = (mode === "2") ? 'block' : 'none';
+        }
+    },
+
+    importLastMonthSettings: async function() {
+        if (!this.currentUnitId) {
+            alert("請先選擇單位");
+            return;
+        }
+
+        try {
+            // 查詢上個月的預班表
+            const snapshot = await db.collection('pre_schedules')
+                .where('unitId', '==', this.currentUnitId)
+                .orderBy('year', 'desc')
+                .orderBy('month', 'desc')
+                .limit(1)
+                .get();
+
+            if (snapshot.empty) {
+                alert("找不到上個月的預班表");
+                return;
+            }
+
+            const lastDoc = snapshot.docs[0];
+            const lastData = lastDoc.data();
+
+            // 輔助函數
+            const setInputValue = (id, value) => {
+                const el = document.getElementById(id);
+                if (el) el.value = value;
+            };
+            
+            const setCheckboxValue = (id, value) => {
+                const el = document.getElementById(id);
+                if (el) el.checked = value;
+            };
+
+            // 帶入基本設定
+            const s = lastData.settings || {};
+            setInputValue('inputMaxOff', s.maxOffDays);
+            setInputValue('inputMaxHoliday', s.maxHolidayOffs);
+            setInputValue('inputDailyReserve', s.dailyReserved);
+            setCheckboxValue('checkShowAllNames', s.showAllNames);
+            setInputValue('inputShiftMode', s.shiftTypeMode);
+            
+            this.toggleThreeShiftOption();
+            if (s.shiftTypeMode === "2") {
                 setCheckboxValue('checkAllowThree', s.allowThreeShifts);
             }
 
@@ -708,6 +785,26 @@ const preScheduleManager = {
             console.error("Import Last Settings Error:", e);
             alert("帶入設定失敗: " + e.message);
         }
+    },
+
+    deleteSchedule: async function(docId) {
+        if (!confirm("確定要刪除此預班表？此動作無法復原！")) {
+            return;
+        }
+
+        try {
+            await db.collection('pre_schedules').doc(docId).delete();
+            alert("✅ 已刪除預班表");
+            await this.loadData();
+        } catch(e) {
+            console.error("刪除失敗:", e);
+            alert("刪除失敗: " + e.message);
+        }
+    },
+
+    manage: function(docId) {
+        // 導向預班管理介面
+        window.location.href = `/admin/pre_schedules/manage.html?id=${docId}`;
     }
 };
 
