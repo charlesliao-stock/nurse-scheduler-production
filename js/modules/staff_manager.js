@@ -183,6 +183,8 @@ const staffManager = {
             
             // 操作按鈕
             let actionButtons = '';
+            const currentRole = app.impersonatedRole || app.userRole;
+            const isSystemAdmin = (currentRole === 'system_admin');
             
             if (!u.isActive) {
                 // 已停用：顯示啟用按鈕 + 重設密碼按鈕
@@ -191,12 +193,23 @@ const staffManager = {
                             onclick="staffManager.activateUser('${u.id}')" title="啟用">
                         <i class="fas fa-check-circle"></i> 啟用
                     </button>
-                    <button class="btn" style="background:#3498db;color:white;padding:5px 10px;" 
+                    <button class="btn" style="background:#3498db;color:white;padding:5px 10px;margin-right:5px;" 
                             onclick="staffManager.resetPassword('${u.id}')" 
                             title="重設密碼">
                         <i class="fas fa-key"></i>
                     </button>
                 `;
+                
+                // 系統管理者可以刪除已停用的帳號
+                if (isSystemAdmin) {
+                    actionButtons += `
+                        <button class="btn" style="background:#dc3545;color:white;padding:5px 10px;" 
+                                onclick="staffManager.deleteUser('${u.id}', '${(u.displayName || '').replace(/'/g, "\\'")}', '${u.employeeId}')" 
+                                title="永久刪除">
+                            <i class="fas fa-trash-alt"></i> 刪除
+                        </button>
+                    `;
+                }
             } else {
                 // 啟用中：編輯 + 重設密碼 + 停用按鈕
                 let deactivateBtn = u.role === 'system_admin' 
@@ -891,5 +904,55 @@ const staffManager = {
     closeTroubleshootModal: function() {
         const modal = document.getElementById('troubleshootModal');
         if(modal) modal.classList.remove('show');
+    },
+
+    // --- 刪除用戶（僅系統管理者） ---
+    deleteUser: async function(userId, displayName, employeeId) {
+        const currentRole = app.impersonatedRole || app.userRole;
+        
+        // 權限檢查：僅系統管理者可以刪除
+        if (currentRole !== 'system_admin') {
+            alert('❌ 權限不足\n\n只有系統管理者可以刪除帳號。\n單位管理者僅能停用帳號。');
+            return;
+        }
+        
+        // 第一次確認
+        const confirm1 = confirm(
+            `⚠️ 永久刪除帳號\n\n` +
+            `姓名：${displayName}\n` +
+            `員工編號：${employeeId}\n\n` +
+            `⚠️ 警告：\n` +
+            `• 此操作將永久刪除帳號資料\n` +
+            `• 刪除後無法復原\n` +
+            `• 建議僅刪除已停用的帳號\n\n` +
+            `確定要刪除嗎？`
+        );
+        
+        if (!confirm1) return;
+        
+        // 第二次確認
+        const confirm2 = confirm(
+            `⚠️ 最後確認\n\n` +
+            `即將永久刪除：${displayName} (${employeeId})\n\n` +
+            `此操作無法復原！\n\n` +
+            `確定要繼續嗎？`
+        );
+        
+        if (!confirm2) return;
+        
+        try {
+            await db.collection('users').doc(userId).delete();
+            
+            alert(
+                `✅ 刪除成功\n\n` +
+                `已永久刪除帳號：${displayName} (${employeeId})`
+            );
+            
+            await this.fetchData();
+            
+        } catch (error) {
+            console.error('刪除失敗:', error);
+            alert(`❌ 刪除失敗：${error.message}`);
+        }
     }
 };
