@@ -8,10 +8,19 @@ const shiftManager = {
 
     init: async function() {
         console.log("Shift Manager Loaded.");
+        
+        // ✅ 權限檢查
         if (app.userRole === 'user') {
-            document.getElementById('content-area').innerHTML = '<div class="empty-state"><h3>權限不足</h3></div>';
+            document.getElementById('content-area').innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-lock"></i>
+                    <h3>權限不足</h3>
+                    <p>一般使用者無法管理班別設定</p>
+                </div>
+            `;
             return;
         }
+        
         const colorInput = document.getElementById('inputShiftColor');
         if(colorInput) {
             colorInput.onchange = (e) => {
@@ -19,6 +28,7 @@ const shiftManager = {
                 if(hexCode) hexCode.textContent = e.target.value;
             };
         }
+        
         await this.loadUnits();
         await this.fetchData();
     },
@@ -34,10 +44,16 @@ const shiftManager = {
 
         try {
             let query = db.collection('units');
+            
+            // ✅ 權限過濾
             if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
-                if(app.userUnitId) query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
+                if(app.userUnitId) {
+                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
+                }
             }
+            
             const snapshot = await query.get();
+            
             snapshot.forEach(doc => {
                 const u = doc.data();
                 this.unitList.push({ id: doc.id, name: u.name });
@@ -46,16 +62,28 @@ const shiftManager = {
                 modalSelect.innerHTML += option;
             });
 
+            // ✅ 如果只有一個單位，自動選取並限制
             if (this.unitList.length === 1) {
                 filterSelect.value = this.unitList[0].id;
                 modalSelect.value = this.unitList[0].id;
                 modalSelect.disabled = true;
+                
+                // 單位護理長不需要看到篩選器
+                if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
+                    filterSelect.disabled = true;
+                    filterSelect.style.backgroundColor = '#f5f5f5';
+                }
+                
                 this.renderTable();
             } else {
                 modalSelect.disabled = false;
             }
+            
             filterSelect.onchange = () => this.renderTable();
-        } catch (e) { console.error(e); }
+            
+        } catch (e) { 
+            console.error(e); 
+        }
     },
 
     fetchData: async function() {
@@ -71,12 +99,18 @@ const shiftManager = {
         } catch (e) {
             console.error(e);
             tbody.innerHTML = `<tr><td colspan="7" style="color:red;">載入失敗</td></tr>`;
-        } finally { this.isLoading = false; }
+        } finally { 
+            this.isLoading = false; 
+        }
     },
 
     sortData: function(field) {
-        if (this.sortState.field === field) this.sortState.order = this.sortState.order === 'asc' ? 'desc' : 'asc';
-        else { this.sortState.field = field; this.sortState.order = 'asc'; }
+        if (this.sortState.field === field) {
+            this.sortState.order = this.sortState.order === 'asc' ? 'desc' : 'asc';
+        } else { 
+            this.sortState.field = field; 
+            this.sortState.order = 'asc'; 
+        }
         this.renderTable();
     },
 
@@ -92,6 +126,7 @@ const shiftManager = {
         }
 
         let filtered = this.allShifts.filter(s => s.unitId === selectedUnitId);
+        
         if (filtered.length === 0) {
             tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:#999;">無班別資料<br><button class="btn btn-add" style="margin-top:10px;" onclick="shiftManager.openModal()">新增</button></td></tr>';
             return;
@@ -130,7 +165,8 @@ const shiftManager = {
         const currentUnitId = document.getElementById('filterShiftUnit').value;
 
         if (!currentUnitId && !shiftId && app.userRole !== 'system_admin') {
-            alert("請先在上方選擇一個單位！"); return;
+            alert("請先在上方選擇一個單位！"); 
+            return;
         }
 
         modal.classList.add('show');
@@ -147,7 +183,7 @@ const shiftManager = {
             document.getElementById('inputWorkHours').value = s.hours || 0;
             document.getElementById('inputShiftColor').value = s.color || '#3498db';
             document.getElementById('colorHexCode').textContent = s.color || '#3498db';
-            document.getElementById('checkIsBundle').checked = s.isBundleAvailable || false; // [新增]
+            document.getElementById('checkIsBundle').checked = s.isBundleAvailable || false;
             modalUnitSelect.disabled = true;
         } else {
             if (currentUnitId) modalUnitSelect.value = currentUnitId;
@@ -158,11 +194,13 @@ const shiftManager = {
             document.getElementById('inputEndTime').value = '16:00';
             document.getElementById('inputWorkHours').value = '8';
             document.getElementById('inputShiftColor').value = '#3498db';
-            document.getElementById('checkIsBundle').checked = false; // [新增]
+            document.getElementById('checkIsBundle').checked = false;
         }
     },
 
-    closeModal: function() { document.getElementById('shiftModal').classList.remove('show'); },
+    closeModal: function() { 
+        document.getElementById('shiftModal').classList.remove('show'); 
+    },
 
     autoCalcHours: function() {
         const start = document.getElementById('inputStartTime').value;
@@ -184,25 +222,37 @@ const shiftManager = {
         const end = document.getElementById('inputEndTime').value;
         const hours = document.getElementById('inputWorkHours').value;
         const color = document.getElementById('inputShiftColor').value;
-        const isBundle = document.getElementById('checkIsBundle').checked; // [新增]
+        const isBundle = document.getElementById('checkIsBundle').checked;
 
-        if (!unitId || !code || !name || !start || !end) { alert("請填寫完整資訊"); return; }
+        if (!unitId || !code || !name || !start || !end) { 
+            alert("請填寫完整資訊"); 
+            return; 
+        }
 
         if (!docId) {
             const dup = this.allShifts.find(s => s.unitId === unitId && s.code.toLowerCase() === code.toLowerCase());
-            if(dup) { alert("代號重複"); return; }
+            if(dup) { 
+                alert("代號重複"); 
+                return; 
+            }
         }
 
         const data = {
-            unitId, code: code.toUpperCase(), name, startTime: start, endTime: end,
-            hours: parseFloat(hours) || 0, color,
-            isBundleAvailable: isBundle, // [新增]
+            unitId, 
+            code: code.toUpperCase(), 
+            name, 
+            startTime: start, 
+            endTime: end,
+            hours: parseFloat(hours) || 0, 
+            color,
+            isBundleAvailable: isBundle,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
         try {
-            if (docId) await db.collection('shifts').doc(docId).update(data);
-            else {
+            if (docId) {
+                await db.collection('shifts').doc(docId).update(data);
+            } else {
                 data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
                 await db.collection('shifts').add(data);
             }
@@ -211,7 +261,9 @@ const shiftManager = {
             await this.fetchData();
             document.getElementById('filterShiftUnit').value = unitId;
             this.renderTable();
-        } catch (e) { alert("失敗: " + e.message); }
+        } catch (e) { 
+            alert("失敗: " + e.message); 
+        }
     },
 
     deleteShift: async function(id) {
