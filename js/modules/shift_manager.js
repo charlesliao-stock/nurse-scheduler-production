@@ -9,8 +9,10 @@ const shiftManager = {
     init: async function() {
         console.log("Shift Manager Loaded.");
         
-        // ✅ 權限檢查
-        if (app.userRole === 'user') {
+        // ✅ 權限檢查 - 使用當前有效角色
+        const activeRole = app.impersonatedRole || app.userRole;
+        
+        if (activeRole === 'user') {
             document.getElementById('content-area').innerHTML = `
                 <div class="empty-state">
                     <i class="fas fa-lock"></i>
@@ -45,11 +47,13 @@ const shiftManager = {
         try {
             let query = db.collection('units');
             
-            // ✅ 權限過濾
+            // ✅ 權限過濾 - 使用當前有效角色和單位
             const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+            
             if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
-                if(app.userUnitId) {
-                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
+                if(activeUnitId) {
+                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
                 }
             }
             
@@ -94,13 +98,14 @@ const shiftManager = {
         this.isLoading = true;
 
         try {
-            // ✅ 加入權限過濾
+            // ✅ 加入權限過濾 - 使用當前有效角色和單位
             let query = db.collection('shifts');
             const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
             
             if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
-                if(app.userUnitId) {
-                    query = query.where('unitId', '==', app.userUnitId);
+                if(activeUnitId) {
+                    query = query.where('unitId', '==', activeUnitId);
                 }
             }
             
@@ -175,6 +180,7 @@ const shiftManager = {
         const modalUnitSelect = document.getElementById('inputShiftUnit');
         const currentUnitId = document.getElementById('filterShiftUnit').value;
         
+        // ✅ 使用當前有效角色
         const activeRole = app.impersonatedRole || app.userRole;
 
         if (!currentUnitId && !shiftId && activeRole !== 'system_admin') {
@@ -242,10 +248,12 @@ const shiftManager = {
             return; 
         }
         
-        // ✅ 權限檢查：確保只能操作自己單位的資料
+        // ✅ 權限檢查：確保只能操作自己單位的資料 - 使用當前有效角色和單位
         const activeRole = app.impersonatedRole || app.userRole;
-        if ((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && app.userUnitId) {
-            if (unitId !== app.userUnitId) {
+        const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+        
+        if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
+            if (activeUnitId && unitId !== activeUnitId) {
                 alert("您只能管理自己單位的班別！");
                 return;
             }
@@ -289,13 +297,15 @@ const shiftManager = {
     },
 
     deleteShift: async function(id) {
-        // ✅ 權限檢查：確保只能刪除自己單位的班別
+        // ✅ 權限檢查：確保只能刪除自己單位的班別 - 使用當前有效角色和單位
         const shift = this.allShifts.find(s => s.id === id);
         if (!shift) return;
         
         const activeRole = app.impersonatedRole || app.userRole;
-        if ((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && app.userUnitId) {
-            if (shift.unitId !== app.userUnitId) {
+        const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+        
+        if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
+            if (activeUnitId && shift.unitId !== activeUnitId) {
                 alert("您只能刪除自己單位的班別！");
                 return;
             }
