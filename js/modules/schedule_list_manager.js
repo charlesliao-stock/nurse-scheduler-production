@@ -5,6 +5,17 @@ const scheduleListManager = {
     currentUnitId: null,
 
     init: async function() {
+        // ✅ 權限檢查
+        if (app.userRole === 'user') {
+            document.getElementById('content-area').innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-lock"></i>
+                    <h3>權限不足</h3>
+                    <p>一般使用者無法管理排班</p>
+                </div>
+            `;
+            return;
+        }
         await this.loadUnitDropdown();
     },
 
@@ -12,13 +23,20 @@ const scheduleListManager = {
         const select = document.getElementById('filterScheduleUnit');
         if(!select) return;
         select.innerHTML = '<option value="">載入中...</option>';
+        
         try {
             let query = db.collection('units');
+            
+            // ✅ 權限過濾：單位護理長只能看到自己的單位
             if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
-                if(app.userUnitId) query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
+                if(app.userUnitId) {
+                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
+                }
             }
+            
             const snapshot = await query.get();
             select.innerHTML = '<option value="">請選擇單位</option>';
+            
             snapshot.forEach(doc => {
                 const option = document.createElement('option');
                 option.value = doc.id;
@@ -26,14 +44,23 @@ const scheduleListManager = {
                 select.appendChild(option);
             });
             
-            // 如果只有一個單位，自動選取
+            // ✅ 如果只有一個單位，自動選取並隱藏選單
             if(snapshot.size === 1) { 
-                select.selectedIndex = 1; 
+                select.selectedIndex = 1;
+                // 單位護理長不需要看到選單
+                if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
+                    select.disabled = true;
+                    select.style.backgroundColor = '#f5f5f5';
+                }
                 this.loadData(); 
             }
             
             select.onchange = () => this.loadData();
-        } catch(e) { console.error(e); }
+            
+        } catch(e) { 
+            console.error(e);
+            select.innerHTML = '<option value="">載入失敗</option>';
+        }
     },
 
     loadData: async function() {
@@ -52,7 +79,6 @@ const scheduleListManager = {
             // 1. 讀取該單位的「已結束」預班表 (準備要排班的)
             const preSnaps = await db.collection('pre_schedules')
                 .where('unitId', '==', unitId)
-                // .where('status', '==', 'closed') // 暫時移除限制，方便測試
                 .orderBy('year', 'desc').orderBy('month', 'desc')
                 .get();
 
@@ -83,7 +109,6 @@ const scheduleListManager = {
                 let actionHtml = '';
                 
                 if (existingSch) {
-                    // 已有排班草稿或已發布
                     const isPub = existingSch.status === 'published';
                     statusHtml = isPub 
                         ? '<span class="badge badge-success">已發布</span>' 
@@ -94,11 +119,10 @@ const scheduleListManager = {
                             <i class="fas fa-edit"></i> 編輯排班
                         </button>
                         <button class="btn btn-sm btn-delete" onclick="scheduleListManager.deleteSchedule('${existingSch.id}')">
-                            <i class=\"fas fa-trash\"></i> 刪除
+                            <i class="fas fa-trash"></i> 刪除
                         </button>
                     `;
                 } else {
-                    // 尚未建立排班
                     statusHtml = '<span class="badge" style="background:#ccc;">未建立</span>';
                     actionHtml = `
                         <button class="btn btn-sm btn-add" onclick="scheduleListManager.createSchedule('${preId}')">
@@ -138,32 +162,30 @@ const scheduleListManager = {
             // 2. 讀取該單位「目前有效」的人員名單 (Source of Truth)
             const usersSnap = await db.collection('users')
                 .where('unitId', '==', preData.unitId)
-                .where('isActive', '==', true) // 只抓在職人員
+                .where('isActive', '==', true)
                 .get();
 
             const validUids = new Set();
-            const validStaffMap = {}; // 用於更新姓名職稱
+            const validStaffMap = {};
 
             usersSnap.forEach(doc => {
-                // 使用 doc.id (Auth UID) 作為唯一識別
                 validUids.add(doc.id);
                 validStaffMap[doc.id] = doc.data();
             });
 
             console.log(`🧹 開始清洗資料... 預班人數: ${preData.staffList.length}, 目前在職人數: ${validUids.size}`);
 
-            // 3. 清洗 StaffList (過濾掉不在 validUids 的人)
+            // 3. 清洗 StaffList
             const cleanStaffList = [];
             let ghostCount = 0;
 
             preData.staffList.forEach(staff => {
                 const uid = staff.uid.trim();
                 if (validUids.has(uid)) {
-                    // 更新人員資訊 (避免預班時的名字與現在不同)
                     const liveData = validStaffMap[uid];
                     cleanStaffList.push({
-                        ...staff, // 保留預班時的設定 (如 group)
-                        name: liveData.displayName || staff.name, // 更新為最新名字
+                        ...staff,
+                        name: liveData.displayName || staff.name,
                         level: liveData.level || staff.level
                     });
                 } else {
@@ -172,7 +194,7 @@ const scheduleListManager = {
                 }
             });
 
-            // 4. 清洗 Assignments (過濾掉無效 UID 的排班資料)
+            // 4. 清洗 Assignments
             const cleanAssignments = {};
             const initialAssignments = preData.assignments || {};
             
@@ -194,11 +216,8 @@ const scheduleListManager = {
                 month: preData.month,
                 sourceId: preId, 
                 status: 'draft',
-                
-                // 使用清洗後的資料
                 staffList: cleanStaffList,
                 assignments: cleanAssignments,
-                
                 dailyNeeds: preData.dailyNeeds || {},
                 settings: preData.settings || {},
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -207,8 +226,6 @@ const scheduleListManager = {
 
             const batch = db.batch();
             batch.set(db.collection('schedules').doc(), newSch);
-            
-            // 選擇性：建立後自動關閉預班 (防止再修改)
             batch.update(db.collection('pre_schedules').doc(preId), { status: 'closed' });
             
             await batch.commit();
