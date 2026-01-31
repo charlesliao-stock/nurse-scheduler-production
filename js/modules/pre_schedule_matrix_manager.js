@@ -1,32 +1,97 @@
 // js/modules/pre_schedule_matrix_manager.js
-// 🔧 完整版 v2：右鍵選單跟隨鼠標位置 + 語法錯誤修正
+// 🔧 完整版 v2：右鍵選單跟隨鼠標位置 + 語法錯誤修正 + 權限檢查
 
 const matrixManager = {
-    docId: null, data: null, shifts: [], localAssignments: {}, usersMap: {}, isLoading: false,
+    docId: null, 
+    data: null, 
+    shifts: [], 
+    localAssignments: {}, 
+    usersMap: {}, 
+    isLoading: false,
     historyCorrections: {},
+    lastMonthAssignments: {},
+    lastMonthDays: 31,
 
     init: async function(id) { 
-        if(!id) { alert("ID遺失"); return; }
+        if(!id) { 
+            alert("預班表 ID 遺失"); 
+            return; 
+        }
+        
+        // ✅ 權限檢查
+        if (app.userRole === 'user') {
+            document.getElementById('content-area').innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-lock"></i>
+                    <h3>權限不足</h3>
+                    <p>一般使用者無法編輯預班表</p>
+                </div>
+            `;
+            return;
+        }
+        
         this.docId = id; 
         this.isLoading = true;
+        
         try {
             this.showLoading();
-            await Promise.all([this.loadShifts(), this.loadUsers(), this.loadScheduleData()]);
+            
+            // 先載入預班資料以檢查單位權限
+            const preDoc = await db.collection('pre_schedules').doc(id).get();
+            if (!preDoc.exists) {
+                alert("找不到此預班表");
+                return;
+            }
+            
+            const preData = preDoc.data();
+            
+            // ✅ 檢查是否有權限編輯此單位的預班
+            if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
+                if (app.userUnitId !== preData.unitId) {
+                    document.getElementById('content-area').innerHTML = `
+                        <div class="empty-state">
+                            <i class="fas fa-lock"></i>
+                            <h3>權限不足</h3>
+                            <p>您無權編輯其他單位的預班表</p>
+                        </div>
+                    `;
+                    return;
+                }
+            }
+            
+            await Promise.all([
+                this.loadShifts(), 
+                this.loadUsers(), 
+                this.loadScheduleData()
+            ]);
+            
             this.restoreTableStructure(); 
             this.updateTitle();
             this.renderMatrix(); 
             this.updateStats(); 
             this.setupEvents();
-        } catch(e) { console.error(e); alert("載入失敗"); } 
-        finally { this.isLoading = false; }
+            
+        } catch(e) { 
+            console.error("❌ 載入失敗:", e); 
+            alert("載入失敗: " + e.message); 
+        } 
+        finally { 
+            this.isLoading = false; 
+        }
     },
 
-    showLoading: function() { document.getElementById('matrixBody').innerHTML = '<tr><td colspan="35">載入中...</td></tr>'; },
+    showLoading: function() { 
+        const tbody = document.getElementById('matrixBody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="35" style="text-align:center; padding:20px;">載入中...</td></tr>'; 
+        }
+    },
     
     updateTitle: function() {
         if (!this.data) return;
         const title = document.getElementById('matrixTitle');
         const status = document.getElementById('matrixStatus');
+        
         if (title) {
             title.textContent = `${this.data.year} 年 ${this.data.month} 月 預班管理`;
         }
@@ -43,20 +108,28 @@ const matrixManager = {
         const doc = await db.collection('pre_schedules').doc(this.docId).get();
         if(doc.exists) {
             const uid = doc.data().unitId;
-            const snap = await db.collection('shifts').where('unitId','==',uid).orderBy('startTime').get();
-            this.shifts = snap.docs.map(d=>d.data());
+            const snap = await db.collection('shifts')
+                .where('unitId','==',uid)
+                .orderBy('startTime')
+                .get();
+            this.shifts = snap.docs.map(d => d.data());
         }
     },
+    
     loadUsers: async function() { 
         const snap = await db.collection('users').get(); 
         snap.forEach(d => this.usersMap[d.id] = d.data()); 
     },
+    
     loadScheduleData: async function() {
         const doc = await db.collection('pre_schedules').doc(this.docId).get();
         this.data = doc.data();
         this.localAssignments = this.data.assignments || {};
         this.historyCorrections = this.data.historyCorrections || {}; 
-        if(!this.data.specificNeeds) this.data.specificNeeds = {};
+        
+        if(!this.data.specificNeeds) {
+            this.data.specificNeeds = {};
+        }
         
         await this.loadLastMonthSchedule();
     },
@@ -65,6 +138,7 @@ const matrixManager = {
         const { unitId, year, month } = this.data;
         let lastYear = year;
         let lastMonth = month - 1;
+        
         if (lastMonth === 0) {
             lastMonth = 12;
             lastYear--;
@@ -79,14 +153,14 @@ const matrixManager = {
             .get();
 
         this.lastMonthAssignments = {};
+        this.lastMonthDays = new Date(lastYear, lastMonth, 0).getDate();
+        
         if (!snap.empty) {
             const lastData = snap.docs[0].data();
             this.lastMonthAssignments = lastData.assignments || {};
-            this.lastMonthDays = new Date(lastYear, lastMonth, 0).getDate();
             console.log(`✅ 已載入上個月 (${lastYear}-${lastMonth}) 已發布班表`);
         } else {
-            console.warn(`⚠️ 找不到上個月 (${lastYear}-${lastMonth}) 的已發布班表，將留白供手動輸入。`);
-            this.lastMonthDays = new Date(lastYear, lastMonth, 0).getDate();
+            console.warn(`⚠️ 找不到上個月 (${lastYear}-${lastMonth}) 的已發布班表`);
         }
     },
 
@@ -94,18 +168,13 @@ const matrixManager = {
         const thead = document.getElementById('matrixHead');
         const tbody = document.getElementById('matrixBody');
         const tfoot = document.getElementById('matrixFoot');
-        thead.innerHTML = ''; tbody.innerHTML = ''; tfoot.innerHTML = '';
+        
+        if (thead) thead.innerHTML = '';
+        if (tbody) tbody.innerHTML = '';
+        if (tfoot) tfoot.innerHTML = '';
     },
 
-    renderMatrix: function() {
-        const thead = document.getElementById('matrixHead');
-        const tbody = document.getElementById('matrixBody');
-        const tfoot = document.getElementById('matrixFoot');
-        if(!thead || !tbody) return;
-        
-        const year = this.data.year;
-        const month = this.data.month;
-        const daysInMonth = new Date(year, month, 0).getDate();
+
         
         let h1 = `<tr>
             <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa;">職編</th>
