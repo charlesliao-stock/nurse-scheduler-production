@@ -245,6 +245,13 @@ const preScheduleManager = {
         }
 
         this.fillForm(data);
+        
+        console.log("📊 Opening modal with data:", {
+            dailyNeeds: data.dailyNeeds,
+            specificNeeds: data.specificNeeds,
+            groupLimits: data.groupLimits
+        });
+        
         this.renderDailyNeedsUI(data.dailyNeeds || {});
         this.renderSpecificNeedsUI(data.specificNeeds || {}); 
         this.renderGroupLimitsUI(data.groupLimits || {});
@@ -385,7 +392,11 @@ const preScheduleManager = {
         for(let d=1; d<=daysInMonth; d++) {
             html += `<tr><td style="font-weight:bold;">${d}</td>`;
             this.activeShifts.forEach(s => {
-                const val = savedData[d] ? (savedData[d][s.code] || '') : '';
+                let val = '';
+                if (savedData[d] && savedData[d][s.code] !== undefined) {
+                    const rawVal = savedData[d][s.code];
+                    val = (typeof rawVal === 'number' || !isNaN(rawVal)) ? rawVal : '';
+                }
                 html += `<td><input type="number" min="0" class="limit-input" style="width:60px;" data-day="${d}" data-shift="${s.code}" value="${val}" placeholder="0"></td>`;
             });
             html += `</tr>`;
@@ -400,10 +411,13 @@ const preScheduleManager = {
         document.querySelectorAll('#dailyNeedsTable input').forEach(input => {
             const day = parseInt(input.dataset.day);
             const shift = input.dataset.shift;
-            const val = parseInt(input.value) || 0;
+            const val = parseInt(input.value);
             
-            if(!result[day]) result[day] = {};
-            result[day][shift] = val;
+            // 只儲存有效的正數
+            if (!isNaN(val) && val > 0) {
+                if(!result[day]) result[day] = {};
+                result[day][shift] = val;
+            }
         });
         return result;
     },
@@ -531,7 +545,12 @@ const preScheduleManager = {
         this.currentUnitGroups.forEach(g => {
             html += `<tr><td style="font-weight:bold;">${g}</td>`;
             this.activeShifts.forEach(s => {
-                const val = savedData[g] ? (savedData[g][s.code] || '') : '';
+                let val = '';
+                if (savedData[g] && savedData[g][s.code] !== undefined) {
+                    // 確保轉換為數字或空字串
+                    const rawVal = savedData[g][s.code];
+                    val = (typeof rawVal === 'number' || !isNaN(rawVal)) ? rawVal : '';
+                }
                 html += `<td><input type="number" min="0" class="limit-input" style="width:60px;" data-group="${g}" data-shift="${s.code}" value="${val}" placeholder="0"></td>`;
             });
             html += `</tr>`;
@@ -546,10 +565,13 @@ const preScheduleManager = {
         document.querySelectorAll('#groupLimitTableContainer input').forEach(input => {
             const group = input.dataset.group;
             const shift = input.dataset.shift;
-            const val = parseInt(input.value) || 0;
+            const val = parseInt(input.value);
             
-            if(!result[group]) result[group] = {};
-            result[group][shift] = val;
+            // 只儲存有效的正數
+            if (!isNaN(val) && val > 0) {
+                if(!result[group]) result[group] = {};
+                result[group][shift] = val;
+            }
         });
         return result;
     },
