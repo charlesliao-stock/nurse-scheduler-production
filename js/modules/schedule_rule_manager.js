@@ -1,6 +1,6 @@
 // js/modules/schedule_rule_manager.js
-// 🔧 最終完美版 - 徹底修復週日(0)的 讀取 與 儲存 問題
-// 🆕 新增：缺額處理優先順序設定（基於單位班別動態生成）
+// 🔧 最終完美版 v2 - 加強權限控制（比照 staff_manager.js）
+// 🆕 包含：週日(0)修復、缺額處理優先順序設定
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -8,6 +8,20 @@ const scheduleRuleManager = {
     
     init: async function() {
         console.log("Scheduling Rules Manager Loaded.");
+        
+        // ✅ 權限檢查
+        const activeRole = app.impersonatedRole || app.userRole;
+        if (activeRole === 'user') {
+            document.getElementById('content-area').innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-lock"></i>
+                    <h3>權限不足</h3>
+                    <p>一般使用者無法管理排班規則</p>
+                </div>
+            `;
+            return;
+        }
+        
         const container = document.getElementById('rulesContainer');
         if(container) container.style.display = 'none';
 
@@ -32,7 +46,10 @@ const scheduleRuleManager = {
         select.innerHTML = '<option value="">載入中...</option>';
         try {
             let query = db.collection('units');
-            if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
+            
+            // ✅ 權限過濾：使用 impersonatedRole 或 userRole
+            const activeRole = app.impersonatedRole || app.userRole;
+            if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                 if(app.userUnitId) {
                     query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
                 }
@@ -57,12 +74,23 @@ const scheduleRuleManager = {
                 }
             };
 
+            // ✅ 如果只有一個單位，自動選取並限制選單
             if (snapshot.size === 1) {
                 select.selectedIndex = 1;
+                
+                // 單位護理長不需要看到選單
+                if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
+                    select.disabled = true;
+                    select.style.backgroundColor = '#f5f5f5';
+                }
+                
                 select.dispatchEvent(new Event('change'));
             }
 
-        } catch (e) { console.error(e); }
+        } catch (e) { 
+            console.error(e); 
+            select.innerHTML = '<option value="">載入失敗</option>';
+        }
     },
 
     loadDataToForm: async function() {
@@ -180,25 +208,23 @@ const scheduleRuleManager = {
                 bundleNightOnly: getCheck('rule_bundleNightOnly'),
                 noNightAfterOff: getCheck('rule_noNightAfterOff'),
                 noNightAfterOff_List: this.getCheckedNightLimits(),
-                nightStart: getVal('rule_nightStart'),
-                nightEnd: getVal('rule_nightEnd'),
-                prioritizeBundle: getVal('rule_prioritize_bundle'), 
-                prioritizePref: getVal('rule_prioritize_pref'),
-                prioritizePreReq: getVal('rule_prioritize_prereq'),
-                prioritizeAvoid: getVal('rule_prioritize_avoid'),
+                nightStart: getVal('rule_nightStart') || '20:00',
+                nightEnd: getVal('rule_nightEnd') || '06:00',
+                prioritizeBundle: getVal('rule_prioritize_bundle') || 'must',
+                prioritizePref: getVal('rule_prioritize_pref') || 'must',
+                prioritizePreReq: getVal('rule_prioritize_prereq') || 'must',
+                prioritizeAvoid: getVal('rule_prioritize_avoid') || 'must',
                 enableRelaxation: getCheck('rule_enableRelaxation'),
-                // 🔥 新增：缺額處理設定
                 shortageHandling: {
-                    enabled: shortagePriority.length > 0,
                     priorityOrder: shortagePriority
                 }
             },
             pattern: {
-                dayStartShift: getVal('rule_dayStartShift'),
-                rotationOrder: rotationOrder,
                 consecutivePref: getCheck('rule_consecutivePref'),
                 minConsecutive: getInt('rule_minConsecutive', 2),
-                avoidLonelyOff: getCheck('rule_avoidLonelyOff')
+                avoidLonelyOff: getCheck('rule_avoidLonelyOff'),
+                dayStartShift: getVal('rule_dayStartShift') || 'D',
+                rotationOrder: rotationOrder
             },
             fairness: {
                 fairOff: getCheck('rule_fairOff'),
@@ -219,30 +245,20 @@ const scheduleRuleManager = {
                 schedulingRules: rules,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            alert("規則已儲存成功！");
-        } catch(e) { console.error(e); alert("儲存失敗: " + e.message); }
+            alert("排班規則已儲存");
+        } catch(e) { 
+            console.error(e); 
+            alert("儲存失敗: " + e.message); 
+        }
     },
 
-    // 🔥 新增：渲染缺額處理優先順序列表（完全基於 activeShifts）
+    // 🔥 新增：渲染缺額處理優先順序列表
     renderShortagePriorityList: function(savedOrder) {
         const container = document.getElementById('shortagePriorityList');
         if (!container) return;
         
-        // 如果沒有班別資料，顯示提示
-        if (this.activeShifts.length === 0) {
-            container.innerHTML = '<div style="color:#999; text-align:center; padding:20px;">請先在「班別管理」中設定班別</div>';
-            return;
-        }
-        
-        // 建立順序陣列
-        let order = [];
-        
-        if (savedOrder && savedOrder.length > 0) {
-            // 使用儲存的順序，但只保留仍存在的班別
-            order = savedOrder.filter(code => 
-                this.activeShifts.some(s => s.code === code)
-            );
-        }
+        // 建立班別順序陣列
+        let order = savedOrder && savedOrder.length > 0 ? [...savedOrder] : [];
         
         // 將新增的班別（尚未在順序中的）加到最後
         this.activeShifts.forEach(shift => {
