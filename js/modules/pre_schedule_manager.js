@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_manager.js
-// 🔧 最終整合版 v3：修正顯示問題 + 權限強化
+// 🔧 最終整合版 v4：加強權限控制（比照 staff_manager.js）
 
 const preScheduleManager = {
     currentUnitId: null,
@@ -41,8 +41,9 @@ const preScheduleManager = {
         try {
             let query = db.collection('units');
             
-            // ✅ 權限過濾
-            if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
+            // ✅ 權限過濾：使用 impersonatedRole 或 userRole
+            const activeRole = app.impersonatedRole || app.userRole;
+            if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                 if(app.userUnitId) {
                     query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
                 }
@@ -63,7 +64,7 @@ const preScheduleManager = {
                 select.selectedIndex = 1;
                 
                 // 單位護理長不需要看到選單
-                if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
+                if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                     select.disabled = true;
                     select.style.backgroundColor = '#f5f5f5';
                 }
@@ -170,6 +171,8 @@ const preScheduleManager = {
 
     loadCurrentUnitStaff: async function() {
         if(!this.currentUnitId) return;
+        
+        // ✅ 權限過濾：只載入在職人員
         const snap = await db.collection('users')
             .where('unitId', '==', this.currentUnitId)
             .where('isActive', '==', true)
@@ -208,404 +211,287 @@ const preScheduleManager = {
             this.staffListSnapshot = data.staffList || [];
         } else {
             document.getElementById('btnImportLast').style.display = 'inline-block';
-            const nextMonth = new Date(); 
-            nextMonth.setMonth(nextMonth.getMonth() + 1);
-            data = {
-                year: nextMonth.getFullYear(),
-                month: nextMonth.getMonth() + 1,
-                settings: { 
-                    maxOffDays: 8, 
-                    maxHolidayOffs: 2, 
-                    dailyReserved: 1, 
-                    shiftTypeMode: "3", 
-                    showAllNames: true 
-                },
-                groupLimits: {}, 
-                dailyNeeds: {}, 
-                specificNeeds: {}, 
-                bundleLimits: {}
-            };
             await this.loadCurrentUnitStaff();
         }
 
-        this.fillForm(data);
-        this.renderStaffList();
-        this.renderDailyNeedsTable(data.dailyNeeds);
-        this.renderBundleLimitSettings(data.bundleLimits || {});
-        this.renderSpecificNeedsUI(data.specificNeeds || {}); 
-        this.renderGroupLimitsTable(data.groupLimits);
-    },
-
-    fillForm: function(data) {
-        if(data.year && data.month) {
-            const m = data.month < 10 ? '0'+data.month : data.month;
-            document.getElementById('inputPreYearMonth').value = `${data.year}-${m}`;
-        }
-        const s = data.settings || {};
-        document.getElementById('inputOpenDate').value = s.openDate || '';
-        document.getElementById('inputCloseDate').value = s.closeDate || '';
-        document.getElementById('inputMaxOff').value = s.maxOffDays;
-        document.getElementById('inputMaxHoliday').value = s.maxHolidayOffs;
-        document.getElementById('inputDailyReserve').value = s.dailyReserved;
-        document.getElementById('checkShowAllNames').checked = s.showAllNames;
-        document.getElementById('inputShiftMode').value = s.shiftTypeMode;
-        
+        document.getElementById('inputPreYear').value = data.year || new Date().getFullYear();
+        document.getElementById('inputPreMonth').value = data.month || (new Date().getMonth() + 1);
+        document.getElementById('inputOpenDate').value = data.settings?.openDate || '';
+        document.getElementById('inputCloseDate').value = data.settings?.closeDate || '';
+        document.getElementById('inputMaxOff').value = data.settings?.maxOffDays || 8;
+        document.getElementById('inputMaxHoliday').value = data.settings?.maxHolidayOffs || 2;
+        document.getElementById('inputDailyReserve').value = data.settings?.dailyReserved || 1;
+        document.getElementById('checkShowAllNames').checked = (data.settings?.showAllNames !== false);
+        document.getElementById('inputShiftMode').value = data.settings?.shiftTypeMode || "3";
         this.toggleThreeShiftOption();
-        if(s.shiftTypeMode === "2") {
-            document.getElementById('checkAllowThree').checked = s.allowThreeShifts;
+        if(data.settings?.shiftTypeMode === "2") {
+            document.getElementById('checkAllowThree').checked = data.settings?.allowThreeShifts;
         }
+
+        this.renderDailyNeedsTable(data.dailyNeeds || {});
+        this.renderBundleLimitSettings(data.bundleLimits || {});
+        this.renderSpecificNeedsUI(data.specificNeeds || {});
+        this.renderGroupLimitsTable(data.groupLimits || {});
+        this.renderStaffList();
     },
 
-    renderStaffList: function() {
-        const tbody = document.getElementById('staffListBody');
-        if(!tbody) return;
-        tbody.innerHTML = '';
-
-        if (this.staffListSnapshot.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px; color:#999;">尚無人員<br><button class="btn btn-sm btn-add" onclick="preScheduleManager.openSearchModal()" style="margin-top:10px;">搜尋並加入人員</button></td></tr>';
+    saveModal: async function() {
+        const year = parseInt(document.getElementById('inputPreYear').value);
+        const month = parseInt(document.getElementById('inputPreMonth').value);
+        const openDate = document.getElementById('inputOpenDate').value;
+        const closeDate = document.getElementById('inputCloseDate').value;
+        
+        if(!year || !month || !openDate || !closeDate) {
+            alert("請填寫必填欄位");
             return;
         }
 
-        // 更新排序圖示
-        document.querySelectorAll('th i[id^="sort_icon_staff_"]').forEach(i => {
-            i.className = 'fas fa-sort';
-        });
-        const activeIcon = document.getElementById(`sort_icon_staff_${this.staffSortState.field}`);
-        if(activeIcon) {
-            activeIcon.className = this.staffSortState.order === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
-        }
+        const dailyNeeds = this.getDailyNeedsFromDOM();
+        const bundleLimits = this.getBundleLimitsFromDOM();
+        const specificNeeds = this.getSpecificNeedsFromDOM();
+        const groupLimits = this.getGroupLimitsFromDOM();
 
-        // 渲染人員列表
-        this.staffListSnapshot.forEach((staff, index) => {
-            const supportBadge = staff.isSupport 
-                ? '<span class="badge badge-warning" style="margin-left:5px;">支援</span>' 
-                : '';
+        const doc = {
+            unitId: this.currentUnitId,
+            unitName: (await db.collection('units').doc(this.currentUnitId).get()).data().name,
+            year, 
+            month,
+            status: 'open',
+            settings: {
+                openDate, 
+                closeDate, 
+                maxOffDays: parseInt(document.getElementById('inputMaxOff').value),
+                maxHolidayOffs: parseInt(document.getElementById('inputMaxHoliday').value),
+                dailyReserved: parseInt(document.getElementById('inputDailyReserve').value),
+                showAllNames: document.getElementById('checkShowAllNames').checked,
+                shiftTypeMode: document.getElementById('inputShiftMode').value,
+                allowThreeShifts: (document.getElementById('inputShiftMode').value === "2") ? document.getElementById('checkAllowThree').checked : null
+            },
+            dailyNeeds,
+            bundleLimits,
+            specificNeeds,
+            groupLimits,
+            staffList: this.staffListSnapshot,
+            assignments: {},
+            progress: { total: this.staffListSnapshot.length, submitted: 0 },
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        try {
+            const docId = document.getElementById('preScheduleDocId').value;
+            if (docId) {
+                await db.collection('pre_schedules').doc(docId).update(doc);
+                alert("已更新預班表");
+            } else {
+                await db.collection('pre_schedules').add(doc);
+                alert("已建立新預班表");
+            }
+            this.closeModal();
+            await this.loadData();
+        } catch(e) {
+            console.error(e);
+            alert("儲存失敗: " + e.message);
+        }
+    },
+
+    renderDailyNeedsTable: function(savedData) {
+        const tbody = document.getElementById('dailyNeedsTableBody');
+        if(!tbody) return;
+        tbody.innerHTML = '';
+        
+        const daysInMonth = new Date(
+            parseInt(document.getElementById('inputPreYear').value || new Date().getFullYear()),
+            parseInt(document.getElementById('inputPreMonth').value || (new Date().getMonth() + 1)),
+            0
+        ).getDate();
+
+        for(let d=1; d<=daysInMonth; d++) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${d}</td>`;
             
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${staff.empId || '-'}</td>
-                <td>${staff.name}${supportBadge}</td>
-                <td>${staff.level || '-'}</td>
-                <td>
-                    <select class="form-control" style="padding:4px 8px;" onchange="preScheduleManager.updateStaffGroup(${index}, this.value)">
-                        <option value="">(未分組)</option>
-                        ${this.currentUnitGroups.map(g => `<option value="${g}" ${staff.group === g ? 'selected' : ''}>${g}</option>`).join('')}
-                    </select>
-                </td>
-                <td>
-                    <button class="btn btn-sm btn-delete" onclick="preScheduleManager.removeStaff(${index})">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </td>
-            `;
+            this.activeShifts.forEach(s => {
+                const val = savedData[d] ? (savedData[d][s.code] || '') : '';
+                tr.innerHTML += `<td><input type="number" min="0" class="metric-input" data-day="${d}" data-shift="${s.code}" value="${val}" placeholder="0"></td>`;
+            });
             tbody.appendChild(tr);
+        }
+    },
+
+    getDailyNeedsFromDOM: function() {
+        const result = {};
+        document.querySelectorAll('#dailyNeedsTableBody input').forEach(input => {
+            const day = parseInt(input.dataset.day);
+            const shift = input.dataset.shift;
+            const val = parseInt(input.value) || 0;
+            
+            if(!result[day]) result[day] = {};
+            result[day][shift] = val;
         });
-
-        document.getElementById('staffCountBadge').innerText = this.staffListSnapshot.length;
+        return result;
     },
 
-    updateStaffGroup: function(index, groupId) {
-        if (this.staffListSnapshot[index]) {
-            this.staffListSnapshot[index].group = groupId;
-            console.log(`更新 ${this.staffListSnapshot[index].name} 組別: ${groupId}`);
-        }
-    },
-
-    removeStaff: function(index) {
-        const staff = this.staffListSnapshot[index];
-        if (confirm(`確定移除 ${staff.name} (${staff.empId})？`)) {
-            this.staffListSnapshot.splice(index, 1);
-            this.renderStaffList();
-        }
-    },
-
-    renderDailyNeedsTable: function(dailyNeeds = {}) {
-        const tbody = document.getElementById('dailyNeedsBody');
-        if(!tbody) return;
-        tbody.innerHTML = '';
-
-        if (this.activeShifts.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="2" style="text-align:center; padding:20px; color:#999;">此單位尚未設定班別</td></tr>';
-            return;
-        }
-
-        this.activeShifts.forEach(shift => {
-            const currentValue = dailyNeeds[shift.code] || 0;
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>
-                    <span style="display:inline-block; width:12px; height:12px; background:${shift.color}; margin-right:8px; border-radius:2px;"></span>
-                    <strong>${shift.code}</strong> - ${shift.name}
-                </td>
-                <td>
-                    <input type="number" id="need_${shift.code}" value="${currentValue}" min="0" 
-                           style="width:80px; padding:4px 8px; border:1px solid #ccc; border-radius:3px;">
-                </td>
-            `;
-            tbody.appendChild(tr);
-        });
-    },
-
-    renderBundleLimitSettings: function(bundleLimits = {}) {
-        const container = document.getElementById('bundleLimitSettings');
+    renderBundleLimitSettings: function(savedData) {
+        const container = document.getElementById('bundleLimitsContainer');
         if(!container) return;
         container.innerHTML = '';
 
-        const bundleShifts = this.activeShifts.filter(s => s.isBundleAvailable);
-        
-        if (bundleShifts.length === 0) {
-            container.innerHTML = '<div style="padding:15px; color:#999; text-align:center;">此單位尚無開放包班的班別</div>';
-            return;
-        }
-
-        bundleShifts.forEach(shift => {
-            const currentValue = bundleLimits[shift.code] || 0;
+        this.activeShifts.forEach(s => {
+            const limit = savedData[s.code] || 2;
             const div = document.createElement('div');
-            div.style.cssText = 'display:flex; align-items:center; gap:10px; margin-bottom:10px; padding:10px; background:#f8f9fa; border-radius:4px;';
+            div.style.cssText = 'display:flex; align-items:center; margin-bottom:10px;';
             div.innerHTML = `
-                <span style="display:inline-block; width:12px; height:12px; background:${shift.color}; border-radius:2px;"></span>
-                <span style="flex:1;"><strong>${shift.code}</strong> - ${shift.name}</span>
-                <input type="number" id="bundle_${shift.code}" value="${currentValue}" min="0" 
-                       style="width:80px; padding:4px 8px; border:1px solid #ccc; border-radius:3px;" 
-                       placeholder="配額">
-                <span style="font-size:0.85rem; color:#666;">人次</span>
+                <label style="width:120px; font-weight:bold; color:${s.color||'#333'};">${s.code} (${s.name})</label>
+                <input type="number" min="1" max="31" class="metric-input" style="width:80px;" data-shift="${s.code}" value="${limit}">
+                <span style="margin-left:8px; color:#666;">天</span>
             `;
             container.appendChild(div);
         });
     },
 
-    renderSpecificNeedsUI: function(specificNeeds = {}) {
-        const container = document.getElementById('specificNeedsContainer');
-        if(!container) return;
-        
-        this.tempSpecificNeeds = JSON.parse(JSON.stringify(specificNeeds));
-        
-        container.innerHTML = '<button class="btn btn-add" onclick="preScheduleManager.openSpecificNeedModal()" style="margin-bottom:10px;"><i class="fas fa-plus"></i> 新增特定日期需求</button>';
-        
-        const list = document.createElement('div');
-        list.style.cssText = 'display:flex; flex-direction:column; gap:8px;';
-        
-        Object.keys(this.tempSpecificNeeds).forEach(day => {
-            const needs = this.tempSpecificNeeds[day];
-            const needsText = Object.entries(needs).map(([code, count]) => `${code}: ${count}`).join(', ');
+    getBundleLimitsFromDOM: function() {
+        const result = {};
+        document.querySelectorAll('#bundleLimitsContainer input').forEach(input => {
+            result[input.dataset.shift] = parseInt(input.value) || 2;
+        });
+        return result;
+    },
+
+    renderSpecificNeedsUI: function(savedData) {
+        this.tempSpecificNeeds = JSON.parse(JSON.stringify(savedData || {}));
+        this.refreshSpecificNeedsList();
+    },
+
+    refreshSpecificNeedsList: function() {
+        const list = document.getElementById('specificNeedsList');
+        if(!list) return;
+        list.innerHTML = '';
+
+        const keys = Object.keys(this.tempSpecificNeeds);
+        if(keys.length === 0) {
+            list.innerHTML = '<div style="color:#999; padding:10px;">尚無特定日期需求</div>';
+            return;
+        }
+
+        keys.forEach(day => {
+            const dayData = this.tempSpecificNeeds[day];
+            const div = document.createElement('div');
+            div.style.cssText = 'border:1px solid #ddd; padding:10px; margin-bottom:8px; border-radius:4px; background:#f9f9f9;';
             
-            const item = document.createElement('div');
-            item.style.cssText = 'padding:10px; background:#f8f9fa; border-radius:4px; display:flex; justify-content:space-between; align-items:center;';
-            item.innerHTML = `
-                <span><strong>${day} 日</strong>: ${needsText}</span>
-                <button class="btn btn-sm btn-delete" onclick="preScheduleManager.removeSpecificNeed('${day}')">
-                    <i class="fas fa-trash"></i>
-                </button>
-            `;
-            list.appendChild(item);
-        });
-        
-        container.appendChild(list);
-    },
-
-    openSpecificNeedModal: function() {
-        const modal = document.getElementById('specificNeedModal');
-        if(!modal) return;
-        
-        modal.classList.add('show');
-        document.getElementById('inputSpecificDay').value = '';
-        
-        const tbody = document.getElementById('specificNeedShiftBody');
-        tbody.innerHTML = '';
-        
-        this.activeShifts.forEach(shift => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>
-                    <span style="display:inline-block; width:12px; height:12px; background:${shift.color}; margin-right:8px; border-radius:2px;"></span>
-                    <strong>${shift.code}</strong> - ${shift.name}
-                </td>
-                <td>
-                    <input type="number" id="specific_${shift.code}" value="0" min="0" 
-                           style="width:80px; padding:4px 8px; border:1px solid #ccc; border-radius:3px;">
-                </td>
-            `;
-            tbody.appendChild(tr);
-        });
-    },
-
-    closeSpecificNeedModal: function() {
-        const modal = document.getElementById('specificNeedModal');
-        if(modal) modal.classList.remove('show');
-    },
-
-    saveSpecificNeed: function() {
-        const day = document.getElementById('inputSpecificDay').value;
-        if (!day || day < 1 || day > 31) {
-            alert("請輸入有效的日期 (1-31)");
-            return;
-        }
-
-        const needs = {};
-        let hasValue = false;
-        
-        this.activeShifts.forEach(shift => {
-            const input = document.getElementById(`specific_${shift.code}`);
-            const value = parseInt(input.value) || 0;
-            if (value > 0) {
-                needs[shift.code] = value;
-                hasValue = true;
+            let shiftStr = '';
+            for(let shift in dayData) {
+                if(dayData[shift] > 0) shiftStr += `${shift}:${dayData[shift]}人 `;
             }
-        });
 
-        if (!hasValue) {
-            alert("請至少設定一個班別的需求人數");
+            div.innerHTML = `
+                <strong style="color:#2980b9;">${day} 日</strong> → ${shiftStr}
+                <button class="btn btn-sm btn-delete" onclick="preScheduleManager.removeSpecificNeed('${day}')" style="float:right;">刪除</button>
+            `;
+            list.appendChild(div);
+        });
+    },
+
+    addSpecificNeed: function() {
+        const day = parseInt(document.getElementById('inputSpecificDay').value);
+        const shift = document.getElementById('inputSpecificShift').value;
+        const need = parseInt(document.getElementById('inputSpecificNeed').value);
+
+        if(!day || !shift || !need) {
+            alert("請填寫完整");
             return;
         }
 
-        this.tempSpecificNeeds[day] = needs;
-        this.renderSpecificNeedsUI(this.tempSpecificNeeds);
-        this.closeSpecificNeedModal();
+        if(!this.tempSpecificNeeds[day]) this.tempSpecificNeeds[day] = {};
+        this.tempSpecificNeeds[day][shift] = need;
+
+        this.refreshSpecificNeedsList();
+        
+        document.getElementById('inputSpecificDay').value = '';
+        document.getElementById('inputSpecificNeed').value = '';
     },
 
     removeSpecificNeed: function(day) {
-        if (confirm(`確定刪除 ${day} 日的特定需求？`)) {
-            delete this.tempSpecificNeeds[day];
-            this.renderSpecificNeedsUI(this.tempSpecificNeeds);
-        }
+        delete this.tempSpecificNeeds[day];
+        this.refreshSpecificNeedsList();
     },
 
-    renderGroupLimitsTable: function(groupLimits = {}) {
-        const tbody = document.getElementById('groupLimitsBody');
+    getSpecificNeedsFromDOM: function() {
+        return this.tempSpecificNeeds;
+    },
+
+    renderGroupLimitsTable: function(savedData) {
+        const tbody = document.getElementById('groupLimitsTableBody');
         if(!tbody) return;
         tbody.innerHTML = '';
 
-        if (this.currentUnitGroups.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="2" style="text-align:center; padding:20px; color:#999;">此單位尚未設定組別<br>請至「組別管理」新增</td></tr>';
+        if(this.currentUnitGroups.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="99" style="text-align:center; color:#999;">此單位未設定組別</td></tr>';
             return;
         }
 
-        this.currentUnitGroups.forEach(group => {
-            const currentValue = groupLimits[group] || 0;
+        this.currentUnitGroups.forEach(g => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${g}</td>`;
+            
+            this.activeShifts.forEach(s => {
+                const val = savedData[g] ? (savedData[g][s.code] || '') : '';
+                tr.innerHTML += `<td><input type="number" min="0" class="metric-input" data-group="${g}" data-shift="${s.code}" value="${val}" placeholder="0"></td>`;
+            });
+            tbody.appendChild(tr);
+        });
+    },
+
+    getGroupLimitsFromDOM: function() {
+        const result = {};
+        document.querySelectorAll('#groupLimitsTableBody input').forEach(input => {
+            const group = input.dataset.group;
+            const shift = input.dataset.shift;
+            const val = parseInt(input.value) || 0;
+            
+            if(!result[group]) result[group] = {};
+            result[group][shift] = val;
+        });
+        return result;
+    },
+
+    renderStaffList: function() {
+        const tbody = document.getElementById('staffListTableBody');
+        if(!tbody) return;
+        tbody.innerHTML = '';
+
+        if(this.staffListSnapshot.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#999;">尚無人員</td></tr>';
+            return;
+        }
+
+        document.getElementById('staffCountBadge').innerText = this.staffListSnapshot.length;
+
+        this.staffListSnapshot.forEach((s, i) => {
+            const supportBadge = s.isSupport 
+                ? '<span class="badge badge-warning">支援</span>' 
+                : '<span class="badge" style="background:#95a5a6;">本單位</span>';
+            
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><strong>${group}</strong></td>
-                <td>
-                    <input type="number" id="grouplimit_${group}" value="${currentValue}" min="0" 
-                           style="width:80px; padding:4px 8px; border:1px solid #ccc; border-radius:3px;">
-                </td>
+                <td>${i+1}</td>
+                <td>${s.empId}</td>
+                <td>${s.name}</td>
+                <td>${s.level}</td>
+                <td>${s.group || '-'}</td>
+                <td>${supportBadge}</td>
+                <td><button class="btn btn-sm btn-delete" onclick="preScheduleManager.removeStaff(${i})">×</button></td>
             `;
             tbody.appendChild(tr);
         });
     },
 
-    saveData: async function() {
-        const docId = document.getElementById('preScheduleDocId').value;
-        const ymInput = document.getElementById('inputPreYearMonth').value;
-        
-        if (!ymInput) {
-            alert("請選擇年月");
-            return;
-        }
-
-        const [year, month] = ymInput.split('-').map(Number);
-        
-        const openDate = document.getElementById('inputOpenDate').value;
-        const closeDate = document.getElementById('inputCloseDate').value;
-        
-        if (!openDate || !closeDate) {
-            alert("請設定開放與截止日期");
-            return;
-        }
-
-        // 收集每日需求
-        const dailyNeeds = {};
-        this.activeShifts.forEach(shift => {
-            const input = document.getElementById(`need_${shift.code}`);
-            if (input) {
-                dailyNeeds[shift.code] = parseInt(input.value) || 0;
-            }
-        });
-
-        // 收集包班配額
-        const bundleLimits = {};
-        const bundleShifts = this.activeShifts.filter(s => s.isBundleAvailable);
-        bundleShifts.forEach(shift => {
-            const input = document.getElementById(`bundle_${shift.code}`);
-            if (input) {
-                bundleLimits[shift.code] = parseInt(input.value) || 0;
-            }
-        });
-
-        // 收集組別上限
-        const groupLimits = {};
-        this.currentUnitGroups.forEach(group => {
-            const input = document.getElementById(`grouplimit_${group}`);
-            if (input) {
-                groupLimits[group] = parseInt(input.value) || 0;
-            }
-        });
-
-        const data = {
-            unitId: this.currentUnitId,
-            unitName: (await db.collection('units').doc(this.currentUnitId).get()).data().name,
-            year: year,
-            month: month,
-            status: 'open',
-            settings: {
-                openDate: openDate,
-                closeDate: closeDate,
-                maxOffDays: parseInt(document.getElementById('inputMaxOff').value) || 8,
-                maxHolidayOffs: parseInt(document.getElementById('inputMaxHoliday').value) || 2,
-                dailyReserved: parseInt(document.getElementById('inputDailyReserve').value) || 1,
-                shiftTypeMode: document.getElementById('inputShiftMode').value,
-                allowThreeShifts: document.getElementById('checkAllowThree')?.checked || false,
-                showAllNames: document.getElementById('checkShowAllNames').checked
-            },
-            dailyNeeds: dailyNeeds,
-            bundleLimits: bundleLimits,
-            groupLimits: groupLimits,
-            specificNeeds: this.tempSpecificNeeds,
-            staffList: this.staffListSnapshot,
-            assignments: {},
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
-
-        // 初始化 assignments
-        this.staffListSnapshot.forEach(staff => {
-            data.assignments[staff.uid] = {};
-        });
-
-        try {
-            if (docId) {
-                await db.collection('pre_schedules').doc(docId).update(data);
-                alert("更新成功！");
-            } else {
-                data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-                data.progress = { submitted: 0, total: this.staffListSnapshot.length };
-                await db.collection('pre_schedules').add(data);
-                alert("建立成功！");
-            }
-            
-            this.closeModal();
-            this.loadData();
-            
-        } catch (e) {
-            console.error("Save Error:", e);
-            alert("儲存失敗: " + e.message);
+    removeStaff: function(index) {
+        if(confirm(`確定移除 ${this.staffListSnapshot[index].name}？`)) {
+            this.staffListSnapshot.splice(index, 1);
+            this.renderStaffList();
         }
     },
 
-    openSearchModal: function() {
-        const modal = document.getElementById('searchStaffModal');
-        if(!modal) return;
-        
-        modal.classList.add('show');
-        document.getElementById('inputSearchStaff').value = '';
-        document.getElementById('searchResults').innerHTML = '';
-    },
-
-    closeSearchModal: function() {
-        const modal = document.getElementById('searchStaffModal');
-        if(modal) modal.classList.remove('show');
-    },
-
-    searchStaff: async function() {
+    searchSupportStaff: async function() {
         const keyword = document.getElementById('inputSearchStaff').value.trim();
         const resultsContainer = document.getElementById('searchResults');
         
@@ -617,6 +503,7 @@ const preScheduleManager = {
         resultsContainer.innerHTML = '<div style="padding:10px;">搜尋中...</div>';
 
         try {
+            // ✅ 只搜尋啟用的人員
             const snapshot = await db.collection('users')
                 .where('isActive', '==', true)
                 .get();
