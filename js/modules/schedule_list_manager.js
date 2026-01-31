@@ -1,12 +1,13 @@
 // js/modules/schedule_list_manager.js
-// 🚀 最終修正版：加入「幽靈人口清洗」機制 (源頭把關)
+// 🚀 最終修正版 v2：加強權限控制 + 幽靈人口清洗機制
 
 const scheduleListManager = {
     currentUnitId: null,
 
     init: async function() {
         // ✅ 權限檢查
-        if (app.userRole === 'user') {
+        const activeRole = app.impersonatedRole || app.userRole;
+        if (activeRole === 'user') {
             document.getElementById('content-area').innerHTML = `
                 <div class="empty-state">
                     <i class="fas fa-lock"></i>
@@ -27,8 +28,9 @@ const scheduleListManager = {
         try {
             let query = db.collection('units');
             
-            // ✅ 權限過濾：單位護理長只能看到自己的單位
-            if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
+            // ✅ 權限過濾：使用 impersonatedRole 或 userRole
+            const activeRole = app.impersonatedRole || app.userRole;
+            if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                 if(app.userUnitId) {
                     query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
                 }
@@ -47,11 +49,13 @@ const scheduleListManager = {
             // ✅ 如果只有一個單位，自動選取並隱藏選單
             if(snapshot.size === 1) { 
                 select.selectedIndex = 1;
+                
                 // 單位護理長不需要看到選單
-                if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
+                if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                     select.disabled = true;
                     select.style.backgroundColor = '#f5f5f5';
                 }
+                
                 this.loadData(); 
             }
             
@@ -249,7 +253,10 @@ const scheduleListManager = {
             await db.collection('schedules').doc(id).delete();
             alert("已刪除草稿");
             this.loadData();
-        } catch(e) { alert("刪除失敗"); }
+        } catch(e) { 
+            console.error(e);
+            alert("刪除失敗: " + e.message); 
+        }
     },
 
     openEditor: function(schId) {
