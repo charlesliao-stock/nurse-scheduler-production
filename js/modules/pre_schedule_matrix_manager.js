@@ -177,6 +177,7 @@ const matrixManager = {
     renderMatrix: function() {
         const thead = document.getElementById('matrixHead');
         const tbody = document.getElementById('matrixBody');
+        const tfoot = document.getElementById('matrixFoot'); // ✅ 新增這一行
         const year = this.data.year;
         const month = this.data.month;
         const daysInMonth = new Date(year, month, 0).getDate();
