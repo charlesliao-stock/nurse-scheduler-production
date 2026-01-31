@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_manager.js
-// 🔧 完整修復版 v6：修復所有函數名稱和表格渲染問題
+// 🔧 完整修復版 v7：改善資料儲存與讀取邏輯
 
 const preScheduleManager = {
     currentUnitId: null,
@@ -314,6 +314,12 @@ const preScheduleManager = {
         const specificNeeds = this.getSpecificNeedsFromDOM();
         const groupLimits = this.getGroupLimitsFromDOM();
 
+        console.log("💾 儲存資料:", {
+            dailyNeeds,
+            specificNeeds,
+            groupLimits
+        });
+
         const doc = {
             unitId: this.currentUnitId,
             unitName: (await db.collection('units').doc(this.currentUnitId).get()).data().name,
@@ -403,7 +409,12 @@ const preScheduleManager = {
                 const isWeekend = idx >= 5;
                 const bgColor = isWeekend ? '#fffbf0' : '#fff';
                 const dataKey = `${shift.code}_${idx}`;  // 保持與原格式相容：D_0, D_1...
-                const val = (savedData && savedData[dataKey] !== undefined) ? savedData[dataKey] : '';
+                
+                // 🔧 改善：確保正確讀取和顯示值
+                let val = '';
+                if (savedData && savedData[dataKey] !== undefined && savedData[dataKey] !== null) {
+                    val = savedData[dataKey];
+                }
                 
                 html += `<td style="background:${bgColor};">
                     <input type="number" min="0" max="99" class="limit-input needs-input" 
@@ -425,17 +436,27 @@ const preScheduleManager = {
         container.innerHTML = html;
     },
 
+    // 🔧 改善：更嚴謹的資料收集邏輯
     getDailyNeedsFromDOM: function() {
         const result = {};
         document.querySelectorAll('#dailyNeedsTable .needs-input').forEach(input => {
             const key = input.dataset.key;  // 格式：D_0, D_1, E_0, E_1 等
-            const val = parseInt(input.value);
+            const rawValue = input.value.trim();
             
-            // 只儲存有效的數值
+            // 如果欄位為空，跳過（不儲存）
+            if (rawValue === '') {
+                return;
+            }
+            
+            const val = parseInt(rawValue);
+            
+            // 只儲存有效的非負整數
             if (!isNaN(val) && val >= 0) {
                 result[key] = val;
             }
         });
+        
+        console.log("📊 收集每日需求:", result);
         return result;
     },
 
@@ -564,6 +585,7 @@ const preScheduleManager = {
     },
 
     getSpecificNeedsFromDOM: function() {
+        console.log("📊 收集特定日期需求:", this.tempSpecificNeeds);
         return this.tempSpecificNeeds;
     },
 
@@ -598,13 +620,13 @@ const preScheduleManager = {
         this.currentUnitGroups.forEach(g => {
             html += `<tr><td style="font-weight:bold;">${g}</td>`;
             this.activeShifts.forEach(s => {
+                // 🔧 改善：確保正確讀取和顯示值
                 let val = '';
-                if (savedData[g] && savedData[g][s.code] !== undefined) {
-                    // 確保轉換為數字或空字串
-                    const rawVal = savedData[g][s.code];
-                    val = (typeof rawVal === 'number' || !isNaN(rawVal)) ? rawVal : '';
+                if (savedData[g] && savedData[g][s.code] !== undefined && savedData[g][s.code] !== null) {
+                    val = savedData[g][s.code];
                 }
-                html += `<td><input type="number" min="0" class="limit-input" style="width:60px;" data-group="${g}" data-shift="${s.code}" value="${val}" placeholder="0"></td>`;
+                
+                html += `<td><input type="number" min="0" class="limit-input group-limit-input" style="width:60px;" data-group="${g}" data-shift="${s.code}" value="${val}" placeholder="0"></td>`;
             });
             html += `</tr>`;
         });
@@ -613,19 +635,29 @@ const preScheduleManager = {
         container.innerHTML = html;
     },
 
+    // 🔧 改善：更嚴謹的資料收集邏輯
     getGroupLimitsFromDOM: function() {
         const result = {};
-        document.querySelectorAll('#groupLimitTableContainer input').forEach(input => {
+        document.querySelectorAll('#groupLimitTableContainer .group-limit-input').forEach(input => {
             const group = input.dataset.group;
             const shift = input.dataset.shift;
-            const val = parseInt(input.value);
+            const rawValue = input.value.trim();
             
-            // 只儲存有效的正數
+            // 如果欄位為空，跳過（不儲存）
+            if (rawValue === '') {
+                return;
+            }
+            
+            const val = parseInt(rawValue);
+            
+            // 只儲存有效的正整數（組別限制應該 > 0）
             if (!isNaN(val) && val > 0) {
                 if(!result[group]) result[group] = {};
                 result[group][shift] = val;
             }
         });
+        
+        console.log("📊 收集組別限制:", result);
         return result;
     },
 
