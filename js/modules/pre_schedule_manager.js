@@ -187,7 +187,8 @@ const preScheduleManager = {
             isSupport: false 
         }));
         
-        document.getElementById('staffCountBadge').innerText = this.staffListSnapshot.length;
+        const badge = document.getElementById('staffCountBadge');
+        if (badge) badge.innerText = this.staffListSnapshot.length;
     },
 
     openModal: async function(docId = null) {
@@ -197,35 +198,62 @@ const preScheduleManager = {
         }
         
         const modal = document.getElementById('preScheduleModal');
+        if (!modal) {
+            console.error('預班表 Modal 元素不存在');
+            return;
+        }
+        
         modal.classList.add('show');
-        document.getElementById('preScheduleDocId').value = docId || '';
+        
+        const docIdInput = document.getElementById('preScheduleDocId');
+        if (docIdInput) docIdInput.value = docId || '';
+        
         this.switchTab('basic');
 
         await this.loadUnitDataForModal();
 
         let data = {};
         if (docId) {
-            document.getElementById('btnImportLast').style.display = 'none';
+            const btnImportLast = document.getElementById('btnImportLast');
+            if (btnImportLast) btnImportLast.style.display = 'none';
+            
             const doc = await db.collection('pre_schedules').doc(docId).get();
             data = doc.data();
             this.staffListSnapshot = data.staffList || [];
         } else {
-            document.getElementById('btnImportLast').style.display = 'inline-block';
+            const btnImportLast = document.getElementById('btnImportLast');
+            if (btnImportLast) btnImportLast.style.display = 'inline-block';
+            
             await this.loadCurrentUnitStaff();
         }
 
-        document.getElementById('inputPreYear').value = data.year || new Date().getFullYear();
-        document.getElementById('inputPreMonth').value = data.month || (new Date().getMonth() + 1);
-        document.getElementById('inputOpenDate').value = data.settings?.openDate || '';
-        document.getElementById('inputCloseDate').value = data.settings?.closeDate || '';
-        document.getElementById('inputMaxOff').value = data.settings?.maxOffDays || 8;
-        document.getElementById('inputMaxHoliday').value = data.settings?.maxHolidayOffs || 2;
-        document.getElementById('inputDailyReserve').value = data.settings?.dailyReserved || 1;
-        document.getElementById('checkShowAllNames').checked = (data.settings?.showAllNames !== false);
-        document.getElementById('inputShiftMode').value = data.settings?.shiftTypeMode || "3";
+        // ✅ 安全設定：檢查元素是否存在再設值
+        const setInputValue = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.value = value;
+            else console.warn(`Element not found: ${id}`);
+        };
+        
+        const setCheckboxValue = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.checked = value;
+            else console.warn(`Element not found: ${id}`);
+        };
+
+        setInputValue('inputPreYear', data.year || new Date().getFullYear());
+        setInputValue('inputPreMonth', data.month || (new Date().getMonth() + 1));
+        setInputValue('inputOpenDate', data.settings?.openDate || '');
+        setInputValue('inputCloseDate', data.settings?.closeDate || '');
+        setInputValue('inputMaxOff', data.settings?.maxOffDays || 8);
+        setInputValue('inputMaxHoliday', data.settings?.maxHolidayOffs || 2);
+        setInputValue('inputDailyReserve', data.settings?.dailyReserved || 1);
+        setCheckboxValue('checkShowAllNames', data.settings?.showAllNames !== false);
+        setInputValue('inputShiftMode', data.settings?.shiftTypeMode || "3");
+        
         this.toggleThreeShiftOption();
+        
         if(data.settings?.shiftTypeMode === "2") {
-            document.getElementById('checkAllowThree').checked = data.settings?.allowThreeShifts;
+            setCheckboxValue('checkAllowThree', data.settings?.allowThreeShifts);
         }
 
         this.renderDailyNeedsTable(data.dailyNeeds || {});
@@ -463,7 +491,8 @@ const preScheduleManager = {
             return;
         }
 
-        document.getElementById('staffCountBadge').innerText = this.staffListSnapshot.length;
+        const badge = document.getElementById('staffCountBadge');
+        if (badge) badge.innerText = this.staffListSnapshot.length;
 
         this.staffListSnapshot.forEach((s, i) => {
             const supportBadge = s.isSupport 
@@ -639,9 +668,9 @@ const preScheduleManager = {
     },
     
     toggleThreeShiftOption: function() {
-        const mode = document.getElementById('inputShiftMode').value;
+        const mode = document.getElementById('inputShiftMode')?.value;
         const opt = document.getElementById('threeShiftOption');
-        if(opt) {
+        if(opt && mode) {
             opt.style.display = (mode === '2') ? 'block' : 'none';
         }
     },
@@ -668,16 +697,29 @@ const preScheduleManager = {
 
             const lastData = snapshot.docs[0].data();
             
+            // ✅ 安全設定：檢查元素是否存在再設值
+            const setInputValue = (id, value) => {
+                const el = document.getElementById(id);
+                if (el) el.value = value;
+            };
+            
+            const setCheckboxValue = (id, value) => {
+                const el = document.getElementById(id);
+                if (el) el.checked = value;
+            };
+            
             // 填寫基本設定
             const s = lastData.settings || {};
-            document.getElementById('inputMaxOff').value = s.maxOffDays || 8;
-            document.getElementById('inputMaxHoliday').value = s.maxHolidayOffs || 2;
-            document.getElementById('inputDailyReserve').value = s.dailyReserved || 1;
-            document.getElementById('checkShowAllNames').checked = s.showAllNames !== false;
-            document.getElementById('inputShiftMode').value = s.shiftTypeMode || "3";
+            setInputValue('inputMaxOff', s.maxOffDays || 8);
+            setInputValue('inputMaxHoliday', s.maxHolidayOffs || 2);
+            setInputValue('inputDailyReserve', s.dailyReserved || 1);
+            setCheckboxValue('checkShowAllNames', s.showAllNames !== false);
+            setInputValue('inputShiftMode', s.shiftTypeMode || "3");
+            
             this.toggleThreeShiftOption();
+            
             if(s.shiftTypeMode === "2") {
-                document.getElementById('checkAllowThree').checked = s.allowThreeShifts;
+                setCheckboxValue('checkAllowThree', s.allowThreeShifts);
             }
 
             // 重新渲染表格
