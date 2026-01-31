@@ -10,8 +10,10 @@ const systemStatisticsManager = {
     init: async function() {
         console.log("System Statistics Manager Init");
         
-        // ✅ 權限檢查
-        if (app.userRole === 'user') {
+        // ✅ 權限檢查 - 使用當前有效角色
+        const activeRole = app.impersonatedRole || app.userRole;
+        
+        if (activeRole === 'user') {
             document.getElementById('content-area').innerHTML = `
                 <div class="empty-state">
                     <i class="fas fa-lock"></i>
@@ -38,11 +40,13 @@ const systemStatisticsManager = {
             let query = db.collection('units');
             const unitSelect = document.getElementById('unitFilter');
             
-            // ✅ 權限過濾
+            // ✅ 權限過濾 - 使用當前有效角色和單位
             const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+            
             if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
-                if(app.userUnitId) {
-                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
+                if(activeUnitId) {
+                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
                 }
             }
             
@@ -87,8 +91,10 @@ const systemStatisticsManager = {
             const unitId = document.getElementById('unitFilter').value;
             const queryType = document.getElementById('queryType').value;
             
-            // ✅ 權限檢查：單位管理者必須選擇單位
+            // ✅ 權限檢查：單位管理者必須選擇單位 - 使用當前有效角色和單位
             const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+            
             if (!unitId && (activeRole === 'unit_manager' || activeRole === 'unit_scheduler')) {
                 alert('請選擇單位');
                 return;
@@ -100,8 +106,8 @@ const systemStatisticsManager = {
                 scheduleQuery = scheduleQuery.where('unitId', '==', unitId);
             } else if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                 // ✅ 如果是單位管理者但沒選單位，使用其單位ID
-                if (app.userUnitId) {
-                    scheduleQuery = scheduleQuery.where('unitId', '==', app.userUnitId);
+                if (activeUnitId) {
+                    scheduleQuery = scheduleQuery.where('unitId', '==', activeUnitId);
                 }
             }
             
