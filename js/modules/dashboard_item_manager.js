@@ -12,12 +12,14 @@ const dashboardItemManager = {
         // 一般使用者
         { id: 'my_schedule_status', name: '班表檢視', category: '一般使用者', desc: '顯示個人本月班表狀態（已發布/未發布）與連結。' },
         { id: 'my_pending_exchanges', name: '待審核項目(個人)', category: '一般使用者', desc: '顯示等待「我」同意或處理的換班申請數量。' },
-        { id: 'my_active_pre_schedule', name: '進行中的預班', category: '一般使用者', desc: '顯示目前開放中、等待「我」填寫的預班表數量。' },
+        // 修正描述：對齊預班「開放中」狀態
+        { id: 'my_active_pre_schedule', name: '進行中的預班', category: '一般使用者', desc: '顯示目前「開放中」且等待「我」填寫的預班表數量。' },
         { id: 'my_personal_stats', name: '個人統計資料', category: '一般使用者', desc: '顯示個人本月總班數、休假數、夜班數等摘要。' },
         // 單位管理者
         { id: 'unit_staff_count', name: '單位人員管理', category: '單位管理者', desc: '顯示所屬單位的總人數，連結至人員管理。' },
         { id: 'unit_schedule_status', name: '班表管理', category: '單位管理者', desc: '顯示所屬單位本月班表的編輯/發布狀態。' },
-        { id: 'unit_pre_schedule_progress', name: '預班管理', category: '單位管理者', desc: '顯示所屬單位預班收集的進度百分比。' },
+        // 修正描述：對齊預班管理進度
+        { id: 'unit_pre_schedule_progress', name: '預班管理', category: '單位管理者', desc: '顯示所屬單位目前預班表收集的填寫進度百分比。' },
         { id: 'unit_pending_approvals', name: '待審核項目(主管)', category: '單位管理者', desc: '顯示等待「護理長」簽核的換班申請數量。' },
         { id: 'unit_statistics_summary', name: '單位統計資料', category: '單位管理者', desc: '顯示單位的缺額率、修正率等核心指標摘要。' },
         // 系統管理者
