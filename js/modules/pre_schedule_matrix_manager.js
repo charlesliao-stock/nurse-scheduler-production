@@ -488,8 +488,6 @@ const matrixManager = {
         const menuHeight = menu.offsetHeight;
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
-        const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
-        const scrollY = window.pageYOffset || document.documentElement.scrollTop;
         
         // 計算初始位置（使用客戶端座標以對應 viewport）
         let left = e.clientX + 5;
@@ -505,21 +503,8 @@ const matrixManager = {
             top = viewportHeight - menuHeight - 5;
         }
 
-        // 將座標轉換回頁面座標 (加上捲軸位移)
-        left += scrollX;
-        top += scrollY;
-        
-        // 確保不超出左邊界
-        if (left < scrollX) {
-            left = scrollX + 5;
-        }
-        
-        // 確保不超出上邊界
-        if (top < scrollY) {
-            top = scrollY + 5;
-        }
-        
-        // 設定最終位置並顯示
+        // 設定最終位置並顯示 (使用 fixed 定位，對應 CSS 設定)
+        menu.style.position = 'fixed';
         menu.style.left = left + 'px';
         menu.style.top = top + 'px';
         menu.style.visibility = 'visible';
