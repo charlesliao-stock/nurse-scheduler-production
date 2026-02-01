@@ -1014,21 +1014,58 @@ const scheduleEditorManager = {
     },
     
     resetSchedule: async function() {
-        if(!confirm("重置?")) return;
-        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
-        this.data.staffList.forEach(staff => {
-            const uid = staff.uid;
-            if (!this.assignments[uid]) return;
-            for (let d = 1; d <= daysInMonth; d++) {
-                const key = `current_${d}`;
-                if (this.assignments[uid][key] !== 'REQ_OFF') delete this.assignments[uid][key];
+        if(!confirm("確定要重置嗎？這將會清除目前所有手動排班，並重新從預班表載入預班資料。")) return;
+        
+        this.isLoading = true;
+        this.showLoading();
+        
+        try {
+            // 1. 嘗試從 sourceId (預班表 ID) 重新獲取原始預班資料
+            let sourceAssignments = {};
+            if (this.data.sourceId) {
+                const preDoc = await db.collection('pre_schedules').doc(this.data.sourceId).get();
+                if (preDoc.exists) {
+                    sourceAssignments = preDoc.data().assignments || {};
+                    console.log("✅ 已從預班表重新載入原始資料");
+                }
             }
-        });
-        this.renderMatrix();
-        this.updateRealTimeStats();
-        this.updateScheduleScore();
-        await this.saveDraft(true);
-        alert("已重置");
+
+            const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+            
+            // 2. 清除目前的 assignments 並重新帶入
+            this.data.staffList.forEach(staff => {
+                const uid = staff.uid;
+                const preAssign = sourceAssignments[uid] || {};
+                
+                // 初始化該人員的 assignments
+                this.assignments[uid] = {};
+                
+                // 保留偏好設定 (如果有的話)
+                if (preAssign.preferences) {
+                    this.assignments[uid].preferences = JSON.parse(JSON.stringify(preAssign.preferences));
+                }
+                
+                // 帶入預班資料 (current_1, current_2, ...)
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const key = `current_${d}`;
+                    if (preAssign[key]) {
+                        this.assignments[uid][key] = preAssign[key];
+                    }
+                }
+            });
+
+            this.renderMatrix();
+            this.updateRealTimeStats();
+            this.updateScheduleScore();
+            await this.saveDraft(true);
+            alert("✅ 已重置並重新載入預班資料");
+        } catch (e) {
+            console.error("❌ 重置失敗:", e);
+            alert("重置失敗: " + e.message);
+            this.renderMatrix();
+        } finally {
+            this.isLoading = false;
+        }
     },
     
     setupEvents: function() { }
