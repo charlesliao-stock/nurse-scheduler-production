@@ -378,8 +378,8 @@ const staffScheduleManager = {
             const reqData = {
                 scheduleId: this.scheduleData.id,
                 unitId: this.scheduleData.unitId, 
-                requesterUnitId: this.scheduleData.unitId, // 補上請求者單位 ID
-                targetUnitId: this.scheduleData.unitId,    // 補上目標者單位 ID
+                requesterUnitId: this.scheduleData.unitId, 
+                targetUnitId: this.scheduleData.unitId,    
                 year: this.currentYear,
                 month: this.currentMonth,
                 day: this.selectedDay,
@@ -392,7 +392,8 @@ const staffScheduleManager = {
                 status: 'pending_target',
                 reasonCategory: reasonRadio.value,
                 reason: reason,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
             
             // 改用 doc().set() 並指定 ID，有助於繞過某些限制 add() 的安全性規則
