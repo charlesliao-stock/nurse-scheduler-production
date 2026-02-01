@@ -375,26 +375,33 @@ const staffScheduleManager = {
         if (!confirm(confirmMsg)) return;
         
         try {
+            const currentUid = app.getUid();
             const reqData = {
-                scheduleId: this.scheduleData.id,
-                unitId: this.scheduleData.unitId, 
+                scheduleId: this.scheduleData.id || null,
+                unitId: this.scheduleData.unitId || null, 
                 year: this.currentYear,
                 month: this.currentMonth,
                 day: this.selectedDay,
-                requesterId: app.getUid(), // 強制使用 app.getUid() 確保與 Auth 一致
-                requesterName: myName,
-                requesterShift: this.selectedShift,
+                requesterId: currentUid,
+                requesterName: myName || 'Unknown',
+                requesterShift: this.selectedShift || '',
                 targetId: targetUid,
-                targetName: targetName,
-                targetShift: targetShift,
+                targetName: targetName || 'Unknown',
+                targetShift: targetShift || '',
                 status: 'pending_target',
                 reasonCategory: reasonRadio.value,
-                reason: reason,
+                reason: reason || '',
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
             
-            await db.collection('shift_requests').add(reqData);
+            console.log('🔍 [Debug] 準備提交換班申請:');
+            console.log('   - Current UID (Auth):', currentUid);
+            console.log('   - Request Data:', JSON.parse(JSON.stringify(reqData))); // 避免 serverTimestamp 報錯
+            console.log('   - Collection: shift_requests');
+            
+            const docRef = await db.collection('shift_requests').add(reqData);
+            console.log('✅ [Debug] 申請提交成功, ID:', docRef.id);
             
             alert('✅ 換班申請已送出！\n請等待對方同意及護理長核准。');
             this.closeExchangeModal();
