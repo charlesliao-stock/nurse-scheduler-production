@@ -406,12 +406,12 @@ const matrixManager = {
                 const type = cell.dataset.type;
 
                 if (type === 'history') {
-                    // 歷史資料切換
+                    // 歷史資料切換 (左鍵點擊切換 OFF)
                     const currentVal = this.historyCorrections[uid]?.[`last_${day}`];
                     const newVal = (currentVal === 'OFF') ? null : 'OFF';
                     this.setHistoryShift(uid, day, newVal);
                 } else {
-                    // 當前預班切換 (左鍵預設 OFF)
+                    // 當前預班切換 (左鍵點擊切換 REQ_OFF)
                     const key = `current_${day}`;
                     const currentVal = this.localAssignments[uid]?.[key];
                     const newVal = (currentVal === 'REQ_OFF') ? null : 'REQ_OFF';
@@ -491,19 +491,23 @@ const matrixManager = {
         const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
         const scrollY = window.pageYOffset || document.documentElement.scrollTop;
         
-        // 計算初始位置（鼠標右下方）
-        let left = e.pageX + 5;
-        let top = e.pageY + 5;
+        // 計算初始位置（使用客戶端座標以對應 viewport）
+        let left = e.clientX + 5;
+        let top = e.clientY + 5;
         
         // 檢查是否超出右邊界
-        if (left + menuWidth > scrollX + viewportWidth) {
-            left = e.pageX - menuWidth - 5;
+        if (left + menuWidth > viewportWidth) {
+            left = viewportWidth - menuWidth - 5;
         }
         
         // 檢查是否超出下邊界
-        if (top + menuHeight > scrollY + viewportHeight) {
-            top = e.pageY - menuHeight - 5;
+        if (top + menuHeight > viewportHeight) {
+            top = viewportHeight - menuHeight - 5;
         }
+
+        // 將座標轉換回頁面座標 (加上捲軸位移)
+        left += scrollX;
+        top += scrollY;
         
         // 確保不超出左邊界
         if (left < scrollX) {
