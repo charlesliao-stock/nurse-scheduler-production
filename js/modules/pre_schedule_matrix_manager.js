@@ -329,7 +329,7 @@ const matrixManager = {
 
     renderCellContent: function(val) {
         if(!val || val === 'OFF') return '';
-        if(val === 'REQ_OFF') return '<span class="badge badge-success">預休</span>';
+        if(val === 'REQ_OFF') return '<span class="badge" style="background:#fff3cd; color:#856404; border:1px solid #ffeeba;">預休</span>';
         if(typeof val === 'string' && val.startsWith('!')) return `<span style="color:red; font-size:0.8rem;">!${val.replace('!','')}</span>`;
         return val;
     },
