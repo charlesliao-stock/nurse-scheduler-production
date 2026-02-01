@@ -377,7 +377,9 @@ const staffScheduleManager = {
         try {
             const reqData = {
                 scheduleId: this.scheduleData.id,
-                unitId: this.scheduleData.unitId, // 補上單位 ID
+                unitId: this.scheduleData.unitId, 
+                requesterUnitId: this.scheduleData.unitId, // 補上請求者單位 ID
+                targetUnitId: this.scheduleData.unitId,    // 補上目標者單位 ID
                 year: this.currentYear,
                 month: this.currentMonth,
                 day: this.selectedDay,
