@@ -109,16 +109,10 @@ const scheduleListManager = {
                 const preId = doc.id;
                 const existingSch = schMap[preId];
                 const preStatusInfo = app.getPreScheduleStatus(pre);
+                const schStatusInfo = app.getScheduleStatus(existingSch);
                 
-                let statusHtml = '';
                 let actionHtml = '';
-                
                 if (existingSch) {
-                    const isPub = existingSch.status === 'published';
-                    statusHtml = isPub 
-                        ? '<span class="badge badge-success">已發布</span>' 
-                        : '<span class="badge badge-warning">排班中</span>';
-                    
                     actionHtml = `
                         <button class="btn btn-sm btn-primary" onclick="scheduleListManager.openEditor('${existingSch.id}')">
                             <i class="fas fa-edit"></i> 編輯排班
@@ -128,7 +122,6 @@ const scheduleListManager = {
                         </button>
                     `;
                 } else {
-                    statusHtml = '<span class="badge" style="background:#ccc;">準備中</span>';
                     actionHtml = `
                         <button class="btn btn-sm btn-add" onclick="scheduleListManager.createSchedule('${preId}')">
                             <i class="fas fa-magic"></i> 執行排班
@@ -141,7 +134,7 @@ const scheduleListManager = {
                     <td style="font-weight:bold;">${pre.unitName || unitId}</td>
                     <td>${pre.year} 年 ${pre.month} 月</td>
                     <td><span class="badge" style="background:${preStatusInfo.color}">${preStatusInfo.text}</span></td>
-                    <td>${statusHtml}</td>
+                    <td><span class="badge" style="background:${schStatusInfo.color}; color:white;">${schStatusInfo.text}</span></td>
                     <td style="font-size:0.85rem; color:#666;">${existingSch ? new Date(existingSch.updatedAt?.toDate()).toLocaleString() : '-'}</td>
                     <td>${actionHtml}</td>
                 `;

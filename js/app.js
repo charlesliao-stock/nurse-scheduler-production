@@ -71,6 +71,15 @@ const app = {
         return { code: 'open', text: text, color: '#2ecc71', canEdit: true };
     },
 
+    /**
+     * 🔵 全域排班狀態判定引擎
+     */
+    getScheduleStatus: function(sch) {
+        if (!sch) return { code: 'none', text: '準備中', color: '#ccc' };
+        if (sch.status === 'published') return { code: 'published', text: '已發布', color: '#2ecc71' };
+        return { code: 'draft', text: '排班中', color: '#f1c40f' };
+    },
+
     setupGlobalErrorHandling: function() {
         window.addEventListener('error', (event) => { console.error("全域錯誤:", event.error); });
         window.addEventListener('unhandledrejection', (event) => { console.error("Promise 錯誤:", event.reason); });
