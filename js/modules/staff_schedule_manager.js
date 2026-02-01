@@ -378,12 +378,10 @@ const staffScheduleManager = {
             const reqData = {
                 scheduleId: this.scheduleData.id,
                 unitId: this.scheduleData.unitId, 
-                requesterUnitId: this.scheduleData.unitId, 
-                targetUnitId: this.scheduleData.unitId,    
                 year: this.currentYear,
                 month: this.currentMonth,
                 day: this.selectedDay,
-                requesterId: this.currentUid,
+                requesterId: app.getUid(), // 強制使用 app.getUid() 確保與 Auth 一致
                 requesterName: myName,
                 requesterShift: this.selectedShift,
                 targetId: targetUid,
@@ -396,9 +394,7 @@ const staffScheduleManager = {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
             
-            // 改用 doc().set() 並指定 ID，有助於繞過某些限制 add() 的安全性規則
-            const requestId = `${this.currentUid}_${Date.now()}`;
-            await db.collection('shift_requests').doc(requestId).set(reqData);
+            await db.collection('shift_requests').add(reqData);
             
             alert('✅ 換班申請已送出！\n請等待對方同意及護理長核准。');
             this.closeExchangeModal();
