@@ -108,6 +108,7 @@ const scheduleListManager = {
                 const pre = doc.data();
                 const preId = doc.id;
                 const existingSch = schMap[preId];
+                const preStatusInfo = app.getPreScheduleStatus(pre);
                 
                 let statusHtml = '';
                 let actionHtml = '';
@@ -116,7 +117,7 @@ const scheduleListManager = {
                     const isPub = existingSch.status === 'published';
                     statusHtml = isPub 
                         ? '<span class="badge badge-success">已發布</span>' 
-                        : '<span class="badge badge-warning">草稿中</span>';
+                        : '<span class="badge badge-warning">排班中</span>';
                     
                     actionHtml = `
                         <button class="btn btn-sm btn-primary" onclick="scheduleListManager.openEditor('${existingSch.id}')">
@@ -127,7 +128,7 @@ const scheduleListManager = {
                         </button>
                     `;
                 } else {
-                    statusHtml = '<span class="badge" style="background:#ccc;">未建立</span>';
+                    statusHtml = '<span class="badge" style="background:#ccc;">準備中</span>';
                     actionHtml = `
                         <button class="btn btn-sm btn-add" onclick="scheduleListManager.createSchedule('${preId}')">
                             <i class="fas fa-magic"></i> 執行排班
@@ -139,7 +140,7 @@ const scheduleListManager = {
                 tr.innerHTML = `
                     <td style="font-weight:bold;">${pre.unitName || unitId}</td>
                     <td>${pre.year} 年 ${pre.month} 月</td>
-                    <td><span class="badge ${pre.status==='open'?'badge-success':'badge-secondary'}">${pre.status==='open'?'開放中':'已截止'}</span></td>
+                    <td><span class="badge" style="background:${preStatusInfo.color}">${preStatusInfo.text}</span></td>
                     <td>${statusHtml}</td>
                     <td style="font-size:0.85rem; color:#666;">${existingSch ? new Date(existingSch.updatedAt?.toDate()).toLocaleString() : '-'}</td>
                     <td>${actionHtml}</td>

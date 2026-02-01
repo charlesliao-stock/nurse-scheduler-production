@@ -55,18 +55,20 @@ const app = {
         const s = d.settings || {};
         
         // 1. 管理者手動狀態優先
-        if (d.status === 'published') return { code: 'published', text: '已公佈', color: '#3498db', canEdit: false };
-        if (d.status === 'closed') return { code: 'closed', text: '已鎖定', color: '#7f8c8d', canEdit: false };
+        if (d.status === 'published') return { code: 'published', text: '已鎖定(班表公佈)', color: '#3498db', canEdit: false };
+        if (d.status === 'closed') return { code: 'closed', text: '已鎖定(預班結束)', color: '#7f8c8d', canEdit: false };
         
         // 2. 自動日期判定
         const openDate = s.openDate || '9999-12-31';
         const closeDate = s.closeDate || '1970-01-01';
 
         if (today < openDate) return { code: 'preparing', text: '準備中', color: '#f1c40f', canEdit: false };
-        if (today > closeDate) return { code: 'expired', text: '已截止', color: '#e67e22', canEdit: false };
+        if (today > closeDate) return { code: 'expired', text: '已鎖定(預班結束)', color: '#e67e22', canEdit: false };
         
         // 3. 符合日期且未被鎖定
-        return { code: 'open', text: '開放中', color: '#2ecc71', canEdit: true };
+        let text = '開放中';
+        if (d.isManualOpen) text = '開放中 (管理者開放)';
+        return { code: 'open', text: text, color: '#2ecc71', canEdit: true };
     },
 
     setupGlobalErrorHandling: function() {

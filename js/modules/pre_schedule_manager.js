@@ -73,13 +73,6 @@ const preScheduleManager = {
             snapshot.forEach(doc => {
                 const d = doc.data();
                 const statusInfo = app.getPreScheduleStatus(d);
-                
-                // 狀態顯示優化：加註四種定義
-                let displayText = statusInfo.text;
-                if (statusInfo.code === 'expired' || statusInfo.code === 'closed') displayText = '已鎖定(預班結束)';
-                if (statusInfo.code === 'published') displayText = '已鎖定(班表公佈)';
-                if (statusInfo.code === 'open' && d.isManualOpen) displayText = '開放中 (管理者開放)';
-
                 const progress = d.progress ? `${d.progress.submitted}/${d.progress.total}` : '0/0';
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
@@ -87,7 +80,7 @@ const preScheduleManager = {
                     <td style="font-weight:bold;">${d.year}-${String(d.month).padStart(2,'0')}</td>
                     <td><small>${d.settings.openDate} ~ ${d.settings.closeDate}</small></td>
                     <td>
-                        <span class="badge" style="background:${statusInfo.color}">${displayText}</span>
+                        <span class="badge" style="background:${statusInfo.color}">${statusInfo.text}</span>
                         ${(statusInfo.code === 'expired' || statusInfo.code === 'closed') ? 
                             `<br><a href="javascript:void(0)" onclick="preScheduleManager.reOpen('${doc.id}')" style="font-size:0.75rem; color:#3498db; text-decoration:underline;">[再開放]</a>` : ''}
                     </td>
