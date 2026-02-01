@@ -375,7 +375,7 @@ const staffScheduleManager = {
         if (!confirm(confirmMsg)) return;
         
         try {
-            // 恢復使用當前模組實例中的 UID (支援模擬使用者 ID)
+            // 使用當前模組實例中的 UID (支援管理員模擬使用者 ID)
             const targetRequesterId = this.currentUid;
             
             const reqData = {
@@ -397,14 +397,8 @@ const staffScheduleManager = {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
             
-            console.log('🔍 [Debug] 準備提交換班申請:');
-            console.log('   - Requester ID (Simulated/Real):', targetRequesterId);
-            console.log('   - Auth UID (Real):', firebase.auth().currentUser ? firebase.auth().currentUser.uid : 'Not Logged In');
-            console.log('   - Request Data:', JSON.parse(JSON.stringify(reqData))); // 避免 serverTimestamp 報錯
-            console.log('   - Collection: shift_requests');
-            
-            const docRef = await db.collection('shift_requests').add(reqData);
-            console.log('✅ [Debug] 申請提交成功, ID:', docRef.id);
+            // 提交申請
+            await db.collection('shift_requests').add(reqData);
             
             alert('✅ 換班申請已送出！\n請等待對方同意及護理長核准。');
             this.closeExchangeModal();
