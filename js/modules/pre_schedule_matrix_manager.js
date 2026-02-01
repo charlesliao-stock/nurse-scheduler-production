@@ -124,8 +124,12 @@ const matrixManager = {
     loadScheduleData: async function() {
         const doc = await db.collection('pre_schedules').doc(this.docId).get();
         this.data = doc.data();
+        
+        // 🚀 關鍵修正：確保從 Firestore 讀取最新的 assignments
         this.localAssignments = this.data.assignments || {};
         this.historyCorrections = this.data.historyCorrections || {}; 
+        
+        console.log("Loaded localAssignments:", Object.keys(this.localAssignments).length, "users");
         
         if(!this.data.specificNeeds) {
             this.data.specificNeeds = {};
@@ -384,21 +388,43 @@ const matrixManager = {
     },
 
     getDateStr: function(d) { return `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`; },
-
     bindCellEvents: function() {
         const cells = document.querySelectorAll('.cell-clickable');
         cells.forEach(cell => {
+            // 1. 右鍵選單
             cell.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 this.handleRightClick(e, cell.dataset.uid, cell.dataset.day, cell.dataset.type);
             });
+
+            // 2. 左鍵點擊 (預設切換 OFF)
             cell.addEventListener('click', (e) => {
-                if (cell.dataset.type === 'history') {
-                    this.setHistoryShift(cell.dataset.uid, cell.dataset.day, 'OFF');
+                e.preventDefault();
+                const uid = cell.dataset.uid;
+                const day = cell.dataset.day;
+                const type = cell.dataset.type;
+
+                if (type === 'history') {
+                    // 歷史資料切換
+                    const currentVal = this.historyCorrections[uid]?.[`last_${day}`];
+                    const newVal = (currentVal === 'OFF') ? null : 'OFF';
+                    this.setHistoryShift(uid, day, newVal);
+                } else {
+                    // 當前預班切換 (左鍵預設 OFF)
+                    const key = `current_${day}`;
+                    const currentVal = this.localAssignments[uid]?.[key];
+                    const newVal = (currentVal === 'REQ_OFF') ? null : 'REQ_OFF';
+                    this.setShift(uid, key, newVal);
                 }
             });
         });
-        document.addEventListener('click', () => { document.getElementById('customContextMenu').style.display='none'; });
+
+        // 點擊其他地方關閉選單
+        document.addEventListener('click', () => {
+            const menu = document.getElementById('customContextMenu');
+            if (menu) menu.style.display = 'none';
+        }, { once: false });
     },
 
     // 🔥 修正：右鍵選單跟隨鼠標位置 + 語法錯誤修正
