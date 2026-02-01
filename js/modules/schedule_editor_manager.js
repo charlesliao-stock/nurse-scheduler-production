@@ -104,15 +104,12 @@ const scheduleEditorManager = {
         }
         finally { 
             this.isLoading = false; 
+            const loader = document.getElementById('globalLoader');
+            if (loader) loader.remove();
         }
     },
 
-    showLoading: function() {
-        const body = document.getElementById('schBody');
-        if (body) {
-            body.innerHTML = '<tr><td colspan="20" style="text-align:center; padding:20px;">載入中...</td></tr>';
-        }
-    },
+
 
     initContextMenu: function() {
         if (!document.getElementById('schContextMenu')) {
@@ -1016,9 +1013,6 @@ const scheduleEditorManager = {
     resetSchedule: async function() {
         if(!confirm("確定要重置嗎？這將會清除目前所有手動排班，並重新從預班表載入預班資料。")) return;
         
-        this.isLoading = true;
-        this.showLoading();
-        
         try {
             // 1. 嘗試從 sourceId (預班表 ID) 重新獲取原始預班資料
             let sourceAssignments = {};
@@ -1065,6 +1059,8 @@ const scheduleEditorManager = {
             this.renderMatrix();
         } finally {
             this.isLoading = false;
+            const loader = document.getElementById('globalLoader');
+            if (loader) loader.remove();
         }
     },
     
