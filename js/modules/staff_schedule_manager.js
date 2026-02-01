@@ -375,14 +375,16 @@ const staffScheduleManager = {
         if (!confirm(confirmMsg)) return;
         
         try {
-            const currentUid = app.getUid();
+            // 強制從 Firebase Auth 獲取最權威的 UID，避免與資料庫中的舊 UID 衝突
+            const authUid = firebase.auth().currentUser ? firebase.auth().currentUser.uid : app.getUid();
+            
             const reqData = {
                 scheduleId: this.scheduleData.id || null,
                 unitId: this.scheduleData.unitId || null, 
                 year: this.currentYear,
                 month: this.currentMonth,
                 day: this.selectedDay,
-                requesterId: currentUid,
+                requesterId: authUid,
                 requesterName: myName || 'Unknown',
                 requesterShift: this.selectedShift || '',
                 targetId: targetUid,
@@ -396,7 +398,7 @@ const staffScheduleManager = {
             };
             
             console.log('🔍 [Debug] 準備提交換班申請:');
-            console.log('   - Current UID (Auth):', currentUid);
+            console.log('   - Auth UID (Real):', authUid);
             console.log('   - Request Data:', JSON.parse(JSON.stringify(reqData))); // 避免 serverTimestamp 報錯
             console.log('   - Collection: shift_requests');
             
