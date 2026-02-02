@@ -374,11 +374,11 @@ const staffScheduleManager = {
         
         if (!confirm(confirmMsg)) return;
         
+        // 定義請求者 ID 於 try-catch 外部，確保 catch 區塊可存取
+        const targetRequesterId = this.currentUid;
+
         try {
             console.log('--- 換班申請提交流程開始 ---');
-            
-            // 使用當前模組實例中的 UID (支援管理員模擬使用者 ID)
-            const targetRequesterId = this.currentUid;
             
             // 檢查 Firebase 認證狀態
             const currentUser = firebase.auth().currentUser;
@@ -425,12 +425,12 @@ const staffScheduleManager = {
             
             // 特別針對權限錯誤提供建議
             if (error.message.includes('permission') || error.code === 'permission-denied') {
-                const authUid = firebase.auth().currentUser ? firebase.auth().currentUser.uid : '未登入';
-                const reqUid = targetRequesterId;
+                const authUid = (firebase.auth().currentUser) ? firebase.auth().currentUser.uid : '未登入';
+                const reqUid = targetRequesterId || '未知';
                 
                 console.warn('💡 診斷建議: 發生 Firebase 權限錯誤 (Permission Denied)。');
                 if (authUid !== reqUid) {
-                    console.warn(`👉 注意：目前處於「模擬模式」。\n   - 實際登入者 (Auth UID): ${authUid}\n   - 試圖代表寫入者 (Requester UID): ${reqUid}\n   Firestore Security Rules 通常會檢查 request.auth.uid == request.resource.data.requesterId。\n   如果規則不允許管理員代表他人寫入，則會失敗。`);
+                    console.warn(`👉 注意：目前處於「模擬模式」。\n   - 實際登入者 (Auth UID): ${authUid}\n   - 試圖代表寫入者 (Requester UID): ${reqUid}\n   這極大可能是因為 Firestore Security Rules 限制了只有本人才能發起申請。\n   \n   ✅ 修復建議：請在 Firebase Console 的 Rules 中，允許 system_admin 角色也能寫入 shift_requests。`);
                 } else {
                     console.warn('👉 目前非模擬模式或 UID 一致，請檢查 Firestore Security Rules 是否允許該使用者寫入 shift_requests 集合，或檢查資料欄位是否符合規則限制。');
                 }
