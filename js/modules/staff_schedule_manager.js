@@ -374,17 +374,20 @@ const staffScheduleManager = {
         
         if (!confirm(confirmMsg)) return;
         
-        // 定義請求者 ID 於 try-catch 外部，確保 catch 區塊可存取
-        const targetRequesterId = this.currentUid;
+        // 關鍵：確保使用正確的 UID (優先使用模擬 UID)
+        const targetRequesterId = this.currentUid || app.getUid();
 
         try {
             console.log('--- 換班申請提交流程開始 ---');
             
             // 檢查 Firebase 認證狀態
             const currentUser = firebase.auth().currentUser;
-            console.log('1. [Auth 狀態檢查]');
-            console.log('   - 當前 Firebase Auth UID:', currentUser ? currentUser.uid : '未登入');
-            console.log('   - 模擬/實際 Requester UID:', targetRequesterId);
+            const isImpersonating = app.impersonatedUid && app.impersonatedUid === targetRequesterId;
+
+            console.log('1. [身分與 Auth 狀態檢查]');
+            console.log('   - 實際登入 (Auth UID):', currentUser ? currentUser.uid : '未登入');
+            console.log('   - 模擬狀態:', isImpersonating ? '✅ 模擬中' : '❌ 非模擬');
+            console.log('   - 最終寫入 (Requester UID):', targetRequesterId);
             
             const reqData = {
                 scheduleId: this.scheduleData.id || null,
@@ -392,7 +395,7 @@ const staffScheduleManager = {
                 year: this.currentYear,
                 month: this.currentMonth,
                 day: this.selectedDay,
-                requesterId: targetRequesterId,
+                requesterId: targetRequesterId, // 這裡會是模擬使用者的 UID
                 requesterName: myName || 'Unknown',
                 requesterShift: this.selectedShift || '',
                 targetId: targetUid,
