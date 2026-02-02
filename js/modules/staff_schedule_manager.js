@@ -389,6 +389,22 @@ const staffScheduleManager = {
             console.log('   - 模擬狀態:', isImpersonating ? '✅ 模擬中' : '❌ 非模擬');
             console.log('   - 最終寫入 (Requester UID):', targetRequesterId);
             
+            // 測試 Security Rules 邏輯：檢查當前登入者在資料庫中的角色
+            if (currentUser) {
+                try {
+                    const userDoc = await db.collection('users').doc(currentUser.uid).get();
+                    if (userDoc.exists) {
+                        const userData = userDoc.data();
+                        console.log(`   - 登入者角色 (DB Role): ${userData.role}`);
+                        console.log(`   - 是否符合 isSystemAdminAdvanced 條件: ${currentUser.uid === '4h62TGbHD4WP73IFoDbtqf6JHDi2' || userData.role === 'system_admin'}`);
+                    } else {
+                        console.log('   - ⚠️ 找不到登入者的 User Document，這會導致 isSystemAdminAdvanced() 失敗');
+                    }
+                } catch (e) {
+                    console.warn('   - ⚠️ 無法讀取 User Document 進行診斷:', e.message);
+                }
+            }
+            
             const reqData = {
                 scheduleId: this.scheduleData.id || null,
                 unitId: this.scheduleData.unitId || null, 
