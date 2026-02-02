@@ -429,10 +429,14 @@ const staffScheduleManager = {
                 const reqUid = targetRequesterId || '未知';
                 
                 console.warn('💡 診斷建議: 發生 Firebase 權限錯誤 (Permission Denied)。');
+                console.warn(`👉 當前狀態：\n   - 實際登入者 (Auth UID): ${authUid}\n   - 試圖代表寫入者 (Requester UID): ${reqUid}`);
+                
                 if (authUid !== reqUid) {
-                    console.warn(`👉 注意：目前處於「模擬模式」。\n   - 實際登入者 (Auth UID): ${authUid}\n   - 試圖代表寫入者 (Requester UID): ${reqUid}\n   這極大可能是因為 Firestore Security Rules 限制了只有本人才能發起申請。\n   \n   ✅ 修復建議：請在 Firebase Console 的 Rules 中，允許 system_admin 角色也能寫入 shift_requests。`);
+                    console.warn('❌ 錯誤原因：目前處於「模擬模式」，但您的 Security Rules 第 159 行限制了 `requesterId == request.auth.uid`。');
+                    console.warn('✅ 修復建議：請將 Rules 第 158-159 行修改為允許管理員建立申請，例如：\n' +
+                                 '   allow create: if isSignedIn() && (request.resource.data.requesterId == request.auth.uid || isSystemAdminAdvanced());');
                 } else {
-                    console.warn('👉 目前非模擬模式或 UID 一致，請檢查 Firestore Security Rules 是否允許該使用者寫入 shift_requests 集合，或檢查資料欄位是否符合規則限制。');
+                    console.warn('👉 目前非模擬模式，請檢查資料欄位是否完整（例如 unitId, scheduleId 是否為 null）或符合 Rules 其他限制。');
                 }
             }
             
