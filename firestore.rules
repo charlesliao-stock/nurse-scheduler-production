@@ -1,0 +1,193 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // --- 輔助函數 ---
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    // 系統管理員判定 - 只用 UID 硬編碼 (緊急後門)
+    function isSystemAdmin() {
+      return isSignedIn() && request.auth.uid == "4h62TGbHD4WP73IFoDbtqf6JHDi2";
+    }
+    
+    // 進階管理員判定 - (UID 硬編碼 OR 資料庫 Role 欄位)
+    function isSystemAdminAdvanced() {
+      return isSystemAdmin() || 
+             (isSignedIn() && 
+              exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'system_admin');
+    }
+    
+    // 單位管理職判定 (護理長或排班人員) - 改從 users collection 取得資料
+    function isUnitManager() {
+      return isSignedIn() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'unit_manager' || 
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'unit_scheduler');
+    }
+
+    // 檢查是否為同一單位 - 改從 users collection 取得資料
+    function isMyUnit(docUnitId) {
+      return isSignedIn() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.unitId == docUnitId;
+    }
+    
+    // --- 集合規則 ---
+    
+    // 1. 單位資料
+    match /units/{unitId} {
+      allow read: if isSignedIn();
+      allow write: if isSystemAdminAdvanced();
+    }
+    
+    // 2. 使用者資料
+    match /users/{userId} {
+      // 讀取單個文件：
+      // - 登入者可讀取自己的資料（文件 ID = 自己的 UID）
+      // - 管理員可讀取所有人
+      allow get: if isSignedIn() && (request.auth.uid == userId || isSystemAdminAdvanced());
+      
+      // 查詢列表：
+      // - 管理員可以查詢所有記錄
+      // - 已登入使用者可以進行有限查詢（用於開通驗證）
+      allow list: if isSystemAdminAdvanced() || isSignedIn();
+      
+      // 建立：允許管理員建立任何記錄，或員工開通時建立自己的記錄
+      // 注意：這個規則在登出狀態下也能執行（使用 Firestore 的匿名訪問）
+      allow create: if isSystemAdminAdvanced() ||
+                       (isSignedIn() && 
+                        request.auth.uid == userId && 
+                        request.resource.data.uid == request.auth.uid &&
+                        request.resource.data.isRegistered == true) ||
+                       // 允許快速開通時的無身份寫入（文件 ID 必須等於 uid 欄位）
+                       (request.resource.data.uid == userId &&
+                        request.resource.data.isRegistered == true);
+      
+      // 更新：允許本人修改自己的資料，或管理員修改所有人
+      allow update: if isSignedIn() && (request.auth.uid == userId || isSystemAdminAdvanced());
+      
+      // 刪除：管理員可刪除任何文件
+      allow delete: if isSystemAdminAdvanced() || 
+                       (isSignedIn() && 
+                        resource.data.isRegistered == false && 
+                        resource.data.email == request.auth.token.email);
+    }
+    
+    // 2-1. 員工資料 (staff collection)
+    match /staff/{staffId} {
+      // 讀取：所有登入使用者都可以讀取（用於換班時查詢對方資料）
+      allow read: if isSignedIn();
+      
+      // 寫入：只有系統管理員和單位管理職可以寫入
+      allow write: if isSystemAdminAdvanced() || isUnitManager();
+    }
+    
+    // 3. 班別設定
+    match /shifts/{shiftId} {
+      allow read: if isSignedIn();
+      allow write: if isSystemAdminAdvanced() || 
+                      (isSignedIn() && 
+                       request.resource.data.unitId != null &&
+                       isMyUnit(request.resource.data.unitId));
+    }
+    
+    // 4. 正式班表
+    match /schedules/{scheduleId} {
+      // 讀取單個文件：檢查是否同單位
+      allow get: if isSystemAdminAdvanced() || 
+                    (isSignedIn() && 
+                     resource.data.unitId != null &&
+                     isMyUnit(resource.data.unitId));
+      
+      // 查詢列表：允許已登入使用者查詢（會在應用層過濾單位）
+      allow list: if isSignedIn();
+                      
+      allow write: if isSystemAdminAdvanced() || 
+                      (isSignedIn() && 
+                       request.resource.data.unitId != null &&
+                       isMyUnit(request.resource.data.unitId));
+    }
+    
+    // 5. 預班表
+    match /pre_schedules/{docId} {
+      // 讀取單個文件：檢查是否同單位
+      allow get: if isSystemAdminAdvanced() || 
+                    (isSignedIn() && 
+                     resource.data.unitId != null &&
+                     isMyUnit(resource.data.unitId));
+      
+      // 查詢列表：允許已登入使用者查詢（會在應用層過濾單位）
+      allow list: if isSignedIn();
+                      
+      allow write: if isSystemAdminAdvanced() || 
+                      (isSignedIn() && 
+                       request.resource.data.unitId != null &&
+                       isMyUnit(request.resource.data.unitId));
+    }
+    
+    // 6. 系統選單
+    match /system_menus/{menuId} {
+      allow read: if isSignedIn();
+      allow write: if isSystemAdminAdvanced();
+    }
+    
+    // 7. 系統角色
+    match /system_roles/{roleId} {
+      allow read: if isSignedIn();
+      allow write: if isSystemAdminAdvanced();
+    }
+
+    // 8. 換班申請單
+    match /shift_requests/{requestId} {
+      // 讀取單個文件：檢查是否為申請人、被申請人、管理員或單位管理職
+      allow get: if isSignedIn() && (
+        resource.data.requesterId == request.auth.uid ||
+        resource.data.targetId == request.auth.uid ||
+        isSystemAdminAdvanced() ||
+        (resource.data.unitId != null && isMyUnit(resource.data.unitId) && isUnitManager())
+      );
+      
+      // 查詢列表：允許已登入使用者查詢（會在應用層過濾）
+      allow list: if isSignedIn();
+      
+      // 建立：只要是系統管理員，不論模擬誰都能建立；或者本人建立
+      allow create: if isSignedIn() && (
+        isSystemAdminAdvanced() || 
+        request.resource.data.requesterId == request.auth.uid
+      );
+      
+      // 更新：申請人、被申請人、管理員或單位管理職可以更新
+      allow update: if isSignedIn() && (
+        resource.data.requesterId == request.auth.uid ||
+        resource.data.targetId == request.auth.uid ||
+        isSystemAdminAdvanced() ||
+        (resource.data.unitId != null && isMyUnit(resource.data.unitId) && isUnitManager())
+      );
+      
+      // 刪除：只有系統管理員可以刪除
+      allow delete: if isSystemAdminAdvanced();
+    }
+    
+    // 9. 系統儀表板項目
+    match /system_dashboard_items/{itemId} {
+      allow read: if isSignedIn();
+      allow write: if isSystemAdminAdvanced();
+    }
+    
+    // 10. 系統日誌/錯誤記錄
+    match /system_logs/{logId} {
+      allow read: if isSystemAdminAdvanced();
+      allow create: if isSignedIn();
+    }
+    
+    match /system_errors/{errorId} {
+      allow read: if isSystemAdminAdvanced();
+      allow create: if isSignedIn();
+    }
+
+  }
+}
