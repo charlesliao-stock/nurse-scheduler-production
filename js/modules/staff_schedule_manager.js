@@ -375,8 +375,16 @@ const staffScheduleManager = {
         if (!confirm(confirmMsg)) return;
         
         try {
+            console.log('--- 換班申請提交流程開始 ---');
+            
             // 使用當前模組實例中的 UID (支援管理員模擬使用者 ID)
             const targetRequesterId = this.currentUid;
+            
+            // 檢查 Firebase 認證狀態
+            const currentUser = firebase.auth().currentUser;
+            console.log('1. [Auth 狀態檢查]');
+            console.log('   - 當前 Firebase Auth UID:', currentUser ? currentUser.uid : '未登入');
+            console.log('   - 模擬/實際 Requester UID:', targetRequesterId);
             
             const reqData = {
                 scheduleId: this.scheduleData.id || null,
@@ -397,14 +405,31 @@ const staffScheduleManager = {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
             
+            console.log('2. [待提交數據檢查]');
+            console.log('   - 數據內容:', JSON.stringify(reqData, null, 2));
+            
             // 提交申請
-            await db.collection('shift_requests').add(reqData);
+            console.log('3. [執行 Firestore 寫入] 集合: shift_requests');
+            const docRef = await db.collection('shift_requests').add(reqData);
+            console.log('   - 寫入成功, 文件 ID:', docRef.id);
             
             alert('✅ 換班申請已送出！\n請等待對方同意及護理長核准。');
             this.closeExchangeModal();
             
         } catch (error) {
-            console.error('提交換班申請失敗:', error);
+            console.error('--- 換班申請提交出錯 ---');
+            console.error('錯誤類型:', error.name);
+            console.error('錯誤訊息:', error.message);
+            if (error.code) console.error('錯誤代碼:', error.code);
+            console.error('完整錯誤對象:', error);
+            
+            // 特別針對權限錯誤提供建議
+            if (error.message.includes('permission') || error.code === 'permission-denied') {
+                console.warn('💡 診斷建議: 發生 Firebase 權限錯誤。這通常是因為 Firestore Security Rules 不允許當前使用者 (UID: ' + 
+                    (firebase.auth().currentUser ? firebase.auth().currentUser.uid : '未登入') + 
+                    ') 寫入資料到 shift_requests 集合，或者資料格式不符合 Rule 的規範。');
+            }
+            
             alert('提交失敗: ' + error.message);
         }
     },
