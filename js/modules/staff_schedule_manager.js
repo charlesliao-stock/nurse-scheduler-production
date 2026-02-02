@@ -425,9 +425,15 @@ const staffScheduleManager = {
             
             // 特別針對權限錯誤提供建議
             if (error.message.includes('permission') || error.code === 'permission-denied') {
-                console.warn('💡 診斷建議: 發生 Firebase 權限錯誤。這通常是因為 Firestore Security Rules 不允許當前使用者 (UID: ' + 
-                    (firebase.auth().currentUser ? firebase.auth().currentUser.uid : '未登入') + 
-                    ') 寫入資料到 shift_requests 集合，或者資料格式不符合 Rule 的規範。');
+                const authUid = firebase.auth().currentUser ? firebase.auth().currentUser.uid : '未登入';
+                const reqUid = targetRequesterId;
+                
+                console.warn('💡 診斷建議: 發生 Firebase 權限錯誤 (Permission Denied)。');
+                if (authUid !== reqUid) {
+                    console.warn(`👉 注意：目前處於「模擬模式」。\n   - 實際登入者 (Auth UID): ${authUid}\n   - 試圖代表寫入者 (Requester UID): ${reqUid}\n   Firestore Security Rules 通常會檢查 request.auth.uid == request.resource.data.requesterId。\n   如果規則不允許管理員代表他人寫入，則會失敗。`);
+                } else {
+                    console.warn('👉 目前非模擬模式或 UID 一致，請檢查 Firestore Security Rules 是否允許該使用者寫入 shift_requests 集合，或檢查資料欄位是否符合規則限制。');
+                }
             }
             
             alert('提交失敗: ' + error.message);
