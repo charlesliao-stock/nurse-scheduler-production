@@ -427,6 +427,10 @@ const staffScheduleManager = {
             console.log('2. [待提交數據檢查]');
             console.log('   - 數據內容:', JSON.stringify(reqData, null, 2));
             
+            // 診斷：檢查關鍵欄位是否為空
+            if (!reqData.unitId) console.warn('   - ⚠️ 警告：unitId 為空，這可能導致 isMyUnit() 相關規則失敗');
+            if (!reqData.scheduleId) console.warn('   - ⚠️ 警告：scheduleId 為空');
+            
             // 提交申請
             console.log('3. [執行 Firestore 寫入] 集合: shift_requests');
             const docRef = await db.collection('shift_requests').add(reqData);
