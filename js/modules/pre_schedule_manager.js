@@ -130,8 +130,6 @@ const preScheduleManager = {
         const daysInMonth = new Date(year, month, 0).getDate();
         const dailyNeeds = data.dailyNeeds || {};
         const specificNeeds = data.specificNeeds || {};
-        const dailyReserved = parseInt(data.settings?.dailyReserved) || 0;
-
         let totalAvailableOff = 0;
 
         for (let day = 1; day <= daysInMonth; day++) {
@@ -152,7 +150,8 @@ const preScheduleManager = {
                 });
             }
 
-            const available = Math.max(0, staffCount - dailyNeedCount - dailyReserved);
+            // 修正公式：不再扣除每日保留名額
+            const available = Math.max(0, staffCount - dailyNeedCount);
             totalAvailableOff += available;
         }
 
