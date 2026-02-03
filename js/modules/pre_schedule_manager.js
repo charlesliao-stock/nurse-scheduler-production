@@ -147,6 +147,12 @@ const preScheduleManager = {
         this.renderSpecificNeedsUI(data.specificNeeds || {});
         this.renderGroupLimitsUI(data.groupLimits || {});
         this.renderStaffList();
+        
+        // 清除搜尋結果
+        const results = document.getElementById('searchResults');
+        if(results) results.innerHTML = '';
+        const searchInput = document.getElementById('inputSearchStaff');
+        if(searchInput) searchInput.value = '';
     },
 
     saveData: async function() {
@@ -282,14 +288,138 @@ const preScheduleManager = {
 
     renderStaffList: function() {
         const tbody = document.getElementById('preStaffBody'); if(!tbody) return;
-        this.staffListSnapshot.sort((a,b)=>(a[this.staffSortState.field]>b[this.staffSortState.field]?1:-1));
-        tbody.innerHTML = this.staffListSnapshot.map((s, idx) => `<tr><td>${s.empId}</td><td>${s.name}</td><td>${s.level}</td><td><select onchange="preScheduleManager.updateStaffGroup(${idx}, this.value)"><option value="">無</option>${this.currentUnitGroups.map(g=>`<option value="${g}" ${s.group===g?'selected':''}>${g}</option>`).join('')}</select></td><td>${s.isSupport?'支援':'本單位'}</td><td><button class="btn btn-delete btn-sm" onclick="preScheduleManager.removeStaff(${idx})">移除</button></td></tr>`).join('');
+        
+        // 排序邏輯
+        const field = this.staffSortState.field;
+        const order = this.staffSortState.order === 'asc' ? 1 : -1;
+        
+        this.staffListSnapshot.sort((a, b) => {
+            let valA = a[field] || '';
+            let valB = b[field] || '';
+            if (typeof valA === 'string') valA = valA.toLowerCase();
+            if (typeof valB === 'string') valB = valB.toLowerCase();
+            if (valA < valB) return -1 * order;
+            if (valA > valB) return 1 * order;
+            return 0;
+        });
+
+        tbody.innerHTML = this.staffListSnapshot.map((s, idx) => `
+            <tr>
+                <td>${s.empId}</td>
+                <td>${s.name}</td>
+                <td>${s.level}</td>
+                <td>
+                    <select onchange="preScheduleManager.updateStaffGroup(${idx}, this.value)" class="form-control form-control-sm">
+                        <option value="">無</option>
+                        ${this.currentUnitGroups.map(g => `<option value="${g}" ${s.group === g ? 'selected' : ''}>${g}</option>`).join('')}
+                    </select>
+                </td>
+                <td>
+                    <span class="badge ${s.isSupport ? 'badge-info' : 'badge-secondary'}" style="background: ${s.isSupport ? '#17a2b8' : '#6c757d'}; color: white; padding: 2px 5px; border-radius: 3px; font-size: 0.75rem;">
+                        ${s.isSupport ? '支援' : '本單位'}
+                    </span>
+                </td>
+                <td>
+                    <button class="btn btn-delete btn-sm" onclick="preScheduleManager.removeStaff(${idx})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+        
         const badge = document.getElementById('staffCountBadge');
         if(badge) badge.textContent = this.staffListSnapshot.length;
     },
 
+    sortStaff: function(field) {
+        if (this.staffSortState.field === field) {
+            this.staffSortState.order = this.staffSortState.order === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.staffSortState.field = field;
+            this.staffSortState.order = 'asc';
+        }
+        this.renderStaffList();
+    },
+
+    searchStaff: async function() {
+        const keyword = document.getElementById('inputSearchStaff').value.trim();
+        if (!keyword) { alert("請輸入姓名或員編"); return; }
+        
+        const resultsDiv = document.getElementById('searchResults');
+        resultsDiv.innerHTML = '<small>搜尋中...</small>';
+        
+        try {
+            // 搜尋姓名
+            const snapName = await db.collection('users')
+                .where('displayName', '>=', keyword)
+                .where('displayName', '<=', keyword + '\uf8ff')
+                .limit(10).get();
+            
+            // 搜尋員編
+            const snapId = await db.collection('users')
+                .where('employeeId', '==', keyword)
+                .limit(5).get();
+            
+            const results = [];
+            const seenUids = new Set();
+            
+            [snapName, snapId].forEach(snap => {
+                snap.forEach(doc => {
+                    if (!seenUids.has(doc.id)) {
+                        results.push({ uid: doc.id, ...doc.data() });
+                        seenUids.add(doc.id);
+                    }
+                });
+            });
+            
+            if (results.length === 0) {
+                resultsDiv.innerHTML = '<small style="color:red;">找不到人員</small>';
+                return;
+            }
+            
+            let html = '<div class="search-results-popup" style="position:absolute; background:white; border:1px solid #ddd; box-shadow:0 2px 10px rgba(0,0,0,0.1); z-index:100; max-height:200px; overflow-y:auto; width:250px;">';
+            results.forEach(u => {
+                html += `
+                    <div class="search-item" onclick='preScheduleManager.addSupportStaff(${JSON.stringify({
+                        uid: u.uid,
+                        name: u.displayName,
+                        empId: u.employeeId,
+                        level: u.level || 'N0'
+                    })})' style="padding:8px; border-bottom:1px solid #eee; cursor:pointer; font-size:0.9rem;">
+                        <strong>${u.displayName}</strong> <small>(${u.employeeId})</small>
+                        <div style="font-size:0.75rem; color:#666;">${u.unitName || '未知單位'}</div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            resultsDiv.innerHTML = html;
+            
+        } catch (e) {
+            console.error("Search Error:", e);
+            resultsDiv.innerHTML = '<small style="color:red;">搜尋出錯</small>';
+        }
+    },
+
+    addSupportStaff: function(staff) {
+        // 檢查是否已在名單中
+        if (this.staffListSnapshot.some(s => s.uid === staff.uid)) {
+            alert("此人員已在名單中");
+            return;
+        }
+        
+        this.staffListSnapshot.push({
+            ...staff,
+            group: '',
+            isSupport: true
+        });
+        
+        this.renderStaffList();
+        document.getElementById('searchResults').innerHTML = '';
+        document.getElementById('inputSearchStaff').value = '';
+    },
+
     updateStaffGroup: function(idx, val) { this.staffListSnapshot[idx].group = val; },
-    removeStaff: function(idx) { if(confirm('移除？')) { this.staffListSnapshot.splice(idx, 1); this.renderStaffList(); } },
+    removeStaff: function(idx) { if(confirm('確定要移除此人員嗎？')) { this.staffListSnapshot.splice(idx, 1); this.renderStaffList(); } },
     closeModal: function() { document.getElementById('preScheduleModal').classList.remove('show'); },
     switchTab: function(tab) { document.querySelectorAll('.tab-btn, .tab-content').forEach(el=>el.classList.remove('active')); document.getElementById(`tab-${tab}`).classList.add('active'); },
     loadUnitDataForModal: async function() { const sSnap = await db.collection('shifts').where('unitId','==',this.currentUnitId).orderBy('startTime').get(); this.activeShifts = sSnap.docs.map(d=>d.data()); const uDoc = await db.collection('units').doc(this.currentUnitId).get(); this.currentUnitGroups = uDoc.data().groups || []; },
