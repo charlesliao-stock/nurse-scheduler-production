@@ -231,21 +231,53 @@ const preScheduleManager = {
 
     renderGroupLimitsUI: function(savedData) {
         const container = document.getElementById('groupLimitTableContainer'); if(!container) return;
-        let html = `<div class="section-title">組別人力上限設定</div><table class="table table-sm"><thead><tr><th>組別</th>` + this.activeShifts.map(s=>`<th>${s.code}</th>`).join('') + `</tr></thead><tbody>`;
+        let html = `<div class="section-title">組別人力限制設定 (最少 ~ 最多)</div><div style="overflow-x:auto;"><table class="table table-sm text-center"><thead><tr><th>組別</th>` + this.activeShifts.map(s=>`<th>${s.code}</th>`).join('') + `</tr></thead><tbody>`;
         this.currentUnitGroups.forEach(g => {
             html += `<tr><td style="font-weight:bold;">${g}</td>`;
             this.activeShifts.forEach(s => {
-                html += `<td><input type="number" class="limit-input group-limit-input" data-group="${g}" data-shift="${s.code}" value="${savedData[g]?.[s.code]||''}" style="width:60px;"></td>`;
+                const limit = savedData[g]?.[s.code] || {};
+                // 支援舊格式 (單一數值)
+                const minVal = (typeof limit === 'object') ? (limit.min || '') : '';
+                const maxVal = (typeof limit === 'object') ? (limit.max || '') : (limit || '');
+                
+                html += `<td>
+                    <div style="display:flex; align-items:center; gap:2px; justify-content:center;">
+                        <input type="number" class="limit-input group-limit-min" data-group="${g}" data-shift="${s.code}" value="${minVal}" style="width:45px; padding:2px;" placeholder="最小">
+                        <span>~</span>
+                        <input type="number" class="limit-input group-limit-max" data-group="${g}" data-shift="${s.code}" value="${maxVal}" style="width:45px; padding:2px;" placeholder="最大">
+                    </div>
+                </td>`;
             });
             html += `</tr>`;
         });
-        container.innerHTML = html + `</tbody></table>`;
+        container.innerHTML = html + `</tbody></table></div>`;
     },
 
     getGroupLimitsFromDOM: function() {
-        const result = {}; document.querySelectorAll('.group-limit-input').forEach(input => {
-            const val = parseInt(input.value); if (!isNaN(val) && val > 0) { if(!result[input.dataset.group]) result[input.dataset.group] = {}; result[input.dataset.group][input.dataset.shift] = val; }
-        }); return result;
+        const result = {}; 
+        // 處理最大值
+        document.querySelectorAll('.group-limit-max').forEach(input => {
+            const g = input.dataset.group;
+            const s = input.dataset.shift;
+            const val = parseInt(input.value);
+            if (!isNaN(val) && val >= 0) {
+                if(!result[g]) result[g] = {};
+                if(!result[g][s]) result[g][s] = {};
+                result[g][s].max = val;
+            }
+        });
+        // 處理最小值
+        document.querySelectorAll('.group-limit-min').forEach(input => {
+            const g = input.dataset.group;
+            const s = input.dataset.shift;
+            const val = parseInt(input.value);
+            if (!isNaN(val) && val >= 0) {
+                if(!result[g]) result[g] = {};
+                if(!result[g][s]) result[g][s] = {};
+                result[g][s].min = val;
+            }
+        });
+        return result;
     },
 
     renderStaffList: function() {
