@@ -24,7 +24,8 @@
                     <th style="width: 15%;">預班月份</th>
                     <th style="width: 20%;">開放區間</th>
                     <th style="width: 10%;">狀態</th>
-                    <th style="width: 15%;">預班進度</th>
+                    <th style="width: 10%;">預班進度</th>
+                    <th style="width: 10%;">平均放假</th>
                     <th style="width: 25%;">操作</th>
                 </tr>
             </thead>
@@ -131,11 +132,13 @@
             <div id="tab-staff" class="tab-content">
                 <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
                     <div>共 <span id="staffCountBadge">0</span> 人</div>
-                    <div style="display:flex; gap:10px;">
-                        <input type="text" id="inputSearchStaff" placeholder="搜尋姓名/員編" class="form-control" style="width:150px;">
-                        <button class="btn btn-add" onclick="preScheduleManager.searchStaff()">搜尋</button>
+                    <div style="position:relative;">
+                        <div style="display:flex; gap:10px;">
+                            <input type="text" id="inputSearchStaff" placeholder="搜尋姓名/員編" class="form-control" style="width:150px;">
+                            <button class="btn btn-add" onclick="preScheduleManager.searchStaff()">搜尋</button>
+                        </div>
+                        <div id="searchResults" style="position:absolute; top:100%; left:0; right:0; z-index:1000;"></div>
                     </div>
-                    <div id="searchResults"></div>
                 </div>
                 <div style="height: 400px; overflow-y: auto; border: 1px solid #ddd;">
                     <table style="width:100%;" class="table table-sm">
