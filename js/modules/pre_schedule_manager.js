@@ -230,7 +230,7 @@ const preScheduleManager = {
     getSpecificNeedsFromDOM: function() { return this.tempSpecificNeeds; },
 
     renderGroupLimitsUI: function(savedData) {
-        const container = document.getElementById('groupLimitTableContainer'); if(!container || this.currentUnitGroups.length === 0) return;
+        const container = document.getElementById('groupLimitTableContainer'); if(!container) return;
         let html = `<div class="section-title">組別人力上限設定</div><table class="table table-sm"><thead><tr><th>組別</th>` + this.activeShifts.map(s=>`<th>${s.code}</th>`).join('') + `</tr></thead><tbody>`;
         this.currentUnitGroups.forEach(g => {
             html += `<tr><td style="font-weight:bold;">${g}</td>`;
@@ -252,6 +252,8 @@ const preScheduleManager = {
         const tbody = document.getElementById('preStaffBody'); if(!tbody) return;
         this.staffListSnapshot.sort((a,b)=>(a[this.staffSortState.field]>b[this.staffSortState.field]?1:-1));
         tbody.innerHTML = this.staffListSnapshot.map((s, idx) => `<tr><td>${s.empId}</td><td>${s.name}</td><td>${s.level}</td><td><select onchange="preScheduleManager.updateStaffGroup(${idx}, this.value)"><option value="">無</option>${this.currentUnitGroups.map(g=>`<option value="${g}" ${s.group===g?'selected':''}>${g}</option>`).join('')}</select></td><td>${s.isSupport?'支援':'本單位'}</td><td><button class="btn btn-delete btn-sm" onclick="preScheduleManager.removeStaff(${idx})">移除</button></td></tr>`).join('');
+        const badge = document.getElementById('staffCountBadge');
+        if(badge) badge.textContent = this.staffListSnapshot.length;
     },
 
     updateStaffGroup: function(idx, val) { this.staffListSnapshot[idx].group = val; },
@@ -260,8 +262,66 @@ const preScheduleManager = {
     switchTab: function(tab) { document.querySelectorAll('.tab-btn, .tab-content').forEach(el=>el.classList.remove('active')); document.getElementById(`tab-${tab}`).classList.add('active'); },
     loadUnitDataForModal: async function() { const sSnap = await db.collection('shifts').where('unitId','==',this.currentUnitId).orderBy('startTime').get(); this.activeShifts = sSnap.docs.map(d=>d.data()); const uDoc = await db.collection('units').doc(this.currentUnitId).get(); this.currentUnitGroups = uDoc.data().groups || []; },
     loadCurrentUnitStaff: async function() { const snap = await db.collection('users').where('unitId','==',this.currentUnitId).where('isActive','==',true).get(); this.staffListSnapshot = snap.docs.map(d=>({uid:d.id, name:d.data().displayName, empId:d.data().employeeId, level:d.data().level, group:'', isSupport:false})); },
-    fillForm: function(data) { if(data.year) document.getElementById('inputPreYearMonth').value = `${data.year}-${String(data.month).padStart(2,'0')}`; const s = data.settings || {}; document.getElementById('inputOpenDate').value = s.openDate || ''; document.getElementById('inputCloseDate').value = s.closeDate || ''; document.getElementById('inputMaxOff').value = s.maxOffDays || 8; document.getElementById('inputShiftMode').value = s.shiftTypeMode || "3"; this.toggleThreeShiftOption(); },
+    fillForm: function(data) { 
+        if(data.year) document.getElementById('inputPreYearMonth').value = `${data.year}-${String(data.month).padStart(2,'0')}`; 
+        const s = data.settings || {}; 
+        document.getElementById('inputOpenDate').value = s.openDate || ''; 
+        document.getElementById('inputCloseDate').value = s.closeDate || ''; 
+        document.getElementById('inputMaxOff').value = s.maxOffDays || 8; 
+        document.getElementById('inputMaxHoliday').value = s.maxHolidayOffs || 2;
+        document.getElementById('inputDailyReserve').value = s.dailyReserved || 1;
+        document.getElementById('inputShiftMode').value = s.shiftTypeMode || "3"; 
+        document.getElementById('checkShowAllNames').checked = s.showAllNames !== false;
+        if(document.getElementById('checkAllowThree')) document.getElementById('checkAllowThree').checked = s.allowThreeShifts || false;
+        this.toggleThreeShiftOption(); 
+    },
     toggleThreeShiftOption: function() { const mode = document.getElementById('inputShiftMode')?.value; const container = document.getElementById('threeShiftOption'); if(container) container.style.display = (mode === "2") ? 'block' : 'none'; },
     manage: function(docId) { window.location.hash = `/admin/pre_schedule_matrix?id=${docId}`; },
-    deleteSchedule: async function(docId) { if(confirm("確定刪除？")) { await db.collection('pre_schedules').doc(docId).delete(); this.loadData(); } }
+    deleteSchedule: async function(docId) { if(confirm("確定刪除？")) { await db.collection('pre_schedules').doc(docId).delete(); this.loadData(); } },
+
+    importLastSettings: async function() {
+        if (!this.currentUnitId) return;
+        try {
+            const snapshot = await db.collection('pre_schedules')
+                .where('unitId', '==', this.currentUnitId)
+                .orderBy('year', 'desc')
+                .orderBy('month', 'desc')
+                .limit(1)
+                .get();
+
+            if (snapshot.empty) {
+                alert("找不到上個月的預班設定資料");
+                return;
+            }
+
+            const lastData = snapshot.docs[0].data();
+            
+            // 帶入人力需求與組別限制
+            this.renderDailyNeedsUI(lastData.dailyNeeds || {});
+            this.renderSpecificNeedsUI(lastData.specificNeeds || {});
+            this.renderGroupLimitsUI(lastData.groupLimits || {});
+            
+            // 帶入規則設定
+            const s = lastData.settings || {};
+            document.getElementById('inputMaxOff').value = s.maxOffDays || 8;
+            document.getElementById('inputMaxHoliday').value = s.maxHolidayOffs || 2;
+            document.getElementById('inputDailyReserve').value = s.dailyReserved || 1;
+            document.getElementById('inputShiftMode').value = s.shiftTypeMode || "3";
+            document.getElementById('checkShowAllNames').checked = s.showAllNames !== false;
+            if (document.getElementById('checkAllowThree')) {
+                document.getElementById('checkAllowThree').checked = s.allowThreeShifts || false;
+            }
+            
+            this.toggleThreeShiftOption();
+            
+            // 帶入人員名單
+            this.staffListSnapshot = lastData.staffList || [];
+            this.renderStaffList();
+            
+            alert("已成功帶入上月設定資料");
+        } catch (e) {
+            console.error("Import Error:", e);
+            alert("帶入資料失敗: " + e.message);
+        }
+    }
 };
