@@ -122,7 +122,6 @@ const systemStatisticsManager = {
                 }
                 
                 const [year, month] = monthStr.split('-').map(Number);
-                // 🔥 修正：改用 year 和 month 欄位查詢，而非 createdAt
                 scheduleQuery = scheduleQuery
                     .where('year', '==', year)
                     .where('month', '==', month);
@@ -138,8 +137,6 @@ const systemStatisticsManager = {
                 const [startYear, startMonth] = startMonthStr.split('-').map(Number);
                 const [endYear, endMonth] = endMonthStr.split('-').map(Number);
                 
-                // 範圍查詢在 Firestore 較複雜，此處先以單月邏輯為主，或改用 createdAt 輔助
-                // 為了簡化且精確，建議統計以單月為主，或在此處進行前端過濾
                 const startDate = new Date(startYear, startMonth - 1, 1);
                 const endDate = new Date(endYear, endMonth, 0, 23, 59, 59);
                 
@@ -157,7 +154,7 @@ const systemStatisticsManager = {
             
             // 篩選出已發布或最新的班表
             let scheduleDoc = snapshot.docs.find(doc => doc.data().status === 'published');
-            if (!scheduleDoc) scheduleDoc = snapshot.docs[0]; // 若無已發布，取第一個
+            if (!scheduleDoc) scheduleDoc = snapshot.docs[0]; 
             
             const scheduleData = scheduleDoc.data();
             
@@ -175,7 +172,7 @@ const systemStatisticsManager = {
             );
             
             // 生成分析報告
-            const report = typeof analysisReportGenerator !== 'undefined' ? 
+            const report = (typeof analysisReportGenerator !== 'undefined' && analysisReportGenerator.generateReport) ? 
                 analysisReportGenerator.generateReport(statistics) : null;
             
             this.currentStatistics = statistics;
@@ -204,6 +201,9 @@ const systemStatisticsManager = {
             year,
             month
         );
+        
+        statistics.status = scheduleData.status;
+        statistics.staffCount = staffList.length;
         
         return statistics;
     },
@@ -282,11 +282,11 @@ const systemStatisticsManager = {
                     <div class="stat-card-body">
                         <div class="stat-item" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
                             <span class="stat-label" style="color: #7f8c8d;">總換班次數</span>
-                            <span class="stat-value" style="font-weight: bold;">${statistics.exchangeCount || 0} 次</span>
+                            <span class="stat-value" style="font-weight: bold;">${statistics.exchangeStats?.totalExchanges || 0} 次</span>
                         </div>
                         <div class="stat-item" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                            <span class="stat-label" style="color: #7f8c8d;">成功換班</span>
-                            <span class="stat-value" style="font-weight: bold; color: #27ae60;">${statistics.successfulExchanges || 0} 次</span>
+                            <span class="stat-label" style="color: #7f8c8d;">缺班率</span>
+                            <span class="stat-value" style="font-weight: bold; color: #e74c3c;">${formatted.overallVacancyRate}</span>
                         </div>
                     </div>
                 </div>
@@ -296,7 +296,6 @@ const systemStatisticsManager = {
     
     // --- 8. 表格視圖 ---
     renderTableView: function(statistics, container) {
-        // 實作表格視圖渲染
         container.innerHTML = '<div style="padding: 20px; background: white; border-radius: 8px;">表格視圖開發中...</div>';
     },
     
@@ -307,5 +306,49 @@ const systemStatisticsManager = {
             reportContainer.innerHTML = report;
             reportContainer.style.display = 'block';
         }
+    },
+
+    // --- 10. 匯出 CSV ---
+    exportToCSV: function() {
+        if (!this.currentStatistics) {
+            alert("請先查詢統計資料");
+            return;
+        }
+
+        const stats = this.currentStatistics;
+        const formatted = systemStatisticsCalculator.formatStatisticsForDisplay(stats);
+        
+        let csvContent = "\uFEFF"; // UTF-8 BOM
+        csvContent += "統計項目,數值\n";
+        csvContent += `統計期間,${formatted.period}\n`;
+        csvContent += `排班人數,${stats.staffCount} 人\n`;
+        csvContent += `班表狀態,${stats.status === 'published' ? '已發布' : '草稿'}\n`;
+        csvContent += `排班嘗試次數,${stats.schedulingAttempts}\n`;
+        csvContent += `排班耗時,${formatted.schedulingTime}\n`;
+        csvContent += `原始分數,${formatted.originalScore}\n`;
+        csvContent += `當前分數,${formatted.currentScore}\n`;
+        csvContent += `分數改善,${formatted.scoreImprovement}\n`;
+        csvContent += `整體缺班率,${formatted.overallVacancyRate}\n`;
+        csvContent += `總換班次數,${stats.exchangeStats?.totalExchanges || 0}\n`;
+        csvContent += `總調整次數,${stats.adjustmentStats?.totalAdjustments || 0}\n`;
+
+        // 班別缺班率
+        csvContent += "\n班別,缺班率,缺班數,需求數\n";
+        if (stats.vacancyStats?.byShift) {
+            Object.keys(stats.vacancyStats.byShift).forEach(shift => {
+                const s = stats.vacancyStats.byShift[shift];
+                csvContent += `${shift},${s.rate}%,${s.vacancies},${s.required}\n`;
+            });
+        }
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", `系統統計_${stats.period}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     }
 };
