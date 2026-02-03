@@ -90,11 +90,11 @@ const systemStatisticsManager = {
     
     // --- 4. 載入統計資料 ---
     loadStatistics: async function() {
+        console.log("🔍 開始執行 loadStatistics...");
         try {
             const unitId = document.getElementById('unitFilter').value;
             const queryType = document.getElementById('queryType').value;
             
-            // ✅ 權限檢查：單位管理者必須選擇單位 - 使用當前有效角色和單位
             const activeRole = app.impersonatedRole || app.userRole;
             const activeUnitId = app.impersonatedUnitId || app.userUnitId;
             
@@ -106,83 +106,55 @@ const systemStatisticsManager = {
             }
             
             let scheduleQuery = db.collection('schedules');
-            
-            // 優先使用選擇的單位，若無則使用當前單位
             const targetUnitId = unitId || activeUnitId;
             if (targetUnitId) {
                 scheduleQuery = scheduleQuery.where('unitId', '==', targetUnitId);
             }
             
-            // 根據查詢方式篩選
             if (queryType === 'month') {
                 const monthStr = document.getElementById('statisticsMonth').value;
-                if (!monthStr) {
-                    alert('請選擇月份');
-                    return;
-                }
-                
+                if (!monthStr) { alert('請選擇月份'); return; }
                 const [year, month] = monthStr.split('-').map(Number);
-                scheduleQuery = scheduleQuery
-                    .where('year', '==', year)
-                    .where('month', '==', month);
+                scheduleQuery = scheduleQuery.where('year', '==', year).where('month', '==', month);
             } else {
                 const startMonthStr = document.getElementById('startMonth').value;
                 const endMonthStr = document.getElementById('endMonth').value;
-                
-                if (!startMonthStr || !endMonthStr) {
-                    alert('請選擇開始和結束月份');
-                    return;
-                }
-                
+                if (!startMonthStr || !endMonthStr) { alert('請選擇開始和結束月份'); return; }
                 const [startYear, startMonth] = startMonthStr.split('-').map(Number);
                 const [endYear, endMonth] = endMonthStr.split('-').map(Number);
-                
                 const startDate = new Date(startYear, startMonth - 1, 1);
                 const endDate = new Date(endYear, endMonth, 0, 23, 59, 59);
-                
-                scheduleQuery = scheduleQuery
-                    .where('updatedAt', '>=', startDate)
-                    .where('updatedAt', '<=', endDate);
+                scheduleQuery = scheduleQuery.where('updatedAt', '>=', startDate).where('updatedAt', '<=', endDate);
             }
             
+            console.log("📡 正在從 Firestore 抓取資料...");
             const snapshot = await scheduleQuery.get();
             
             if (snapshot.empty) {
+                console.log("⚠️ 找不到符合條件的班表資料");
                 alert('找不到符合條件的班表資料');
                 return;
             }
             
-            // 篩選出已發布或最新的班表
+            console.log(`✅ 找到 ${snapshot.size} 份班表資料`);
             let scheduleDoc = snapshot.docs.find(doc => doc.data().status === 'published');
             if (!scheduleDoc) scheduleDoc = snapshot.docs[0]; 
             
             const scheduleData = scheduleDoc.data();
-            
-            // 載入換班申請
-            const exchangeSnapshot = await db.collection('shift_requests')
-                .where('scheduleId', '==', scheduleDoc.id)
-                .get();
-            
+            console.log("📊 正在載入換班申請...");
+            const exchangeSnapshot = await db.collection('shift_requests').where('scheduleId', '==', scheduleDoc.id).get();
             const exchanges = exchangeSnapshot.docs.map(doc => doc.data());
             
-            // 計算統計資料
-            const statistics = await this.calculateStatistics(
-                scheduleData,
-                exchanges
-            );
-            
-            // 生成分析報告
-            const report = (typeof analysisReportGenerator !== 'undefined' && analysisReportGenerator.generateReport) ? 
-                analysisReportGenerator.generateReport(statistics) : null;
+            console.log("🧮 正在計算統計數據...");
+            const statistics = await this.calculateStatistics(scheduleData, exchanges);
             
             this.currentStatistics = statistics;
-            this.currentReport = report;
+            console.log("📈 統計數據計算完成:", statistics);
             
-            // 更新 UI
-            this.displayStatistics(statistics, report);
+            this.displayStatistics(statistics);
             
         } catch (e) {
-            console.error('載入統計資料失敗:', e);
+            console.error('❌ 載入統計資料失敗:', e);
             alert('載入失敗: ' + e.message);
         }
     },
@@ -193,7 +165,10 @@ const systemStatisticsManager = {
         const month = scheduleData.month || new Date().getMonth() + 1;
         const staffList = scheduleData.staffList || [];
         
-        // 使用 systemStatisticsCalculator 計算統計
+        if (typeof systemStatisticsCalculator === 'undefined') {
+            throw new Error("找不到統計計算模組 (systemStatisticsCalculator)");
+        }
+
         const statistics = await systemStatisticsCalculator.aggregateStatistics(
             scheduleData,
             staffList,
@@ -209,103 +184,90 @@ const systemStatisticsManager = {
     },
     
     // --- 6. 顯示統計資料 ---
-    displayStatistics: function(statistics, report) {
-        const container = document.getElementById('statisticsDisplay');
-        if (!container) return;
-        
-        // 根據顯示模式渲染
-        if (this.currentDisplayMode === 'cards') {
-            this.renderCardsView(statistics, container);
-        } else {
-            this.renderTableView(statistics, container);
-        }
-        
-        // 顯示分析報告
-        if (report) {
-            this.displayReport(report);
-        }
-    },
-    
-    // --- 7. 卡片視圖 ---
-    renderCardsView: function(statistics, container) {
+    displayStatistics: function(statistics) {
+        console.log("🖥️ 正在渲染 UI...");
         const formatted = systemStatisticsCalculator.formatStatisticsForDisplay(statistics);
         if (!formatted) return;
-        
-        container.innerHTML = `
-            <div class="statistics-cards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 20px;">
-                <!-- 基本資訊卡 -->
-                <div class="stat-card" style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
-                    <div class="stat-card-header" style="border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-                        <i class="fas fa-calendar" style="color: #3498db;"></i>
-                        <h3 style="margin: 0; font-size: 1.1rem;">基本資訊</h3>
-                    </div>
-                    <div class="stat-card-body">
-                        <div class="stat-item" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                            <span class="stat-label" style="color: #7f8c8d;">統計期間</span>
-                            <span class="stat-value" style="font-weight: bold;">${formatted.period}</span>
-                        </div>
-                        <div class="stat-item" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                            <span class="stat-label" style="color: #7f8c8d;">排班人數</span>
-                            <span class="stat-value" style="font-weight: bold;">${statistics.staffCount || 0} 人</span>
-                        </div>
-                        <div class="stat-item" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                            <span class="stat-label" style="color: #7f8c8d;">班表狀態</span>
-                            <span class="stat-value" style="font-weight: bold; color: #27ae60;">${statistics.status === 'published' ? '已發布' : '草稿'}</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- 評分卡 -->
-                <div class="stat-card" style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
-                    <div class="stat-card-header" style="border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-                        <i class="fas fa-star" style="color: #f1c40f;"></i>
-                        <h3 style="margin: 0; font-size: 1.1rem;">班表評分</h3>
-                    </div>
-                    <div class="stat-card-body">
-                        <div class="stat-item" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                            <span class="stat-label" style="color: #7f8c8d;">當前分數</span>
-                            <span class="stat-value" style="font-weight: bold; font-size: 1.2rem; color: #2c3e50;">${formatted.currentScore}</span>
-                        </div>
-                        <div class="stat-item" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                            <span class="stat-label" style="color: #7f8c8d;">規則達成率</span>
-                            <span class="stat-value" style="font-weight: bold;">${statistics.ruleCompliance || 0}%</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- 換班統計卡 -->
-                <div class="stat-card" style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
-                    <div class="stat-card-header" style="border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-                        <i class="fas fa-exchange-alt" style="color: #e67e22;"></i>
-                        <h3 style="margin: 0; font-size: 1.1rem;">換班統計</h3>
-                    </div>
-                    <div class="stat-card-body">
-                        <div class="stat-item" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                            <span class="stat-label" style="color: #7f8c8d;">總換班次數</span>
-                            <span class="stat-value" style="font-weight: bold;">${statistics.exchangeStats?.totalExchanges || 0} 次</span>
-                        </div>
-                        <div class="stat-item" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                            <span class="stat-label" style="color: #7f8c8d;">缺班率</span>
-                            <span class="stat-value" style="font-weight: bold; color: #e74c3c;">${formatted.overallVacancyRate}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-    },
-    
-    // --- 8. 表格視圖 ---
-    renderTableView: function(statistics, container) {
-        container.innerHTML = '<div style="padding: 20px; background: white; border-radius: 8px;">表格視圖開發中...</div>';
-    },
-    
-    // --- 9. 顯示報告 ---
-    displayReport: function(report) {
-        const reportContainer = document.getElementById('reportDisplay');
-        if (reportContainer) {
-            reportContainer.innerHTML = report;
-            reportContainer.style.display = 'block';
+
+        // 1. 更新卡片數值 (對應 HTML 中的 ID)
+        const setVal = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = val;
+        };
+
+        setVal('schedulingAttempts', statistics.schedulingAttempts || 1);
+        setVal('schedulingTime', formatted.schedulingTime);
+        setVal('originalScore', formatted.originalScore);
+        setVal('currentScore', formatted.currentScore);
+        setVal('scoreImprovement', formatted.scoreImprovement);
+        setVal('overallVacancyRate', formatted.overallVacancyRate);
+        setVal('totalAdjustments', statistics.adjustmentStats?.totalAdjustments || 0);
+        setVal('adjustmentRate', formatted.adjustmentRate);
+        setVal('totalExchanges', statistics.exchangeStats?.totalExchanges || 0);
+
+        // 2. 渲染班別缺班率表格
+        const vacancyBody = document.getElementById('vacancyByShiftBody');
+        if (vacancyBody) {
+            vacancyBody.innerHTML = '';
+            const byShift = statistics.vacancyStats?.byShift || {};
+            Object.keys(byShift).forEach(shift => {
+                const s = byShift[shift];
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${shift}</td><td>${s.rate}%</td><td>${s.vacancies}</td><td>${s.required}</td>`;
+                vacancyBody.appendChild(tr);
+            });
         }
+
+        // 3. 渲染調整原因表格
+        const adjBody = document.getElementById('adjustmentReasonBody');
+        if (adjBody) {
+            adjBody.innerHTML = '';
+            const byReason = statistics.adjustmentStats?.byReason || {};
+            Object.keys(byReason).forEach(reason => {
+                const r = byReason[reason];
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${this.translateAdjReason(reason)}</td><td>${r.count}</td><td>-</td>`;
+                adjBody.appendChild(tr);
+            });
+        }
+
+        // 4. 渲染換班原因表格
+        const exBody = document.getElementById('exchangeReasonBody');
+        if (exBody) {
+            exBody.innerHTML = '';
+            const byReason = statistics.exchangeStats?.byReason || {};
+            Object.keys(byReason).forEach(reason => {
+                const r = byReason[reason];
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${this.translateExReason(reason)}</td><td>${r.count}</td><td>${r.percentage}%</td>`;
+                exBody.appendChild(tr);
+            });
+        }
+
+        console.log("✨ UI 渲染完成");
+    },
+
+    translateAdjReason: function(reason) {
+        const map = { 'vacancy': '缺額調整', 'scheduling': '排班優化', 'staffing': '人力調度' };
+        return map[reason] || reason;
+    },
+
+    translateExReason: function(reason) {
+        const map = { 
+            'unit_staffing_adjustment': '單位人力調整', 
+            'public_holiday': '國定假日', 
+            'sick_leave': '病假', 
+            'bereavement': '喪假', 
+            'support': '支援', 
+            'personal_factors': '個人因素', 
+            'other': '其他' 
+        };
+        return map[reason] || reason;
+    },
+
+    switchDisplayMode: function() {
+        this.currentDisplayMode = document.getElementById('displayMode').value;
+        if (this.currentStatistics) this.displayStatistics(this.currentStatistics);
     },
 
     // --- 10. 匯出 CSV ---
@@ -332,7 +294,6 @@ const systemStatisticsManager = {
         csvContent += `總換班次數,${stats.exchangeStats?.totalExchanges || 0}\n`;
         csvContent += `總調整次數,${stats.adjustmentStats?.totalAdjustments || 0}\n`;
 
-        // 班別缺班率
         csvContent += "\n班別,缺班率,缺班數,需求數\n";
         if (stats.vacancyStats?.byShift) {
             Object.keys(stats.vacancyStats.byShift).forEach(shift => {

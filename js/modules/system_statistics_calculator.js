@@ -5,19 +5,11 @@ const systemStatisticsCalculator = {
     currentStatistics: null,
     
     // --- 1. 缺班率計算 ---
-    /**
-     * 計算缺班率
-     * @param {Object} scheduleData - 班表資料
-     * @param {Array} staffList - 員工列表
-     * @param {Number} year - 年份
-     * @param {Number} month - 月份
-     * @returns {Object} 缺班統計結果
-     */
     calculateVacancyRate: function(scheduleData, staffList, year, month) {
         const daysInMonth = new Date(year, month, 0).getDate();
-        const shiftRequirements = scheduleData.shiftRequirements || {};
+        // 🔥 修正：班表資料中的人力需求欄位應為 dailyNeeds 或從 settings 取得
+        const dailyNeeds = scheduleData.dailyNeeds || {};
         
-        // 初始化統計
         const stats = {
             overall: 0,
             totalVacancies: 0,
@@ -25,40 +17,60 @@ const systemStatisticsCalculator = {
             byShift: {}
         };
         
-        // 遍歷每個班別
-        Object.keys(shiftRequirements).forEach(shiftCode => {
-            const dailyRequired = shiftRequirements[shiftCode] || 0;
-            const totalRequired = dailyRequired * daysInMonth;
-            
-            // 計算該班別的實際排班人數
-            let actualCount = 0;
+        // 取得所有不重複的班別代碼
+        const shiftCodes = new Set();
+        Object.keys(dailyNeeds).forEach(key => {
+            const shiftCode = key.split('_')[0];
+            shiftCodes.add(shiftCode);
+        });
+
+        if (shiftCodes.size === 0) {
+            // Fallback: 嘗試從 assignments 中找班別
             const assignments = scheduleData.assignments || {};
-            
+            Object.values(assignments).forEach(userAssign => {
+                Object.values(userAssign).forEach(shift => {
+                    if (shift && shift !== 'OFF') shiftCodes.add(shift);
+                });
+            });
+        }
+        
+        shiftCodes.forEach(shiftCode => {
+            let totalRequiredForShift = 0;
+            let actualCountForShift = 0;
+
             for (let d = 1; d <= daysInMonth; d++) {
-                const key = `current_${d}`;
-                staffList.forEach(staff => {
-                    const staffAssign = assignments[staff.uid] || {};
-                    if (staffAssign[key] === shiftCode) {
-                        actualCount++;
+                const dateObj = new Date(year, month - 1, d);
+                const jsDay = dateObj.getDay();
+                const dayOfWeek = (jsDay === 0) ? 6 : jsDay - 1; 
+                
+                // 需求數
+                const needKey = `${shiftCode}_${dayOfWeek}`;
+                const dailyRequired = parseInt(dailyNeeds[needKey]) || 0;
+                totalRequiredForShift += dailyRequired;
+
+                // 實際數
+                const assignKey = `current_${d}`;
+                const assignments = scheduleData.assignments || {};
+                Object.keys(assignments).forEach(uid => {
+                    if (assignments[uid]?.[assignKey] === shiftCode) {
+                        actualCountForShift++;
                     }
                 });
             }
             
-            // 計算該班別的缺班數
-            const vacancies = Math.max(0, totalRequired - actualCount);
-            const vacancyRate = totalRequired > 0 ? (vacancies / totalRequired * 100) : 0;
+            const vacancies = Math.max(0, totalRequiredForShift - actualCountForShift);
+            const vacancyRate = totalRequiredForShift > 0 ? (vacancies / totalRequiredForShift * 100) : 0;
             
             stats.byShift[shiftCode] = {
                 rate: Math.round(vacancyRate * 10) / 10,
                 vacancies: vacancies,
-                required: totalRequired
+                required: totalRequiredForShift
             };
             
             stats.totalVacancies += vacancies;
-            stats.totalRequired += totalRequired;
+            stats.totalRequired += totalRequiredForShift;
         });
         
-        // 計算整體缺班率
         stats.overall = stats.totalRequired > 0 
             ? Math.round((stats.totalVacancies / stats.totalRequired * 100) * 10) / 10 
             : 0;
@@ -67,100 +79,37 @@ const systemStatisticsCalculator = {
     },
     
     // --- 2. 修正率計算 ---
-    /**
-     * 分析班表調整並計算修正率
-     * @param {Object} originalSchedule - 原始班表
-     * @param {Object} currentSchedule - 當前班表
-     * @param {Number} year - 年份
-     * @param {Number} month - 月份
-     * @returns {Object} 修正統計結果
-     */
     calculateAdjustmentRate: function(originalSchedule, currentSchedule, year, month) {
         const daysInMonth = new Date(year, month, 0).getDate();
-        const shiftRequirements = currentSchedule.shiftRequirements || {};
+        const dailyNeeds = currentSchedule.dailyNeeds || {};
         
-        // 計算總班數
         let totalRequired = 0;
-        Object.keys(shiftRequirements).forEach(shiftCode => {
-            const dailyRequired = shiftRequirements[shiftCode] || 0;
-            totalRequired += dailyRequired * daysInMonth;
+        Object.values(dailyNeeds).forEach(val => {
+            totalRequired += (parseInt(val) || 0);
         });
+        // 因為 dailyNeeds 是週循環，要乘以週數 (約 4.3 週)
+        totalRequired = Math.round(totalRequired * (daysInMonth / 7));
         
-        // 分析調整
         const stats = {
             totalAdjustments: currentSchedule.adjustmentCount || 0,
             adjustmentRate: 0,
             byReason: {
-                vacancy: { count: 0, details: [] },
-                scheduling: { count: 0, details: [] },
-                staffing: { count: 0, details: [] }
+                vacancy: { count: 0 },
+                scheduling: { count: 0 },
+                staffing: { count: 0 }
             }
         };
 
-        // 如果已經有 adjustmentCount，且沒有 originalSchedule，則直接計算比例
-        if (currentSchedule.adjustmentCount !== undefined && (!originalSchedule || originalSchedule === currentSchedule)) {
-            stats.adjustmentRate = totalRequired > 0 
-                ? Math.round((stats.totalAdjustments / totalRequired * 100) * 10) / 10 
-                : 0;
-            return stats;
+        if (totalRequired === 0) {
+            // 如果沒有需求設定，嘗試從實際排班總數估算
+            const assignments = currentSchedule.assignments || {};
+            Object.values(assignments).forEach(userAssign => {
+                Object.values(userAssign).forEach(shift => {
+                    if (shift && shift !== 'OFF') totalRequired++;
+                });
+            });
         }
         
-        // 比較原始班表和當前班表，找出調整 (保留原邏輯作為 fallback 或詳細分析)
-        const originalAssignments = originalSchedule.assignments || {};
-        const currentAssignments = currentSchedule.assignments || {};
-        
-        let compareCount = 0;
-        Object.keys(currentAssignments).forEach(uid => {
-            for (let d = 1; d <= daysInMonth; d++) {
-                const key = `current_${d}`;
-                const originalShift = originalAssignments[uid]?.[key] || 'OFF';
-                const currentShift = currentAssignments[uid]?.[key] || 'OFF';
-                
-                if (originalShift !== currentShift) {
-                    compareCount++;
-                    
-                    // 分析調整原因 (簡化版本，實際需要更複雜的邏輯)
-                    if (originalShift === 'OFF' && currentShift !== 'OFF') {
-                        // 增加人員 - 可能是因為缺額
-                        stats.byReason.vacancy.count++;
-                        stats.byReason.vacancy.details.push({
-                            day: d,
-                            uid: uid,
-                            action: 'add_staff',
-                            oldShift: originalShift,
-                            newShift: currentShift
-                        });
-                    } else if (originalShift !== 'OFF' && currentShift === 'OFF') {
-                        // 減少班次
-                        stats.byReason.vacancy.count++;
-                        stats.byReason.vacancy.details.push({
-                            day: d,
-                            uid: uid,
-                            action: 'remove_shift',
-                            oldShift: originalShift,
-                            newShift: currentShift
-                        });
-                    } else if (originalShift !== 'OFF' && currentShift !== 'OFF') {
-                        // 班別轉換 - 排班不順調整
-                        stats.byReason.scheduling.count++;
-                        stats.byReason.scheduling.details.push({
-                            day: d,
-                            uid: uid,
-                            action: 'shift_change',
-                            oldShift: originalShift,
-                            newShift: currentShift
-                        });
-                    }
-                }
-            }
-        });
-        
-        // 如果比較出來的調整數大於紀錄的調整數，以比較結果為準
-        if (compareCount > stats.totalAdjustments) {
-            stats.totalAdjustments = compareCount;
-        }
-
-        // 計算修正率
         stats.adjustmentRate = totalRequired > 0 
             ? Math.round((stats.totalAdjustments / totalRequired * 100) * 10) / 10 
             : 0;
@@ -169,11 +118,6 @@ const systemStatisticsCalculator = {
     },
     
     // --- 3. 換班統計 ---
-    /**
-     * 統計換班申請資訊
-     * @param {Array} exchanges - 換班申請列表
-     * @returns {Object} 換班統計結果
-     */
     calculateExchangeStats: function(exchanges) {
         const stats = {
             totalExchanges: 0,
@@ -188,11 +132,9 @@ const systemStatisticsCalculator = {
             }
         };
         
-        // 統計已批准的換班
         const approvedExchanges = exchanges.filter(ex => ex.status === 'approved');
         stats.totalExchanges = approvedExchanges.length;
         
-        // 按原因分類統計
         approvedExchanges.forEach(ex => {
             const reason = ex.reasonCategory || 'other';
             if (stats.byReason[reason]) {
@@ -200,7 +142,6 @@ const systemStatisticsCalculator = {
             }
         });
         
-        // 計算百分比
         if (stats.totalExchanges > 0) {
             Object.keys(stats.byReason).forEach(reason => {
                 stats.byReason[reason].percentage = 
@@ -212,57 +153,26 @@ const systemStatisticsCalculator = {
     },
     
     // --- 4. 統計資料聚合 ---
-    /**
-     * 聚合所有統計資料
-     * @param {Object} scheduleData - 班表資料
-     * @param {Array} staffList - 員工列表
-     * @param {Array} exchanges - 換班申請列表
-     * @param {Number} year - 年份
-     * @param {Number} month - 月份
-     * @returns {Object} 完整統計結果
-     */
     aggregateStatistics: async function(scheduleData, staffList, exchanges, year, month) {
         try {
-            // 計算各項統計
             const vacancyStats = this.calculateVacancyRate(scheduleData, staffList, year, month);
-            
-            // 獲取原始班表用於比較
-            let originalSchedule = scheduleData;
-            if (scheduleData.originalScheduleId) {
-                const originalDoc = await db.collection('schedules').doc(scheduleData.originalScheduleId).get();
-                if (originalDoc.exists) {
-                    originalSchedule = originalDoc.data();
-                }
-            }
-            
-            const adjustmentStats = this.calculateAdjustmentRate(originalSchedule, scheduleData, year, month);
+            const adjustmentStats = this.calculateAdjustmentRate(scheduleData, scheduleData, year, month);
             const exchangeStats = this.calculateExchangeStats(exchanges);
             
-            // 獲取班表評分
             const originalScore = scheduleData.originalScore || 0;
             const currentScore = scheduleData.currentScore || 0;
             
-            // 組合完整統計結果
             const statistics = {
                 period: `${year}-${String(month).padStart(2, '0')}`,
                 generatedAt: new Date().toISOString(),
-                
-                // 排班過程
                 schedulingAttempts: scheduleData.schedulingAttempts || 1,
                 schedulingTime: scheduleData.schedulingTime || 0,
-                
-                // 排班結果
                 originalScore: originalScore,
                 currentScore: currentScore,
                 scoreImprovement: currentScore - originalScore,
-                
-                // 缺班統計
+                ruleCompliance: scheduleData.ruleCompliance || 0,
                 vacancyStats: vacancyStats,
-                
-                // 調整統計
                 adjustmentStats: adjustmentStats,
-                
-                // 換班統計
                 exchangeStats: exchangeStats
             };
             
@@ -275,11 +185,6 @@ const systemStatisticsCalculator = {
         }
     },
     
-    // --- 5. 獲取統計資料 ---
-    getStatistics: function() {
-        return this.currentStatistics;
-    },
-    
     // --- 6. 格式化統計資料用於顯示 ---
     formatStatisticsForDisplay: function(statistics) {
         if (!statistics) return null;
@@ -287,7 +192,7 @@ const systemStatisticsCalculator = {
         return {
             period: statistics.period,
             schedulingAttempts: statistics.schedulingAttempts,
-            schedulingTime: `${statistics.schedulingTime.toFixed(2)}秒`,
+            schedulingTime: `${(statistics.schedulingTime || 0).toFixed(2)}秒`,
             originalScore: `${statistics.originalScore}分`,
             currentScore: `${statistics.currentScore}分`,
             scoreImprovement: statistics.scoreImprovement >= 0 
