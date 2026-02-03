@@ -925,13 +925,17 @@ const scheduleEditorManager = {
                 if (specificNeeds[dateStr] && specificNeeds[dateStr][s.code] !== undefined) need = specificNeeds[dateStr][s.code];
                 else need = dailyNeeds[`${s.code}_${needKeyIndex}`] || 0;
                 let statusClass = '';
+                let cellStyle = '';
                 if(need > 0) {
-                    if(actual < need) statusClass = 'stat-cell-shortage';
+                    if(actual < need) {
+                        statusClass = 'stat-cell-shortage';
+                        cellStyle = 'color: #e74c3c; font-weight: bold;'; // 缺班顯示紅字
+                    }
                     else if(actual > need) statusClass = 'stat-cell-over';
                     else statusClass = 'stat-cell-ok';
                 }
                 const display = (need > 0) ? `${actual}/${need}` : (actual > 0 ? actual : '-');
-                fHtml += `<td class="${statusClass}">${display}</td>`;
+                fHtml += `<td class="${statusClass}" style="${cellStyle}">${display}</td>`;
             }
             fHtml += `<td colspan="4" style="background:#f0f0f0;"></td>`;
             fHtml += `<td style="background:#f0f0f0; font-weight:bold;">${s.code}</td></tr>`;
