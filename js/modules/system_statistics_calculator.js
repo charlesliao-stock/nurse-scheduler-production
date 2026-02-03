@@ -36,7 +36,7 @@ const systemStatisticsCalculator = {
         
         shiftCodes.forEach(shiftCode => {
             let totalRequiredForShift = 0;
-            let actualCountForShift = 0;
+            let totalVacanciesForShift = 0;
 
             for (let d = 1; d <= daysInMonth; d++) {
                 const dateObj = new Date(year, month - 1, d);
@@ -49,16 +49,22 @@ const systemStatisticsCalculator = {
                 totalRequiredForShift += dailyRequired;
 
                 // 實際數
+                let dailyActual = 0;
                 const assignKey = `current_${d}`;
                 const assignments = scheduleData.assignments || {};
                 Object.keys(assignments).forEach(uid => {
                     if (assignments[uid]?.[assignKey] === shiftCode) {
-                        actualCountForShift++;
+                        dailyActual++;
                     }
                 });
+
+                // 如果當天實際人數小於需求人數，則計入缺班
+                if (dailyActual < dailyRequired) {
+                    totalVacanciesForShift += (dailyRequired - dailyActual);
+                }
             }
             
-            const vacancies = Math.max(0, totalRequiredForShift - actualCountForShift);
+            const vacancies = totalVacanciesForShift;
             const vacancyRate = totalRequiredForShift > 0 ? (vacancies / totalRequiredForShift * 100) : 0;
             
             stats.byShift[shiftCode] = {
