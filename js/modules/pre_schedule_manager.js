@@ -8,6 +8,7 @@ const preScheduleManager = {
     staffSortState: { field: 'empId', order: 'asc' },
     isLoading: false,
     tempSpecificNeeds: {},
+    unitCache: {}, // 新增單位快取以正確顯示單位名稱
 
     init: async function() {
         console.log("Pre-Schedule Manager Loaded.");
@@ -22,6 +23,18 @@ const preScheduleManager = {
             return;
         }
         await this.loadUnitDropdown();
+        await this.preloadUnits(); // 預載入所有單位資訊
+    },
+
+    // 預載入所有單位資訊以供搜尋結果顯示
+    preloadUnits: async function() {
+        try {
+            const snapshot = await db.collection('units').get();
+            this.unitCache = {};
+            snapshot.forEach(doc => {
+                this.unitCache[doc.id] = doc.data().name;
+            });
+        } catch (e) { console.error("Preload Units Error:", e); }
     },
 
     loadUnitDropdown: async function() {
@@ -349,27 +362,21 @@ const preScheduleManager = {
         resultsDiv.innerHTML = '<small>搜尋中...</small>';
         
         try {
-            // 搜尋姓名
-            const snapName = await db.collection('users')
-                .where('displayName', '>=', keyword)
-                .where('displayName', '<=', keyword + '\uf8ff')
-                .limit(10).get();
-            
-            // 搜尋員編
-            const snapId = await db.collection('users')
-                .where('employeeId', '==', keyword)
-                .limit(5).get();
+            // 模糊搜尋優化：職編與姓名都改用模糊比對
+            // 由於 Firestore 不支援直接的模糊搜尋，我們抓取較多資料後在前端過濾
+            const snap = await db.collection('users').where('isActive', '==', true).get();
             
             const results = [];
-            const seenUids = new Set();
+            const searchTerm = keyword.toLowerCase();
             
-            [snapName, snapId].forEach(snap => {
-                snap.forEach(doc => {
-                    if (!seenUids.has(doc.id)) {
-                        results.push({ uid: doc.id, ...doc.data() });
-                        seenUids.add(doc.id);
-                    }
-                });
+            snap.forEach(doc => {
+                const u = doc.data();
+                const empId = (u.employeeId || '').toLowerCase();
+                const name = (u.displayName || '').toLowerCase();
+                
+                if (empId.includes(searchTerm) || name.includes(searchTerm)) {
+                    results.push({ uid: doc.id, ...u });
+                }
             });
             
             if (results.length === 0) {
@@ -379,6 +386,8 @@ const preScheduleManager = {
             
             let html = '<div class="search-results-popup" style="position:absolute; background:white; border:1px solid #ddd; box-shadow:0 2px 10px rgba(0,0,0,0.1); z-index:100; max-height:200px; overflow-y:auto; width:250px;">';
             results.forEach(u => {
+                // 正確顯示單位名稱
+                const unitName = this.unitCache[u.unitId] || u.unitName || '未知單位';
                 html += `
                     <div class="search-item" onclick='preScheduleManager.addSupportStaff(${JSON.stringify({
                         uid: u.uid,
@@ -387,7 +396,7 @@ const preScheduleManager = {
                         level: u.level || 'N0'
                     })})' style="padding:8px; border-bottom:1px solid #eee; cursor:pointer; font-size:0.9rem;">
                         <strong>${u.displayName}</strong> <small>(${u.employeeId})</small>
-                        <div style="font-size:0.75rem; color:#666;">${u.unitName || '未知單位'}</div>
+                        <div style="font-size:0.75rem; color:#666;">${unitName}</div>
                     </div>
                 `;
             });
