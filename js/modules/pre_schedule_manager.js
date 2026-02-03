@@ -9,6 +9,7 @@ const preScheduleManager = {
     isLoading: false,
     tempSpecificNeeds: {},
     unitCache: {}, 
+    searchCache: [], // 新增搜尋快取以避免在 HTML 中傳遞複雜 JSON
 
     init: async function() {
         console.log("Pre-Schedule Manager Loaded.");
@@ -82,7 +83,6 @@ const preScheduleManager = {
                 return;
             }
 
-            // 獲取該單位的班別資訊以計算平均放假
             const shiftsSnap = await db.collection('shifts').where('unitId', '==', this.currentUnitId).get();
             const shifts = shiftsSnap.docs.map(d => d.data());
 
@@ -90,8 +90,6 @@ const preScheduleManager = {
                 const d = doc.data();
                 const statusInfo = app.getPreScheduleStatus(d);
                 const progress = d.progress ? `${d.progress.submitted}/${d.progress.total}` : '0/0';
-                
-                // 計算平均放假天數
                 const avgOff = this.calculateAvgOff(d, shifts);
 
                 const tr = document.createElement('tr');
@@ -123,7 +121,6 @@ const preScheduleManager = {
         } catch(e) { console.error(e); }
     },
 
-    // 計算平均放假天數公式: (當月每日可放假人數總和) / 排班人數
     calculateAvgOff: function(data, shifts) {
         const staffCount = (data.staffList || []).length;
         if (staffCount === 0) return "0.0";
@@ -141,24 +138,20 @@ const preScheduleManager = {
             const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const dateObj = new Date(year, month - 1, day);
             const jsDay = dateObj.getDay();
-            const dayOfWeek = (jsDay === 0) ? 6 : jsDay - 1; // 0=一, ..., 6=日
+            const dayOfWeek = (jsDay === 0) ? 6 : jsDay - 1; 
 
             let dailyNeedCount = 0;
-            
-            // 優先檢查臨時人力需求
             if (specificNeeds[dateStr]) {
                 Object.values(specificNeeds[dateStr]).forEach(count => {
                     dailyNeedCount += (parseInt(count) || 0);
                 });
             } else {
-                // 使用週循環人力需求
                 shifts.forEach(s => {
                     const key = `${s.code}_${dayOfWeek}`;
                     if (dailyNeeds[key]) dailyNeedCount += (parseInt(dailyNeeds[key]) || 0);
                 });
             }
 
-            // 每日可放假人數 = 總人數 - 總需求人數 - 每日保留名額
             const available = Math.max(0, staffCount - dailyNeedCount - dailyReserved);
             totalAvailableOff += available;
         }
@@ -216,6 +209,7 @@ const preScheduleManager = {
         if(results) results.innerHTML = '';
         const searchInput = document.getElementById('inputSearchStaff');
         if(searchInput) searchInput.value = '';
+        this.searchCache = [];
     },
 
     saveData: async function() {
@@ -421,20 +415,16 @@ const preScheduleManager = {
                 }
             });
             
+            this.searchCache = results; // 存入快取
+
             if (results.length === 0) {
                 resultsDiv.innerHTML = '<div style="background:white; padding:10px; border:1px solid #ddd; box-shadow:0 2px 10px rgba(0,0,0,0.1);"><small style="color:red;">找不到人員</small></div>';
                 return;
             }
             
             let html = '<div class="search-results-popup" style="background:white; border:1px solid #ddd; box-shadow:0 4px 15px rgba(0,0,0,0.15); max-height:250px; overflow-y:auto; width:100%; border-radius:4px; margin-top:2px;">';
-            results.forEach(u => {
+            results.forEach((u, index) => {
                 const unitName = this.unitCache[u.unitId] || u.unitName || '未知單位';
-                const staffData = JSON.stringify({
-                    uid: u.uid,
-                    name: u.displayName,
-                    empId: u.employeeId,
-                    level: u.level || 'N0'
-                }).replace(/'/g, "\\'");
                 
                 html += `
                     <div class="search-item" style="padding:10px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; transition:background 0.2s;">
@@ -442,7 +432,7 @@ const preScheduleManager = {
                             <div style="font-weight:bold; color:#2c3e50;">${u.displayName} <small style="color:#7f8c8d;">(${u.employeeId})</small></div>
                             <div style="font-size:0.75rem; color:#95a5a6;">${unitName} · ${u.level || 'N0'}</div>
                         </div>
-                        <button class="btn btn-sm" onclick="preScheduleManager.addSupportStaff('${staffData}')" style="background:#2ecc71; color:white; border-radius:50%; width:28px; height:28px; padding:0; display:flex; align-items:center; justify-content:center; border:none; cursor:pointer;" title="加入名單">
+                        <button class="btn btn-sm" onclick="preScheduleManager.addSupportStaffByIndex(${index})" style="background:#2ecc71; color:white; border-radius:50%; width:28px; height:28px; padding:0; display:flex; align-items:center; justify-content:center; border:none; cursor:pointer;" title="加入名單">
                             <i class="fas fa-plus"></i>
                         </button>
                     </div>
@@ -457,15 +447,20 @@ const preScheduleManager = {
         }
     },
 
-    addSupportStaff: function(staffJson) {
-        const staff = JSON.parse(staffJson);
-        if (this.staffListSnapshot.some(s => s.uid === staff.uid)) {
+    addSupportStaffByIndex: function(index) {
+        const u = this.searchCache[index];
+        if (!u) return;
+
+        if (this.staffListSnapshot.some(s => s.uid === u.uid)) {
             alert("此人員已在名單中");
             return;
         }
         
         this.staffListSnapshot.push({
-            ...staff,
+            uid: u.uid,
+            name: u.displayName,
+            empId: u.employeeId,
+            level: u.level || 'N0',
             group: '',
             isSupport: true
         });
