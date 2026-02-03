@@ -7,8 +7,8 @@ const systemStatisticsCalculator = {
     // --- 1. 缺班率計算 ---
     calculateVacancyRate: function(scheduleData, staffList, year, month) {
         const daysInMonth = new Date(year, month, 0).getDate();
-        // 🔥 修正：班表資料中的人力需求欄位應為 dailyNeeds 或從 settings 取得
         const dailyNeeds = scheduleData.dailyNeeds || {};
+        const specificNeeds = scheduleData.specificNeeds || {};
         
         const stats = {
             overall: 0,
@@ -19,39 +19,57 @@ const systemStatisticsCalculator = {
         
         // 取得所有不重複的班別代碼
         const shiftCodes = new Set();
+        
+        // 1. 從 dailyNeeds 取得
         Object.keys(dailyNeeds).forEach(key => {
             const shiftCode = key.split('_')[0];
-            shiftCodes.add(shiftCode);
+            if (shiftCode) shiftCodes.add(shiftCode);
         });
 
-        if (shiftCodes.size === 0) {
-            // Fallback: 嘗試從 assignments 中找班別
-            const assignments = scheduleData.assignments || {};
-            Object.values(assignments).forEach(userAssign => {
-                Object.values(userAssign).forEach(shift => {
-                    if (shift && shift !== 'OFF') shiftCodes.add(shift);
-                });
+        // 2. 從 specificNeeds 取得
+        Object.values(specificNeeds).forEach(sn => {
+            if (sn.shiftCode) shiftCodes.add(sn.shiftCode);
+        });
+
+        // 3. 從 assignments 取得 (Fallback)
+        const assignments = scheduleData.assignments || {};
+        Object.values(assignments).forEach(userAssign => {
+            Object.values(userAssign).forEach(shift => {
+                if (shift && shift !== 'OFF' && shift !== 'None') shiftCodes.add(shift);
             });
-        }
+        });
         
         shiftCodes.forEach(shiftCode => {
             let totalRequiredForShift = 0;
             let totalVacanciesForShift = 0;
 
             for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                 const dateObj = new Date(year, month - 1, d);
                 const jsDay = dateObj.getDay();
                 const dayOfWeek = (jsDay === 0) ? 6 : jsDay - 1; 
                 
-                // 需求數
-                const needKey = `${shiftCode}_${dayOfWeek}`;
-                const dailyRequired = parseInt(dailyNeeds[needKey]) || 0;
+                // 優先檢查特定日期需求 (specificNeeds)
+                let dailyRequired = 0;
+                const hasSpecific = Object.values(specificNeeds).some(sn => sn.date === dateStr && sn.shiftCode === shiftCode);
+                
+                if (hasSpecific) {
+                    Object.values(specificNeeds).forEach(sn => {
+                        if (sn.date === dateStr && sn.shiftCode === shiftCode) {
+                            dailyRequired += (parseInt(sn.count) || 0);
+                        }
+                    });
+                } else {
+                    // 使用常規週需求
+                    const needKey = `${shiftCode}_${dayOfWeek}`;
+                    dailyRequired = parseInt(dailyNeeds[needKey]) || 0;
+                }
+                
                 totalRequiredForShift += dailyRequired;
 
                 // 實際數
                 let dailyActual = 0;
                 const assignKey = `current_${d}`;
-                const assignments = scheduleData.assignments || {};
                 Object.keys(assignments).forEach(uid => {
                     if (assignments[uid]?.[assignKey] === shiftCode) {
                         dailyActual++;
