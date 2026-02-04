@@ -45,8 +45,9 @@ const preScheduleManager = {
         try {
             let query = db.collection('units');
             const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
             if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
-                if(app.userUnitId) query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
+                if(activeUnitId) query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
             }
             const snapshot = await query.get();
             select.innerHTML = '<option value="">請選擇單位</option>';

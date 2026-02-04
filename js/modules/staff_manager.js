@@ -41,8 +41,9 @@ const staffManager = {
 
         let query = db.collection('units');
         const activeRole = app.impersonatedRole || app.userRole;
-        if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && app.userUnitId) {
-            query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
+        const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+        if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && activeUnitId) {
+            query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
         }
 
         try {
@@ -91,8 +92,9 @@ const staffManager = {
         // 載入所有人員（包含已停用）
         let query = db.collection('users');
         const activeRole = app.impersonatedRole || app.userRole;
-        if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && app.userUnitId) {
-            query = query.where('unitId', '==', app.userUnitId);
+        const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+        if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && activeUnitId) {
+            query = query.where('unitId', '==', activeUnitId);
         }
 
         try {

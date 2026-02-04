@@ -49,8 +49,10 @@ const scheduleEditorManager = {
             const schData = schDoc.data();
             
             // ✅ 檢查是否有權限編輯此單位的排班
-            if (app.userRole === 'unit_manager' || app.userRole === 'unit_scheduler') {
-                if (app.userUnitId !== schData.unitId) {
+            const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+            if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
+                if (activeUnitId !== schData.unitId) {
                     document.getElementById('content-area').innerHTML = `
                         <div class="empty-state">
                             <i class="fas fa-lock"></i>

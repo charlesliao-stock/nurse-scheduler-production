@@ -27,7 +27,8 @@ const staffPreScheduleListManager = {
         
         try {
             const snapshot = await db.collection('pre_schedules').orderBy('year', 'desc').orderBy('month', 'desc').limit(50).get();
-            const uid = app.getUid(); const userUnitId = app.getUnitId(); const isSystemAdmin = (app.userRole === 'system_admin');
+            const activeRole = app.impersonatedRole || app.userRole;
+            const uid = app.getUid(); const userUnitId = app.getUnitId(); const isSystemAdmin = (activeRole === 'system_admin');
 
             this.allSchedules = [];
             snapshot.forEach(doc => {
@@ -53,7 +54,8 @@ const staffPreScheduleListManager = {
         const tbody = document.getElementById('myScheduleTableBody'); if(!tbody) return;
         const filter = document.getElementById('staffPreUnitFilter')?.value || 'all';
         const filtered = filter === 'all' ? this.allSchedules : this.allSchedules.filter(s => s.unitId === filter);
-        const isSystemAdmin = (app.userRole === 'system_admin');
+        const activeRole = app.impersonatedRole || app.userRole;
+        const isSystemAdmin = (activeRole === 'system_admin');
 
         tbody.innerHTML = '';
         filtered.forEach(d => {

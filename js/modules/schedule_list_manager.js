@@ -30,9 +30,10 @@ const scheduleListManager = {
             
             // ✅ 權限過濾：使用 impersonatedRole 或 userRole
             const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
             if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
-                if(app.userUnitId) {
-                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', app.userUnitId);
+                if(activeUnitId) {
+                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
                 }
             }
             
