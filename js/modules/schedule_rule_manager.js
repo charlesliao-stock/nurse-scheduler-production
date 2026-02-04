@@ -1,6 +1,6 @@
 // js/modules/schedule_rule_manager.js
 // 🔧 最終完美版 v2 - 加強權限控制（比照 staff_manager.js）
-// 🆕 包含：週日(0)修復、缺額處理優先順序設定
+// 🆕 包含：週日(0)修復、缺額處理優先順序設定、PGY保護
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -107,11 +107,9 @@ const scheduleRuleManager = {
 
             const setCheck = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val; };
             
-            // [關鍵修正 1] 讀取時：特別處理 0，避免 0 被轉成空字串
             const setVal = (id, val) => { 
                 const el = document.getElementById(id); 
                 if(el) {
-                    // 如果是 null 或 undefined 轉為空字串，但保留 0
                     el.value = (val !== null && val !== undefined) ? val : ''; 
                 }
             };
@@ -122,7 +120,6 @@ const scheduleRuleManager = {
             setCheck('rule_protectPregnant', r.hard?.protectPregnant !== false);
             setCheck('rule_twoOffPerFortnight', r.hard?.twoOffPerFortnight !== false);
             
-            // 使用 ?? 確保讀取資料庫的 0 不會被後面的預設值覆蓋
             setVal('rule_offGapMax', r.hard?.offGapMax ?? 12);
             setVal('rule_weekStartDay', r.hard?.weekStartDay ?? 1); 
 
@@ -134,6 +131,7 @@ const scheduleRuleManager = {
             
             setCheck('rule_bundleNightOnly', r.policy?.bundleNightOnly !== false);
             setCheck('rule_noNightAfterOff', r.policy?.noNightAfterOff !== false);
+            setCheck('rule_protectPGY', r.policy?.protectPGY !== false);
             
             setVal('rule_prioritize_bundle', r.policy?.prioritizeBundle || 'must');
             setVal('rule_prioritize_pref', r.policy?.prioritizePref || 'must');
@@ -145,7 +143,6 @@ const scheduleRuleManager = {
             if (r.policy?.nightEnd) document.getElementById('rule_nightEnd').value = r.policy.nightEnd;
             this.renderNightShiftOptions(r.policy?.noNightAfterOff_List || []);
 
-            // 🔥 新增：缺額處理優先順序
             const shortagePriority = r.policy?.shortageHandling?.priorityOrder || [];
             this.renderShortagePriorityList(shortagePriority);
 
@@ -181,15 +178,12 @@ const scheduleRuleManager = {
         const getCheck = (id) => { const el = document.getElementById(id); return el ? el.checked : false; };
         const getVal = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
         
-        // [關鍵修正 2] 儲存時：使用 isNaN 檢查，允許 0 值通過
         const getInt = (id, def) => { 
             const v = parseInt(getVal(id)); 
             return isNaN(v) ? def : v; 
         };
 
         const rotationOrder = this.getRotationOrderFromDOM();
-        
-        // 🔥 新增：取得缺額處理優先順序
         const shortagePriority = this.getShortagePriorityFromDOM();
 
         const rules = {
@@ -199,7 +193,7 @@ const scheduleRuleManager = {
                 protectPregnant: getCheck('rule_protectPregnant'),
                 twoOffPerFortnight: getCheck('rule_twoOffPerFortnight'),
                 offGapMax: getInt('rule_offGapMax', 12),
-                weekStartDay: getInt('rule_weekStartDay', 1) // 0 (週日) 現在可以被正確儲存
+                weekStartDay: getInt('rule_weekStartDay', 1)
             },
             policy: {
                 limitConsecutive: getCheck('rule_limitConsecutive'),
@@ -209,6 +203,7 @@ const scheduleRuleManager = {
                 bundleNightOnly: getCheck('rule_bundleNightOnly'),
                 noNightAfterOff: getCheck('rule_noNightAfterOff'),
                 noNightAfterOff_List: this.getCheckedNightLimits(),
+                protectPGY: getCheck('rule_protectPGY'),
                 nightStart: getVal('rule_nightStart') || '20:00',
                 nightEnd: getVal('rule_nightEnd') || '06:00',
                 prioritizeBundle: getVal('rule_prioritize_bundle') || 'must',
@@ -253,29 +248,24 @@ const scheduleRuleManager = {
         }
     },
 
-    // 🔥 新增：渲染缺額處理優先順序列表
     renderShortagePriorityList: function(savedOrder) {
         const container = document.getElementById('shortagePriorityList');
         if (!container) return;
         
-        // 建立班別順序陣列
         let order = savedOrder && savedOrder.length > 0 ? [...savedOrder] : [];
         
-        // 將新增的班別（尚未在順序中的）加到最後
         this.activeShifts.forEach(shift => {
             if (!order.includes(shift.code)) {
                 order.push(shift.code);
             }
         });
         
-        // 如果順序為空，使用智能預設順序（夜班優先）
         if (order.length === 0) {
             const nightShifts = [];
             const dayShifts = [];
             
             this.activeShifts.forEach(s => {
                 const start = this.parseTime(s.startTime);
-                // 判斷是否為夜班（22:00-06:00）
                 const isNight = start >= 22 || start <= 6;
                 
                 if (isNight) {
@@ -285,11 +275,9 @@ const scheduleRuleManager = {
                 }
             });
             
-            // 夜班在前，白班在後
             order = [...nightShifts, ...dayShifts];
         }
         
-        // 渲染列表
         container.innerHTML = '';
         
         order.forEach((code, index) => {
@@ -325,7 +313,6 @@ const scheduleRuleManager = {
         });
     },
 
-    // 🔥 新增：從 DOM 取得缺額處理優先順序
     getShortagePriorityFromDOM: function() {
         const container = document.getElementById('shortagePriorityList');
         if (!container) return [];
