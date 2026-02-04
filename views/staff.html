@@ -131,17 +131,25 @@
         <div style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px;">
             <div style="display:flex; align-items:center; gap:10px;">
                 <label style="cursor:pointer; width:100px;">
-                    <input type="checkbox" id="checkPregnant"> 懷孕中
+                    <input type="checkbox" id="checkPregnant" onchange="staffManager.updateDateFieldState()"> 懷孕中
                 </label>
-                <input type="date" id="datePregnant" style="padding:6px; border:1px solid #ccc; border-radius:4px;">
+                <input type="date" id="datePregnant" style="padding:6px; border:1px solid #ccc; border-radius:4px;" disabled>
                 <span style="font-size:0.9rem; color:#666;">(預產期)</span>
             </div>
 
             <div style="display:flex; align-items:center; gap:10px;">
                 <label style="cursor:pointer; width:100px;">
-                    <input type="checkbox" id="checkBreastfeeding"> 哺乳中
+                    <input type="checkbox" id="checkBreastfeeding" onchange="staffManager.updateDateFieldState()"> 哺乳中
                 </label>
-                <input type="date" id="dateBreastfeeding" style="padding:6px; border:1px solid #ccc; border-radius:4px;">
+                <input type="date" id="dateBreastfeeding" style="padding:6px; border:1px solid #ccc; border-radius:4px;" disabled>
+                <span style="font-size:0.9rem; color:#666;">(期限)</span>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:10px;">
+                <label style="cursor:pointer; width:100px;">
+                    <input type="checkbox" id="checkPGY" onchange="staffManager.updateDateFieldState(); staffManager.updateIndependenceFieldState()"> PGY
+                </label>
+                <input type="date" id="datePGY" style="padding:6px; border:1px solid #ccc; border-radius:4px;" disabled>
                 <span style="font-size:0.9rem; color:#666;">(期限)</span>
             </div>
 
@@ -152,12 +160,43 @@
             </div>
         </div>
 
+        <hr style="border:0; border-top:1px solid #eee; margin:15px 0;">
+        
+        <h4>獨立性設定</h4>
+        
+        <div style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px;">
+            <div style="display:flex; align-items:center; gap:20px;">
+                <label style="cursor:pointer; display:flex; align-items:center; gap:8px;">
+                    <input type="radio" name="independence" value="independent" id="radioIndependent" onchange="staffManager.updateIndependenceFieldState()"> 獨立
+                </label>
+                <label style="cursor:pointer; display:flex; align-items:center; gap:8px;">
+                    <input type="radio" name="independence" value="dependent" id="radioDependent" onchange="staffManager.updateIndependenceFieldState()"> 未獨立
+                </label>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:10px;">
+                <label style="width:120px; font-weight:normal;">臨床教師</label>
+                <select id="selectClinicalTeacher" style="padding:6px; border:1px solid #ccc; border-radius:4px; flex:1;" disabled>
+                    <option value="">(請選擇臨床教師)</option>
+                </select>
+                <span style="font-size:0.9rem; color:#666;">(未獨立時必填)</span>
+            </div>
+        </div>
+
         <div style="text-align:right; margin-top:25px;">
             <button class="btn btn-close" onclick="staffManager.closeModal()">取消</button>
-            <button class="btn btn-add" onclick="staffManager.saveData()">儲存</button>
+            <button class="btn btn-add" onclick="staffManager.validateAndSave()">儲存</button>
         </div>
     </div>
 </div>
+
+<style>
+    #datePregnant:disabled, #dateBreastfeeding:disabled, #datePGY:disabled, #selectClinicalTeacher:disabled {
+        background-color: #f0f0f0;
+        color: #999;
+        cursor: not-allowed;
+    }
+</style>
 
 <div id="importModal" class="modal">
     <div class="modal-content" style="max-width: 500px;">

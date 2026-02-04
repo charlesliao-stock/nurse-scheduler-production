@@ -78,6 +78,100 @@ const staffManager = {
         } else {
             groupSelect.innerHTML = '<option value="">(此單位未設定組別)</option>';
         }
+        this.loadClinicalTeachers();
+    },
+
+    // --- 載入臨床教師下拉選單 ---
+    loadClinicalTeachers: async function() {
+        const unitId = document.getElementById('inputUnit').value;
+        const teacherSelect = document.getElementById('selectClinicalTeacher');
+        if(!teacherSelect || !unitId) {
+            if(teacherSelect) teacherSelect.innerHTML = '<option value="">(請先選擇單位)</option>';
+            return;
+        }
+
+        try {
+            const snapshot = await db.collection('users')
+                .where('unitId', '==', unitId)
+                .where('isActive', '==', true)
+                .get();
+            
+            teacherSelect.innerHTML = '<option value="">(請選擇臨床教師)</option>';
+            const currentUserId = document.getElementById('staffDocId').value;
+            
+            snapshot.forEach(doc => {
+                const user = doc.data();
+                if (doc.id !== currentUserId) {
+                    const option = document.createElement('option');
+                    option.value = doc.id;
+                    option.textContent = `${user.displayName} (${user.employeeId})`;
+                    teacherSelect.appendChild(option);
+                }
+            });
+        } catch (e) {
+            console.error("載入臨床教師失敗:", e);
+            teacherSelect.innerHTML = '<option value="">載入失敗</option>';
+        }
+    },
+
+    // --- 更新日期欄位狀態 ---
+    updateDateFieldState: function() {
+        const datePregnant = document.getElementById('datePregnant');
+        const dateBreastfeeding = document.getElementById('dateBreastfeeding');
+        const datePGY = document.getElementById('datePGY');
+        const checkPregnant = document.getElementById('checkPregnant');
+        const checkBreastfeeding = document.getElementById('checkBreastfeeding');
+        const checkPGY = document.getElementById('checkPGY');
+        
+        if(datePregnant) {
+            datePregnant.disabled = !checkPregnant.checked;
+            if (!checkPregnant.checked) datePregnant.value = '';
+        }
+        
+        if(dateBreastfeeding) {
+            dateBreastfeeding.disabled = !checkBreastfeeding.checked;
+            if (!checkBreastfeeding.checked) dateBreastfeeding.value = '';
+        }
+        
+        if(datePGY) {
+            datePGY.disabled = !checkPGY.checked;
+            if (!checkPGY.checked) datePGY.value = '';
+        }
+    },
+
+    // --- 更新獨立性欄位狀態 ---
+    updateIndependenceFieldState: function() {
+        const radioIndependent = document.getElementById('radioIndependent');
+        const radioDependent = document.getElementById('radioDependent');
+        const selectClinicalTeacher = document.getElementById('selectClinicalTeacher');
+        const checkPGY = document.getElementById('checkPGY');
+        
+        if(!selectClinicalTeacher) return;
+        
+        const isDependentSelected = radioDependent && radioDependent.checked;
+        const isPGYChecked = checkPGY && checkPGY.checked;
+        
+        selectClinicalTeacher.disabled = !(isDependentSelected && isPGYChecked);
+        
+        if (!isDependentSelected || !isPGYChecked) {
+            selectClinicalTeacher.value = '';
+        }
+    },
+
+    // --- 驗證並儲存資料 ---
+    validateAndSave: function() {
+        const radioIndependent = document.getElementById('radioIndependent');
+        const radioDependent = document.getElementById('radioDependent');
+        const selectClinicalTeacher = document.getElementById('selectClinicalTeacher');
+        const checkPGY = document.getElementById('checkPGY');
+        
+        if (checkPGY.checked && radioDependent.checked && !selectClinicalTeacher.value) {
+            alert('當勾選 PGY 且選擇「未獨立」時，必須選擇臨床教師');
+            selectClinicalTeacher.focus();
+            return;
+        }
+        
+        this.saveData();
     },
 
     // --- 3. 讀取人員資料（包含已停用的人員） ---
@@ -287,7 +381,23 @@ const staffManager = {
             document.getElementById('checkBreastfeeding').checked = params.isBreastfeeding || false;
             document.getElementById('dateBreastfeeding').value = params.breastfeedingExpiry || '';
             
+            document.getElementById('checkPGY').checked = params.isPGY || false;
+            document.getElementById('datePGY').value = params.pgyExpiry || '';
+            
             document.getElementById('checkBundle').checked = params.canBundleShifts || false;
+            
+            // Set independence status
+            const independence = params.independence || 'independent';
+            if (independence === 'independent') {
+                document.getElementById('radioIndependent').checked = true;
+            } else {
+                document.getElementById('radioDependent').checked = true;
+            }
+            document.getElementById('selectClinicalTeacher').value = params.clinicalTeacherId || '';
+            
+            // Update field states
+            this.updateDateFieldState();
+            this.updateIndependenceFieldState();
             
         } else {
             document.querySelectorAll('#staffModal input:not([type="hidden"]), #staffModal select').forEach(i => {
@@ -352,7 +462,11 @@ const staffManager = {
                 pregnantExpiry: document.getElementById('datePregnant').value,
                 isBreastfeeding: document.getElementById('checkBreastfeeding').checked,
                 breastfeedingExpiry: document.getElementById('dateBreastfeeding').value,
-                canBundleShifts: document.getElementById('checkBundle').checked
+                isPGY: document.getElementById('checkPGY').checked,
+                pgyExpiry: document.getElementById('datePGY').value,
+                canBundleShifts: document.getElementById('checkBundle').checked,
+                independence: document.querySelector('input[name="independence"]:checked')?.value || 'independent',
+                clinicalTeacherId: document.getElementById('selectClinicalTeacher').value || null
             },
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
