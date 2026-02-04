@@ -461,7 +461,7 @@ const preScheduleManager = {
             empId: u.employeeId,
             level: u.level || 'N0',
             group: '',
-            isSupport: true
+            isSupport: u.unitId !== this.currentUnitId
         });
         
         this.renderStaffList();
