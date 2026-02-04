@@ -1220,6 +1220,7 @@ class SchedulerV2 extends BaseScheduler {
         // 2. 🔥 建立 Assignments 物件 (給前台看) - 確保 UID 一致性與資料完整性
         const assignments = {};
         this.staffList.forEach(staff => { 
+            if (!staff.id) return;
             // 使用 trim() 確保 key 乾淨一致
             const safeUid = staff.id.trim();
             assignments[safeUid] = { preferences: staff.prefs || {} }; 
@@ -1228,6 +1229,7 @@ class SchedulerV2 extends BaseScheduler {
         for (let d = 1; d <= this.daysInMonth; d++) {
             const dateStr = this.getDateStr(d);
             this.staffList.forEach(staff => {
+                if (!staff.id) return;
                 const safeUid = staff.id.trim();
                 const shift = this.getShiftByDate(dateStr, staff.id);
                 // 🔥 確保所有班別都寫入，包括 OFF，讓前端明確知道狀態

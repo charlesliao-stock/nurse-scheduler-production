@@ -179,6 +179,7 @@ const scheduleListManager = {
             let ghostCount = 0;
 
             preData.staffList.forEach(staff => {
+                if (!staff.uid) return;
                 const uid = staff.uid.trim();
                 if (validUids.has(uid)) {
                     const liveData = validStaffMap[uid];

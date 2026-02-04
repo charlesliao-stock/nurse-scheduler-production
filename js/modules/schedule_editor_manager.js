@@ -128,8 +128,10 @@ const scheduleEditorManager = {
         
         this.data = doc.data();
         this.data.staffList.forEach(s => { 
-            s.uid = s.uid.trim();
-            this.staffMap[s.uid] = s; 
+            if (s.uid) {
+                s.uid = s.uid.trim();
+                this.staffMap[s.uid] = s; 
+            }
         });
     },
 
@@ -717,6 +719,7 @@ const scheduleEditorManager = {
         } else {
             const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
             this.data.staffList.forEach(s => {
+                if (!s.uid) return;
                 const uid = s.uid.trim();
                 if(!this.assignments[uid]) this.assignments[uid] = {};
                 for(let d=1; d<=daysInMonth; d++) {
@@ -730,6 +733,7 @@ const scheduleEditorManager = {
                 Object.keys(daySch).forEach(code => {
                     if (Array.isArray(daySch[code])) {
                         daySch[code].forEach(rawUid => {
+                            if (!rawUid) return;
                             const uid = rawUid.trim();
                             if (this.assignments[uid] && this.assignments[uid][`current_${day}`] !== 'REQ_OFF') {
                                 this.assignments[uid][`current_${day}`] = code;
