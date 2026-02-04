@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_matrix_manager.js
-// 🔧 完整版 v3：顯示 FF、新增狀態欄（孕/哺/P/D）
+// 🔧 完整版 v4：顯示 FF、新增狀態欄（孕/哺/P/D）+ 人員與狀態同步檢查
 
 const matrixManager = {
     docId: null, 
@@ -64,6 +64,9 @@ const matrixManager = {
                 this.loadScheduleData()
             ]);
             
+            // 🆕 檢查人員與狀態變更
+            await this.checkStaffAndStatusChanges();
+            
             this.restoreTableStructure(); 
             this.updateTitle();
             this.renderMatrix(); 
@@ -76,6 +79,267 @@ const matrixManager = {
         } 
         finally { 
             this.isLoading = false; 
+        }
+    },
+
+    // 🆕 檢查人員與狀態變更
+    checkStaffAndStatusChanges: async function() {
+        if (!this.data || !this.data.unitId) return;
+        
+        // 1. 從 users 集合取得該單位最新的人員清單
+        const snapshot = await db.collection('users')
+            .where('unitId', '==', this.data.unitId)
+            .where('isActive', '==', true)
+            .get();
+        
+        const currentUsers = {};
+        snapshot.forEach(doc => {
+            const user = doc.data();
+            currentUsers[doc.id] = {
+                uid: doc.id,
+                empId: user.employeeId,
+                name: user.displayName,
+                level: user.level,
+                groupId: user.groupId,
+                schedulingParams: user.schedulingParams || {}
+            };
+        });
+        
+        // 2. 比對 staffList 的變更
+        const oldStaffMap = {};
+        (this.data.staffList || []).forEach(staff => {
+            oldStaffMap[staff.uid] = staff;
+        });
+        
+        const changes = {
+            added: [],      // 新增的人員
+            removed: [],    // 移除的人員（已停用）
+            statusChanged: [] // 狀態變更的人員
+        };
+        
+        // 檢查新增的人員
+        Object.keys(currentUsers).forEach(uid => {
+            if (!oldStaffMap[uid]) {
+                changes.added.push({
+                    uid: uid,
+                    name: currentUsers[uid].name,
+                    empId: currentUsers[uid].empId
+                });
+            }
+        });
+        
+        // 檢查移除的人員
+        Object.keys(oldStaffMap).forEach(uid => {
+            if (!currentUsers[uid]) {
+                changes.removed.push({
+                    uid: uid,
+                    name: oldStaffMap[uid].name,
+                    empId: oldStaffMap[uid].empId || this.usersMap[uid]?.employeeId
+                });
+            }
+        });
+        
+        // 檢查狀態變更
+        Object.keys(currentUsers).forEach(uid => {
+            if (oldStaffMap[uid]) {
+                const oldParams = oldStaffMap[uid].schedulingParams || {};
+                const newParams = currentUsers[uid].schedulingParams || {};
+                
+                const statusChanges = this.compareSchedulingParams(oldParams, newParams);
+                if (statusChanges.length > 0) {
+                    changes.statusChanged.push({
+                        uid: uid,
+                        name: currentUsers[uid].name,
+                        empId: currentUsers[uid].empId,
+                        changes: statusChanges
+                    });
+                }
+            }
+        });
+        
+        // 3. 如果有變更，顯示確認視窗
+        if (changes.added.length > 0 || changes.removed.length > 0 || changes.statusChanged.length > 0) {
+            const shouldUpdate = await this.showStaffChangesModal(changes);
+            
+            if (shouldUpdate) {
+                await this.updateStaffList(currentUsers);
+            }
+        }
+    },
+
+    // 🆕 比對排班參數變更
+    compareSchedulingParams: function(oldParams, newParams) {
+        const changes = [];
+        const today = new Date();
+        
+        // 檢查懷孕狀態
+        const oldPregnant = oldParams.isPregnant && oldParams.pregnantExpiry && new Date(oldParams.pregnantExpiry) >= today;
+        const newPregnant = newParams.isPregnant && newParams.pregnantExpiry && new Date(newParams.pregnantExpiry) >= today;
+        
+        if (oldPregnant !== newPregnant) {
+            changes.push(newPregnant ? '新增「孕」狀態' : '移除「孕」狀態');
+        }
+        
+        // 檢查哺乳狀態
+        const oldBreastfeeding = oldParams.isBreastfeeding && oldParams.breastfeedingExpiry && new Date(oldParams.breastfeedingExpiry) >= today;
+        const newBreastfeeding = newParams.isBreastfeeding && newParams.breastfeedingExpiry && new Date(newParams.breastfeedingExpiry) >= today;
+        
+        if (oldBreastfeeding !== newBreastfeeding) {
+            changes.push(newBreastfeeding ? '新增「哺」狀態' : '移除「哺」狀態');
+        }
+        
+        // 檢查 PGY 狀態
+        const oldPGY = oldParams.isPGY && oldParams.pgyExpiry && new Date(oldParams.pgyExpiry) >= today;
+        const newPGY = newParams.isPGY && newParams.pgyExpiry && new Date(newParams.pgyExpiry) >= today;
+        
+        if (oldPGY !== newPGY) {
+            changes.push(newPGY ? '新增「PGY」狀態' : '移除「PGY」狀態');
+        }
+        
+        // 檢查獨立性狀態
+        const oldDependent = oldParams.independence === 'dependent';
+        const newDependent = newParams.independence === 'dependent';
+        
+        if (oldDependent !== newDependent) {
+            changes.push(newDependent ? '變更為「未獨立」' : '變更為「獨立」');
+        }
+        
+        return changes;
+    },
+
+    // 🆕 顯示人員變更確認視窗
+    showStaffChangesModal: function(changes) {
+        return new Promise((resolve) => {
+            const modalHtml = `
+            <div id="staffChangesModal" style="display:flex; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
+                <div style="background:white; padding:30px; border-radius:12px; width:700px; max-height:85vh; overflow-y:auto; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+                    <h3 style="margin:0 0 10px 0; color:#2c3e50;">
+                        <i class="fas fa-sync-alt" style="color:#3498db;"></i> 人員與狀態變更通知
+                    </h3>
+                    <p style="color:#666; margin-bottom:25px; font-size:0.95rem;">
+                        偵測到人員名單或狀態有變更，是否要同步更新預班表？
+                    </p>
+                    
+                    ${changes.added.length > 0 ? `
+                    <div style="border:2px solid #27ae60; border-radius:8px; padding:15px; margin-bottom:15px;">
+                        <h4 style="margin:0 0 10px 0; color:#27ae60;">
+                            <i class="fas fa-user-plus"></i> 新增人員 (${changes.added.length} 位)
+                        </h4>
+                        <ul style="margin:0; padding-left:20px; line-height:1.8;">
+                            ${changes.added.map(p => `<li><strong>${p.empId}</strong> - ${p.name}</li>`).join('')}
+                        </ul>
+                        <div style="margin-top:10px; padding:10px; background:#d4edda; border-radius:4px; font-size:0.9rem;">
+                            <i class="fas fa-info-circle"></i> 新增人員將自動加入預班表，初始狀態為空白
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    ${changes.removed.length > 0 ? `
+                    <div style="border:2px solid #e74c3c; border-radius:8px; padding:15px; margin-bottom:15px;">
+                        <h4 style="margin:0 0 10px 0; color:#e74c3c;">
+                            <i class="fas fa-user-minus"></i> 移除人員 (${changes.removed.length} 位)
+                        </h4>
+                        <ul style="margin:0; padding-left:20px; line-height:1.8;">
+                            ${changes.removed.map(p => `<li><strong>${p.empId}</strong> - ${p.name}</li>`).join('')}
+                        </ul>
+                        <div style="margin-top:10px; padding:10px; background:#f8d7da; border-radius:4px; font-size:0.9rem;">
+                            <i class="fas fa-exclamation-triangle"></i> 這些人員已停用，其預班資料將保留但不會顯示在表格中
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    ${changes.statusChanged.length > 0 ? `
+                    <div style="border:2px solid #f39c12; border-radius:8px; padding:15px; margin-bottom:15px;">
+                        <h4 style="margin:0 0 10px 0; color:#f39c12;">
+                            <i class="fas fa-user-edit"></i> 狀態變更 (${changes.statusChanged.length} 位)
+                        </h4>
+                        <ul style="margin:0; padding-left:20px; line-height:1.8;">
+                            ${changes.statusChanged.map(p => `
+                                <li>
+                                    <strong>${p.empId}</strong> - ${p.name}
+                                    <ul style="margin-top:5px; color:#666; font-size:0.9rem;">
+                                        ${p.changes.map(c => `<li>${c}</li>`).join('')}
+                                    </ul>
+                                </li>
+                            `).join('')}
+                        </ul>
+                        <div style="margin-top:10px; padding:10px; background:#fff3cd; border-radius:4px; font-size:0.9rem;">
+                            <i class="fas fa-info-circle"></i> 狀態變更會影響排班規則（如夜班限制、獨立性等）
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    <div style="background:#e8f4fd; border-left:4px solid #3498db; padding:15px; border-radius:4px; margin-bottom:20px;">
+                        <strong style="color:#2c3e50;">建議操作：</strong>
+                        <ul style="margin:10px 0 0 0; padding-left:20px; line-height:1.6;">
+                            <li>點擊「同步更新」將套用以上變更</li>
+                            <li>已設定的預班資料將保留</li>
+                            <li>新增人員需要手動設定其預班與偏好</li>
+                            <li>移除人員的資料仍會保留在系統中</li>
+                        </ul>
+                    </div>
+                    
+                    <div style="display:flex; gap:15px; justify-content:flex-end;">
+                        <button id="btnCancelSync" style="padding:10px 20px; border:1px solid #95a5a6; background:#fff; border-radius:4px; cursor:pointer; font-size:1rem;">
+                            <i class="fas fa-times"></i> 暫不更新
+                        </button>
+                        <button id="btnConfirmSync" style="padding:10px 20px; border:none; background:#3498db; color:white; border-radius:4px; cursor:pointer; font-size:1rem; font-weight:bold;">
+                            <i class="fas fa-sync-alt"></i> 同步更新
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            
+            document.getElementById('btnConfirmSync').onclick = () => {
+                document.getElementById('staffChangesModal').remove();
+                resolve(true);
+            };
+            
+            document.getElementById('btnCancelSync').onclick = () => {
+                document.getElementById('staffChangesModal').remove();
+                resolve(false);
+            };
+        });
+    },
+
+    // 🆕 更新人員清單
+    updateStaffList: async function(currentUsers) {
+        try {
+            // 1. 建立新的 staffList
+            const newStaffList = [];
+            Object.keys(currentUsers).forEach(uid => {
+                const user = currentUsers[uid];
+                
+                // 保留原有的預班資料（如果存在）
+                const existingStaff = (this.data.staffList || []).find(s => s.uid === uid);
+                
+                newStaffList.push({
+                    uid: uid,
+                    empId: user.empId,
+                    name: user.name,
+                    level: user.level || 'N',
+                    group: user.groupId || '',
+                    schedulingParams: user.schedulingParams
+                });
+            });
+            
+            // 2. 更新到 Firestore
+            await db.collection('pre_schedules').doc(this.docId).update({
+                staffList: newStaffList,
+                lastSyncAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // 3. 更新本地資料
+            this.data.staffList = newStaffList;
+            
+            console.log('✅ 人員清單已同步更新');
+            
+        } catch (error) {
+            console.error('❌ 更新人員清單失敗:', error);
+            alert('更新失敗: ' + error.message);
         }
     },
 
@@ -176,7 +440,6 @@ const matrixManager = {
         if (tfoot) tfoot.innerHTML = '';
     },
 
-    // 🆕 取得人員狀態標記
     getStaffStatusBadges: function(uid) {
         const user = this.usersMap[uid];
         if (!user) return '';
@@ -185,7 +448,6 @@ const matrixManager = {
         const params = user.schedulingParams || {};
         const today = new Date();
         
-        // 檢查懷孕
         if (params.isPregnant && params.pregnantExpiry) {
             const expiry = new Date(params.pregnantExpiry);
             if (expiry >= today) {
@@ -193,7 +455,6 @@ const matrixManager = {
             }
         }
         
-        // 檢查哺乳
         if (params.isBreastfeeding && params.breastfeedingExpiry) {
             const expiry = new Date(params.breastfeedingExpiry);
             if (expiry >= today) {
@@ -201,7 +462,6 @@ const matrixManager = {
             }
         }
         
-        // 檢查 PGY
         if (params.isPGY && params.pgyExpiry) {
             const expiry = new Date(params.pgyExpiry);
             if (expiry >= today) {
@@ -209,7 +469,6 @@ const matrixManager = {
             }
         }
         
-        // 檢查未獨立
         if (params.independence === 'dependent') {
             badges.push('<span class="status-badge" style="background:#9c27b0; color:white;">D</span>');
         }
@@ -276,7 +535,6 @@ const matrixManager = {
             if (prefs.favShift3) favs.push(prefs.favShift3);
             if (favs.length > 0) prefDisplay += `<div style="font-size:0.75rem; color:#666;">${favs.join('->')}</div>`;
 
-            // 🆕 取得狀態標記
             const statusBadges = this.getStaffStatusBadges(uid);
 
             bodyHtml += `<tr data-uid="${uid}">
