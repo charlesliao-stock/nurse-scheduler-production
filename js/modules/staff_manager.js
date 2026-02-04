@@ -67,17 +67,29 @@ const staffManager = {
         const unitId = document.getElementById('inputUnit').value;
         const groupSelect = document.getElementById('inputGroup');
         if(!groupSelect) return;
+
+        const currentGroup = groupSelect.value;
+
         groupSelect.innerHTML = '<option value="">(無)</option>';
-        if (!unitId || !this.unitCache[unitId]) return;
+        if (!unitId || !this.unitCache[unitId]) {
+            this.loadClinicalTeachers();
+            return;
+        }
+
         const groups = this.unitCache[unitId].groups;
         if (groups && groups.length > 0) {
             groupSelect.innerHTML = '<option value="">請選擇組別</option>';
             groups.forEach(g => {
                 groupSelect.innerHTML += `<option value="${g}">${g}</option>`;
             });
+            
+            if (currentGroup) {
+                groupSelect.value = currentGroup;
+            }
         } else {
             groupSelect.innerHTML = '<option value="">(此單位未設定組別)</option>';
         }
+
         this.loadClinicalTeachers();
     },
 
@@ -89,6 +101,8 @@ const staffManager = {
             if(teacherSelect) teacherSelect.innerHTML = '<option value="">(請先選擇單位)</option>';
             return;
         }
+
+        const currentValue = teacherSelect.value;
 
         try {
             const snapshot = await db.collection('users')
@@ -108,6 +122,11 @@ const staffManager = {
                     teacherSelect.appendChild(option);
                 }
             });
+
+            if (currentValue) {
+                teacherSelect.value = currentValue;
+            }
+
         } catch (e) {
             console.error("載入臨床教師失敗:", e);
             teacherSelect.innerHTML = '<option value="">載入失敗</option>';
@@ -178,7 +197,6 @@ const staffManager = {
         tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;"><i class="fas fa-spinner fa-spin"></i> 資料載入中...</td></tr>';
         this.isLoading = true;
 
-        // 載入所有人員（包含已停用）
         let query = db.collection('users');
         const activeRole = app.impersonatedRole || app.userRole;
         const activeUnitId = app.impersonatedUnitId || app.userUnitId;
@@ -266,19 +284,16 @@ const staffManager = {
             const unitName = (this.unitCache[u.unitId]?.name) || u.unitId || '未知單位';
             const roleName = app.translateRole(u.role);
             
-            // 停用員工的樣式
             const rowStyle = u.isActive ? '' : 'opacity:0.5;background:#f8f9fa;';
             const nameDisplay = u.isActive 
                 ? u.displayName || '-'
                 : `${u.displayName || '-'} <span style="color:#e74c3c;font-size:0.8rem;">(已停用)</span>`;
             
-            // 操作按鈕
             let actionButtons = '';
             const currentRole = app.impersonatedRole || app.userRole;
             const isSystemAdmin = (currentRole === 'system_admin');
             
             if (!u.isActive) {
-                // 已停用：顯示啟用按鈕 + 重設密碼按鈕
                 actionButtons = `
                     <button class="btn" style="background:#28a745;color:white;padding:5px 10px;margin-right:5px;" 
                             onclick="staffManager.activateUser('${u.id}')" title="啟用">
@@ -291,7 +306,6 @@ const staffManager = {
                     </button>
                 `;
                 
-                // 系統管理者可以刪除已停用的帳號
                 if (isSystemAdmin) {
                     actionButtons += `
                         <button class="btn" style="background:#dc3545;color:white;padding:5px 10px;" 
@@ -302,7 +316,6 @@ const staffManager = {
                     `;
                 }
             } else {
-                // 啟用中：編輯 + 重設密碼 + 停用按鈕
                 let deactivateBtn = u.role === 'system_admin' 
                     ? `<button class="btn" style="background:#95a5a6;color:white;padding:5px 10px;" disabled title="超級管理員無法停用">
                         <i class="fas fa-ban"></i> 停用
@@ -366,8 +379,12 @@ const staffManager = {
             roleInput.value = u.role || 'user';
             roleInput.disabled = (u.role === 'system_admin');
             document.getElementById('inputUnit').value = u.unitId || '';
-            this.onUnitChange(); 
-            document.getElementById('inputGroup').value = u.groupId || '';
+
+            this.onUnitChange();
+
+            setTimeout(() => {
+                document.getElementById('inputGroup').value = u.groupId || '';
+            }, 100);
 
             const params = u.schedulingParams || {};
             document.getElementById('checkPregnant').checked = params.isPregnant || false;
@@ -381,16 +398,21 @@ const staffManager = {
             
             document.getElementById('checkBundle').checked = params.canBundleShifts || false;
             
-            // Set independence status
             const independence = params.independence || 'independent';
             if (independence === 'independent') {
                 document.getElementById('radioIndependent').checked = true;
             } else {
                 document.getElementById('radioDependent').checked = true;
             }
-            document.getElementById('selectClinicalTeacher').value = params.clinicalTeacherId || '';
+
+            setTimeout(() => {
+                const teacherSelect = document.getElementById('selectClinicalTeacher');
+                if (teacherSelect && params.clinicalTeacherId) {
+                    teacherSelect.value = params.clinicalTeacherId;
+                    console.log('✅ 已設定臨床教師:', params.clinicalTeacherId);
+                }
+            }, 200);
             
-            // Update field states
             this.updateDateFieldState();
             this.updateIndependenceFieldState();
             
@@ -431,7 +453,6 @@ const staffManager = {
             return; 
         }
         
-        // 檢查員工編號長度（作為預設密碼需至少 6 個字元）
         if (empId.length < 6) {
             const confirm6Chars = confirm(
                 `⚠️ 員工編號長度不足 6 個字元\n\n` +
@@ -473,11 +494,9 @@ const staffManager = {
             let emailCheck = null;
             
             if(docId) {
-                // 更新現有記錄
                 const existingDoc = await db.collection('users').doc(docId).get();
                 const existingData = existingDoc.data();
                 
-                // 如果修改了 Email，檢查新 Email 是否已被使用
                 if (existingData.email !== email) {
                     const emailCheck = await db.collection('users')
                         .where('email', '==', email)
@@ -524,7 +543,6 @@ const staffManager = {
                 batch.update(userRef, data);
                 
             } else {
-                // 新增記錄
                 emailCheck = await db.collection('users')
                     .where('email', '==', email)
                     .get();
@@ -578,7 +596,6 @@ const staffManager = {
             
             const targetUid = docId || userRef.id;
             
-            // 更新單位的管理員/排班人員清單
             if (selectedRole !== 'system_admin') {
                 const unitRef = db.collection('units').doc(selectedUnitId);
                 const unitDoc = await unitRef.get();
@@ -686,7 +703,6 @@ const staffManager = {
             return;
         }
         
-        // 顯示確認對話框，包含員工資訊
         const message = `重設密碼\n\n` +
             `員工：${user.displayName}\n` +
             `Email：${user.email}\n` +
@@ -707,7 +723,6 @@ const staffManager = {
         const user = this.allData.find(u => u.id === userId);
         if (!user) return;
         
-        // 建立 Modal
         const modalHtml = `
             <div id="resetPasswordModal" class="modal" style="display:flex;">
                 <div class="modal-content" style="max-width:500px;">
@@ -756,14 +771,11 @@ const staffManager = {
             </div>
         `;
         
-        // 移除舊的 Modal（如果存在）
         const oldModal = document.getElementById('resetPasswordModal');
         if (oldModal) oldModal.remove();
         
-        // 加入新的 Modal
         document.body.insertAdjacentHTML('beforeend', modalHtml);
         
-        // 自動 focus 到第一個輸入框
         setTimeout(() => {
             document.getElementById('confirmEmployeeId').focus();
         }, 100);
@@ -783,7 +795,6 @@ const staffManager = {
         const inputEmployeeId = document.getElementById('confirmEmployeeId').value.trim();
         const inputEmail = document.getElementById('confirmEmail').value.trim();
         
-        // 驗證輸入
         if (!inputEmployeeId || !inputEmail) {
             alert('❌ 請填寫所有欄位');
             return;
@@ -801,7 +812,6 @@ const staffManager = {
             return;
         }
         
-        // 檢查員工編號長度
         if (user.employeeId.length < 6) {
             alert(
                 `❌ 員工編號不足 6 個字元\n\n` +
@@ -814,7 +824,6 @@ const staffManager = {
         }
         
         try {
-            // 更新 Firestore，標記需要使用員工編號登入
             await db.collection('users').doc(userId).update({
                 passwordResetAt: firebase.firestore.FieldValue.serverTimestamp(),
                 passwordResetBy: auth.currentUser ? auth.currentUser.uid : 'admin',
@@ -868,7 +877,6 @@ const staffManager = {
                 return;
             }
             
-            // 過濾出符合條件的員工
             const validUsers = [];
             const invalidUsers = [];
             
@@ -890,7 +898,6 @@ const staffManager = {
                 }
             });
             
-            // 顯示統計
             let message = `找到 ${snapshot.size} 位員工\n\n`;
             message += `可重設：${validUsers.length} 位\n`;
             
@@ -910,7 +917,6 @@ const staffManager = {
             
             if (!confirm(message)) return;
             
-            // 執行批次更新
             const batch = db.batch();
             validUsers.forEach(user => {
                 const userRef = db.collection('users').doc(user.id);
@@ -1002,7 +1008,6 @@ const staffManager = {
         reader.readAsText(file);
     },
 
-    // --- 故障排查工具 ---
     openTroubleshootModal: function() {
         const modal = document.getElementById('troubleshootModal');
         if(modal) {
@@ -1018,17 +1023,14 @@ const staffManager = {
         if(modal) modal.classList.remove('show');
     },
 
-    // --- 刪除用戶（僅系統管理者） ---
     deleteUser: async function(userId, displayName, employeeId) {
         const currentRole = app.impersonatedRole || app.userRole;
         
-        // 權限檢查：僅系統管理者可以刪除
         if (currentRole !== 'system_admin') {
             alert('❌ 權限不足\n\n只有系統管理者可以刪除帳號。\n單位管理者僅能停用帳號。');
             return;
         }
         
-        // 第一次確認
         const confirm1 = confirm(
             `⚠️ 永久刪除帳號\n\n` +
             `姓名：${displayName}\n` +
@@ -1042,7 +1044,6 @@ const staffManager = {
         
         if (!confirm1) return;
         
-        // 第二次確認
         const confirm2 = confirm(
             `⚠️ 最後確認\n\n` +
             `即將永久刪除：${displayName} (${employeeId})\n\n` +
