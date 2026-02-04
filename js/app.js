@@ -245,5 +245,12 @@ const app = {
     clearImpersonation: function() {
         localStorage.removeItem('impersonatedUser');
         location.reload();
+    },
+
+    toggleSidebar: function() {
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar) {
+            sidebar.classList.toggle('collapsed');
+        }
     }
 };

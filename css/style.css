@@ -49,6 +49,7 @@ body {
     transition: margin-left var(--transition-speed) ease;
 }
 #sidebar.collapsed { margin-left: calc(var(--sidebar-width) * -1); }
+#sidebar.collapsed + #main-content { width: 100%; }
 
 .sidebar-header { height: var(--header-height); display: flex; align-items: center; padding: 0 20px; font-weight: bold; font-size: 1.2rem; border-bottom: 1px solid rgba(255,255,255,0.1); }
 .user-info { padding: 20px; background: rgba(0,0,0,0.2); font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.1); }
