@@ -90,7 +90,10 @@ const preScheduleManager = {
             snapshot.forEach(doc => {
                 const d = doc.data();
                 const statusInfo = app.getPreScheduleStatus(d);
-                const progress = d.progress ? `${d.progress.submitted}/${d.progress.total}` : '0/0';
+                // 修正：進度分母應優先參考人員名單長度，以確保顯示一致
+                const staffCount = (d.staffList || []).length;
+                const submittedCount = d.progress ? (d.progress.submitted || 0) : 0;
+                const progress = `${submittedCount}/${staffCount}`;
                 const avgOff = this.calculateAvgOff(d, shifts);
 
                 const tr = document.createElement('tr');
@@ -241,8 +244,25 @@ const preScheduleManager = {
         };
 
         try {
-            if (docId) await db.collection('pre_schedules').doc(docId).update(doc);
-            else await db.collection('pre_schedules').add({ ...doc, createdAt: firebase.firestore.FieldValue.serverTimestamp(), assignments: {}, progress: { total: doc.staffList.length, submitted: 0 } });
+            if (docId) {
+                // 修正：更新時也應同步更新 progress.total
+                const existingDoc = await db.collection('pre_schedules').doc(docId).get();
+                const existingData = existingDoc.data();
+                const progress = existingData.progress || { submitted: 0 };
+                progress.total = doc.staffList.length;
+                
+                await db.collection('pre_schedules').doc(docId).update({
+                    ...doc,
+                    progress: progress
+                });
+            } else {
+                await db.collection('pre_schedules').add({ 
+                    ...doc, 
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(), 
+                    assignments: {}, 
+                    progress: { total: doc.staffList.length, submitted: 0 } 
+                });
+            }
             this.closeModal(); this.loadData();
         } catch(e) { alert("儲存失敗: " + e.message); }
     },
