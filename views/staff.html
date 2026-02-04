@@ -147,7 +147,7 @@
 
             <div style="display:flex; align-items:center; gap:10px;">
                 <label style="cursor:pointer; width:100px;">
-                    <input type="checkbox" id="checkPGY" onchange="staffManager.updateDateFieldState(); staffManager.updateIndependenceFieldState()"> PGY
+                    <input type="checkbox" id="checkPGY" onchange="staffManager.updateDateFieldState()"> PGY
                 </label>
                 <input type="date" id="datePGY" style="padding:6px; border:1px solid #ccc; border-radius:4px;" disabled>
                 <span style="font-size:0.9rem; color:#666;">(期限)</span>
@@ -164,22 +164,40 @@
         
         <h4>獨立性設定</h4>
         
+        <div style="background-color: #e8f5e9; border-left: 4px solid #4caf50; padding: 12px; margin-bottom: 15px; font-size: 0.9rem;">
+            <i class="fas fa-info-circle" style="color: #4caf50;"></i> 
+            <strong>說明：</strong><br>
+            • <strong>獨立</strong>：可獨立排班，列入單位排班人力<br>
+            • <strong>未獨立</strong>：不列入排班人力，除自己的預班外，其他班次將與臨床教師一致
+        </div>
+        
         <div style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px;">
             <div style="display:flex; align-items:center; gap:20px;">
                 <label style="cursor:pointer; display:flex; align-items:center; gap:8px;">
-                    <input type="radio" name="independence" value="independent" id="radioIndependent" onchange="staffManager.updateIndependenceFieldState()"> 獨立
+                    <input type="radio" name="independence" value="independent" id="radioIndependent" 
+                           onchange="staffManager.updateIndependenceFieldState()" checked> 獨立
                 </label>
                 <label style="cursor:pointer; display:flex; align-items:center; gap:8px;">
-                    <input type="radio" name="independence" value="dependent" id="radioDependent" onchange="staffManager.updateIndependenceFieldState()"> 未獨立
+                    <input type="radio" name="independence" value="dependent" id="radioDependent" 
+                           onchange="staffManager.updateIndependenceFieldState()"> 未獨立
                 </label>
             </div>
 
             <div style="display:flex; align-items:center; gap:10px;">
-                <label style="width:120px; font-weight:normal;">臨床教師</label>
-                <select id="selectClinicalTeacher" style="padding:6px; border:1px solid #ccc; border-radius:4px; flex:1;" disabled>
+                <label style="width:120px; font-weight:normal;">
+                    臨床教師 <span style="color:red;">*</span>
+                </label>
+                <select id="selectClinicalTeacher" 
+                        style="padding:6px; border:1px solid #ccc; border-radius:4px; flex:1;" 
+                        disabled>
                     <option value="">(請選擇臨床教師)</option>
                 </select>
-                <span style="font-size:0.9rem; color:#666;">(未獨立時必填)</span>
+                <span style="font-size:0.85rem; color:#666;">(未獨立時必填)</span>
+            </div>
+            
+            <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; font-size: 0.85rem;">
+                <i class="fas fa-exclamation-triangle" style="color: #ff9800;"></i> 
+                未獨立的員工排班時將跟隨臨床教師的班表
             </div>
         </div>
 
