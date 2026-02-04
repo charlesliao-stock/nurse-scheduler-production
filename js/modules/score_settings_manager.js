@@ -359,24 +359,29 @@ const scoreSettingsManager = {
                 const itemDiv = document.createElement('div');
                 itemDiv.id = `metric_${subKey}_container`;
                 itemDiv.innerHTML = `
-                    <div class="metric-item">
-                        <div class="metric-header">
-                            <label class="switch">
+                    <div class="metric-item" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 15px; border-bottom: 1px solid #f0f0f0;">
+                        <div class="metric-left" style="display: flex; align-items: center; gap: 10px; flex: 1;">
+                            <label class="switch" style="margin-bottom: 0;">
                                 <input type="checkbox" id="metric_${subKey}" onchange="scoreSettingsManager.calculateWeights()">
                                 <span class="slider"></span>
                             </label>
-                            <span class="metric-name">
+                            <span class="metric-name" style="font-weight: 500; color: #333;">
                                 ${sub.label}
                                 ${directionIcon}
                                 <i class="fas fa-question-circle tip-icon" 
                                    title="${sub.desc}&#10;評分方向：${directionText}"></i>
                             </span>
-                            <button class="btn-standard" onclick="scoreSettingsManager.openGradingModal('${subKey}')">
+                        </div>
+                        <div class="metric-right" style="display: flex; align-items: center; gap: 15px;">
+                            <button class="btn-standard" onclick="scoreSettingsManager.openGradingModal('${subKey}')" style="white-space: nowrap;">
                                 評分標準
                             </button>
-                        </div>
-                        <div class="metric-value">
-                            <input type="number" id="val_${subKey}" class="metric-input" value="${sub.weight}" oninput="scoreSettingsManager.calculateWeights()"> %
+                            <div class="metric-value" style="display: flex; align-items: center; gap: 5px; min-width: 80px; justify-content: flex-end;">
+                                <input type="number" id="val_${subKey}" class="metric-input" value="${sub.weight}" 
+                                       oninput="scoreSettingsManager.calculateWeights()" 
+                                       style="width: 50px; text-align: center; padding: 4px; border: 1px solid #ddd; border-radius: 4px;"> 
+                                <span style="color: #666; font-size: 0.9rem;">%</span>
+                            </div>
                         </div>
                     </div>`;
                 container.appendChild(itemDiv);
