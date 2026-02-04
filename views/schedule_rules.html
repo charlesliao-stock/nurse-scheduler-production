@@ -150,9 +150,23 @@
                     </div>
                 </div>
 
+                <div class="rule-card" style="background:#fff8e1; border-left-color:#ff9800;">
+                    <div class="rule-header">
+                        <label class="switch-label"><input type="checkbox" id="rule_protectPGY" checked> <span class="label-text">6. PGY 保護 (訓練期間)</span></label>
+                    </div>
+                    <div class="rule-body">
+                        <i class="fas fa-graduation-cap" style="color:#ff9800;"></i> 
+                        PGY (Post-Graduate Year) 訓練期間的同仁，系統將自動避免安排夜班 (22:00 ~ 06:00)。
+                        <div style="margin-top:8px; padding:8px; background:#fff; border-left:3px solid #ff9800; font-size:0.9rem;">
+                            <strong>適用範圍：</strong>人員管理中標記為「PGY」且在期限內的員工<br>
+                            <strong>保護內容：</strong>禁止安排夜間時段工作，確保訓練品質與作息穩定
+                        </div>
+                    </div>
+                </div>
+
                 <div class="rule-card danger-card">
                     <div class="rule-header" style="color:#c0392b;">
-                        <label class="switch-label"><input type="checkbox" id="rule_enableRelaxation"> <span class="label-text">6. 救火模式 (規則放寬)</span></label>
+                        <label class="switch-label"><input type="checkbox" id="rule_enableRelaxation"> <span class="label-text">7. 救火模式 (規則放寬)</span></label>
                     </div>
                     <div class="rule-body" style="color:#c0392b;">
                         <i class="fas fa-fire"></i> <strong>緊急開關：</strong> 僅在人力極度短缺排不出來時使用。<br>
@@ -160,11 +174,10 @@
                     </div>
                 </div>
 
-                <!-- 🔥 新增：缺額處理優先順序 -->
                 <div class="rule-card" style="background:#f0f8ff; border-left:5px solid #e74c3c; margin-top:25px;">
                     <div class="rule-header" style="display:flex; align-items:center; gap:8px; color:#2c3e50;">
                         <i class="fas fa-sort-amount-down" style="color:#e74c3c;"></i> 
-                        7. 缺額處理優先順序
+                        8. 缺額處理優先順序
                     </div>
                     <div class="rule-body">
                         <div class="alert alert-info" style="margin:10px 0; background:#e8f4fd; border-left:4px solid #3498db; padding:12px; border-radius:4px;">
@@ -310,7 +323,6 @@
 </div>
 
 <style>
-    /* 容器樣式 */
     .toolbar-card { background: #fff; padding: 15px 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
     .rules-container { background: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); min-height: 600px; overflow: hidden; }
     .tab-nav { display: flex; background: #f8f9fa; border-bottom: 1px solid #eee; }
@@ -323,7 +335,6 @@
     .section-title { font-size: 1.2rem; font-weight: bold; color: #2c3e50; border-left: 5px solid #3498db; padding-left: 15px; margin-bottom: 15px; }
     .section-desc { color: #7f8c8d; margin-bottom: 20px; font-size: 0.95rem; }
 
-    /* === [更新] 規則卡片樣式 === */
     .rule-card { 
         background: #fff; 
         border: 1px solid #eee; 
@@ -353,12 +364,10 @@
         line-height: 1.5; 
     }
 
-    /* 特殊卡片 */
     .danger-card { border-left-color: #c0392b; background: #fff5f5; }
     .danger-card:hover { background-color: #fadbd8 !important; border-left-color: #e74c3c !important; }
     .highlight-card { border-left-color: #3498db; background: #fdfefe; }
 
-    /* 表單元件微調 */
     .form-control { padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
     .small-input { width: 80px; text-align: center; }
     .medium-input { width: 200px; }
@@ -378,7 +387,6 @@
     .sortable-item:active { cursor: grabbing; }
     .sortable-item i { color: #bdc3c7; font-size: 0.8rem; margin-left: 5px; }
 
-    /* 🔥 新增：缺額處理優先順序樣式 */
     .shortage-priority-list {
         border: 2px dashed #ddd;
         border-radius: 6px;
