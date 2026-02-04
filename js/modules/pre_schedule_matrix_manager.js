@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_matrix_manager.js
-// 🔧 完整版 v2：右鍵選單跟隨鼠標位置 + 語法錯誤修正 + 權限檢查
+// 🔧 完整版 v3：顯示 FF、新增狀態欄（孕/哺/P/D）
 
 const matrixManager = {
     docId: null, 
@@ -18,7 +18,6 @@ const matrixManager = {
             return; 
         }
         
-        // ✅ 權限檢查
         if (app.userRole === 'user') {
             document.getElementById('content-area').innerHTML = `
                 <div class="empty-state">
@@ -36,7 +35,6 @@ const matrixManager = {
         try {
             this.showLoading();
             
-            // 先載入預班資料以檢查單位權限
             const preDoc = await db.collection('pre_schedules').doc(id).get();
             if (!preDoc.exists) {
                 alert("找不到此預班表");
@@ -45,7 +43,6 @@ const matrixManager = {
             
             const preData = preDoc.data();
             
-            // ✅ 檢查是否有權限編輯此單位的預班
             const activeRole = app.impersonatedRole || app.userRole;
             const activeUnitId = app.impersonatedUnitId || app.userUnitId;
             if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
@@ -127,7 +124,6 @@ const matrixManager = {
         const doc = await db.collection('pre_schedules').doc(this.docId).get();
         this.data = doc.data();
         
-        // 🚀 關鍵修正：確保從 Firestore 讀取最新的 assignments
         this.localAssignments = this.data.assignments || {};
         this.historyCorrections = this.data.historyCorrections || {}; 
         
@@ -180,10 +176,51 @@ const matrixManager = {
         if (tfoot) tfoot.innerHTML = '';
     },
 
+    // 🆕 取得人員狀態標記
+    getStaffStatusBadges: function(uid) {
+        const user = this.usersMap[uid];
+        if (!user) return '';
+        
+        const badges = [];
+        const params = user.schedulingParams || {};
+        const today = new Date();
+        
+        // 檢查懷孕
+        if (params.isPregnant && params.pregnantExpiry) {
+            const expiry = new Date(params.pregnantExpiry);
+            if (expiry >= today) {
+                badges.push('<span class="status-badge" style="background:#ff9800; color:white;">孕</span>');
+            }
+        }
+        
+        // 檢查哺乳
+        if (params.isBreastfeeding && params.breastfeedingExpiry) {
+            const expiry = new Date(params.breastfeedingExpiry);
+            if (expiry >= today) {
+                badges.push('<span class="status-badge" style="background:#4caf50; color:white;">哺</span>');
+            }
+        }
+        
+        // 檢查 PGY
+        if (params.isPGY && params.pgyExpiry) {
+            const expiry = new Date(params.pgyExpiry);
+            if (expiry >= today) {
+                badges.push('<span class="status-badge" style="background:#2196f3; color:white;">P</span>');
+            }
+        }
+        
+        // 檢查未獨立
+        if (params.independence === 'dependent') {
+            badges.push('<span class="status-badge" style="background:#9c27b0; color:white;">D</span>');
+        }
+        
+        return badges.join('');
+    },
+
     renderMatrix: function() {
         const thead = document.getElementById('matrixHead');
         const tbody = document.getElementById('matrixBody');
-        const tfoot = document.getElementById('matrixFoot'); // ✅ 新增這一行
+        const tfoot = document.getElementById('matrixFoot');
         const year = this.data.year;
         const month = this.data.month;
         const daysInMonth = new Date(year, month, 0).getDate();
@@ -191,6 +228,7 @@ const matrixManager = {
         let h1 = `<tr>
             <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa;">職編</th>
             <th rowspan="2" style="width:80px; position:sticky; left:60px; z-index:110; background:#f8f9fa;">姓名</th>
+            <th rowspan="2" style="width:50px; position:sticky; left:140px; z-index:110; background:#f8f9fa;">狀態</th>
             <th rowspan="2" style="width:50px;">偏好</th>
             <th colspan="6" style="background:#eee; font-size:0.8rem;">上月月底 (可修)</th>`;
         
@@ -238,9 +276,15 @@ const matrixManager = {
             if (prefs.favShift3) favs.push(prefs.favShift3);
             if (favs.length > 0) prefDisplay += `<div style="font-size:0.75rem; color:#666;">${favs.join('->')}</div>`;
 
+            // 🆕 取得狀態標記
+            const statusBadges = this.getStaffStatusBadges(uid);
+
             bodyHtml += `<tr data-uid="${uid}">
-                <td style="position:sticky; left:0; background:#fff;">${empId}</td>
-                <td style="position:sticky; left:60px; background:#fff;">${staff.name}</td>
+                <td style="position:sticky; left:0; background:#fff; z-index:10;">${empId}</td>
+                <td style="position:sticky; left:60px; background:#fff; z-index:10;">${staff.name}</td>
+                <td style="position:sticky; left:140px; background:#fff; z-index:10; text-align:center; line-height:1.2;">
+                    ${statusBadges || '<span style="color:#ccc;">-</span>'}
+                </td>
                 <td style="cursor:pointer; text-align:center; line-height:1.3; padding:4px 2px;" onclick="matrixManager.openPrefModal('${uid}','${staff.name}')">
                     ${prefDisplay || '<i class="fas fa-cog" style="color:#ccc;"></i>'}
                 </td>`;
@@ -262,7 +306,7 @@ const matrixManager = {
                                  data-day="${d}" 
                                  data-type="history"
                                  style="${bgStyle} font-size:0.85rem; text-align:center; cursor:pointer;">
-                                 ${displayVal}
+                                 ${displayVal === 'OFF' ? 'FF' : displayVal}
                              </td>`;
             }
 
@@ -297,7 +341,7 @@ const matrixManager = {
         let footHtml = '';
         this.shifts.forEach((s, idx) => {
             footHtml += `<tr>`;
-            if(idx === 0) footHtml += `<td colspan="9" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; vertical-align:middle;">每日人力<br>監控 (點擊調整)</td>`;
+            if(idx === 0) footHtml += `<td colspan="10" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; vertical-align:middle;">每日人力<br>監控 (點擊調整)</td>`;
             
             for(let d=1; d<=daysInMonth; d++) {
                 const dateStr = this.getDateStr(d);
@@ -330,7 +374,8 @@ const matrixManager = {
     },
 
     renderCellContent: function(val) {
-        if(!val || val === 'OFF') return '';
+        if(!val) return '';
+        if(val === 'OFF') return 'FF';
         if(val === 'REQ_OFF') return '<span class="badge" style="background:#fff3cd; color:#856404; border:1px solid #ffeeba;">預休</span>';
         if(typeof val === 'string' && val.startsWith('!')) return `<span style="color:red; font-size:0.8rem;">!${val.replace('!','')}</span>`;
         return val;
@@ -390,17 +435,16 @@ const matrixManager = {
     },
 
     getDateStr: function(d) { return `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`; },
+    
     bindCellEvents: function() {
         const cells = document.querySelectorAll('.cell-clickable');
         cells.forEach(cell => {
-            // 1. 右鍵選單
             cell.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 this.handleRightClick(e, cell.dataset.uid, cell.dataset.day, cell.dataset.type);
             });
 
-            // 2. 左鍵點擊 (預設切換 OFF)
             cell.addEventListener('click', (e) => {
                 e.preventDefault();
                 const uid = cell.dataset.uid;
@@ -408,12 +452,10 @@ const matrixManager = {
                 const type = cell.dataset.type;
 
                 if (type === 'history') {
-                    // 歷史資料切換 (左鍵點擊切換 OFF)
                     const currentVal = this.historyCorrections[uid]?.[`last_${day}`];
                     const newVal = (currentVal === 'OFF') ? null : 'OFF';
                     this.setHistoryShift(uid, day, newVal);
                 } else {
-                    // 當前預班切換 (左鍵點擊切換 REQ_OFF)
                     const key = `current_${day}`;
                     const currentVal = this.localAssignments[uid]?.[key];
                     const newVal = (currentVal === 'REQ_OFF') ? null : 'REQ_OFF';
@@ -422,14 +464,12 @@ const matrixManager = {
             });
         });
 
-        // 點擊其他地方關閉選單
         document.addEventListener('click', () => {
             const menu = document.getElementById('customContextMenu');
             if (menu) menu.style.display = 'none';
         }, { once: false });
     },
 
-    // 🔥 修正：右鍵選單跟隨鼠標位置 + 語法錯誤修正
     handleRightClick: function(e, uid, day, type) {
         const menu = document.getElementById('customContextMenu');
         const options = document.getElementById('contextMenuOptions');
@@ -445,13 +485,12 @@ const matrixManager = {
             </div>
             <ul style="list-style:none; padding:0; margin:0;">
                 <li onclick="${funcName}('${uid}','${targetKey}','${isHistory ? 'OFF' : 'REQ_OFF'}')" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee;">
-                    <i class="fas fa-bed" style="width:20px; color:#27ae60;"></i> ${isHistory ? 'OFF (休)' : '排休 (OFF)'}
+                    <i class="fas fa-bed" style="width:20px; color:#27ae60;"></i> ${isHistory ? 'FF (休)' : '排休 (FF)'}
                 </li>
         `;
         
         html += `<li style="padding:5px 12px; font-size:0.8rem; color:#999; background:#fafafa;">指定班別</li>`;
         this.shifts.forEach(s => {
-            // 🔥 關鍵修正：先計算顏色值，避免模板字串內嵌套
             const shiftColor = s.color || '#333';
             html += `
                 <li onclick="${funcName}('${uid}','${targetKey}','${s.code}')" style="padding:8px 12px; cursor:pointer;">
@@ -478,34 +517,26 @@ const matrixManager = {
         
         options.innerHTML = html;
         
-        // 🔥 先顯示選單以計算實際高度
         menu.style.display = 'block';
         menu.style.visibility = 'hidden';
-        
-        // 強制瀏覽器重新計算布局
         menu.offsetHeight;
         
-        // 計算選單尺寸與位置
         const menuWidth = menu.offsetWidth || 200;
         const menuHeight = menu.offsetHeight;
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
         
-        // 計算初始位置（使用客戶端座標以對應 viewport）
         let left = e.clientX + 5;
         let top = e.clientY + 5;
         
-        // 檢查是否超出右邊界
         if (left + menuWidth > viewportWidth) {
             left = viewportWidth - menuWidth - 5;
         }
         
-        // 檢查是否超出下邊界
         if (top + menuHeight > viewportHeight) {
             top = viewportHeight - menuHeight - 5;
         }
 
-        // 設定最終位置並顯示 (使用 fixed 定位，對應 CSS 設定)
         menu.style.position = 'fixed';
         menu.style.left = left + 'px';
         menu.style.top = top + 'px';
