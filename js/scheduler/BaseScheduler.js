@@ -277,35 +277,21 @@ class BaseScheduler {
             return true;
         }
 
-        // 🔥 修正：正確計算跨日間隔
-        let gap;
+        // 🔥 核心修正：統一時間軸計算間隔 (Gap)
+        // prevStart: 前一日上班時間 (0~24)
+        // prevEnd: 前一日下班時間 (若跨日則 > 24)
+        // currStart: 今日上班時間 (24~48)
         
-        // 情況 1：prev 不跨日 (例如 D班 08:00-16:00)
-        if (prev.end >= prev.start) {
-            gap = (curr.start + 24) - prev.end;  // 次日上班
-        }
-        // 情況 2：prev 跨日 (例如 N班 22:00-08:00)
-        else {
-            const prevEndAbs = prev.end + 24;  // 08:00 → 32:00
-            const currStartAbs = curr.start + 24;  // 例如 14:00 → 38:00
-            gap = currStartAbs - prevEndAbs;
-        }
-
+        const pStart = prev.start;
+        const pEnd = (prev.end < pStart) ? (prev.end + 24) : prev.end;
+        const cStart = curr.start + 24;
+        
+        const gap = cStart - pEnd;
         const minGap = this.rule_minGapHours || 11;
-
-        if (gap < 0) {
-            console.warn(`⚠️ 休息時間計算出現負值: ${prevShift}(${prev.start}-${prev.end}) → ${currShift}(${curr.start}-${curr.end}), gap=${gap}`);
-            return true;  // 計算錯誤時，保守允許
-        }
-        
-        if (gap > 48) {
-            console.warn(`⚠️ 休息時間異常過長: ${prevShift} → ${currShift}, gap=${gap}小時`);
-            return true;
-        }
 
         if (gap < minGap) {
             console.warn(`❌ 休息不足: ${prevShift}(${prev.start}-${prev.end}) → ${currShift}(${curr.start}-${curr.end}), 間隔=${gap.toFixed(1)}h < ${minGap}h`);
-            return false;  // 🔥 嚴格拒絕
+            return false;
         }
 
         return true;
@@ -441,11 +427,19 @@ class BaseScheduler {
         const time = this.shiftTimes[shiftCode];
         if (!time) return false;
         
+        // 🔥 移除寫死判斷，改由班別屬性或跨日判定
+        if (time.isNightShift === true) return true;
+        
         const s = time.start;
         const e = time.end;
         
+        // 跨日班通常視為夜班
         if (e < s) return true;
-        return s >= 22 || s <= 5 || (e <= 8 && e > 0);
+        
+        // 如果下班時間在凌晨 00:00 ~ 08:00 之間，也視為廣義夜班
+        if (e > 0 && e <= 8) return true;
+
+        return false;
     }
 
     checkSpecialStatus(staff, shiftCode) {

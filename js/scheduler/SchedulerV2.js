@@ -1104,21 +1104,32 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     isValidAssignment(staff, dateStr, shiftCode) {
+        // 🔥 核心修正：不應直接 return true，必須確保 checkRestPeriod 始終通過
         const baseValid = super.isValidAssignment(staff, dateStr, shiftCode);
+        
+        // 如果基礎校驗通過，直接返回 true
         if (baseValid) return true;
+        
+        // 如果基礎校驗失敗（通常是因為連續上班天數限制），檢查是否為長假人員特例
         const consDays = this.getConsecutiveWorkDays(staff.id, dateStr);
         const normalLimit = this.rules.policy?.maxConsDays || 6;
+        
         if (consDays + 1 > normalLimit) {
             const stats = this.staffStats[staff.id];
             if (stats?.isLongVacationer) {
                 const longVacLimit = this.rules.policy?.longVacationWorkLimit || 7;
                 if (consDays + 1 <= longVacLimit) {
+                    // 長假人員允許較長的連續上班，但仍須檢查休息時間
                     const currentDayIndex = new Date(dateStr).getDate();
                     let prevShift = 'OFF';
                     if (currentDayIndex > 1) {
                          const prevDateStr = this.getDateStr(currentDayIndex - 1);
                          prevShift = this.getShiftByDate(prevDateStr, staff.id);
-                    } else if (currentDayIndex === 1) prevShift = this.lastMonthData?.[staff.id]?.lastShift || 'OFF';
+                    } else if (currentDayIndex === 1) {
+                        prevShift = this.lastMonthData?.[staff.id]?.lastShift || 'OFF';
+                    }
+                    
+                    // 即使放寬連續天數，也絕不能放寬休息時間
                     if (!this.checkRestPeriod(prevShift, shiftCode)) return false; 
                     return true;
                 }
