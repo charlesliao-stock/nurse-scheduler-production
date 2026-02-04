@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 最終完整版 v5：新增包班配額檢查功能 + 權限控管
+// 🚀 最終完整版 v6：顯示 FF、新增狀態欄（孕/哺/P/D）+ 包班配額檢查功能 + 權限控管
 
 const scheduleEditorManager = {
     scheduleId: null, 
@@ -24,7 +24,6 @@ const scheduleEditorManager = {
             return; 
         }
         
-        // ✅ 權限檢查
         if (app.userRole === 'user') {
             document.getElementById('content-area').innerHTML = `
                 <div class="empty-state">
@@ -39,7 +38,6 @@ const scheduleEditorManager = {
         this.showLoading();
         
         try {
-            // 先載入排班資料以檢查單位權限
             const schDoc = await db.collection('schedules').doc(id).get();
             if (!schDoc.exists) {
                 alert("找不到此排班表");
@@ -48,7 +46,6 @@ const scheduleEditorManager = {
             
             const schData = schDoc.data();
             
-            // ✅ 檢查是否有權限編輯此單位的排班
             const activeRole = app.impersonatedRole || app.userRole;
             const activeUnitId = app.impersonatedUnitId || app.userUnitId;
             if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
@@ -76,7 +73,6 @@ const scheduleEditorManager = {
                 await scoringManager.loadSettings(this.data.unitId);
             }
             
-            // 資料結構防呆
             if (!this.data.assignments || typeof this.data.assignments !== 'object') {
                 this.data.assignments = {};
             }
@@ -110,8 +106,6 @@ const scheduleEditorManager = {
             if (loader) loader.remove();
         }
     },
-
-
 
     initContextMenu: function() {
         if (!document.getElementById('schContextMenu')) {
@@ -182,15 +176,49 @@ const scheduleEditorManager = {
     },
 
     loadUnitRules: async function() {
-        const snap = await db.collection('schedule_rules')
-            .where('unitId', '==', this.data.unitId)
-            .get();
+        const doc = await db.collection('units').doc(this.data.unitId).get();
+        this.unitRules = doc.data() || {};
+    },
+
+    // 🆕 取得人員狀態標記
+    getStaffStatusBadges: function(uid) {
+        const user = this.usersMap[uid];
+        if (!user) return '';
         
-        this.unitRules = {};
-        snap.forEach(doc => {
-            const d = doc.data();
-            this.unitRules[d.code] = d;
-        });
+        const badges = [];
+        const params = user.schedulingParams || {};
+        const today = new Date();
+        
+        // 檢查懷孕
+        if (params.isPregnant && params.pregnantExpiry) {
+            const expiry = new Date(params.pregnantExpiry);
+            if (expiry >= today) {
+                badges.push('<span class="status-badge" style="background:#ff9800; color:white;">孕</span>');
+            }
+        }
+        
+        // 檢查哺乳
+        if (params.isBreastfeeding && params.breastfeedingExpiry) {
+            const expiry = new Date(params.breastfeedingExpiry);
+            if (expiry >= today) {
+                badges.push('<span class="status-badge" style="background:#4caf50; color:white;">哺</span>');
+            }
+        }
+        
+        // 檢查 PGY
+        if (params.isPGY && params.pgyExpiry) {
+            const expiry = new Date(params.pgyExpiry);
+            if (expiry >= today) {
+                badges.push('<span class="status-badge" style="background:#2196f3; color:white;">P</span>');
+            }
+        }
+        
+        // 檢查未獨立
+        if (params.independence === 'dependent') {
+            badges.push('<span class="status-badge" style="background:#9c27b0; color:white;">D</span>');
+        }
+        
+        return badges.join('');
     },
 
     renderMatrix: function() {
@@ -204,7 +232,9 @@ const scheduleEditorManager = {
         let h1 = `<tr>
             <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa;">職編</th>
             <th rowspan="2" style="width:80px; position:sticky; left:60px; z-index:110; background:#f8f9fa;">姓名</th>
-            <th rowspan="2" style="width:60px;">偏好</th> <th colspan="6" style="background:#eee; font-size:0.8rem;">上月月底</th>`;
+            <th rowspan="2" style="width:50px; position:sticky; left:140px; z-index:110; background:#f8f9fa;">狀態</th>
+            <th rowspan="2" style="width:60px;">偏好</th>
+            <th colspan="6" style="background:#eee; font-size:0.8rem;">上月月底</th>`;
         
         for(let d=1; d<=daysInMonth; d++) {
             const date = new Date(year, month-1, d);
@@ -255,16 +285,22 @@ const scheduleEditorManager = {
                 prefDisplay = '-';
             }
 
+            // 🆕 取得狀態標記
+            const statusBadges = this.getStaffStatusBadges(uid);
+
             bodyHtml += `<tr data-uid="${uid}">
-                <td style="position:sticky; left:0; background:#fff;">${empId}</td>
-                <td style="position:sticky; left:60px; background:#fff;">${staff.name}</td>
+                <td style="position:sticky; left:0; background:#fff; z-index:10;">${empId}</td>
+                <td style="position:sticky; left:60px; background:#fff; z-index:10;">${staff.name}</td>
+                <td style="position:sticky; left:140px; background:#fff; z-index:10; text-align:center; line-height:1.2;">
+                    ${statusBadges || '<span style="color:#ccc;">-</span>'}
+                </td>
                 <td style="text-align:center;">${prefDisplay}</td>`;
             
             const lastData = this.lastMonthData[uid] || {};
             for(let d = lastDays - 5; d <= lastDays; d++) {
                 const v = lastData[`last_${d}`];
                 const c = this.shifts.find(s => s.code === v)?.color || '#fff';
-                bodyHtml += `<td class="last-month-cell" style="background:${c}; font-size:0.7rem;">${v||'-'}</td>`;
+                bodyHtml += `<td class="last-month-cell" style="background:${c}; font-size:0.7rem;">${v === 'OFF' ? 'FF' : (v || '-')}</td>`;
             }
             
             let offCnt = 0, reqCnt = 0, eCnt = 0, nCnt = 0;
@@ -275,7 +311,7 @@ const scheduleEditorManager = {
                 let cellClass = 'cell-clickable';
                 let text = val || '';
                 
-                if(val === 'OFF') { offCnt++; cellClass += ' cell-off'; }
+                if(val === 'OFF') { offCnt++; cellClass += ' cell-off'; text = 'FF'; }
                 else if(val === 'REQ_OFF') { offCnt++; reqCnt++; cellClass += ' cell-req-off'; text = 'V'; }
                 else if(val === 'E') { eCnt++; cellStyle = 'background:#BBDEFB;'; }
                 else if(val === 'N') { nCnt++; cellStyle = 'background:#CE93D8;'; }
@@ -299,22 +335,9 @@ const scheduleEditorManager = {
         this.bindEvents();
     },
 
-    loadShifts: async function() {
-        const snap = await db.collection('shifts').where('unitId','==',this.data.unitId).orderBy('startTime').get();
-        this.shifts = snap.docs.map(d => d.data());
+    showLoading: function() { 
+        document.body.insertAdjacentHTML('beforeend', '<div id="globalLoader" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:99999; display:flex; justify-content:center; align-items:center;"><div style="background:white; padding:20px; border-radius:8px;">載入中...</div></div>'); 
     },
-
-    loadUsers: async function() {
-        const snap = await db.collection('users').where('unitId','==',this.data.unitId).get();
-        snap.forEach(d => { this.usersMap[d.id] = d.data(); });
-    },
-
-    loadUnitRules: async function() {
-        const doc = await db.collection('units').doc(this.data.unitId).get();
-        this.unitRules = doc.data() || {};
-    },
-
-    showLoading: function() { document.body.insertAdjacentHTML('beforeend', '<div id="globalLoader" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:99999; display:flex; justify-content:center; align-items:center;"><div style="background:white; padding:20px; border-radius:8px;">載入中...</div></div>'); },
 
     renderToolbar: function() {
         const right = document.getElementById('toolbarRight');
@@ -345,18 +368,15 @@ const scheduleEditorManager = {
             return; 
         }
         
-        // 🔥 執行包班檢查
         const checkResult = await this.analyzeBundleQuota();
         this.showBundleCheckModal(checkResult);
     },
 
-    // 🆕 分析包班配額
     analyzeBundleQuota: async function() {
         const year = this.data.year;
         const month = this.data.month;
         const daysInMonth = new Date(year, month, 0).getDate();
         
-        // 1️⃣ 計算各班全月總需求
         const demandByShift = {};
         for (let d = 1; d <= daysInMonth; d++) {
             const dateStr = this.getDateStr(d);
@@ -377,7 +397,6 @@ const scheduleEditorManager = {
             });
         }
         
-        // 2️⃣ 分類人員：包班 vs 非包班（有偏好）
         const analysis = {};
         
         ['E', 'N', 'D'].forEach(shiftCode => {
@@ -410,7 +429,6 @@ const scheduleEditorManager = {
             const bundleCount = bundleStaff.length;
             const nonBundleCount = nonBundleStaff.length;
             
-            // 3️⃣ 計算配額與警告
             let bundleQuota = 0;
             let nonBundleQuota = 0;
             let status = 'ok';
@@ -427,7 +445,7 @@ const scheduleEditorManager = {
                 } else if (bundleQuota > 26) {
                     status = 'critical';
                     warningLevel = 2;
-                    warningMsg = `配額過高（> 26班），可能導致工作過量`;  // 🔥 移除「禁止執行」文字
+                    warningMsg = `配額過高（> 26班），可能導致工作過量`;
                 } else if (bundleQuota > 22) {
                     status = 'high';
                     warningLevel = 1;
@@ -457,22 +475,19 @@ const scheduleEditorManager = {
         const maxWarningLevel = Math.max(...Object.values(analysis).map(a => a.warningLevel));
         
         return {
-            canExecute: true,  // 🔥 修改：所有情況都允許執行（僅警告不禁止）
+            canExecute: true,
             hasWarning: maxWarningLevel > 0,
             analysis: analysis,
             daysInMonth: daysInMonth
         };
     },
 
-    // 🆕 顯示包班檢查視窗
     showBundleCheckModal: function(checkResult) {
-        // 移除舊的 Modal
         const oldModal = document.getElementById('bundleCheckModal');
         if (oldModal) oldModal.remove();
         
         const { analysis, canExecute, hasWarning } = checkResult;
         
-        // 建立 Modal HTML
         let modalHtml = `
         <div id="bundleCheckModal" style="display:flex; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
             <div style="background:white; padding:30px; border-radius:12px; width:900px; max-height:85vh; overflow-y:auto; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
@@ -481,7 +496,6 @@ const scheduleEditorManager = {
                     執行 AI 排班前，請先確認包班人員配置是否合理
                 </p>`;
         
-        // 渲染各班分析
         ['E', 'N'].forEach(code => {
             const data = analysis[code];
             const shiftName = code === 'E' ? '小夜班' : '大夜班';
@@ -521,7 +535,6 @@ const scheduleEditorManager = {
                     </tbody>
                 </table>`;
             
-            // 警告訊息
             if (data.warningLevel > 0) {
                 const bgColor = data.warningLevel === 2 ? '#ffebee' : '#fff3cd';
                 const borderColor = data.warningLevel === 2 ? '#e74c3c' : '#ff9800';
@@ -535,7 +548,6 @@ const scheduleEditorManager = {
                 </div>`;
             }
             
-            // 包班人員名單
             modalHtml += `
                 <details style="margin-top:15px;">
                     <summary style="cursor:pointer; color:${shiftColor}; font-weight:bold; user-select:none;">
@@ -553,7 +565,6 @@ const scheduleEditorManager = {
             
             modalHtml += `</ul></details>`;
             
-            // 非包班人員名單
             modalHtml += `
                 <details style="margin-top:10px;">
                     <summary style="cursor:pointer; color:#666; font-weight:bold; user-select:none;">
@@ -573,7 +584,6 @@ const scheduleEditorManager = {
             modalHtml += `</div>`;
         });
         
-        // 總結
         modalHtml += `<div style="background:#f5f5f5; padding:20px; border-radius:8px; margin-bottom:20px;">
             <h4 style="margin-top:0;">📋 配置總結</h4>`;
         
@@ -592,20 +602,17 @@ const scheduleEditorManager = {
             });
             modalHtml += '</ul>';
             
-            // 🔥 修改：統一顯示警告訊息，不再區分「禁止」和「允許」
             modalHtml += '<p style="color:#ff9800; margin:10px 0 0 0;">⚠️ 建議返回調整包班設定，或點擊「確認執行排班」繼續</p>';
         }
         
         modalHtml += `</div>`;
         
-        // 按鈕區（🔥 修改：統一顯示，不再根據 warningLevel 禁止執行）
         modalHtml += `
             <div style="display:flex; gap:15px; justify-content:flex-end;">
                 <button onclick="scheduleEditorManager.closeBundleCheck()" style="padding:10px 20px; border:1px solid #95a5a6; background:#fff; border-radius:4px; cursor:pointer; font-size:1rem;">
                     <i class="fas fa-arrow-left"></i> 返回調整
                 </button>`;
         
-        // 🔥 統一顯示執行按鈕，根據警告等級改變顏色和文字
         if (hasWarning) {
             const btnColor = issues.some(([_, data]) => data.warningLevel === 2) ? '#e74c3c' : '#ff9800';
             const btnText = issues.some(([_, data]) => data.warningLevel === 2) ? '⚠️ 確認執行排班（有嚴重警告）' : '⚠️ 確認執行排班';
@@ -822,7 +829,7 @@ const scheduleEditorManager = {
         if(current === 'REQ_OFF') {
             ul.innerHTML = '<li onclick="scheduleEditorManager.clearCell(\''+uid+'\','+day+')">清除</li>';
         } else {
-            ul.innerHTML = '<li onclick="scheduleEditorManager.setOff(\''+uid+'\','+day+')">設為 OFF</li>';
+            ul.innerHTML = '<li onclick="scheduleEditorManager.setOff(\''+uid+'\','+day+')">設為 FF</li>';
             this.shifts.forEach(s => {
                 ul.innerHTML += `<li onclick="scheduleEditorManager.setShift('${uid}',${day},'${s.code}')">${s.name} (${s.code})</li>`;
             });
@@ -920,7 +927,7 @@ const scheduleEditorManager = {
         let fHtml = '';
         this.shifts.forEach((s, idx) => {
             fHtml += `<tr class="stat-monitor-row">`;
-            if(idx === 0) fHtml += `<td colspan="3" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; background:#f8f9fa; position:sticky; left:0; z-index:10;">每日缺額<br>監控</td>`;
+            if(idx === 0) fHtml += `<td colspan="4" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; background:#f8f9fa; position:sticky; left:0; z-index:10;">每日缺額<br>監控</td>`;
             for(let i=0; i<6; i++) fHtml += `<td style="background:#f0f0f0;"></td>`; 
             for(let d=1; d<=daysInMonth; d++) {
                 const actual = countMap[d][s.code] || 0;
@@ -935,7 +942,7 @@ const scheduleEditorManager = {
                 if(need > 0) {
                     if(actual < need) {
                         statusClass = 'stat-cell-shortage';
-                        cellStyle = 'color: #e74c3c; font-weight: bold;'; // 缺班顯示紅字
+                        cellStyle = 'color: #e74c3c; font-weight: bold;';
                     }
                     else if(actual > need) statusClass = 'stat-cell-over';
                     else statusClass = 'stat-cell-ok';
@@ -1024,7 +1031,6 @@ const scheduleEditorManager = {
         if(!confirm("確定要重置嗎？這將會清除目前所有手動排班，並重新從預班表載入預班資料。")) return;
         
         try {
-            // 1. 嘗試從 sourceId (預班表 ID) 重新獲取原始預班資料
             let sourceAssignments = {};
             if (this.data.sourceId) {
                 const preDoc = await db.collection('pre_schedules').doc(this.data.sourceId).get();
@@ -1036,20 +1042,16 @@ const scheduleEditorManager = {
 
             const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
             
-            // 2. 清除目前的 assignments 並重新帶入
             this.data.staffList.forEach(staff => {
                 const uid = staff.uid;
                 const preAssign = sourceAssignments[uid] || {};
                 
-                // 初始化該人員的 assignments
                 this.assignments[uid] = {};
                 
-                // 保留偏好設定 (如果有的話)
                 if (preAssign.preferences) {
                     this.assignments[uid].preferences = JSON.parse(JSON.stringify(preAssign.preferences));
                 }
                 
-                // 帶入預班資料 (current_1, current_2, ...)
                 for (let d = 1; d <= daysInMonth; d++) {
                     const key = `current_${d}`;
                     if (preAssign[key]) {
