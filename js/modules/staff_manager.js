@@ -141,32 +141,27 @@ const staffManager = {
 
     // --- 更新獨立性欄位狀態 ---
     updateIndependenceFieldState: function() {
-        const radioIndependent = document.getElementById('radioIndependent');
         const radioDependent = document.getElementById('radioDependent');
         const selectClinicalTeacher = document.getElementById('selectClinicalTeacher');
-        const checkPGY = document.getElementById('checkPGY');
         
         if(!selectClinicalTeacher) return;
         
         const isDependentSelected = radioDependent && radioDependent.checked;
-        const isPGYChecked = checkPGY && checkPGY.checked;
         
-        selectClinicalTeacher.disabled = !(isDependentSelected && isPGYChecked);
+        selectClinicalTeacher.disabled = !isDependentSelected;
         
-        if (!isDependentSelected || !isPGYChecked) {
+        if (!isDependentSelected) {
             selectClinicalTeacher.value = '';
         }
     },
 
     // --- 驗證並儲存資料 ---
     validateAndSave: function() {
-        const radioIndependent = document.getElementById('radioIndependent');
         const radioDependent = document.getElementById('radioDependent');
         const selectClinicalTeacher = document.getElementById('selectClinicalTeacher');
-        const checkPGY = document.getElementById('checkPGY');
         
-        if (checkPGY.checked && radioDependent.checked && !selectClinicalTeacher.value) {
-            alert('當勾選 PGY 且選擇「未獨立」時，必須選擇臨床教師');
+        if (radioDependent.checked && !selectClinicalTeacher.value) {
+            alert('當選擇「未獨立」時，必須選擇臨床教師\n\n說明：未獨立的員工不列入排班人力，排班將與其臨床教師一致。');
             selectClinicalTeacher.focus();
             return;
         }
@@ -408,6 +403,7 @@ const staffManager = {
             document.getElementById('inputRole').disabled = false;
             document.getElementById('inputLevel').value = 'N';
             document.getElementById('inputGroup').innerHTML = '<option value="">(請先選擇單位)</option>';
+            document.getElementById('radioIndependent').checked = true;
         }
     },
 
@@ -474,7 +470,7 @@ const staffManager = {
         try {
             const batch = db.batch();
             let userRef;
-            let emailCheck = null; // 在外部宣告變數
+            let emailCheck = null;
             
             if(docId) {
                 // 更新現有記錄
