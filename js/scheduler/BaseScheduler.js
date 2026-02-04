@@ -163,8 +163,16 @@ class BaseScheduler {
 
         if (this.rule_protectPregnant && !this.checkSpecialStatus(staff, shiftCode)) return false;
         
+        // 🔥 雙向休息檢查：
+        // 1. 檢查「昨天」與「今天」的間隔
         const prevShift = this.getYesterdayShift(staff.id, dateStr);
         if (this.rule_minGap11 && !this.checkRestPeriod(prevShift, shiftCode)) return false;
+
+        // 2. 檢查「今天」與「明天」的間隔（避免今日排班導致明天休息不足）
+        const nextShift = this.getTomorrowShift(staff.id, dateStr);
+        if (this.rule_minGap11 && nextShift && nextShift !== 'OFF' && nextShift !== 'REQ_OFF') {
+            if (!this.checkRestPeriod(shiftCode, nextShift)) return false;
+        }
         
         if (this.rule_maxDiversity3 && !this.checkFixedWeekDiversity(staff.id, dateStr, shiftCode)) return false;
 
@@ -309,6 +317,18 @@ class BaseScheduler {
             return 'OFF';
         }
         return this.getShiftByDate(this.getDateStrFromDate(yesterday), uid) || 'OFF';
+    }
+
+    getTomorrowShift(uid, dateStr) {
+        const today = new Date(dateStr);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(today.getDate() + 1);
+        
+        if (tomorrow.getMonth() + 1 !== this.month) {
+            // 目前不考慮下個月的預排，返回 null
+            return null;
+        }
+        return this.getShiftByDate(this.getDateStrFromDate(tomorrow), uid);
     }
 
     // 🔥 新增：檢測本月是否有長假

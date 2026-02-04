@@ -840,11 +840,16 @@ class SchedulerV2 extends BaseScheduler {
             const dateStr = this.getDateStr(d);
             const shiftMax = this.getShiftByDate(dateStr, maxObj.id);
             const shiftMin = this.getShiftByDate(dateStr, minObj.id);
+            
+            // 檢查 maxObj 是否持有目標班別，且 minObj 是否「不持有」目標班別（以便接收）
             const maxHas = targetShift ? shiftMax === targetShift : validShifts.includes(shiftMax);
-            const minHas = targetShift ? shiftMin === targetShift : validShifts.includes(shiftMin);
+            const minHas = targetShift ? shiftMin === targetShift : (validShifts ? validShifts.includes(shiftMin) : false);
+            
             if (maxHas && !minHas) {
+                // 🔥 關鍵修正：交換時必須確保「雙方」在「新班別」下都符合所有規則（含 11h 休息）
                 if (this.checkSwapValidity(d, maxObj.obj, shiftMax, shiftMin) &&
                     this.checkSwapValidity(d, minObj.obj, shiftMin, shiftMax)) {
+                    
                     this.updateShift(dateStr, maxObj.id, shiftMax, shiftMin);
                     this.updateShift(dateStr, minObj.id, shiftMin, shiftMax);
                     swapped = true;
@@ -868,14 +873,23 @@ class SchedulerV2 extends BaseScheduler {
 
     checkSwapValidity(day, staff, currentShift, newShift, looseMode = false) {
         const dateStr = this.getDateStr(day);
+        
+        // 🔥 核心校驗：必須通過 isValidAssignment（包含 11h 休息檢查）
         if (!this.isValidAssignment(staff, dateStr, newShift)) return false;
+        
+        // 額外的分數校驗
         const scoreInfo = this.calculateScoreInfo(staff, dateStr, newShift);
+        
         if (looseMode) {
+            // 在平衡 OFF 時使用的寬鬆模式，但仍不可違反硬性規則
             const params = staff.schedulingParams || {};
             if (params[dateStr] === '!' + newShift) return false;
+            
+            // 確保不是因為嚴重違規導致的負分
             if (scoreInfo.totalScore < -900000) return false;
             return true;
         } else {
+            // 一般交換模式，要求較高的分數（軟性規則也要儘量遵守）
             return scoreInfo.totalScore > -50000;
         }
     }
@@ -979,6 +993,20 @@ class SchedulerV2 extends BaseScheduler {
                 if (consDays < this.minCons) score += 5000; 
                 else if (consDays < (policy.maxConsDays || 6)) score += 500; 
                 else score -= 2000; 
+            }
+            
+            // 🔥 額外保險：如果休息時間不足，給予極大負分
+            if (!this.checkRestPeriod(prevShift, shiftCode)) {
+                score -= 999999;
+                details.push(`休息時間不足 11h 懲罰 -999999`);
+            }
+            
+            const nextShift = this.getTomorrowShift(staff.id, dateStr);
+            if (nextShift && nextShift !== 'OFF' && nextShift !== 'REQ_OFF') {
+                if (!this.checkRestPeriod(shiftCode, nextShift)) {
+                    score -= 999999;
+                    details.push(`導致明天休息不足 11h 懲罰 -999999`);
+                }
             }
         }
         const prefs = staff.prefs || {};
