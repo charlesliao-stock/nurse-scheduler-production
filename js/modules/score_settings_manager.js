@@ -193,6 +193,25 @@ const scoreSettingsManager = {
                     ] 
                 }
             }
+        },
+        cost: {
+            label: "5. 成本控制", displayId: 'cost_weight_display',
+            subs: {
+                overtime: { 
+                    label: "(1) 加班時數 (小時)", 
+                    desc: "總加班時數控制", 
+                    weight: 5, 
+                    direction: 'lower_is_better',
+                    unit: '小時',
+                    tiers: [
+                        {limit: 0, score: 5, label: "極佳"},
+                        {limit: 10, score: 4, label: "良好"},
+                        {limit: 20, score: 3, label: "普通"},
+                        {limit: 30, score: 2, label: "待改進"},
+                        {limit: 40, score: 1, label: "極差"}
+                    ] 
+                }
+            }
         }
     },
     
@@ -292,6 +311,8 @@ const scoreSettingsManager = {
             const thresholds = this.allSettings.thresholds || {};
             const enables = this.allSettings.enables || {};
             
+            this.renderMetrics();
+            
             for (let groupKey in this.config) {
                 for (let subKey in this.config[groupKey].subs) {
                     const sub = this.config[groupKey].subs[subKey];
@@ -307,8 +328,6 @@ const scoreSettingsManager = {
                     }
                 }
             }
-            
-            this.renderMetrics();
             this.calculateWeights();
             document.getElementById('scoreSettingsContainer').style.display = 'block';
             
@@ -321,6 +340,9 @@ const scoreSettingsManager = {
     renderMetrics: function() {
         for (let groupKey in this.config) {
             const group = this.config[groupKey];
+            const groupContainer = document.getElementById(`metrics_${groupKey}`);
+            if (groupContainer) groupContainer.innerHTML = ''; // 清空容器
+            
             for (let subKey in group.subs) {
                 const sub = group.subs[subKey];
                 
@@ -331,14 +353,16 @@ const scoreSettingsManager = {
                 
                 const directionText = sub.direction === 'lower_is_better' ? '越低越好' : '越高越好';
                 
-                const container = document.getElementById(`metric_${subKey}_container`);
+                const container = document.getElementById(`metrics_${groupKey}`);
                 if (!container) continue;
                 
-                container.innerHTML = `
+                const itemDiv = document.createElement('div');
+                itemDiv.id = `metric_${subKey}_container`;
+                itemDiv.innerHTML = `
                     <div class="metric-item">
                         <div class="metric-header">
                             <label class="switch">
-                                <input type="checkbox" id="metric_${subKey}" checked>
+                                <input type="checkbox" id="metric_${subKey}" onchange="scoreSettingsManager.calculateWeights()">
                                 <span class="slider"></span>
                             </label>
                             <span class="metric-name">
@@ -352,9 +376,10 @@ const scoreSettingsManager = {
                             </button>
                         </div>
                         <div class="metric-value">
-                            <input type="number" id="val_${subKey}" class="metric-input" value="${sub.weight}"> %
+                            <input type="number" id="val_${subKey}" class="metric-input" value="${sub.weight}" oninput="scoreSettingsManager.calculateWeights()"> %
                         </div>
                     </div>`;
+                container.appendChild(itemDiv);
             }
         }
     },
