@@ -77,6 +77,38 @@
 
 <style>
 /* [新增] 額外的 CSS 確保右鍵選單不會被瀏覽器預設選單覆蓋 */
+<style>
+/* 狀態標記樣式 */
+.status-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    margin: 1px;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    line-height: 1.2;
+}
+
+/* 原有的樣式保持不變 */
+#matrixContainer, 
+#matrixContainer *, 
+#scheduleMatrix,
+#scheduleMatrix *,
+.cell-clickable {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+.cell-clickable {
+    cursor: pointer;
+}
+
+.cell-clickable:active {
+    background-color: #f0f8ff;
+}
+</style>
 #matrixContainer, 
 #matrixContainer *, 
 #scheduleMatrix,
