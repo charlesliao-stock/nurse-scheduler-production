@@ -1,5 +1,9 @@
 // js/modules/pre_schedule_manager.js
 
+/**
+ * Pre-Schedule Manager
+ * Updated: 2026-02-04 (Fix: Progress Denominator Real-time Sync)
+ */
 const preScheduleManager = {
     currentUnitId: null,
     currentUnitGroups: [],
@@ -92,18 +96,18 @@ const preScheduleManager = {
                 const statusInfo = app.getPreScheduleStatus(d);
                 
                 // 修正：進度分母應優先參考人員名單長度，以確保顯示一致
+                // 🟢 強制即時計算進度 (分母 = staffList 實際人數)
                 const staffList = d.staffList || [];
                 const staffCount = staffList.length;
                 
-                // 修正：分子（已提交人數）應直接計算 assignments 中的有效數量，避免與 progress 欄位不同步
+                // 分子（已提交人數）直接計算 assignments
                 const assignments = d.assignments || {};
                 const submittedCount = staffList.filter(s => {
                     const req = assignments[s.uid];
-                    // 只要有 preferences 且長度大於 0，或者有 updatedAt 標記，即視為已提交
                     return req && (req.updatedAt || (req.preferences && Object.keys(req.preferences).length > 0));
                 }).length;
                 
-                const progress = `${submittedCount}/${staffCount}`;
+                const progressText = `<span style="font-weight:bold; color:#2c3e50;">${submittedCount}</span> / <span style="color:#27ae60; font-weight:bold;">${staffCount}</span>`;
                 const avgOff = this.calculateAvgOff(d, shifts);
 
                 const tr = document.createElement('tr');
@@ -116,7 +120,7 @@ const preScheduleManager = {
                         ${(statusInfo.code === 'expired' || statusInfo.code === 'closed') ? 
                             `<br><a href="javascript:void(0)" onclick="preScheduleManager.reOpen('${doc.id}')" style="font-size:0.75rem; color:#3498db; text-decoration:underline;">[再開放]</a>` : ''}
                     </td>
-                    <td>${progress}</td>
+                    <td class="progress-cell" data-total="${staffCount}">${progressText}</td><!-- Force Render -->
                     <td style="font-weight:bold; color:#27ae60;">${avgOff} 天</td>
                     <td>
                         <button class="btn btn-edit" onclick="preScheduleManager.openModal('${doc.id}')" style="margin-right:5px;">
