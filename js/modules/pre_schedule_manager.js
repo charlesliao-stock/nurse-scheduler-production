@@ -90,9 +90,19 @@ const preScheduleManager = {
             snapshot.forEach(doc => {
                 const d = doc.data();
                 const statusInfo = app.getPreScheduleStatus(d);
+                
                 // 修正：進度分母應優先參考人員名單長度，以確保顯示一致
-                const staffCount = (d.staffList || []).length;
-                const submittedCount = d.progress ? (d.progress.submitted || 0) : 0;
+                const staffList = d.staffList || [];
+                const staffCount = staffList.length;
+                
+                // 修正：分子（已提交人數）應直接計算 assignments 中的有效數量，避免與 progress 欄位不同步
+                const assignments = d.assignments || {};
+                const submittedCount = staffList.filter(s => {
+                    const req = assignments[s.uid];
+                    // 只要有 preferences 且長度大於 0，或者有 updatedAt 標記，即視為已提交
+                    return req && (req.updatedAt || (req.preferences && Object.keys(req.preferences).length > 0));
+                }).length;
+                
                 const progress = `${submittedCount}/${staffCount}`;
                 const avgOff = this.calculateAvgOff(d, shifts);
 
@@ -245,22 +255,14 @@ const preScheduleManager = {
 
         try {
             if (docId) {
-                // 修正：更新時也應同步更新 progress.total
-                const existingDoc = await db.collection('pre_schedules').doc(docId).get();
-                const existingData = existingDoc.data();
-                const progress = existingData.progress || { submitted: 0 };
-                progress.total = doc.staffList.length;
-                
-                await db.collection('pre_schedules').doc(docId).update({
-                    ...doc,
-                    progress: progress
-                });
+                // 直接更新文件，loadData 會根據最新的 staffList 計算進度
+                await db.collection('pre_schedules').doc(docId).update(doc);
             } else {
+                // 新增文件時初始化 assignments
                 await db.collection('pre_schedules').add({ 
                     ...doc, 
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(), 
-                    assignments: {}, 
-                    progress: { total: doc.staffList.length, submitted: 0 } 
+                    assignments: {}
                 });
             }
             this.closeModal(); this.loadData();
