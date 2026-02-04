@@ -450,7 +450,7 @@ const preScheduleManager = {
         const u = this.searchCache[index];
         if (!u) return;
 
-        if (this.staffListSnapshot.some(s => s.uid === u.uid)) {
+        if (this.staffListSnapshot.some(s => s.uid === u.uid || s.empId === u.employeeId)) {
             alert("此人員已在名單中");
             return;
         }
