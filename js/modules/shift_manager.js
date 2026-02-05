@@ -158,6 +158,7 @@ const shiftManager = {
 
         filtered.forEach(s => {
             const bundleIcon = s.isBundleAvailable ? '<i class="fas fa-check" style="color:#27ae60;"></i>' : '<span style="color:#eee;">-</span>';
+            const preScheduleIcon = s.isPreScheduleAvailable ? '<i class="fas fa-check" style="color:#27ae60;"></i>' : '<span style="color:#eee;">-</span>';
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td><div class="color-dot" style="background-color:${s.color || '#ccc'};"></div></td>
@@ -166,6 +167,7 @@ const shiftManager = {
                 <td>${s.startTime} - ${s.endTime}</td>
                 <td>${s.hours || 0}</td>
                 <td style="text-align:center;">${bundleIcon}</td>
+                <td style="text-align:center;">${preScheduleIcon}</td>
                 <td>
                     <button class="btn btn-edit" onclick="shiftManager.openModal('${s.id}')">編輯</button>
                     <button class="btn btn-delete" onclick="shiftManager.deleteShift('${s.id}')">刪除</button>
@@ -203,6 +205,7 @@ const shiftManager = {
             document.getElementById('inputShiftColor').value = s.color || '#3498db';
             document.getElementById('colorHexCode').textContent = s.color || '#3498db';
             document.getElementById('checkIsBundle').checked = s.isBundleAvailable || false;
+            document.getElementById('checkIsPreSchedule').checked = s.isPreScheduleAvailable || false;
             modalUnitSelect.disabled = true;
         } else {
             if (currentUnitId) modalUnitSelect.value = currentUnitId;
@@ -214,6 +217,7 @@ const shiftManager = {
             document.getElementById('inputWorkHours').value = '8';
             document.getElementById('inputShiftColor').value = '#3498db';
             document.getElementById('checkIsBundle').checked = false;
+            document.getElementById('checkIsPreSchedule').checked = false;
         }
     },
 
@@ -242,6 +246,7 @@ const shiftManager = {
         const hours = document.getElementById('inputWorkHours').value;
         const color = document.getElementById('inputShiftColor').value;
         const isBundle = document.getElementById('checkIsBundle').checked;
+        const isPreSchedule = document.getElementById('checkIsPreSchedule').checked;
 
         if (!unitId || !code || !name || !start || !end) { 
             alert("請填寫完整資訊"); 
@@ -276,6 +281,7 @@ const shiftManager = {
             hours: parseFloat(hours) || 0, 
             color,
             isBundleAvailable: isBundle,
+            isPreScheduleAvailable: isPreSchedule,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
@@ -291,6 +297,11 @@ const shiftManager = {
             await this.fetchData();
             document.getElementById('filterShiftUnit').value = unitId;
             this.renderTable();
+            
+            // ✅ 重新渲染選單，以更新預班功能的顯示狀態
+            if (typeof app !== 'undefined' && app.renderMenu) {
+                app.renderMenu();
+            }
         } catch (e) { 
             alert("失敗: " + e.message); 
         }
@@ -313,7 +324,12 @@ const shiftManager = {
         
         if(confirm("確定刪除？")) {
             await db.collection('shifts').doc(id).delete();
-            this.fetchData();
+            await this.fetchData();
+            
+            // ✅ 重新渲染選單，以更新預班功能的顯示狀態
+            if (typeof app !== 'undefined' && app.renderMenu) {
+                app.renderMenu();
+            }
         }
     }
 };

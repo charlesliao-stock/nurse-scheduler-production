@@ -34,7 +34,9 @@
                     <th style="width: 10%; cursor:pointer;" onclick="shiftManager.sortData('hours')">
                         工時 <i id="sort_icon_shift_hours" class="fas fa-sort"></i>
                     </th>
-                    <th style="width: 10%;">包班</th> <th style="width: 30%;">操作</th>
+                    <th style="width: 10%;">包班</th>
+                    <th style="width: 10%;">排班志願</th>
+                    <th style="width: 20%;">操作</th>
                 </tr>
             </thead>
             <tbody id="shiftTableBody"></tbody>
@@ -99,6 +101,14 @@
                 列入「包班意願」選項
             </label>
             <small style="color:#7f8c8d; display:block; margin-top:5px;">勾選後，同仁在填寫預班時可選擇包此班別 (如：大夜包班)。</small>
+        </div>
+
+        <div class="form-group" style="background:#f9f9f9; padding:10px; border-radius:4px; margin-top:10px;">
+            <label style="cursor:pointer; display:flex; align-items:center;">
+                <input type="checkbox" id="checkIsPreSchedule" style="width:auto; margin-right:10px;">
+                列入「排班志願」選項
+            </label>
+            <small style="color:#7f8c8d; display:block; margin-top:5px;">勾選後，此班別將出現在同仁的預班志願選項中。</small>
         </div>
 
         <div style="text-align:right; margin-top:25px;">

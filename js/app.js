@@ -155,16 +155,39 @@ const app = {
         const menuList = document.getElementById('dynamicMenu');
         if(!menuList) return;
         try {
+            const activeUnitId = this.getUnitId();
+            let hasPreScheduleShifts = false;
+            
+            if (activeUnitId) {
+                const shiftSnap = await db.collection('shifts')
+                    .where('unitId', '==', activeUnitId)
+                    .where('isPreScheduleAvailable', '==', true)
+                    .limit(1)
+                    .get();
+                hasPreScheduleShifts = !shiftSnap.empty;
+            }
+
             const snapshot = await db.collection('system_menus').where('isActive', '==', true).orderBy('order').get();
             menuList.innerHTML = '';
             const activeRole = this.impersonatedRole || this.userRole;
+            
             snapshot.forEach(doc => {
                 const menu = doc.data();
-                if ((menu.allowedRoles || []).length === 0 || (menu.allowedRoles || []).includes(activeRole)) {
-                    const li = document.createElement('li');
-                    li.innerHTML = `<a class="menu-link" href="#${menu.path}"><i class="${menu.icon}"></i> ${menu.label}</a>`;
-                    menuList.appendChild(li);
+                
+                // 檢查角色權限
+                const hasRolePermission = (menu.allowedRoles || []).length === 0 || (menu.allowedRoles || []).includes(activeRole);
+                if (!hasRolePermission) return;
+
+                // 檢查預班功能連動邏輯
+                // 預班路徑通常包含 pre_schedule
+                const isPreScheduleMenu = menu.path.includes('pre_schedule');
+                if (isPreScheduleMenu && !hasPreScheduleShifts && activeRole !== 'system_admin') {
+                    return;
                 }
+
+                const li = document.createElement('li');
+                li.innerHTML = `<a class="menu-link" href="#${menu.path}"><i class="${menu.icon}"></i> ${menu.label}</a>`;
+                menuList.appendChild(li);
             });
         } catch (e) { console.error("Menu Error:", e); }
     },
