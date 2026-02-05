@@ -89,7 +89,7 @@ const preScheduleManager = {
             }
 
             const shiftsSnap = await db.collection('shifts').where('unitId', '==', this.currentUnitId).get();
-            const shifts = shiftsSnap.docs.map(d => d.data());
+            const shifts = shiftsSnap.docs.map(d => d.data()).filter(s => s.isPreScheduleAvailable);
 
             snapshot.forEach(doc => {
                 const d = doc.data();
@@ -502,7 +502,12 @@ const preScheduleManager = {
     removeStaff: function(idx) { if(confirm('確定要移除此人員嗎？')) { this.staffListSnapshot.splice(idx, 1); this.renderStaffList(); } },
     closeModal: function() { document.getElementById('preScheduleModal').classList.remove('show'); },
     switchTab: function(tab) { document.querySelectorAll('.tab-btn, .tab-content').forEach(el=>el.classList.remove('active')); document.getElementById(`tab-${tab}`).classList.add('active'); },
-    loadUnitDataForModal: async function() { const sSnap = await db.collection('shifts').where('unitId','==',this.currentUnitId).orderBy('startTime').get(); this.activeShifts = sSnap.docs.map(d=>d.data()); const uDoc = await db.collection('units').doc(this.currentUnitId).get(); this.currentUnitGroups = uDoc.data().groups || []; },
+    loadUnitDataForModal: async function() { 
+        const sSnap = await db.collection('shifts').where('unitId','==',this.currentUnitId).orderBy('startTime').get(); 
+        this.activeShifts = sSnap.docs.map(d=>d.data()).filter(s => s.isPreScheduleAvailable); 
+        const uDoc = await db.collection('units').doc(this.currentUnitId).get(); 
+        this.currentUnitGroups = uDoc.data().groups || []; 
+    },
     loadCurrentUnitStaff: async function() { const snap = await db.collection('users').where('unitId','==',this.currentUnitId).where('isActive','==',true).get(); this.staffListSnapshot = snap.docs.map(d=>({uid:d.id, name:d.data().displayName, empId:d.data().employeeId, level:d.data().level, group:'', isSupport:false})); },
     fillForm: function(data) { 
         if(data.year) document.getElementById('inputPreYearMonth').value = `${data.year}-${String(data.month).padStart(2,'0')}`; 

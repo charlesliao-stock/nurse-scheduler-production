@@ -128,7 +128,7 @@ const staffPreScheduleManager = {
             .where('unitId', '==', this.data.unitId)
             .orderBy('startTime')
             .get();
-        this.shifts = snapshot.docs.map(d => d.data());
+        this.shifts = snapshot.docs.map(d => d.data()).filter(s => s.isPreScheduleAvailable);
     },
 
     loadUnitRules: async function() {

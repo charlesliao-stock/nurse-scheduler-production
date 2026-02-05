@@ -375,7 +375,7 @@ const matrixManager = {
                 .where('unitId','==',uid)
                 .orderBy('startTime')
                 .get();
-            this.shifts = snap.docs.map(d => d.data());
+            this.shifts = snap.docs.map(d => d.data()).filter(s => s.isPreScheduleAvailable);
         }
     },
     
