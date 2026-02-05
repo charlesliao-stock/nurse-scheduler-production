@@ -271,13 +271,21 @@ const scheduleRuleManager = {
         const container = document.getElementById('shortagePriorityList');
         if (!container) return;
         
+        console.log("Rendering shortage priority list, activeShifts count:", this.activeShifts.length);
+        
         let order = savedOrder && savedOrder.length > 0 ? [...savedOrder] : [];
         
-        this.activeShifts.forEach(shift => {
-            if (!order.includes(shift.code)) {
-                order.push(shift.code);
-            }
-        });
+        // 過濾掉已經不存在於 activeShifts 的班別
+        const activeCodes = this.activeShifts.map(s => s.code);
+        order = order.filter(code => activeCodes.includes(code));
+
+        if (this.activeShifts.length > 0) {
+            this.activeShifts.forEach(shift => {
+                if (!order.includes(shift.code)) {
+                    order.push(shift.code);
+                }
+            });
+        }
         
         if (order.length === 0) {
             const nightShifts = [];
