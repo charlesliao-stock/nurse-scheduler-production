@@ -85,14 +85,23 @@ const scheduleRuleManager = {
                     select.style.backgroundColor = '#f5f5f5';
                 }
                 
-                select.dispatchEvent(new Event('change'));
-            }
-
-        } catch (e) { 
-            console.error(e); 
-            select.innerHTML = '<option value="">載入失敗</option>';
+            select.dispatchEvent(new Event('change'));
         }
-    },
+
+        // ✅ 新增：排班偏好比例勾選連動
+        const enablePrefRatio = document.getElementById('rule_enablePrefRatio');
+        if (enablePrefRatio) {
+            enablePrefRatio.onchange = () => {
+                const container = document.getElementById('prefRatioContainer');
+                if (container) container.style.opacity = enablePrefRatio.checked ? '1' : '0.5';
+            };
+        }
+
+    } catch (e) { 
+        console.error(e); 
+        select.innerHTML = '<option value="">載入失敗</option>';
+    }
+},
 
     loadDataToForm: async function() {
         if(!this.currentUnitId) return;
@@ -130,6 +139,10 @@ const scheduleRuleManager = {
             setVal('rule_longVacationWorkLimit', r.policy?.longVacationWorkLimit || 7);
             
             setCheck('rule_bundleNightOnly', r.policy?.bundleNightOnly !== false);
+            setCheck('rule_enablePrefRatio', r.policy?.enablePrefRatio === true);
+            setVal('rule_prefRatio1', r.policy?.prefRatio1 ?? 50);
+            setVal('rule_prefRatio2', r.policy?.prefRatio2 ?? 30);
+            setVal('rule_prefRatio3', r.policy?.prefRatio3 ?? 20);
             setCheck('rule_noNightAfterOff', r.policy?.noNightAfterOff !== false);
             setCheck('rule_protectPGY', r.policy?.protectPGY !== false);
             
@@ -201,6 +214,10 @@ const scheduleRuleManager = {
                 longVacationDays: getInt('rule_longVacationDays', 7),
                 longVacationWorkLimit: getInt('rule_longVacationWorkLimit', 7),
                 bundleNightOnly: getCheck('rule_bundleNightOnly'),
+                enablePrefRatio: getCheck('rule_enablePrefRatio'),
+                prefRatio1: getInt('rule_prefRatio1', 50),
+                prefRatio2: getInt('rule_prefRatio2', 30),
+                prefRatio3: getInt('rule_prefRatio3', 20),
                 noNightAfterOff: getCheck('rule_noNightAfterOff'),
                 noNightAfterOff_List: this.getCheckedNightLimits(),
                 protectPGY: getCheck('rule_protectPGY'),

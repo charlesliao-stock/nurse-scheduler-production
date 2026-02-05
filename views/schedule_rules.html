@@ -133,7 +133,31 @@
                         <label class="switch-label"><input type="checkbox" id="rule_bundleNightOnly" checked> <span class="label-text">4. 包班功能 (依班別屬性)</span></label>
                     </div>
                     <div class="rule-body">
-                        勾選後，系統將依據各班別設定中的「是否可包班」屬性來執行。通常白班不開放包班。
+                        <div style="margin-bottom: 10px;">勾選後，系統將依據各班別設定中的「是否可包班」屬性來執行。通常白班不開放包班。</div>
+                        
+                        <div style="border-top: 1px solid #eee; padding-top: 15px; margin-top: 10px;">
+                            <label class="switch-label">
+                                <input type="checkbox" id="rule_enablePrefRatio"> 
+                                <span class="label-text" style="font-weight: bold; color: #2c3e50;">排班偏好的比例分配</span>
+                            </label>
+                            <div id="prefRatioContainer" style="margin-top: 10px; padding-left: 25px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+                                <div class="form-item">
+                                    <label>第一志願:</label>
+                                    <input type="number" id="rule_prefRatio1" value="50" min="0" max="100" class="form-control small-input"> %
+                                </div>
+                                <div class="form-item">
+                                    <label>第二志願:</label>
+                                    <input type="number" id="rule_prefRatio2" value="30" min="0" max="100" class="form-control small-input"> %
+                                </div>
+                                <div class="form-item">
+                                    <label>第三志願:</label>
+                                    <input type="number" id="rule_prefRatio3" value="20" min="0" max="100" class="form-control small-input"> %
+                                </div>
+                                <div class="form-text" style="color: #666; font-size: 0.85rem; width: 100%;">
+                                    <i class="fas fa-info-circle"></i> 設定排班時各志願期望達成的比例目標。
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

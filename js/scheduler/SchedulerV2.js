@@ -998,8 +998,34 @@ class SchedulerV2 extends BaseScheduler {
             // 🔥 額外保險：如果休息時間不足，給予極大負分
             if (!this.checkRestPeriod(prevShift, shiftCode)) {
                 score -= 999999;
-                details.push(`休息時間不足 11h 懲罰 -999999`);
             }
+
+            // 🔥 新增：志願比例評分
+            if (this.rule_enablePrefRatio) {
+                const prefs = staff.preferences || {};
+                const priorities = prefs.priorities || [prefs.favShift, prefs.favShift2, prefs.favShift3].filter(Boolean);
+                const pIndex = priorities.indexOf(shiftCode);
+                
+                if (pIndex !== -1) {
+                    const ratioKey = `p${pIndex + 1}`;
+                    const allowedRatio = this.rule_preferenceRatio[ratioKey] || 0;
+                    
+                    const totalWorkDays = this.daysInMonth - this.counters[staff.id].OFF - this.counters[staff.id].REQ_OFF;
+                    const currentShiftCount = this.counters[staff.id][shiftCode] || 0;
+                    const currentRatio = totalWorkDays > 0 ? (currentShiftCount / totalWorkDays) : 0;
+
+                    if (allowedRatio > 0) {
+                        // 如果目前比例低於目標，給予正分鼓勵
+                        if (currentRatio < allowedRatio) {
+                            score += (allowedRatio - currentRatio) * 10000;
+                        } else {
+                            // 如果已達標或超標，給予負分抑制
+                            score -= (currentRatio - allowedRatio) * 20000;
+                        }
+                    }
+                }
+            }
+        }
             
             const nextShift = this.getTomorrowShift(staff.id, dateStr);
             if (nextShift && nextShift !== 'OFF' && nextShift !== 'REQ_OFF') {

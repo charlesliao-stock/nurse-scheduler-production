@@ -41,8 +41,13 @@ class BaseScheduler {
         this.rule_noNightAfterOff = r.policy?.noNightAfterOff !== false;
         
         // 🔥 新增：志願排班比例 (單位規範)
-        // 預期格式: { p1: 0.7, p2: 0.2, p3: 0.1 }
-        this.rule_preferenceRatio = r.policy?.preferenceRatio || { p1: 1.0, p2: 0, p3: 0 };
+        // 預期格式: { p1: 0.5, p2: 0.3, p3: 0.2 }
+        this.rule_enablePrefRatio = r.policy?.enablePrefRatio === true;
+        this.rule_preferenceRatio = {
+            p1: (r.policy?.prefRatio1 ?? 50) / 100,
+            p2: (r.policy?.prefRatio2 ?? 30) / 100,
+            p3: (r.policy?.prefRatio3 ?? 20) / 100
+        };
 
         // 權重優先級
         const prioritizePref = r.policy?.prioritizePref || 'must';
@@ -129,15 +134,16 @@ class BaseScheduler {
 
         // 🔥 新增：志願排班邏輯 (Priority 1, 2, 3)
         const prefs = staff.preferences || {};
-        const priorities = prefs.priorities || []; // 格式: ['N', 'D', 'E']
+        // 支援多種志願格式
+        const priorities = prefs.priorities || [prefs.favShift, prefs.favShift2, prefs.favShift3].filter(Boolean);
         
         if (priorities.length > 0) {
             const pIndex = priorities.indexOf(shiftCode);
             // 如果排的班不在志願內，且設定為硬性志願
             if (pIndex === -1 && this.rule_strictPref) return false;
 
-            // 如果在志願內，檢查是否超過管理者設定的比例
-            if (pIndex !== -1) {
+            // 如果在志願內，且啟用了比例分配，檢查是否超過管理者設定的比例
+            if (pIndex !== -1 && this.rule_enablePrefRatio) {
                 const ratioKey = `p${pIndex + 1}`;
                 const allowedRatio = this.rule_preferenceRatio[ratioKey] || 0;
                 
@@ -147,8 +153,8 @@ class BaseScheduler {
                 
                 // 只有當比例大於 0 時才進行上限檢查
                 if (allowedRatio > 0 && totalWorkDays > 0) {
+                    // 這裡使用 >= 進行嚴格限制，若要更彈性可考慮加入緩衝
                     if ((currentShiftCount / totalWorkDays) >= allowedRatio) {
-                        // 如果該志願比例已達上限，則不應再排此班 (除非是為了填滿剩餘空間)
                         return false; 
                     }
                 }
