@@ -237,6 +237,22 @@ class BaseScheduler {
         return null;
     }
 
+    getTomorrowShift(uid, dateStr) {
+        const date = new Date(dateStr);
+        date.setDate(date.getDate() + 1);
+        if (date.getMonth() + 1 !== this.month) return null;
+        return this.getShiftByDate(this.getDateStrFromDate(date), uid);
+    }
+
+    getYesterdayShift(uid, dateStr) {
+        const date = new Date(dateStr);
+        date.setDate(date.getDate() - 1);
+        if (date.getMonth() + 1 !== this.month) {
+            return this.lastMonthData?.[uid]?.lastShift || 'OFF';
+        }
+        return this.getShiftByDate(this.getDateStrFromDate(date), uid);
+    }
+
     getDateStr(d) {
         return `${this.year}-${String(this.month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     }
