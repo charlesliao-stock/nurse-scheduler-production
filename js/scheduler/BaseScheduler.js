@@ -39,6 +39,8 @@ class BaseScheduler {
         this.rule_longVacationDays = r.policy?.longVacationDays || 7;
         this.rule_longVacationWorkLimit = r.policy?.longVacationWorkLimit || 7;
         this.rule_noNightAfterOff = r.policy?.noNightAfterOff !== false;
+        this.rule_protectPGY = r.policy?.protectPGY !== false;
+        this.rule_protectPGY_List = r.policy?.protectPGY_List || [];
         
         // 🔥 新增：志願排班比例 (單位規範)
         // 預期格式: { p1: 0.5, p2: 0.3, p3: 0.2 }
@@ -120,6 +122,7 @@ class BaseScheduler {
         }
 
         if (this.rule_protectPregnant && !this.checkSpecialStatus(staff, shiftCode)) return false;
+        if (this.rule_protectPGY && !this.checkPGYStatus(staff, shiftCode)) return false;
         
         // 雙向休息檢查
         const prevShift = this.getYesterdayShift(staff.id, dateStr);
@@ -312,6 +315,14 @@ class BaseScheduler {
         const params = staff.schedulingParams || {};
         const today = new Date(this.year, this.month - 1, 1);
         if (params.isPregnant && params.pregnantExpiry && today <= new Date(params.pregnantExpiry)) return false;
+        return true;
+    }
+
+    checkPGYStatus(staff, shiftCode) {
+        if (!this.rule_protectPGY_List.includes(shiftCode)) return true;
+        const params = staff.schedulingParams || {};
+        const today = new Date(this.year, this.month - 1, 1);
+        if (params.isPGY && params.pgyExpiry && today <= new Date(params.pgyExpiry)) return false;
         return true;
     }
 }

@@ -155,6 +155,7 @@ const scheduleRuleManager = {
             if (r.policy?.nightStart) document.getElementById('rule_nightStart').value = r.policy.nightStart;
             if (r.policy?.nightEnd) document.getElementById('rule_nightEnd').value = r.policy.nightEnd;
             this.renderNightShiftOptions(r.policy?.noNightAfterOff_List || []);
+            this.renderPGYShiftOptions(r.policy?.protectPGY_List || []);
 
             const shortagePriority = r.policy?.shortageHandling?.priorityOrder || [];
             this.renderShortagePriorityList(shortagePriority);
@@ -221,6 +222,7 @@ const scheduleRuleManager = {
                 noNightAfterOff: getCheck('rule_noNightAfterOff'),
                 noNightAfterOff_List: this.getCheckedNightLimits(),
                 protectPGY: getCheck('rule_protectPGY'),
+                protectPGY_List: this.getCheckedPGYLimits(),
                 nightStart: getVal('rule_nightStart') || '20:00',
                 nightEnd: getVal('rule_nightEnd') || '06:00',
                 prioritizeBundle: getVal('rule_prioritize_bundle') || 'must',
@@ -431,6 +433,29 @@ const scheduleRuleManager = {
     parseTime: function(t) { if(!t) return 0; const [h, m] = t.split(':').map(Number); return h + m/60; },
     getCheckedNightLimits: function() { return Array.from(document.querySelectorAll('.night-limit-chk:checked')).map(c => c.value); },
     
+    renderPGYShiftOptions: function(checkedCodes) {
+        const container = document.getElementById('pgyShiftOptions');
+        if(!container) return;
+        container.innerHTML = '';
+
+        if (this.activeShifts.length === 0) {
+            container.innerHTML = '<span style="color:#999;">(無可選班別)</span>';
+            return;
+        }
+
+        this.activeShifts.forEach(s => {
+            const isChecked = checkedCodes.includes(s.code);
+            const div = document.createElement('div');
+            div.style.display = 'inline-block';
+            div.innerHTML = `<label style="display:inline-flex; align-items:center; margin-right:15px; cursor:pointer;"><input type="checkbox" value="${s.code}" class="pgy-limit-chk" ${isChecked?'checked':''}> <span style="margin-left:4px; font-weight:bold;">${s.code}</span></label>`;
+            container.appendChild(div);
+        });
+    },
+
+    getCheckedPGYLimits: function() { 
+        return Array.from(document.querySelectorAll('.pgy-limit-chk:checked')).map(c => c.value); 
+    },
+
     switchTab: function(tabName) {
         const wrapper = document.querySelector('.tab-content-wrapper');
         if(wrapper) {
