@@ -1,0 +1,36 @@
+<div class="page-section active">
+    <h2><i class="fas fa-tasks"></i> 換班申請與審核</h2>
+    
+    <div class="toolbar" style="margin-bottom: 20px;">
+        <div class="tab-nav">
+            <button class="tab-btn active" onclick="shiftExchangeManager.load('my')">
+                <i class="fas fa-user"></i> 我的申請
+            </button>
+            <button class="tab-btn" onclick="shiftExchangeManager.load('incoming')">
+                <i class="fas fa-inbox"></i> 待我審核 (同事)
+            </button>
+            <button class="tab-btn" id="btnManagerTab" onclick="shiftExchangeManager.load('manager')" style="display:none;">
+                <i class="fas fa-user-shield"></i> 護理長審核
+            </button>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table id="exchangeTable">
+            <thead>
+                <tr>
+                    <th>日期</th>
+                    <th>申請人</th>
+                    <th>對象</th>
+                    <th>內容 (申請人 ↔ 對象)</th>
+                    <th>事由分類</th>
+                    <th>事由說明</th>
+                    <th>狀態</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="exchangeBody">
+                </tbody>
+        </table>
+    </div>
+</div>

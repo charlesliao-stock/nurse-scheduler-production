@@ -1,0 +1,265 @@
+<div class="page-section active">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <h2 style="margin:0;"><i class="fas fa-users"></i> 人員管理</h2>
+    </div>
+    
+    <div class="toolbar">
+        <select id="filterUnitSelect" style="padding:8px; border-radius:4px; border:1px solid #ccc;">
+            <option value="all">載入中...</option>
+        </select>
+        <input type="text" id="searchStaffInput" placeholder="搜尋員編或姓名..." style="padding:8px; border:1px solid #ccc; border-radius:4px; width:200px;">
+        
+        <div style="margin-left:auto;">
+            <button class="btn btn-add" onclick="staffManager.openModal()"><i class="fas fa-plus"></i> 新增人員</button>
+            <button class="btn btn-import" onclick="staffManager.openImportModal()"><i class="fas fa-file-import"></i> 批次匯入</button>
+            <button class="btn" style="background-color:#17a2b8; color:white;" onclick="staffManager.openTroubleshootModal()"><i class="fas fa-wrench"></i> 故障排查</button>
+            <button class="btn" style="background-color:#e74c3c; color:white; font-weight:bold;" onclick="staffManager.batchResetPasswords()" title="批次重設所有員工密碼為員工編號"><i class="fas fa-key"></i> 批次重設密碼</button>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table id="staffTable">
+            <thead>
+                <tr>
+                    <th style="cursor:pointer;" onclick="staffManager.sortData('unitName')">
+                        單位 <i id="sort_icon_staff_unitName" class="fas fa-sort"></i>
+                    </th>
+                    <th style="cursor:pointer;" onclick="staffManager.sortData('employeeId')">
+                        員編 <i id="sort_icon_staff_employeeId" class="fas fa-sort"></i>
+                    </th>
+                    <th style="cursor:pointer;" onclick="staffManager.sortData('displayName')">
+                        姓名 <i id="sort_icon_staff_displayName" class="fas fa-sort"></i>
+                    </th>
+                    <th style="cursor:pointer;" onclick="staffManager.sortData('level')">
+                        層級 <i id="sort_icon_staff_level" class="fas fa-sort"></i>
+                    </th>
+                    <th style="cursor:pointer;" onclick="staffManager.sortData('groupId')">
+                        組別 <i id="sort_icon_staff_groupId" class="fas fa-sort"></i>
+                    </th>
+                    <th style="cursor:pointer;" onclick="staffManager.sortData('role')">
+                        系統權限 <i id="sort_icon_staff_role" class="fas fa-sort"></i>
+                    </th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="staffTableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<div id="staffModal" class="modal">
+    <div class="modal-content">
+        <h3>人員資料編輯</h3>
+        <input type="hidden" id="staffDocId">
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>員工編號 *</label>
+                <input type="text" id="inputEmpId" placeholder="例如: N1001">
+            </div>
+            <div class="form-group">
+                <label>姓名 *</label>
+                <input type="text" id="inputName" placeholder="例如: 王小明">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>電子郵件 (登入帳號) *</label>
+                <input type="email" id="inputEmail" placeholder="user@example.com">
+            </div>
+            <div class="form-group">
+                <label>所屬單位 *</label>
+                <select id="inputUnit" onchange="staffManager.onUnitChange()">
+                    <option value="">請選擇單位</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>進階層級</label>
+                <select id="inputLevel">
+                    <option value="N">N (新進/試用)</option>
+                    <option value="N0">N0</option>
+                    <option value="N1">N1</option>
+                    <option value="N2">N2</option>
+                    <option value="N3">N3</option>
+                    <option value="N4">N4</option>
+                    <option value="NP">NP (專科護理師)</option>
+                    <option value="AHN">AHN (護理長)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>所屬組別</label>
+                <select id="inputGroup">
+                    <option value="">(請先選擇單位)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>到職日期</label>
+                <input type="date" id="inputHireDate">
+            </div>
+            <div class="form-group">
+                <label>系統權限</label>
+                <select id="inputRole">
+                    <option value="user">護理師 (一般使用者)</option>
+                    <option value="unit_scheduler">排班人員</option>
+                    <option value="unit_manager">單位護理長</option>
+                    <option value="system_admin" disabled>系統管理員</option>
+                </select>
+                <small style="color:#666; display:block; margin-top:5px;">
+                    權限將與單位設定連動
+                </small>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>帳號狀態</label>
+                <input type="text" id="accountStatus" disabled style="background-color: #f9f9f9; color: #555;">
+            </div>
+        </div>
+
+        <hr style="border:0; border-top:1px solid #eee; margin:15px 0;">
+        
+        <h4>排班相關設定 (特殊身份)</h4>
+        
+        <div style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <label style="cursor:pointer; width:100px;">
+                    <input type="checkbox" id="checkPregnant" onchange="staffManager.updateDateFieldState()"> 懷孕中
+                </label>
+                <input type="date" id="datePregnant" style="padding:6px; border:1px solid #ccc; border-radius:4px;" disabled>
+                <span style="font-size:0.9rem; color:#666;">(預產期)</span>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:10px;">
+                <label style="cursor:pointer; width:100px;">
+                    <input type="checkbox" id="checkBreastfeeding" onchange="staffManager.updateDateFieldState()"> 哺乳中
+                </label>
+                <input type="date" id="dateBreastfeeding" style="padding:6px; border:1px solid #ccc; border-radius:4px;" disabled>
+                <span style="font-size:0.9rem; color:#666;">(期限)</span>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:10px;">
+                <label style="cursor:pointer; width:100px;">
+                    <input type="checkbox" id="checkPGY" onchange="staffManager.updateDateFieldState()"> PGY
+                </label>
+                <input type="date" id="datePGY" style="padding:6px; border:1px solid #ccc; border-radius:4px;" disabled>
+                <span style="font-size:0.9rem; color:#666;">(期限)</span>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:10px;">
+                <label style="cursor:pointer;">
+                    <input type="checkbox" id="checkBundle"> 開放包班權限
+                </label>
+            </div>
+        </div>
+
+        <hr style="border:0; border-top:1px solid #eee; margin:15px 0;">
+        
+        <h4>獨立性設定</h4>
+        
+        <div style="background-color: #e8f5e9; border-left: 4px solid #4caf50; padding: 12px; margin-bottom: 15px; font-size: 0.9rem;">
+            <i class="fas fa-info-circle" style="color: #4caf50;"></i> 
+            <strong>說明：</strong><br>
+            • <strong>獨立</strong>：可獨立排班，列入單位排班人力<br>
+            • <strong>未獨立</strong>：不列入排班人力，除自己的預班外，其他班次將與臨床教師一致
+        </div>
+        
+        <div style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px;">
+            <div style="display:flex; align-items:center; gap:20px;">
+                <label style="cursor:pointer; display:flex; align-items:center; gap:8px;">
+                    <input type="radio" name="independence" value="independent" id="radioIndependent" 
+                           onchange="staffManager.updateIndependenceFieldState()" checked> 獨立
+                </label>
+                <label style="cursor:pointer; display:flex; align-items:center; gap:8px;">
+                    <input type="radio" name="independence" value="dependent" id="radioDependent" 
+                           onchange="staffManager.updateIndependenceFieldState()"> 未獨立
+                </label>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:10px;">
+                <label style="width:120px; font-weight:normal;">
+                    臨床教師 <span style="color:red;">*</span>
+                </label>
+                <select id="selectClinicalTeacher" 
+                        style="padding:6px; border:1px solid #ccc; border-radius:4px; flex:1;" 
+                        disabled>
+                    <option value="">(請選擇臨床教師)</option>
+                </select>
+                <span style="font-size:0.85rem; color:#666;">(未獨立時必填)</span>
+            </div>
+            
+            <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; font-size: 0.85rem;">
+                <i class="fas fa-exclamation-triangle" style="color: #ff9800;"></i> 
+                未獨立的員工排班時將跟隨臨床教師的班表
+            </div>
+        </div>
+
+        <div style="text-align:right; margin-top:25px;">
+            <button class="btn btn-close" onclick="staffManager.closeModal()">取消</button>
+            <button class="btn btn-add" onclick="staffManager.validateAndSave()">儲存</button>
+        </div>
+    </div>
+</div>
+
+<style>
+    #datePregnant:disabled, #dateBreastfeeding:disabled, #datePGY:disabled, #selectClinicalTeacher:disabled {
+        background-color: #f0f0f0;
+        color: #999;
+        cursor: not-allowed;
+    }
+</style>
+
+<div id="importModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+        <h3><i class="fas fa-file-import"></i> 批次匯入人員</h3>
+        <div style="background-color: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+            <i class="fas fa-info-circle"></i> 
+            匯入後系統僅會建立資料。請通知同仁使用「帳號開通」功能自行設定密碼。
+        </div>
+        <div style="margin-bottom: 20px;">
+            <button class="btn btn-close" style="background-color: #17a2b8; width: 100%;" onclick="staffManager.downloadTemplate()">
+                <i class="fas fa-download"></i> 下載 CSV 範例檔
+            </button>
+        </div>
+        <div style="margin-bottom: 20px;">
+            <input type="file" id="csvFileInput" accept=".csv" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">
+        </div>
+        <div id="importResult" style="margin-bottom:15px; font-size: 0.9rem;"></div>
+        
+        <div style="text-align:right;">
+            <button class="btn btn-close" onclick="staffManager.closeImportModal()">取消</button>
+            <button class="btn btn-add" onclick="staffManager.processImport()">開始匯入</button>
+        </div>
+    </div>
+</div>
+
+<!-- 故障排查工具 Modal -->
+<div id="troubleshootModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+        <h3><i class="fas fa-wrench"></i> 帳號開通故障排查</h3>
+        <div style="background-color: #e8f4f8; color: #004085; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+            <i class="fas fa-info-circle"></i> 
+            <strong>使用說明：</strong><br>
+            如果員工開通時出現「Email 已被註冊」錯誤，但人員管理仍顯示「未開通」，請使用此工具進行修復。
+        </div>
+        <div style="margin-bottom: 20px;">
+            <label style="display:block; margin-bottom:8px; font-weight:bold;">員工 Email</label>
+            <input type="email" id="troubleshootEmail" placeholder="輸入員工 Email" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;">
+        </div>
+        <div id="troubleshootResult" style="margin-bottom:15px; font-size: 0.9rem; padding: 10px; border-radius: 4px; display: none;"></div>
+        
+        <div style="text-align:right;">
+            <button class="btn btn-close" onclick="staffManager.closeTroubleshootModal()">取消</button>
+            <button class="btn btn-primary" onclick="staffManager.startTroubleshoot()">
+                <i class="fas fa-search"></i> 開始修復
+            </button>
+        </div>
+    </div>
+</div>

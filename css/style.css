@@ -1,0 +1,184 @@
+/* css/style.css - 完整統一管理版 */
+
+:root {
+    --primary-color: #2c3e50;
+    --accent-color: #3498db;
+    --success-color: #27ae60;
+    --warning-color: #f39c12;
+    --danger-color: #e74c3c;
+    --bg-light: #f4f6f8;
+    --sidebar-width: 250px;
+    --header-height: 60px;
+    --transition-speed: 0.3s;
+}
+
+/* === 全域設定 === */
+* { box-sizing: border-box; }
+
+body {
+    font-family: "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif;
+    margin: 0;
+    background-color: var(--bg-light);
+    overflow: hidden;
+    height: 100vh;
+    display: flex;
+    font-size: 14px;
+}
+
+/* === 登入畫面 === */
+#login-view {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: linear-gradient(135deg, #2c3e50, #3498db);
+    display: flex; justify-content: center; align-items: center; z-index: 9999;
+}
+.login-card {
+    background: white; padding: 40px; border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3); width: 90%; max-width: 380px; text-align: center;
+}
+.login-card input {
+    width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd;
+    border-radius: 4px; box-sizing: border-box; font-size: 14px;
+}
+
+/* === 版面結構 === */
+#app-view { display: none; width: 100%; height: 100%; }
+
+#sidebar {
+    width: var(--sidebar-width); background: var(--primary-color); color: white;
+    display: flex; flex-direction: column; flex-shrink: 0; z-index: 100;
+    transition: margin-left var(--transition-speed) ease;
+}
+#sidebar.collapsed { margin-left: calc(var(--sidebar-width) * -1); }
+#sidebar.collapsed + #main-content { width: 100%; }
+
+.sidebar-header { height: var(--header-height); display: flex; align-items: center; padding: 0 20px; font-weight: bold; font-size: 1.2rem; border-bottom: 1px solid rgba(255,255,255,0.1); }
+.user-info { padding: 20px; background: rgba(0,0,0,0.2); font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.1); }
+.role-badge { display: inline-block; background: var(--accent-color); padding: 3px 8px; border-radius: 3px; font-size: 0.75rem; margin-top: 5px; }
+
+.menu-list { list-style: none; padding: 0; margin: 0; flex-grow: 1; overflow-y: auto; }
+.menu-link { display: flex; align-items: center; padding: 15px 20px; color: #bdc3c7; text-decoration: none; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.05); transition: 0.2s; }
+.menu-link:hover { background: rgba(255,255,255,0.1); color: white; border-left: 4px solid var(--accent-color); }
+.menu-link i { width: 25px; text-align: center; margin-right: 12px; }
+
+#main-content { flex-grow: 1; position: relative; width: 100%; display: flex; flex-direction: column; overflow: hidden; }
+#bookmark-toggle {
+    position: absolute; top: 15px; left: 15px; width: 40px; height: 40px;
+    background: var(--accent-color); color: white; border: none; border-radius: 5px; cursor: pointer; z-index: 101;
+}
+#content-area { padding: 15px; padding-top: 65px; height: 100%; overflow-y: auto; box-sizing: border-box; }
+
+/* === 按鈕規範 === */
+.btn {
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    color: white;
+    transition: all 0.2s;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    width: auto !important;
+    min-width: max-content;
+    white-space: nowrap; 
+}
+.btn:hover { transform: translateY(-1px); box-shadow: 0 2px 5px rgba(0,0,0,0.15); }
+.btn:active { transform: translateY(0); }
+
+.btn-primary { background: var(--accent-color); }
+.btn-add { background: var(--accent-color); }
+.btn-import { background: var(--success-color); }
+.btn-edit { background: var(--warning-color); box-shadow: 0 2px 4px rgba(243, 156, 18, 0.3); } /* 強化設定按鈕 */
+.btn-delete { background: var(--danger-color); }
+.btn-close { background: #95a5a6; }
+
+/* === 狀態標籤 (Badge) === */
+.badge {
+    padding: 4px 10px;
+    border-radius: 4px;
+    color: white;
+    font-size: 0.8rem;
+    font-weight: bold;
+    display: inline-block;
+    white-space: nowrap;
+}
+
+/* === Modal 與 表單 === */
+.modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; justify-content: center; align-items: center; }
+.modal.show { display: flex; }
+.modal-content { background: white; width: 90%; max-width: 650px; padding: 20px; border-radius: 8px; max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column;}
+.modal-xl { max-width: 1100px !important; width: 95vw !important; }
+
+.form-row { display: flex; gap: 12px; margin-bottom: 12px; }
+.form-group { flex: 1; }
+.form-group label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 0.85rem; }
+.form-group input, .form-group select { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 13px; }
+
+/* === 表格與工具列 === */
+.toolbar { 
+    background: white; padding: 10px; border-radius: 8px; 
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 15px;
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap; 
+}
+.table-container { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 8px; text-align: left; border-bottom: 1px solid #eee; white-space: nowrap; }
+th { background-color: #f8f9fa; font-weight: bold; position: sticky; top: 0; z-index: 10; }
+
+/* === 身分模擬工具樣式 === */
+#impersonation-tool {
+    padding: 15px; border-top: 1px solid rgba(255,255,255,0.1); 
+    background: rgba(0,0,0,0.2); font-size: 0.85rem; color: white;
+}
+#impersonation-tool select {
+    width: 100%; padding: 6px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); 
+    background: #2c3e50; color: white; margin-bottom: 5px; cursor: pointer;
+}
+
+/* === 評分設定頁面專用 === */
+.score-cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px; }
+.score-card { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden; }
+.card-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 20px; display: flex; align-items: center; gap: 10px; }
+
+/* === 日曆與預班矩陣 === */
+.calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.calendar-day { 
+    min-height: 80px; background: white; border: 1px solid #ddd; border-radius: 4px; 
+    padding: 5px; position: relative; cursor: pointer; 
+}
+.calendar-day:hover { border-color: var(--accent-color); }
+.calendar-day.selected { background: #d5f5e3; border: 1px solid #2ecc71; }
+
+/* 管理員「再開放」連結樣式 */
+a[onclick*="reOpen"] {
+    display: inline-block;
+    margin-top: 4px;
+    color: var(--accent-color);
+    text-decoration: underline;
+    transition: color 0.2s;
+}
+a[onclick*="reOpen"]:hover { color: #2980b9 !important; }
+
+/* === 右鍵選單樣式 === */
+.context-menu {
+    position: fixed;
+    background: white;
+    border: 1px solid #ccc;
+    box-shadow: 2px 2px 10px rgba(0,0,0,0.2);
+    z-index: 10000;
+    min-width: 150px;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.context-menu ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.context-menu li:hover {
+    background-color: #f0f0f0;
+}
