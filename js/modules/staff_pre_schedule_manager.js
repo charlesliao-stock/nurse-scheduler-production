@@ -1,9 +1,10 @@
 // js/modules/staff_pre_schedule_manager.js
-// 🔧 修正版 v2：
+// 🔧 修正版 v3：
 // - 修復星期六可預班人數計算錯誤
 // - 新增志願重複檢查（動態過濾）
 // - 新增包班與志願衝突檢查（4小時內同系列）
 // - 修正第三志願存取一致性
+// - 🆕 修正志願選單選擇後消失問題（保存 DOM 狀態）
 
 const staffPreScheduleManager = {
     docId: null,
@@ -32,7 +33,7 @@ const staffPreScheduleManager = {
     },
 
     init: async function(id) {
-        console.log("Staff Pre-Schedule Init (Fixed DayOfWeek + Preference Validation):", id);
+        console.log("Staff Pre-Schedule Init (Fixed Preference Selection):", id);
         this.docId = id;
         
         if (!app.currentUser) { alert("請先登入"); return; }
@@ -239,7 +240,16 @@ const staffPreScheduleManager = {
             
             const bundleShift = bundleSelect ? bundleSelect.value : '';
             const allowThreeShifts = this.data.settings?.allowThreeShifts === true;
-            const preferences = this.userRequest.preferences || {};
+            
+            // 🔥 修正：先從 DOM 讀取當前選擇的值（如果存在）
+            const currentPref1El = document.getElementById('pref_favShift');
+            const currentPref2El = document.getElementById('pref_favShift2');
+            const currentPref3El = document.getElementById('pref_favShift3');
+            
+            // 優先使用 DOM 中的值（使用者剛選的），其次才用記憶體中的值
+            const pref1 = currentPref1El?.value || this.userRequest.preferences?.favShift || '';
+            const pref2 = currentPref2El?.value || this.userRequest.preferences?.favShift2 || '';
+            const pref3 = currentPref3El?.value || this.userRequest.preferences?.favShift3 || '';
             
             // 🔥 根據包班過濾可選班別
             let availableShifts = this.filterShiftsByBundle(bundleShift, allowThreeShifts);
@@ -247,7 +257,6 @@ const staffPreScheduleManager = {
             let html = '';
             
             // 第一志願
-            const pref1 = preferences.favShift || '';
             html += `
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span style="flex-shrink:0; width:60px;">第一志願</span>
@@ -259,7 +268,6 @@ const staffPreScheduleManager = {
             `;
 
             // 第二志願（排除第一志願已選）
-            const pref2 = preferences.favShift2 || '';
             const availableForPref2 = availableShifts.filter(s => s.code !== pref1);
             html += `
                 <div style="display:flex; align-items:center; gap:10px;">
@@ -273,7 +281,6 @@ const staffPreScheduleManager = {
             
             // 第三志願（僅在 allowThreeShifts = true 時顯示，排除第一、二志願已選）
             if (allowThreeShifts) {
-                const pref3 = preferences.favShift3 || '';
                 const availableForPref3 = availableShifts.filter(s => s.code !== pref1 && s.code !== pref2);
                 html += `
                 <div style="display:flex; align-items:center; gap:10px;">
@@ -291,13 +298,33 @@ const staffPreScheduleManager = {
             // 🔥 監聽志願變更，動態更新下一個志願的選項
             const pref1Select = document.getElementById('pref_favShift');
             const pref2Select = document.getElementById('pref_favShift2');
+            const pref3Select = document.getElementById('pref_favShift3');
             
             if (pref1Select) {
-                pref1Select.onchange = () => renderPrefs();
+                pref1Select.onchange = () => {
+                    // 🆕 立即更新 userRequest，避免值丟失
+                    this.userRequest.preferences = this.userRequest.preferences || {};
+                    this.userRequest.preferences.favShift = pref1Select.value;
+                    renderPrefs();
+                };
             }
             
             if (pref2Select) {
-                pref2Select.onchange = () => renderPrefs();
+                pref2Select.onchange = () => {
+                    // 🆕 立即更新 userRequest，避免值丟失
+                    this.userRequest.preferences = this.userRequest.preferences || {};
+                    this.userRequest.preferences.favShift2 = pref2Select.value;
+                    renderPrefs();
+                };
+            }
+            
+            if (pref3Select) {
+                pref3Select.onchange = () => {
+                    // 🆕 立即更新 userRequest，避免值丟失
+                    this.userRequest.preferences = this.userRequest.preferences || {};
+                    this.userRequest.preferences.favShift3 = pref3Select.value;
+                    renderPrefs();
+                };
             }
         };
 
