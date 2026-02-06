@@ -26,6 +26,11 @@ class SchedulerV2 extends BaseScheduler {
         });
     }
 
+    // 🚀 獲取最佳排班順序（優先排需求量大的班別）
+    getOptimalShiftOrder(needs) {
+        return Object.keys(needs).sort((a, b) => (needs[b] || 0) - (needs[a] || 0));
+    }
+
     // 🚀 核心排班流程
     run() {
         // 1. 預填 REQ_OFF
@@ -342,6 +347,28 @@ class SchedulerV2 extends BaseScheduler {
             this.updateShift(prevDateStr, staff.id, 'OFF', oldPrevShift);
         }
         return false;
+    }
+
+    checkSwapValidity(day, staff, oldShift, newShift, isFinalOptimization = false) {
+        const dateStr = this.getDateStr(day);
+        
+        // 1. 基本合法性檢查
+        this.updateShift(dateStr, staff.id, oldShift, newShift);
+        const isValid = this.isValidAssignment(staff, dateStr, newShift);
+        this.updateShift(dateStr, staff.id, newShift, oldShift);
+        
+        if (!isValid) return false;
+
+        // 2. 如果是最終優化，還需要檢查前後天的休息時間
+        if (isFinalOptimization) {
+            const prevShift = this.getYesterdayShift(staff.id, dateStr);
+            const nextShift = this.getTomorrowShift(staff.id, dateStr);
+            
+            if (!this.checkRestPeriod(prevShift, newShift)) return false;
+            if (nextShift && !this.checkRestPeriod(newShift, nextShift)) return false;
+        }
+
+        return true;
     }
 
     checkGroupMaxLimit(day, staff, shiftCode) {
