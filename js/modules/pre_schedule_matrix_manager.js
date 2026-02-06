@@ -889,12 +889,24 @@ const matrixManager = {
         const bundleData = this.shifts.find(s => s.code === bundleShiftCode);
         if (!bundleData) return this.shifts.filter(s => s.code !== 'OFF');
         
+        // 判斷包班是否為夜班 (開始時間在 12:00 之後)
+        const bundleTime = this.parseTime(bundleData.startTime);
+        const isBundleNight = bundleTime >= 12;
+
         return this.shifts.filter(s => {
             if (s.code === 'OFF') return false;
-            if (s.code === bundleShiftCode) return true; // 包班本身可選
+            if (s.code === bundleShiftCode) return true; 
             
-            // 檢查是否為同系列班別（4小時內）
-            return this.isSameShiftFamily(bundleData, s);
+            const shiftTime = this.parseTime(s.startTime);
+            const isShiftNight = shiftTime >= 12;
+
+            // 如果包班是夜班，且當前班別也是夜班，則必須是同系列
+            if (isBundleNight && isShiftNight) {
+                return this.isSameShiftFamily(bundleData, s);
+            }
+            
+            // 非夜班（如白班）或非衝突情況，皆保留
+            return true;
         });
     },
 
@@ -1016,14 +1028,26 @@ const matrixManager = {
             const bundleData = this.shifts.find(s => s.code === bundleShift);
             
             if (bundleData) {
+                const bundleTime = this.parseTime(bundleData.startTime);
+                const isBundleNight = bundleTime >= 12;
+
                 const invalidPrefs = prefsList.filter(p => {
-                    if (p === bundleShift) return false; // 包班本身可選
+                    if (p === bundleShift) return false; 
                     const prefData = this.shifts.find(s => s.code === p);
-                    return !this.isSameShiftFamily(bundleData, prefData);
+                    if (!prefData) return false;
+
+                    const shiftTime = this.parseTime(prefData.startTime);
+                    const isShiftNight = shiftTime >= 12;
+
+                    // 僅在兩者皆為夜班時，檢查是否不同系列
+                    if (isBundleNight && isShiftNight) {
+                        return !this.isSameShiftFamily(bundleData, prefData);
+                    }
+                    return false;
                 });
                 
                 if (invalidPrefs.length > 0) {
-                    alert(`⚠️ 包班 ${bundleShift} 時，志願僅能選擇同系列班別（開始時間前後4小時內）\n不符班別：${invalidPrefs.join(', ')}`);
+                    alert(`⚠️ 包班 ${bundleShift} 時，不可選擇其他系列的夜班\n衝突班別：${invalidPrefs.join(', ')}`);
                     return;
                 }
             }
