@@ -215,22 +215,24 @@ const staffPreScheduleManager = {
                 const isPGY = params.isPGY && params.pgyExpiry && new Date(params.pgyExpiry) >= today;
 
                 // 判斷包班是否為小夜或大夜
-                const bundleCategory = currentBundle && bundleShiftData 
-                    ? shiftUtils.getShiftCategory(bundleShiftData)
-                    : null;
-                const isEveningOrNightBundle = bundleCategory === 'evening' || bundleCategory === 'night';
+                const isEveningOrNightBundle = currentBundle && bundleShiftData 
+                    ? shiftUtils.isEveningOrNightShift(bundleShiftData)
+                    : false;
 
                 return this.shifts.filter(s => {
                     if (s.code === 'OFF') return false;
                     
-                    // 判斷當前班別是否為夜班
+                    // 判斷當前班別是否為大夜（僅大夜需要被特殊身分過濾）
                     const isNightShift = shiftUtils.isNightShift(s);
                     
-                    // 1. 特殊身份過濾：懷孕、哺乳、PGY 隱藏夜班 (23:00-02:00)
+                    // 判斷當前班別是否為小夜或大夜（用於包班過濾）
+                    const isEveningOrNightShift = shiftUtils.isEveningOrNightShift(s);
+                    
+                    // 1. 特殊身份過濾：懷孕、哺乳、PGY 隱藏大夜班 (23:00-02:00)
                     if ((isPregnant || isBreastfeeding || isPGY) && isNightShift) return false;
 
-                    // 2. 包班過濾：如果是小夜或大夜包班，隱藏「其他」的夜班班別
-                    if (isEveningOrNightBundle && isNightShift && s.code !== currentBundle) {
+                    // 2. 包班過濾：如果是小夜或大夜包班，隱藏「其他」的小夜/大夜班別
+                    if (isEveningOrNightBundle && isEveningOrNightShift && s.code !== currentBundle) {
                         return false;
                     }
 
