@@ -215,7 +215,7 @@ const scheduleEditorManager = {
         
         // 檢查未獨立
         if (params.independence === 'dependent') {
-            badges.push('<span class="status-badge" style="background:#9c27b0; color:white;">D</span>');
+            badges.push('<span class="status-badge" style="background:#9c27b0; color:white;">協</span>');
         }
         
         return badges.join('');
