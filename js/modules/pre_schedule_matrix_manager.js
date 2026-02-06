@@ -1,5 +1,9 @@
 // js/modules/pre_schedule_matrix_manager.js
-// 🔧 完整版 v4：顯示 FF、新增狀態欄（孕/哺/P/D）+ 人員與狀態同步檢查
+// 🔧 完整版 v5：
+// - 顯示 FF、新增狀態欄（孕/哺/P/D）+ 人員與狀態同步檢查
+// - 新增志願重複檢查（動態過濾）
+// - 新增包班與志願衝突檢查（4小時內同系列）
+// - 新增人員同步後偏好驗證
 
 const matrixManager = {
     docId: null, 
@@ -304,16 +308,13 @@ const matrixManager = {
         });
     },
 
-    // 🆕 更新人員清單
+    // 🆕 更新人員清單（含偏好驗證）
     updateStaffList: async function(currentUsers) {
         try {
             // 1. 建立新的 staffList
             const newStaffList = [];
             Object.keys(currentUsers).forEach(uid => {
                 const user = currentUsers[uid];
-                
-                // 保留原有的預班資料（如果存在）
-                const existingStaff = (this.data.staffList || []).find(s => s.uid === uid);
                 
                 newStaffList.push({
                     uid: uid,
@@ -325,17 +326,49 @@ const matrixManager = {
                 });
             });
             
-            // 2. 更新到 Firestore
+            // 🔥 2. 檢查所有人員的偏好是否仍然有效
+            const invalidPrefs = [];
+            
+            newStaffList.forEach(staff => {
+                const assign = this.localAssignments[staff.uid];
+                if (assign?.preferences) {
+                    const prefs = assign.preferences;
+                    const allPrefs = [prefs.favShift, prefs.favShift2, prefs.favShift3].filter(Boolean);
+                    
+                    allPrefs.forEach(pref => {
+                        const shiftExists = this.shifts.some(s => s.code === pref);
+                        if (!shiftExists) {
+                            invalidPrefs.push({ 
+                                uid: staff.uid, 
+                                name: staff.name, 
+                                empId: staff.empId,
+                                shift: pref 
+                            });
+                        }
+                    });
+                }
+            });
+            
+            // 3. 更新到 Firestore
             await db.collection('pre_schedules').doc(this.docId).update({
                 staffList: newStaffList,
                 lastSyncAt: firebase.firestore.FieldValue.serverTimestamp(),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
-            // 3. 更新本地資料
+            // 4. 更新本地資料
             this.data.staffList = newStaffList;
             
             console.log('✅ 人員清單已同步更新');
+            
+            // 🔥 5. 如果有無效偏好，顯示警告
+            if (invalidPrefs.length > 0) {
+                const warnMsg = invalidPrefs.map(p => 
+                    `${p.empId} ${p.name}: 志願「${p.shift}」已不存在`
+                ).join('\n');
+                
+                alert(`⚠️ 以下人員的志願班別已失效，請重新設定偏好：\n\n${warnMsg}`);
+            }
             
         } catch (error) {
             console.error('❌ 更新人員清單失敗:', error);
@@ -825,6 +858,189 @@ const matrixManager = {
         this.renderMatrix();
     },
 
+    // 🆕 工具函式：解析時間為小時數
+    parseTime: function(timeStr) {
+        if (!timeStr) return 0;
+        const [h, m] = timeStr.split(':').map(Number);
+        return h + (m || 0) / 60;
+    },
+
+    // 🆕 工具函式：判斷兩個班別是否為同系列（4小時內）
+    isSameShiftFamily: function(shift1, shift2) {
+        if (!shift1 || !shift2) return false;
+        
+        const t1 = this.parseTime(shift1.startTime);
+        const t2 = this.parseTime(shift2.startTime);
+        
+        // 計算時差（考慮跨日）
+        let diff = Math.abs(t1 - t2);
+        if (diff > 12) diff = 24 - diff; // 跨日修正 (22:00 vs 00:00 = 2h)
+        
+        return diff <= 4; // 4小時內視為同系列
+    },
+
+    // 🆕 工具函式：根據包班過濾可選班別
+    filterShiftsByBundle: function(bundleShiftCode, allowThreeShifts) {
+        // 若允許3種志願，或無包班，不過濾
+        if (allowThreeShifts || !bundleShiftCode) {
+            return this.shifts.filter(s => s.code !== 'OFF');
+        }
+        
+        const bundleData = this.shifts.find(s => s.code === bundleShiftCode);
+        if (!bundleData) return this.shifts.filter(s => s.code !== 'OFF');
+        
+        return this.shifts.filter(s => {
+            if (s.code === 'OFF') return false;
+            if (s.code === bundleShiftCode) return true; // 包班本身可選
+            
+            // 檢查是否為同系列班別（4小時內）
+            return !this.isSameShiftFamily(bundleData, s);
+        });
+    },
+
+    openPrefModal: function(uid, name) { 
+        document.getElementById('prefTargetUid').value = uid;
+        document.getElementById('prefTargetName').innerText = `人員：${name}`;
+        
+        const assign = this.localAssignments[uid] || {};
+        const prefs = assign.preferences || {};
+        
+        const bundleSelect = document.getElementById('editBundleShift');
+        let bundleHtml = '<option value="">無 (不包班)</option>';
+        this.shifts.forEach(s => {
+            if (s.isBundleAvailable) {
+                bundleHtml += `<option value="${s.code}" ${prefs.bundleShift === s.code ? 'selected' : ''}>${s.code} (${s.name})</option>`;
+            }
+        });
+        bundleSelect.innerHTML = bundleHtml;
+
+        const renderPrefs = () => {
+            const currentBundle = bundleSelect.value;
+            const allowThreeShifts = this.data.settings?.allowThreeShifts === true;
+            
+            // 🔥 根據包班過濾可選班別
+            let availableShifts = this.filterShiftsByBundle(currentBundle, allowThreeShifts);
+            
+            const prefContainer = document.getElementById('editPrefContainer');
+            let prefHtml = `
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="width:70px; font-size:0.9rem;">第一志願</span>
+                    <select id="editFavShift" class="form-control" style="flex:1;">
+                        <option value="">無特別偏好</option>
+                        ${availableShifts.map(s => `<option value="${s.code}" ${prefs.favShift === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
+                    </select>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="width:70px; font-size:0.9rem;">第二志願</span>
+                    <select id="editFavShift2" class="form-control" style="flex:1;">
+                        <option value="">無特別偏好</option>
+                        ${availableShifts.filter(s => s.code !== prefs.favShift).map(s => `<option value="${s.code}" ${prefs.favShift2 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
+                    </select>
+                </div>
+            `;
+            
+            if (allowThreeShifts) {
+                prefHtml += `
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="width:70px; font-size:0.9rem;">第三志願</span>
+                    <select id="editFavShift3" class="form-control" style="flex:1;">
+                        <option value="">無特別偏好</option>
+                        ${availableShifts.filter(s => s.code !== prefs.favShift && s.code !== prefs.favShift2).map(s => `<option value="${s.code}" ${prefs.favShift3 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
+                    </select>
+                </div>
+                `;
+            }
+            
+            prefContainer.innerHTML = prefHtml;
+            
+            // 🔥 監聽志願變更，動態更新下一個志願的選項
+            const pref1Select = document.getElementById('editFavShift');
+            const pref2Select = document.getElementById('editFavShift2');
+            
+            if (pref1Select) {
+                pref1Select.onchange = () => renderPrefs();
+            }
+            
+            if (pref2Select) {
+                pref2Select.onchange = () => renderPrefs();
+            }
+        };
+
+        bundleSelect.onchange = renderPrefs;
+        renderPrefs();
+
+        document.getElementById('prefModal').classList.add('show');
+    },
+    
+    closePrefModal: function() { document.getElementById('prefModal').classList.remove('show'); },
+    
+    savePreferences: async function() { 
+        const uid = document.getElementById('prefTargetUid').value;
+        if (!uid) return;
+
+        if (!this.localAssignments[uid]) this.localAssignments[uid] = {};
+        if (!this.localAssignments[uid].preferences) this.localAssignments[uid].preferences = {};
+
+        const prefs = this.localAssignments[uid].preferences;
+        
+        // 🔥 收集偏好設定
+        const bundleShift = document.getElementById('editBundleShift').value;
+        const pref1 = document.getElementById('editFavShift').value;
+        const pref2 = document.getElementById('editFavShift2').value;
+        const pref3El = document.getElementById('editFavShift3');
+        const pref3 = pref3El ? pref3El.value : '';
+        
+        // 🔥 驗證 1：志願不可重複
+        const prefsList = [pref1, pref2, pref3].filter(p => p !== '');
+        const uniquePrefs = new Set(prefsList);
+        
+        if (prefsList.length !== uniquePrefs.size) {
+            alert('⚠️ 各志願不可重複，請重新選擇');
+            return;
+        }
+        
+        // 🔥 驗證 2：包班衝突檢查（僅在 allowThreeShifts = false 時）
+        const allowThreeShifts = this.data.settings?.allowThreeShifts === true;
+        
+        if (!allowThreeShifts && bundleShift) {
+            const bundleData = this.shifts.find(s => s.code === bundleShift);
+            
+            if (bundleData) {
+                const invalidPrefs = prefsList.filter(p => {
+                    if (p === bundleShift) return false; // 包班本身可選
+                    const prefData = this.shifts.find(s => s.code === p);
+                    return this.isSameShiftFamily(bundleData, prefData);
+                });
+                
+                if (invalidPrefs.length > 0) {
+                    alert(`⚠️ 包班 ${bundleShift} 時，志願不可選擇同系列班別（開始時間前後4小時內）\n衝突班別：${invalidPrefs.join(', ')}`);
+                    return;
+                }
+            }
+        }
+        
+        // 🔥 儲存偏好
+        prefs.bundleShift = bundleShift;
+        prefs.favShift = pref1;
+        prefs.favShift2 = pref2;
+        if (allowThreeShifts) {
+            prefs.favShift3 = pref3;
+        }
+
+        try {
+            await db.collection('pre_schedules').doc(this.docId).update({
+                [`assignments.${uid}.preferences`]: prefs
+            });
+            this.closePrefModal();
+            this.renderMatrix();
+            this.updateStats();
+            alert("✅ 偏好設定已儲存");
+        } catch(e) {
+            console.error(e);
+            alert("❌ 儲存失敗");
+        }
+    },
+    
     saveData: async function() {
         if (this.isLoading) return;
         this.isLoading = true;
@@ -915,122 +1131,12 @@ const matrixManager = {
             batch.set(newSchRef, scheduleData);
 
             await batch.commit();
-            alert("執行成功! 轉跳中...");
+            alert("✅ 執行成功! 轉跳中...");
             window.location.hash = `/admin/schedule_editor?id=${newSchRef.id}`;
-        } catch(e) { console.error(e); alert("失敗: "+e.message); this.renderMatrix(); } 
+        } catch(e) { console.error(e); alert("❌ 失敗: "+e.message); this.renderMatrix(); } 
         finally { this.isLoading = false; }
-    },
-    
-    openPrefModal: function(uid, name) { 
-        document.getElementById('prefTargetUid').value = uid;
-        document.getElementById('prefTargetName').innerText = `人員：${name}`;
-        
-        const assign = this.localAssignments[uid] || {};
-        const prefs = assign.preferences || {};
-        
-        const bundleSelect = document.getElementById('editBundleShift');
-        let bundleHtml = '<option value="">無 (不包班)</option>';
-        this.shifts.forEach(s => {
-            if (s.isBundleAvailable) {
-                bundleHtml += `<option value="${s.code}" ${prefs.bundleShift === s.code ? 'selected' : ''}>${s.code} (${s.name})</option>`;
-            }
-        });
-        bundleSelect.innerHTML = bundleHtml;
+        },
 
-        const renderPrefs = () => {
-            const currentBundle = bundleSelect.value;
-            const bundleShiftData = currentBundle ? this.shifts.find(s => s.code === currentBundle) : null;
-            const bundleStartTime = bundleShiftData?.startTime;
-            
-            const isNightBundle = bundleStartTime && (bundleStartTime === '00:00' || bundleStartTime === '22:00');
-            
-            const prefContainer = document.getElementById('editPrefContainer');
-            let prefHtml = `
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <span style="width:70px; font-size:0.9rem;">第一志願</span>
-                    <select id="editFavShift" class="form-control" style="flex:1;">
-                        <option value="">無特別偏好</option>
-                        ${this.shifts.filter(s => {
-                            if (isNightBundle) {
-                                const shiftStartTime = s.startTime;
-                                const isOtherNight = shiftStartTime && (shiftStartTime === '00:00' || shiftStartTime === '22:00');
-                                if (isOtherNight && shiftStartTime !== bundleStartTime) return false;
-                            }
-                            return s.code !== 'OFF';
-                        }).map(s => `<option value="${s.code}" ${prefs.favShift === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
-                    </select>
-                </div>
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <span style="width:70px; font-size:0.9rem;">第二志願</span>
-                    <select id="editFavShift2" class="form-control" style="flex:1;">
-                        <option value="">無特別偏好</option>
-                        ${this.shifts.filter(s => {
-                            if (isNightBundle) {
-                                const shiftStartTime = s.startTime;
-                                const isOtherNight = shiftStartTime && (shiftStartTime === '00:00' || shiftStartTime === '22:00');
-                                if (isOtherNight && shiftStartTime !== bundleStartTime) return false;
-                            }
-                            return s.code !== 'OFF';
-                        }).map(s => `<option value="${s.code}" ${prefs.favShift2 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
-                    </select>
-                </div>
-            `;
-            
-            const allowThreeShifts = this.data.settings?.allowThreeShifts === true;
-            if (allowThreeShifts) {
-                prefHtml += `
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <span style="width:70px; font-size:0.9rem;">第三志願</span>
-                    <select id="editFavShift3" class="form-control" style="flex:1;">
-                        <option value="">無特別偏好</option>
-                        ${this.shifts.filter(s => {
-                            if (isNightBundle) {
-                                const shiftStartTime = s.startTime;
-                                const isOtherNight = shiftStartTime && (shiftStartTime === '00:00' || shiftStartTime === '22:00');
-                                if (isOtherNight && shiftStartTime !== bundleStartTime) return false;
-                            }
-                            return s.code !== 'OFF';
-                        }).map(s => `<option value="${s.code}" ${prefs.favShift3 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
-                    </select>
-                </div>
-                `;
-            }
-            prefContainer.innerHTML = prefHtml;
-        };
-
-        bundleSelect.onchange = renderPrefs;
-        renderPrefs();
-
-        document.getElementById('prefModal').classList.add('show');
-    },
-    closePrefModal: function() { document.getElementById('prefModal').classList.remove('show'); },
-    savePreferences: async function() { 
-        const uid = document.getElementById('prefTargetUid').value;
-        if (!uid) return;
-
-        if (!this.localAssignments[uid]) this.localAssignments[uid] = {};
-        if (!this.localAssignments[uid].preferences) this.localAssignments[uid].preferences = {};
-
-        const prefs = this.localAssignments[uid].preferences;
-        prefs.bundleShift = document.getElementById('editBundleShift').value;
-        prefs.favShift = document.getElementById('editFavShift').value;
-        prefs.favShift2 = document.getElementById('editFavShift2').value;
-        const favShift3Select = document.getElementById('editFavShift3');
-        if (favShift3Select) prefs.favShift3 = favShift3Select.value;
-
-        try {
-            await db.collection('pre_schedules').doc(this.docId).update({
-                [`assignments.${uid}.preferences`]: prefs
-            });
-            this.closePrefModal();
-            this.renderMatrix();
-            this.updateStats();
-            alert("偏好設定已儲存");
-        } catch(e) {
-            console.error(e);
-            alert("儲存失敗");
-        }
-    },
-    setupEvents: function() { },
-    cleanup: function() { document.getElementById('customContextMenu').style.display='none'; }
+setupEvents: function() { },
+cleanup: function() { document.getElementById('customContextMenu').style.display='none'; }
 };
