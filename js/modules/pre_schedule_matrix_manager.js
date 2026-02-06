@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_matrix_manager.js
-// 🔧 完整版 v4：顯示 FF、新增狀態欄（孕/哺/P/D）+ 人員與狀態同步檢查
+// 🔧 完整版 v4.1：修正支援人員誤判問題
 
 const matrixManager = {
     docId: null, 
@@ -104,12 +104,10 @@ const matrixManager = {
             // 判定是否為該單位人員：
             // 1. 正式編制在此單位
             // 2. 支援清單中有此單位
-            // 3. 雖然上述兩者皆非，但已經在原本的預班人員名單中 (可能是手動加入的支援人員)
             const isFormalMember = user.unitId === this.data.unitId;
             const isSupportMember = Array.isArray(user.supportUnits) && user.supportUnits.includes(this.data.unitId);
-            const isAlreadyInList = oldStaffMap[doc.id] !== undefined;
             
-            if (isFormalMember || isSupportMember || isAlreadyInList) {
+            if (isFormalMember || isSupportMember) {
                 currentUsers[doc.id] = {
                     uid: doc.id,
                     empId: user.employeeId,
@@ -117,14 +115,32 @@ const matrixManager = {
                     level: user.level,
                     groupId: user.groupId,
                     schedulingParams: user.schedulingParams || {},
-                    // 如果原本就在名單中且標註為支援，或是新判定為支援人員
-                    isSupport: (isSupportMember && !isFormalMember) || (isAlreadyInList && oldStaffMap[doc.id].isSupport)
+                    isSupport: isSupportMember && !isFormalMember
                 };
             }
         });
         
-        // 3. 比對 staffList 的變更
+        // 🔧 重要：將原名單中的人員也加入 currentUsers（避免手動加入的支援人員被誤判為移除）
+        (this.data.staffList || []).forEach(staff => {
+            if (!currentUsers[staff.uid]) {
+                // 檢查此人是否仍為啟用狀態
+                const userDoc = snapshot.docs.find(d => d.id === staff.uid);
+                if (userDoc) {
+                    const user = userDoc.data();
+                    currentUsers[staff.uid] = {
+                        uid: staff.uid,
+                        empId: user.employeeId || staff.empId,
+                        name: user.displayName || staff.name,
+                        level: user.level || staff.level,
+                        groupId: user.groupId || staff.groupId,
+                        schedulingParams: user.schedulingParams || staff.schedulingParams || {},
+                        isSupport: staff.isSupport || false
+                    };
+                }
+            }
+        });
         
+        // 3. 比對 staffList 的變更
         const changes = {
             added: [],      // 新增的人員
             removed: [],    // 移除的人員（已停用）
@@ -143,7 +159,7 @@ const matrixManager = {
             }
         });
         
-        // 檢查移除的人員
+        // 檢查移除的人員（真正已停用的人員）
         Object.keys(oldStaffMap).forEach(uid => {
             if (!currentUsers[uid]) {
                 changes.removed.push({
@@ -172,7 +188,7 @@ const matrixManager = {
             }
         });
         
-        // 3. 如果有變更，顯示確認視窗
+        // 4. 如果有變更，顯示確認視窗
         if (changes.added.length > 0 || changes.removed.length > 0 || changes.statusChanged.length > 0) {
             const shouldUpdate = await this.showStaffChangesModal(changes);
             
