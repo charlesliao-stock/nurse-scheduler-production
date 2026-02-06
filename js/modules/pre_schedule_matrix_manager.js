@@ -949,15 +949,27 @@ const matrixManager = {
             const s3 = document.getElementById('editFavShift3')?.value || prefs.favShift3 || '';
 
             const getFilteredShifts = (currentVal, otherVals) => {
+                const today = new Date();
+                const staff = (this.data.staffList || []).find(s => s.uid === uid) || {};
+                const params = staff.schedulingParams || {};
+                const isPregnant = params.isPregnant && params.pregnantExpiry && new Date(params.pregnantExpiry) >= today;
+                const isBreastfeeding = params.isBreastfeeding && params.breastfeedingExpiry && new Date(params.breastfeedingExpiry) >= today;
+                const isPGY = params.isPGY && params.pgyExpiry && new Date(params.pgyExpiry) >= today;
+
                 return this.shifts.filter(s => {
                     if (s.code === 'OFF') return false;
+                    const shiftStartTime = s.startTime;
+                    const isNightShift = shiftStartTime && (shiftStartTime === '00:00' || shiftStartTime === '22:00');
                     
-                    // 1. 包班夜班過濾：如果是夜班包班，隱藏其他班別
-                    if (isNightBundle) {
+                    // 1. 特殊身份過濾：懷孕、哺乳、PGY 隱藏夜班 (22:00-06:00)
+                    if ((isPregnant || isBreastfeeding || isPGY) && isNightShift) return false;
+
+                    // 2. 包班過濾：如果是夜班包班，隱藏「其他」的夜班班別
+                    if (isNightBundle && isNightShift) {
                         if (s.code !== currentBundle) return false;
                     }
 
-                    // 2. 彼此不重複：排除已被其他志願選取的班別
+                    // 3. 彼此不重複：排除已被其他志願選取的班別
                     if (s.code !== '' && otherVals.includes(s.code) && s.code !== currentVal) return false;
 
                     return true;
