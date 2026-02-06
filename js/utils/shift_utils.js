@@ -59,6 +59,16 @@ const shiftUtils = {
     },
     
     /**
+     * 判斷是否為小夜或大夜（用於包班過濾）
+     * @param {object} shift - 班別物件
+     * @returns {boolean}
+     */
+    isEveningOrNightShift: function(shift) {
+        const category = this.getShiftCategory(shift);
+        return category === 'evening' || category === 'night';
+    },
+    
+    /**
      * 根據 startTime 字串判斷班別類型（相容性方法）
      * @param {string} startTime - 班別開始時間 (HH:mm 格式)
      * @returns {string} 'day' | 'evening' | 'night' | 'other'
