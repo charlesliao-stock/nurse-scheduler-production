@@ -86,23 +86,30 @@ const matrixManager = {
     checkStaffAndStatusChanges: async function() {
         if (!this.data || !this.data.unitId) return;
         
-        // 1. 從 users 集合取得該單位最新的人員清單
+        // 1. 取得該單位最新的人員清單（包含正式人員與支援人員）
         const snapshot = await db.collection('users')
-            .where('unitId', '==', this.data.unitId)
             .where('isActive', '==', true)
             .get();
         
         const currentUsers = {};
         snapshot.forEach(doc => {
             const user = doc.data();
-            currentUsers[doc.id] = {
-                uid: doc.id,
-                empId: user.employeeId,
-                name: user.displayName,
-                level: user.level,
-                groupId: user.groupId,
-                schedulingParams: user.schedulingParams || {}
-            };
+            
+            // 判定是否為該單位人員：1. 正式編制在此單位 2. 支援清單中有此單位
+            const isFormalMember = user.unitId === this.data.unitId;
+            const isSupportMember = Array.isArray(user.supportUnits) && user.supportUnits.includes(this.data.unitId);
+            
+            if (isFormalMember || isSupportMember) {
+                currentUsers[doc.id] = {
+                    uid: doc.id,
+                    empId: user.employeeId,
+                    name: user.displayName,
+                    level: user.level,
+                    groupId: user.groupId,
+                    schedulingParams: user.schedulingParams || {},
+                    isSupport: isSupportMember && !isFormalMember // 標註是否為支援人員
+                };
+            }
         });
         
         // 2. 比對 staffList 的變更
@@ -123,7 +130,8 @@ const matrixManager = {
                 changes.added.push({
                     uid: uid,
                     name: currentUsers[uid].name,
-                    empId: currentUsers[uid].empId
+                    empId: currentUsers[uid].empId,
+                    isSupport: currentUsers[uid].isSupport
                 });
             }
         });
@@ -226,7 +234,7 @@ const matrixManager = {
                             <i class="fas fa-user-plus"></i> 新增人員 (${changes.added.length} 位)
                         </h4>
                         <ul style="margin:0; padding-left:20px; line-height:1.8;">
-                            ${changes.added.map(p => `<li><strong>${p.empId}</strong> - ${p.name}</li>`).join('')}
+                            ${changes.added.map(p => `<li><strong>${p.empId}</strong> - ${p.name} ${p.isSupport ? '<span style="color:#27ae60; font-size:0.8rem;">(支援)</span>' : ''}</li>`).join('')}
                         </ul>
                         <div style="margin-top:10px; padding:10px; background:#d4edda; border-radius:4px; font-size:0.9rem;">
                             <i class="fas fa-info-circle"></i> 新增人員將自動加入預班表，初始狀態為空白
@@ -321,7 +329,8 @@ const matrixManager = {
                     name: user.name,
                     level: user.level || 'N',
                     group: user.groupId || '',
-                    schedulingParams: user.schedulingParams
+                    schedulingParams: user.schedulingParams,
+                    isSupport: user.isSupport || false
                 });
             });
             
@@ -539,7 +548,10 @@ const matrixManager = {
 
             bodyHtml += `<tr data-uid="${uid}">
                 <td style="position:sticky; left:0; background:#fff; z-index:10;">${empId}</td>
-                <td style="position:sticky; left:60px; background:#fff; z-index:10;">${staff.name}</td>
+                <td style="position:sticky; left:60px; background:#fff; z-index:10;">
+                    ${staff.name}
+                    ${staff.isSupport ? '<br><span style="color:#27ae60; font-size:0.7rem; font-weight:bold;">(支援)</span>' : ''}
+                </td>
                 <td style="position:sticky; left:140px; background:#fff; z-index:10; text-align:center; line-height:1.2;">
                     ${statusBadges || '<span style="color:#ccc;">-</span>'}
                 </td>
