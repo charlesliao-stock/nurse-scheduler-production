@@ -111,6 +111,25 @@ class BaseScheduler {
         });
     }
 
+    // 🔥 新增：預填 REQ_OFF 與指定班別
+    applyPreSchedules() {
+        this.staffList.forEach(staff => {
+            const params = staff.schedulingParams || {};
+            for (let d = 1; d <= this.daysInMonth; d++) {
+                const dateStr = this.getDateStr(d);
+                const req = params[dateStr];
+                
+                if (req) {
+                    if (req === 'REQ_OFF') {
+                        this.updateShift(dateStr, staff.id, 'OFF', 'REQ_OFF');
+                    } else if (this.shiftCodes.includes(req)) {
+                        this.updateShift(dateStr, staff.id, 'OFF', req);
+                    }
+                }
+            }
+        });
+    }
+
     // 🔥 核心修正：志願排班檢查
     isValidAssignment(staff, dateStr, shiftCode) {
         if (shiftCode === 'OFF') {
