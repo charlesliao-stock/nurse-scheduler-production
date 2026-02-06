@@ -226,7 +226,7 @@ const staffPreScheduleManager = {
             if (s.code === bundleShiftCode) return true; // 包班本身可選
             
             // 檢查是否為同系列班別（4小時內）
-            return !this.isSameShiftFamily(bundleData, s);
+            return this.isSameShiftFamily(bundleData, s);
         });
     },
 
@@ -693,11 +693,11 @@ const staffPreScheduleManager = {
                     const invalidPrefs = prefs.filter(p => {
                         if (p === bundleShift) return false; // 包班本身可選
                         const prefData = this.shifts.find(s => s.code === p);
-                        return this.isSameShiftFamily(bundleData, prefData);
+                        return !this.isSameShiftFamily(bundleData, prefData);
                     });
                     
                     if (invalidPrefs.length > 0) {
-                        alert(`⚠️ 包班 ${bundleShift} 時，志願不可選擇同系列班別（開始時間前後4小時內）\n衝突班別：${invalidPrefs.join(', ')}`);
+                        alert(`⚠️ 包班 ${bundleShift} 時，志願僅能選擇同系列班別（開始時間前後4小時內）\n不符班別：${invalidPrefs.join(', ')}`);
                         return;
                     }
                 }

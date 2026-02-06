@@ -894,7 +894,7 @@ const matrixManager = {
             if (s.code === bundleShiftCode) return true; // 包班本身可選
             
             // 檢查是否為同系列班別（4小時內）
-            return !this.isSameShiftFamily(bundleData, s);
+            return this.isSameShiftFamily(bundleData, s);
         });
     },
 
@@ -917,6 +917,16 @@ const matrixManager = {
         const renderPrefs = () => {
             const currentBundle = bundleSelect.value;
             const allowThreeShifts = this.data.settings?.allowThreeShifts === true;
+
+            // 🔥 修正：先從 DOM 讀取當前選擇的值（如果存在）
+            const currentPref1El = document.getElementById('editFavShift');
+            const currentPref2El = document.getElementById('editFavShift2');
+            const currentPref3El = document.getElementById('editFavShift3');
+
+            // 優先使用 DOM 中的值（使用者剛選的），其次才用記憶體中的值
+            const pref1 = currentPref1El?.value || prefs.favShift || '';
+            const pref2 = currentPref2El?.value || prefs.favShift2 || '';
+            const pref3 = currentPref3El?.value || prefs.favShift3 || '';
             
             // 🔥 根據包班過濾可選班別
             let availableShifts = this.filterShiftsByBundle(currentBundle, allowThreeShifts);
@@ -927,14 +937,14 @@ const matrixManager = {
                     <span style="width:70px; font-size:0.9rem;">第一志願</span>
                     <select id="editFavShift" class="form-control" style="flex:1;">
                         <option value="">無特別偏好</option>
-                        ${availableShifts.map(s => `<option value="${s.code}" ${prefs.favShift === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
+                        ${availableShifts.map(s => `<option value="${s.code}" ${pref1 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
                     </select>
                 </div>
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span style="width:70px; font-size:0.9rem;">第二志願</span>
                     <select id="editFavShift2" class="form-control" style="flex:1;">
                         <option value="">無特別偏好</option>
-                        ${availableShifts.filter(s => s.code !== prefs.favShift).map(s => `<option value="${s.code}" ${prefs.favShift2 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
+                        ${availableShifts.filter(s => s.code !== pref1).map(s => `<option value="${s.code}" ${pref2 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
                     </select>
                 </div>
             `;
@@ -945,7 +955,7 @@ const matrixManager = {
                     <span style="width:70px; font-size:0.9rem;">第三志願</span>
                     <select id="editFavShift3" class="form-control" style="flex:1;">
                         <option value="">無特別偏好</option>
-                        ${availableShifts.filter(s => s.code !== prefs.favShift && s.code !== prefs.favShift2).map(s => `<option value="${s.code}" ${prefs.favShift3 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
+                        ${availableShifts.filter(s => s.code !== pref1 && s.code !== pref2).map(s => `<option value="${s.code}" ${pref3 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
                     </select>
                 </div>
                 `;
@@ -1009,11 +1019,11 @@ const matrixManager = {
                 const invalidPrefs = prefsList.filter(p => {
                     if (p === bundleShift) return false; // 包班本身可選
                     const prefData = this.shifts.find(s => s.code === p);
-                    return this.isSameShiftFamily(bundleData, prefData);
+                    return !this.isSameShiftFamily(bundleData, prefData);
                 });
                 
                 if (invalidPrefs.length > 0) {
-                    alert(`⚠️ 包班 ${bundleShift} 時，志願不可選擇同系列班別（開始時間前後4小時內）\n衝突班別：${invalidPrefs.join(', ')}`);
+                    alert(`⚠️ 包班 ${bundleShift} 時，志願僅能選擇同系列班別（開始時間前後4小時內）\n不符班別：${invalidPrefs.join(', ')}`);
                     return;
                 }
             }
