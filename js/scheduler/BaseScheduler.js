@@ -90,6 +90,8 @@ class BaseScheduler {
             this.shiftCodes.forEach(code => {
                 this.counters[s.id][code] = 0;
             });
+            // 確保 REQ_OFF 也在計數器中
+            if (!this.counters[s.id]['REQ_OFF']) this.counters[s.id]['REQ_OFF'] = 0;
         });
         
         for (let d = 1; d <= this.daysInMonth; d++) {
@@ -161,22 +163,22 @@ class BaseScheduler {
         
         if (priorities.length > 0) {
             const pIndex = priorities.indexOf(shiftCode);
-            // 如果排的班不在志願內，且設定為硬性志願
-            if (pIndex === -1 && this.rule_strictPref) return false;
+            
+            // 如果設定為硬性志願，且排的班不在志願內，則不合法
+            if (this.rule_strictPref && pIndex === -1) return false;
 
-            // 如果在志願內，且啟用了比例分配，檢查是否超過管理者設定的比例
+            // 如果啟用了比例分配，檢查是否超過管理者設定的比例
             if (pIndex !== -1 && this.rule_enablePrefRatio) {
                 const ratioKey = `p${pIndex + 1}`;
                 const allowedRatio = this.rule_preferenceRatio[ratioKey] || 0;
                 
-                // 計算該員工目前該志願班別的比例 (佔總工作天數)
-                const totalWorkDays = this.daysInMonth - this.counters[staff.id].OFF - this.counters[staff.id].REQ_OFF;
+                const offCount = (this.counters[staff.id].OFF || 0) + (this.counters[staff.id].REQ_OFF || 0);
+                const totalWorkDays = this.daysInMonth - offCount;
                 const currentShiftCount = this.counters[staff.id][shiftCode] || 0;
                 
-                // 只有當比例大於 0 時才進行上限檢查
                 if (allowedRatio > 0 && totalWorkDays > 0) {
-                    // 這裡使用 >= 進行嚴格限制，若要更彈性可考慮加入緩衝
-                    if ((currentShiftCount / totalWorkDays) >= allowedRatio) {
+                    // 加入 1 點緩衝，避免因總天數少導致比例極易超標
+                    if ((currentShiftCount / totalWorkDays) > (allowedRatio + 0.1)) {
                         return false; 
                     }
                 }
@@ -195,8 +197,10 @@ class BaseScheduler {
 
         if (this.rule_limitConsecutive) {
             const currentCons = this.getConsecutiveWorkDays(staff.id, dateStr);
-            let limit = this.rule_maxConsDays;
-            if (this.isLongVacationMonth(staff)) limit = this.rule_longVacationWorkLimit;
+            let limit = parseInt(this.rule_maxConsDays) || 6;
+            if (this.isLongVacationMonth(staff)) limit = parseInt(this.rule_longVacationWorkLimit) || 7;
+            
+            // 只有當目前的連續上班天數已經達到或超過限制時，才不允許繼續排班
             if (currentCons >= limit) return false;
         }
 

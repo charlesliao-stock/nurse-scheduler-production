@@ -28,7 +28,15 @@ class SchedulerV2 extends BaseScheduler {
 
     // 🚀 獲取最佳排班順序（優先排需求量大的班別）
     getOptimalShiftOrder(needs) {
-        return Object.keys(needs).sort((a, b) => (needs[b] || 0) - (needs[a] || 0));
+        // 過濾掉 OFF 相關，只針對工作班別排序
+        return Object.keys(needs)
+            .filter(code => code !== 'OFF' && code !== 'REQ_OFF')
+            .sort((a, b) => (needs[b] || 0) - (needs[a] || 0));
+    }
+
+    // 獲取所有可能的班別順序（用於回溯）
+    getShiftOrder() {
+        return this.shiftCodes.filter(c => c !== 'OFF' && c !== 'REQ_OFF');
     }
 
     // 🚀 核心排班流程
@@ -253,18 +261,37 @@ class SchedulerV2 extends BaseScheduler {
 
     resolveShortageWithBacktrack(currentDay, targetShift, gap) {
         let recovered = 0;
-        for (let d = currentDay - 1; d >= Math.max(1, currentDay - this.backtrackDepth); d--) {
+        const currentDateStr = this.getDateStr(currentDay);
+        
+        // 嘗試從當天還在休假的人中找人，即使他們可能違反某些「非硬性」規則
+        const candidates = this.staffList.filter(s => 
+            this.getShiftByDate(currentDateStr, s.id) === 'OFF' && 
+            !this.isPreRequestOff(s.id, currentDateStr)
+        );
+        
+        this.sortCandidatesByPressure(candidates, currentDateStr, targetShift);
+        
+        for (const staff of candidates) {
             if (gap <= 0) break;
-            const pastDateStr = this.getDateStr(d);
-            const currentDateStr = this.getDateStr(currentDay);
-            const candidates = this.staffList.filter(s => this.getShiftByDate(currentDateStr, s.id) === 'OFF' && !this.isPreRequestOff(s.id, currentDateStr));
-            this.sortCandidatesByPressure(candidates, currentDateStr, targetShift);
-            for (const staff of candidates) {
+            // 這裡使用更寬鬆的 assignIfValid
+            if (this.assignIfValid(currentDay, staff, targetShift)) {
+                gap--;
+                recovered++;
+            }
+        }
+
+        // 如果還是缺人，才嘗試回溯
+        if (gap > 0) {
+            for (let d = currentDay - 1; d >= Math.max(1, currentDay - this.backtrackDepth); d--) {
                 if (gap <= 0) break;
-                if (this.attemptBacktrackForStaff(staff, currentDay, targetShift)) {
-                    this.updateShift(currentDateStr, staff.id, 'OFF', targetShift);
-                    gap--;
-                    recovered++;
+                const pastDateStr = this.getDateStr(d);
+                for (const staff of candidates) {
+                    if (gap <= 0) break;
+                    if (this.attemptBacktrackForStaff(staff, currentDay, targetShift)) {
+                        this.updateShift(currentDateStr, staff.id, 'OFF', targetShift);
+                        gap--;
+                        recovered++;
+                    }
                 }
             }
         }
