@@ -900,12 +900,12 @@ const matrixManager = {
             const shiftTime = this.parseTime(s.startTime);
             const isShiftNight = shiftTime >= 12;
 
-            // 如果包班是夜班，且當前班別也是夜班，則必須是同系列
-            if (isBundleNight && isShiftNight) {
-                return this.isSameShiftFamily(bundleData, s);
+            // 🔥 隱藏邏輯：如果包班是夜班，且當前班別也是夜班，但不同系列，則隱藏
+            if (isBundleNight && isShiftNight && !this.isSameShiftFamily(bundleData, s)) {
+                return false;
             }
             
-            // 非夜班（如白班）或非衝突情況，皆保留
+            // 非夜班（如白班）或同系列夜班，皆保留
             return true;
         });
     },
