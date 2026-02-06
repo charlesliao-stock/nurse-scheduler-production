@@ -940,8 +940,6 @@ const matrixManager = {
         const renderPrefs = () => {
             const currentBundle = bundleSelect.value;
             const bundleShiftData = currentBundle ? this.shifts.find(s => s.code === currentBundle) : null;
-            const bundleStartTime = bundleShiftData?.startTime;
-            const isNightBundle = bundleStartTime && (bundleStartTime === '00:00' || bundleStartTime === '22:00');
 
             // 取得當前已選的志願，用於排除重複
             const s1 = document.getElementById('editFavShift')?.value || prefs.favShift || '';
@@ -956,17 +954,27 @@ const matrixManager = {
                 const isBreastfeeding = params.isBreastfeeding && params.breastfeedingExpiry && new Date(params.breastfeedingExpiry) >= today;
                 const isPGY = params.isPGY && params.pgyExpiry && new Date(params.pgyExpiry) >= today;
 
+                // 取得包班的班別類型
+                const bundleCategory = currentBundle && bundleShiftData 
+                    ? shiftUtils.getShiftCategory(bundleShiftData) 
+                    : null;
+
                 return this.shifts.filter(s => {
                     if (s.code === 'OFF') return false;
-                    const shiftStartTime = s.startTime;
-                    const isNightShift = shiftStartTime && (shiftStartTime === '00:00' || shiftStartTime === '22:00');
                     
-                    // 1. 特殊身份過濾：懷孕、哺乳、PGY 隱藏夜班 (22:00-06:00)
+                    // 取得當前班別的類型
+                    const shiftCategory = shiftUtils.getShiftCategory(s);
+                    const isNightShift = shiftUtils.isNightShift(s);
+                    
+                    // 1. 特殊身份過濾：懷孕、哺乳、PGY 隱藏夜班 (23:00-02:00)
                     if ((isPregnant || isBreastfeeding || isPGY) && isNightShift) return false;
 
-                    // 2. 包班過濾：如果是夜班包班，隱藏「其他」的夜班班別
-                    if (isNightBundle && isNightShift) {
-                        if (s.code !== currentBundle) return false;
+                    // 2. 包班過濾：如果選了包班，隱藏「同類型」的其他班別
+                    if (currentBundle && bundleCategory && bundleCategory !== 'other') {
+                        // 同類型班別，只保留包班本身
+                        if (shiftCategory === bundleCategory && s.code !== currentBundle) {
+                            return false;
+                        }
                     }
 
                     // 3. 彼此不重複：排除已被其他志願選取的班別
