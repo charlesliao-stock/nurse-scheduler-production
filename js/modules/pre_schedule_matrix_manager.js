@@ -941,8 +941,28 @@ const matrixManager = {
             const currentBundle = bundleSelect.value;
             const bundleShiftData = currentBundle ? this.shifts.find(s => s.code === currentBundle) : null;
             const bundleStartTime = bundleShiftData?.startTime;
-            
             const isNightBundle = bundleStartTime && (bundleStartTime === '00:00' || bundleStartTime === '22:00');
+
+            // 取得當前已選的志願，用於排除重複
+            const s1 = document.getElementById('editFavShift')?.value || prefs.favShift || '';
+            const s2 = document.getElementById('editFavShift2')?.value || prefs.favShift2 || '';
+            const s3 = document.getElementById('editFavShift3')?.value || prefs.favShift3 || '';
+
+            const getFilteredShifts = (currentVal, otherVals) => {
+                return this.shifts.filter(s => {
+                    if (s.code === 'OFF') return false;
+                    
+                    // 1. 包班夜班過濾：如果是夜班包班，隱藏其他班別
+                    if (isNightBundle) {
+                        if (s.code !== currentBundle) return false;
+                    }
+
+                    // 2. 彼此不重複：排除已被其他志願選取的班別
+                    if (s.code !== '' && otherVals.includes(s.code) && s.code !== currentVal) return false;
+
+                    return true;
+                });
+            };
             
             const prefContainer = document.getElementById('editPrefContainer');
             let prefHtml = `
@@ -950,28 +970,14 @@ const matrixManager = {
                     <span style="width:70px; font-size:0.9rem;">第一志願</span>
                     <select id="editFavShift" class="form-control" style="flex:1;">
                         <option value="">無特別偏好</option>
-                        ${this.shifts.filter(s => {
-                            if (isNightBundle) {
-                                const shiftStartTime = s.startTime;
-                                const isOtherNight = shiftStartTime && (shiftStartTime === '00:00' || shiftStartTime === '22:00');
-                                if (isOtherNight && shiftStartTime !== bundleStartTime) return false;
-                            }
-                            return s.code !== 'OFF';
-                        }).map(s => `<option value="${s.code}" ${prefs.favShift === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
+                        ${getFilteredShifts(s1, [s2, s3]).map(s => `<option value="${s.code}" ${s1 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
                     </select>
                 </div>
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span style="width:70px; font-size:0.9rem;">第二志願</span>
                     <select id="editFavShift2" class="form-control" style="flex:1;">
                         <option value="">無特別偏好</option>
-                        ${this.shifts.filter(s => {
-                            if (isNightBundle) {
-                                const shiftStartTime = s.startTime;
-                                const isOtherNight = shiftStartTime && (shiftStartTime === '00:00' || shiftStartTime === '22:00');
-                                if (isOtherNight && shiftStartTime !== bundleStartTime) return false;
-                            }
-                            return s.code !== 'OFF';
-                        }).map(s => `<option value="${s.code}" ${prefs.favShift2 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
+                        ${getFilteredShifts(s2, [s1, s3]).map(s => `<option value="${s.code}" ${s2 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
                     </select>
                 </div>
             `;
@@ -983,19 +989,27 @@ const matrixManager = {
                     <span style="width:70px; font-size:0.9rem;">第三志願</span>
                     <select id="editFavShift3" class="form-control" style="flex:1;">
                         <option value="">無特別偏好</option>
-                        ${this.shifts.filter(s => {
-                            if (isNightBundle) {
-                                const shiftStartTime = s.startTime;
-                                const isOtherNight = shiftStartTime && (shiftStartTime === '00:00' || shiftStartTime === '22:00');
-                                if (isOtherNight && shiftStartTime !== bundleStartTime) return false;
-                            }
-                            return s.code !== 'OFF';
-                        }).map(s => `<option value="${s.code}" ${prefs.favShift3 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
+                        ${getFilteredShifts(s3, [s1, s2]).map(s => `<option value="${s.code}" ${s3 === s.code ? 'selected' : ''}>${s.code} - ${s.name}</option>`).join('')}
                     </select>
                 </div>
                 `;
             }
             prefContainer.innerHTML = prefHtml;
+
+            // 綁定志願變更事件
+            ['editFavShift', 'editFavShift2', 'editFavShift3'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.onchange = () => {
+                        prefs.favShift = document.getElementById('editFavShift')?.value || '';
+                        prefs.favShift2 = document.getElementById('editFavShift2')?.value || '';
+                        if (document.getElementById('editFavShift3')) {
+                            prefs.favShift3 = document.getElementById('editFavShift3').value;
+                        }
+                        renderPrefs();
+                    };
+                }
+            });
         };
 
         bundleSelect.onchange = renderPrefs;

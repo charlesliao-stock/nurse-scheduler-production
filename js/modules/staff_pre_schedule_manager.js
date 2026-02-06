@@ -198,44 +198,85 @@ const staffPreScheduleManager = {
             if (!prefContainer) return;
             const preferences = this.userRequest.preferences || {};
             
+            // 取得當前包班設定
+            const currentBundle = bundleSelect ? bundleSelect.value : '';
+            const bundleShiftData = currentBundle ? this.shifts.find(s => s.code === currentBundle) : null;
+            const bundleStartTime = bundleShiftData?.startTime;
+            const isNightBundle = bundleStartTime && (bundleStartTime === '00:00' || bundleStartTime === '22:00');
+
+            // 取得當前已選的志願，用於排除重複
+            const s1 = document.getElementById('pref_favShift')?.value || preferences.favShift || '';
+            const s2 = document.getElementById('pref_favShift2')?.value || preferences.favShift2 || '';
+            const s3 = document.getElementById('pref_favShift3')?.value || preferences.favShift3 || '';
+
+            const getFilteredShifts = (currentVal, otherVals) => {
+                return this.shifts.filter(s => {
+                    if (s.code === 'OFF') return false;
+                    
+                    // 1. 包班夜班過濾：如果是夜班包班，隱藏其他班別
+                    if (isNightBundle) {
+                        if (s.code !== currentBundle) return false;
+                    }
+
+                    // 2. 彼此不重複：排除已被其他志願選取的班別
+                    if (s.code !== '' && otherVals.includes(s.code) && s.code !== currentVal) return false;
+
+                    return true;
+                });
+            };
+
             let html = '';
-            const pref1 = preferences.favShift || '';
             html += `
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span style="flex-shrink:0; width:60px;">第一志願</span>
                     <select id="pref_favShift" class="pref-select form-control" ${this.isReadOnly ? 'disabled' : ''}>
                         <option value="">無特別偏好</option>
-                        ${this.shifts.filter(s => s.code !== 'OFF').map(s => `<option value="${s.code}" ${pref1===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
+                        ${getFilteredShifts(s1, [s2, s3]).map(s => `<option value="${s.code}" ${s1===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
                     </select>
                 </div>
             `;
 
-            const pref2 = preferences.favShift2 || '';
             html += `
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span style="flex-shrink:0; width:60px;">第二志願</span>
                     <select id="pref_favShift2" class="pref-select form-control" ${this.isReadOnly ? 'disabled' : ''}>
                         <option value="">無特別偏好</option>
-                        ${this.shifts.filter(s => s.code !== 'OFF').map(s => `<option value="${s.code}" ${pref2===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
+                        ${getFilteredShifts(s2, [s1, s3]).map(s => `<option value="${s.code}" ${s2===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
                     </select>
                 </div>
             `;
             
             const allowThreeShifts = this.data.settings?.allowThreeShifts === true;
             if (allowThreeShifts) {
-                const pref3 = preferences.favShift3 || '';
                 html += `
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span style="flex-shrink:0; width:60px;">第三志願</span>
                     <select id="pref_favShift3" class="pref-select form-control" ${this.isReadOnly ? 'disabled' : ''}>
                         <option value="">無特別偏好</option>
-                        ${this.shifts.filter(s => s.code !== 'OFF').map(s => `<option value="${s.code}" ${pref3===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
+                        ${getFilteredShifts(s3, [s1, s2]).map(s => `<option value="${s.code}" ${s3===s.code?'selected':''}>${s.code} - ${s.name}</option>`).join('')}
                     </select>
                 </div>
                 `;
             }
             
             prefContainer.innerHTML = html;
+
+            // 綁定志願變更事件，以即時更新其他下拉選單
+            ['pref_favShift', 'pref_favShift2', 'pref_favShift3'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.onchange = () => {
+                        // 更新 userRequest 中的偏好，以便重新渲染時保持狀態
+                        if (!this.userRequest.preferences) this.userRequest.preferences = {};
+                        this.userRequest.preferences.favShift = document.getElementById('pref_favShift')?.value || '';
+                        this.userRequest.preferences.favShift2 = document.getElementById('pref_favShift2')?.value || '';
+                        if (document.getElementById('pref_favShift3')) {
+                            this.userRequest.preferences.favShift3 = document.getElementById('pref_favShift3').value;
+                        }
+                        renderPrefs();
+                    };
+                }
+            });
         };
 
         if (bundleSelect) {
