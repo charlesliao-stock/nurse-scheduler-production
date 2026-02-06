@@ -1,6 +1,6 @@
 // js/modules/schedule_rule_manager.js
-// 🔧 最終完美版 v2 - 加強權限控制（比照 staff_manager.js）
-// 🆕 包含：週日(0)修復、缺額處理優先順序設定、PGY保護
+// 🔧 最終完美版 v3 - 加入志願比例總和驗證
+// 🆕 包含：週日(0)修復、缺額處理優先順序設定、PGY保護、志願比例驗證
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -85,23 +85,23 @@ const scheduleRuleManager = {
                     select.style.backgroundColor = '#f5f5f5';
                 }
                 
-            select.dispatchEvent(new Event('change'));
-        }
+                select.dispatchEvent(new Event('change'));
+            }
 
-        // ✅ 新增：排班偏好比例勾選連動
-        const enablePrefRatio = document.getElementById('rule_enablePrefRatio');
-        if (enablePrefRatio) {
-            enablePrefRatio.onchange = () => {
-                const container = document.getElementById('prefRatioContainer');
-                if (container) container.style.opacity = enablePrefRatio.checked ? '1' : '0.5';
-            };
-        }
+            // ✅ 新增：排班偏好比例勾選連動
+            const enablePrefRatio = document.getElementById('rule_enablePrefRatio');
+            if (enablePrefRatio) {
+                enablePrefRatio.onchange = () => {
+                    const container = document.getElementById('prefRatioContainer');
+                    if (container) container.style.opacity = enablePrefRatio.checked ? '1' : '0.5';
+                };
+            }
 
-    } catch (e) { 
-        console.error(e); 
-        select.innerHTML = '<option value="">載入失敗</option>';
-    }
-},
+        } catch (e) { 
+            console.error(e); 
+            select.innerHTML = '<option value="">載入失敗</option>';
+        }
+    },
 
     loadDataToForm: async function() {
         if(!this.currentUnitId) return;
@@ -197,6 +197,20 @@ const scheduleRuleManager = {
             return isNaN(v) ? def : v; 
         };
 
+        // 🆕 驗證：志願比例總和必須等於 100%
+        const enablePrefRatio = getCheck('rule_enablePrefRatio');
+        if (enablePrefRatio) {
+            const ratio1 = getInt('rule_prefRatio1', 50);
+            const ratio2 = getInt('rule_prefRatio2', 30);
+            const ratio3 = getInt('rule_prefRatio3', 20);
+            const total = ratio1 + ratio2 + ratio3;
+            
+            if (total !== 100) {
+                alert(`⚠️ 志願比例總和必須為 100%\n目前：第一志願 ${ratio1}% + 第二志願 ${ratio2}% + 第三志願 ${ratio3}% = ${total}%`);
+                return;
+            }
+        }
+
         const rotationOrder = this.getRotationOrderFromDOM();
         const shortagePriority = this.getShortagePriorityFromDOM();
 
@@ -260,10 +274,10 @@ const scheduleRuleManager = {
                 schedulingRules: rules,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            alert("排班規則已儲存");
+            alert("✅ 排班規則已儲存");
         } catch(e) { 
             console.error(e); 
-            alert("儲存失敗: " + e.message); 
+            alert("❌ 儲存失敗: " + e.message); 
         }
     },
 
