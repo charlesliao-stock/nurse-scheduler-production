@@ -86,7 +86,13 @@ const matrixManager = {
     checkStaffAndStatusChanges: async function() {
         if (!this.data || !this.data.unitId) return;
         
-        // 1. 取得該單位最新的人員清單（包含正式人員與支援人員）
+        // 1. 先建立舊有的 staffMap，以便比對
+        const oldStaffMap = {};
+        (this.data.staffList || []).forEach(staff => {
+            oldStaffMap[staff.uid] = staff;
+        });
+
+        // 2. 取得該單位最新的人員清單（包含正式人員與支援人員）
         const snapshot = await db.collection('users')
             .where('isActive', '==', true)
             .get();
@@ -95,11 +101,15 @@ const matrixManager = {
         snapshot.forEach(doc => {
             const user = doc.data();
             
-            // 判定是否為該單位人員：1. 正式編制在此單位 2. 支援清單中有此單位
+            // 判定是否為該單位人員：
+            // 1. 正式編制在此單位
+            // 2. 支援清單中有此單位
+            // 3. 雖然上述兩者皆非，但已經在原本的預班人員名單中 (可能是手動加入的支援人員)
             const isFormalMember = user.unitId === this.data.unitId;
             const isSupportMember = Array.isArray(user.supportUnits) && user.supportUnits.includes(this.data.unitId);
+            const isAlreadyInList = oldStaffMap[doc.id] !== undefined;
             
-            if (isFormalMember || isSupportMember) {
+            if (isFormalMember || isSupportMember || isAlreadyInList) {
                 currentUsers[doc.id] = {
                     uid: doc.id,
                     empId: user.employeeId,
@@ -107,16 +117,13 @@ const matrixManager = {
                     level: user.level,
                     groupId: user.groupId,
                     schedulingParams: user.schedulingParams || {},
-                    isSupport: isSupportMember && !isFormalMember // 標註是否為支援人員
+                    // 如果原本就在名單中且標註為支援，或是新判定為支援人員
+                    isSupport: (isSupportMember && !isFormalMember) || (isAlreadyInList && oldStaffMap[doc.id].isSupport)
                 };
             }
         });
         
-        // 2. 比對 staffList 的變更
-        const oldStaffMap = {};
-        (this.data.staffList || []).forEach(staff => {
-            oldStaffMap[staff.uid] = staff;
-        });
+        // 3. 比對 staffList 的變更
         
         const changes = {
             added: [],      // 新增的人員
@@ -328,7 +335,7 @@ const matrixManager = {
                     empId: user.empId,
                     name: user.name,
                     level: user.level || 'N',
-                    group: user.groupId || '',
+                    group: existingStaff ? (existingStaff.group || '') : (user.groupId || ''),
                     schedulingParams: user.schedulingParams,
                     isSupport: user.isSupport || false
                 });
