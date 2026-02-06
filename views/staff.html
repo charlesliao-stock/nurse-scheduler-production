@@ -31,11 +31,11 @@
                         姓名 <i id="sort_icon_staff_displayName" class="fas fa-sort"></i>
                     </th>
                     <th style="cursor:pointer;" onclick="staffManager.sortData('level')">
-                        層級 <i id="sort_icon_staff_level" class="fas fa-sort"></i>
+                        進階層級 <i id="sort_icon_staff_level" class="fas fa-sort"></i>
                     </th>
-                    <th style="cursor:pointer;" onclick="staffManager.sortData('groupId')">
-                        組別 <i id="sort_icon_staff_groupId" class="fas fa-sort"></i>
-                    </th>
+                    <th>懷孕/哺乳</th>
+                    <th>PGY</th>
+                    <th>協帶</th>
                     <th style="cursor:pointer;" onclick="staffManager.sortData('role')">
                         系統權限 <i id="sort_icon_staff_role" class="fas fa-sort"></i>
                     </th>
@@ -90,12 +90,7 @@
                     <option value="AHN">AHN (護理長)</option>
                 </select>
             </div>
-            <div class="form-group">
-                <label>所屬組別</label>
-                <select id="inputGroup">
-                    <option value="">(請先選擇單位)</option>
-                </select>
-            </div>
+<!-- 移除組別欄位 -->
         </div>
 
         <div class="form-row">

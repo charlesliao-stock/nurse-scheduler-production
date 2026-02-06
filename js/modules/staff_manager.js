@@ -275,7 +275,7 @@ const staffManager = {
         });
 
         if(filtered.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:#999;">無符合資料</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:20px; color:#999;">無符合資料</td></tr>';
             return;
         }
 
@@ -340,12 +340,22 @@ const staffManager = {
 
             const tr = document.createElement('tr');
             tr.style.cssText = rowStyle;
+            const params = u.schedulingParams || {};
+            let pregStatus = '';
+            if (params.isPregnant) pregStatus += '<span style="color:#e91e63; font-weight:bold; margin-right:5px;">孕</span>';
+            if (params.isBreastfeeding) pregStatus += '<span style="color:#2196f3; font-weight:bold;">哺</span>';
+            
+            const pgyStatus = params.isPGY ? '<span style="font-weight:bold; color:#27ae60;">V</span>' : '';
+            const independenceStatus = params.independence === 'dependent' ? '<span style="font-weight:bold; color:#f39c12;">V</span>' : '';
+
             tr.innerHTML = `
                 <td>${unitName}</td>
                 <td>${u.employeeId || '-'}</td>
                 <td>${nameDisplay}</td>
                 <td>${u.level || '-'}</td>
-                <td>${u.groupId || '-'}</td>
+                <td style="text-align:center;">${pregStatus || '-'}</td>
+                <td style="text-align:center;">${pgyStatus || '-'}</td>
+                <td style="text-align:center;">${independenceStatus || '-'}</td>
                 <td><span class="role-badge" style="background:${this.getRoleColor(u.role)}">${roleName}</span></td>
                 <td style="white-space:nowrap;">${actionButtons}</td>
             `;
@@ -383,7 +393,8 @@ const staffManager = {
             this.onUnitChange();
 
             setTimeout(() => {
-                document.getElementById('inputGroup').value = u.groupId || '';
+                const groupInput = document.getElementById('inputGroup');
+                if (groupInput) groupInput.value = u.groupId || '';
             }, 100);
 
             const params = u.schedulingParams || {};
@@ -424,7 +435,8 @@ const staffManager = {
             document.getElementById('inputRole').value = 'user';
             document.getElementById('inputRole').disabled = false;
             document.getElementById('inputLevel').value = 'N';
-            document.getElementById('inputGroup').innerHTML = '<option value="">(請先選擇單位)</option>';
+            const groupInput = document.getElementById('inputGroup');
+            if (groupInput) groupInput.innerHTML = '<option value="">(請先選擇單位)</option>';
             document.getElementById('radioIndependent').checked = true;
         }
     },
@@ -470,7 +482,7 @@ const staffManager = {
             email: email,
             unitId: selectedUnitId,
             level: document.getElementById('inputLevel').value,
-            groupId: document.getElementById('inputGroup').value,
+            groupId: document.getElementById('inputGroup')?.value || '',
             hireDate: document.getElementById('inputHireDate').value,
             role: selectedRole,
             isActive: true,
