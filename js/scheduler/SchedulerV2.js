@@ -1,5 +1,6 @@
-// 🚀 SchedulerV2.js - 進階排班引擎
+// 🚀 SchedulerV2.js - 進階排班引擎（修正版）
 // 核心：支援「包班優先」、「志願權重」、「孤兒休懲罰」
+// 🔧 修正：dailyNeeds 查詢邏輯
 
 class SchedulerV2 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -39,31 +40,81 @@ class SchedulerV2 extends BaseScheduler {
         return this.shiftCodes.filter(c => c !== 'OFF' && c !== 'REQ_OFF');
     }
 
+    // 🔧 修正：取得每日需求的方法
+    getDailyNeeds(day) {
+        const dateStr = this.getDateStr(day);
+        const date = new Date(this.year, this.month - 1, day);
+        const dayOfWeek = date.getDay();
+        // 轉換為系統使用的索引（週一=0, 週日=6）
+        const dayIdx = (dayOfWeek + 6) % 7;
+        
+        const needs = {};
+        
+        // 1. 先檢查是否有特定日期的需求設定（優先）
+        if (this.rules.specificNeeds && this.rules.specificNeeds[dateStr]) {
+            return this.rules.specificNeeds[dateStr];
+        }
+        
+        // 2. 使用每日需求設定（格式：班別_星期索引，例如 "E_0" 代表週一的小夜班）
+        if (this.rules.dailyNeeds) {
+            this.shiftCodes.forEach(shiftCode => {
+                if (shiftCode !== 'OFF' && shiftCode !== 'REQ_OFF') {
+                    const key = `${shiftCode}_${dayIdx}`;
+                    needs[shiftCode] = this.rules.dailyNeeds[key] || 0;
+                }
+            });
+        }
+        
+        console.log(`📊 Day ${day} (${['日','一','二','三','四','五','六'][dayOfWeek]}) needs:`, needs);
+        return needs;
+    }
+
     // 🚀 核心排班流程
     run() {
+        console.log('🚀 開始執行 SchedulerV2 排班...');
+        console.log('📋 人員數量:', this.staffList.length);
+        console.log('📅 排班月份:', `${this.year}-${this.month}`);
+        console.log('📝 班別代碼:', this.shiftCodes);
+        
         // 1. 預填 REQ_OFF
+        console.log('⏰ 步驟 1: 預填預假...');
         this.applyPreSchedules();
         
         // 2. 依日期順序排班
+        console.log('⏰ 步驟 2: 開始逐日排班...');
         for (let d = 1; d <= this.daysInMonth; d++) {
+            console.log(`\n--- 處理第 ${d} 天 ---`);
             this.fillDailyShifts(d);
         }
 
         // 3. 全域優化：平衡 OFF 分佈
+        console.log('\n⏰ 步驟 3: 優化休假分佈...');
         this.balanceOffDistribution();
         
+        console.log('✅ 排班完成！');
         return this.schedule;
     }
 
     fillDailyShifts(day) {
         const dateStr = this.getDateStr(day);
-        const needs = this.rules.dailyNeeds?.[dateStr] || {};
+        
+        // 🔧 修正：使用新的 getDailyNeeds 方法
+        const needs = this.getDailyNeeds(day);
+        
+        if (!needs || Object.keys(needs).length === 0) {
+            console.warn(`⚠️ Day ${day}: 沒有需求設定，跳過`);
+            return;
+        }
+        
         const shiftOrder = this.getOptimalShiftOrder(needs);
+        console.log(`📊 Day ${day} 班別排序:`, shiftOrder, '需求:', needs);
 
         shiftOrder.forEach(shiftCode => {
             let currentCount = this.schedule[dateStr][shiftCode]?.length || 0;
             let target = needs[shiftCode] || 0;
             let gap = target - currentCount;
+
+            console.log(`   處理 ${shiftCode}: 目標=${target}, 現有=${currentCount}, 缺=${gap}`);
 
             if (gap <= 0) return;
 
@@ -74,25 +125,45 @@ class SchedulerV2 extends BaseScheduler {
             );
             this.sortCandidatesByPressure(bundleCandidates, dateStr, shiftCode);
             
+            console.log(`   包班候選人: ${bundleCandidates.length} 人`);
             for (const staff of bundleCandidates) {
                 if (gap <= 0) break;
-                if (this.assignIfValid(day, staff, shiftCode)) gap--;
+                if (this.assignIfValid(day, staff, shiftCode)) {
+                    console.log(`   ✓ 分配包班人員: ${staff.name} → ${shiftCode}`);
+                    gap--;
+                }
             }
 
             // 其次找一般人員
             if (gap > 0) {
-                const normalCandidates = this.staffList.filter(s => this.getShiftByDate(dateStr, s.id) === 'OFF');
+                const normalCandidates = this.staffList.filter(s => 
+                    this.getShiftByDate(dateStr, s.id) === 'OFF' &&
+                    !this.bundleStaff.includes(s)
+                );
                 this.sortCandidatesByPressure(normalCandidates, dateStr, shiftCode);
                 
+                console.log(`   一般候選人: ${normalCandidates.length} 人`);
                 for (const staff of normalCandidates) {
                     if (gap <= 0) break;
-                    if (this.assignIfValid(day, staff, shiftCode)) gap--;
+                    if (this.assignIfValid(day, staff, shiftCode)) {
+                        console.log(`   ✓ 分配一般人員: ${staff.name} → ${shiftCode}`);
+                        gap--;
+                    }
                 }
             }
 
             // 若仍有缺口，嘗試回溯優化
             if (gap > 0) {
-                gap -= this.resolveShortageWithBacktrack(day, shiftCode, gap);
+                console.log(`   ⚠️ 仍缺 ${gap} 人，嘗試回溯...`);
+                const recovered = this.resolveShortageWithBacktrack(day, shiftCode, gap);
+                gap -= recovered;
+                if (recovered > 0) {
+                    console.log(`   ✓ 回溯成功找到 ${recovered} 人`);
+                }
+            }
+            
+            if (gap > 0) {
+                console.warn(`   ❌ Day ${day} ${shiftCode} 最終仍缺 ${gap} 人！`);
             }
         });
     }
@@ -125,7 +196,7 @@ class SchedulerV2 extends BaseScheduler {
 
     calculateScoreInfo(staff, dateStr, shiftCode) {
         let score = 0;
-        let details = []; // ✅ 修正：新增此行宣告，避免 ReferenceError
+        let details = [];
         const policy = this.rules.policy || {};
         const pressure = this.staffStats[staff.id]?.workPressure || 0;
         score += (this.staffStats[staff.id]?.initialRandom || 0) * 10;
@@ -262,6 +333,9 @@ class SchedulerV2 extends BaseScheduler {
             if (bundleShift) this.bundleStaff.push(staff);
             else this.nonBundleStaff.push(staff);
         });
+        
+        console.log(`👥 包班人員: ${this.bundleStaff.length} 人`);
+        console.log(`👥 非包班人員: ${this.nonBundleStaff.length} 人`);
     }
 
     resolveShortageWithBacktrack(currentDay, targetShift, gap) {
@@ -323,6 +397,14 @@ class SchedulerV2 extends BaseScheduler {
         const dateStr = this.getDateStr(day);
         const isValid = this.isValidAssignment(staff, dateStr, shiftCode);
         const isGroupValid = this.checkGroupMaxLimit(day, staff, shiftCode);
+        
+        if (!isValid) {
+            console.log(`      ✗ ${staff.name} → ${shiftCode} 不合法 (isValidAssignment)`);
+        }
+        if (!isGroupValid) {
+            console.log(`      ✗ ${staff.name} → ${shiftCode} 不合法 (checkGroupMaxLimit)`);
+        }
+        
         if (isValid && isGroupValid) {
             this.updateShift(dateStr, staff.id, 'OFF', shiftCode);
             return true;
@@ -440,4 +522,3 @@ class SchedulerV2 extends BaseScheduler {
         }
     }
 }
-
