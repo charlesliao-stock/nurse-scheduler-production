@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 最終完整修正版：解決 renderToolbar 缺失 + 自動帶入預班表結果與上月班別
+// 🚀 修正版：解決 AI 排班全部變 OFF + 統一使用 uid 識別員工
 
 const scheduleEditorManager = {
     scheduleId: null, 
@@ -234,25 +234,45 @@ const scheduleEditorManager = {
         try {
             if(typeof SchedulerFactory === 'undefined') throw new Error("排班引擎未載入");
             
-            // 準備 AI 所需資料
+            // ✅ 準備 AI 所需資料 - 統一使用 uid 作為員工識別碼
+            const staffListWithId = this.data.staffList.map(s => ({
+                ...s,
+                id: s.uid || s.id,  // 確保每個 staff 都有 id 屬性，優先使用 uid
+                schedulingParams: this.usersMap[s.uid]?.schedulingParams || {},  // 補充完整參數
+                preferences: this.assignments[s.uid]?.preferences || {}  // 補充偏好設定
+            }));
+            
             const rules = { ...this.unitRules, shifts: this.shifts };
-            const scheduler = SchedulerFactory.create('V2', this.data.staffList, this.data.year, this.data.month, this.lastMonthData, rules);
+            const scheduler = SchedulerFactory.create('V2', staffListWithId, this.data.year, this.data.month, this.lastMonthData, rules);
             const result = scheduler.run();
             
-            // 轉換結果格式為 assignments
+            console.log("🤖 AI 排班結果樣本:", result[Object.keys(result)[0]]);
+            
+            // ✅ 轉換結果格式為 assignments
             const newAssignments = {};
             this.data.staffList.forEach(s => {
-                const uid = s.id || s.uid;
+                const uid = s.uid.trim();  // 統一使用 uid
                 newAssignments[uid] = { preferences: (this.assignments[uid]?.preferences || {}) };
+                
                 for(let d=1; d<=new Date(this.data.year, this.data.month, 0).getDate(); d++) {
                     const ds = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
                     let shift = 'OFF';
-                    for(let code in result[ds]) {
-                        if(result[ds][code].includes(uid)) { shift = code; break; }
+                    
+                    // 在結果中查找該員工的班別
+                    if (result[ds]) {
+                        for(let code in result[ds]) {
+                            if(result[ds][code].includes(uid)) { 
+                                shift = code; 
+                                break; 
+                            }
+                        }
                     }
+                    
                     newAssignments[uid][`current_${d}`] = shift;
                 }
             });
+
+            console.log("📊 轉換後的 assignments 樣本:", Object.keys(newAssignments)[0], newAssignments[Object.keys(newAssignments)[0]]);
 
             this.assignments = newAssignments;
             await db.collection('schedules').doc(this.scheduleId).update({ assignments: this.assignments });
@@ -260,7 +280,7 @@ const scheduleEditorManager = {
             this.updateScheduleScore();
             alert("AI 排班完成！");
         } catch(e) { 
-            console.error(e);
+            console.error("❌ AI 排班錯誤:", e);
             alert("AI 排班失敗: " + e.message); 
         } finally { const l = document.getElementById('globalLoader'); if(l) l.remove(); }
     },
