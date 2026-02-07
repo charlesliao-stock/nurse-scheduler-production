@@ -986,41 +986,71 @@ const staffManager = {
         const reader = new FileReader();
         reader.onload = async (e) => {
             try {
-                // 支援多種換行符號 (\r\n, \n, \r)
                 const rows = e.target.result.split(/\r\n|\n|\r/);
+                
+                // 1. 先獲取現有所有員工，建立 employeeId -> docId 的對照表
+                const existingStaffMap = {};
+                const snapshot = await db.collection('users').get();
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.employeeId) {
+                        existingStaffMap[data.employeeId] = doc.id;
+                    }
+                });
+
                 let batch = db.batch();
                 let count = 0;
                 let totalProcessed = 0;
+                let newCount = 0;
+                let updateCount = 0;
 
                 for (let i = 1; i < rows.length; i++) {
                     const row = rows[i].trim();
                     if (!row) continue;
 
-                    // 支援逗號或分號分隔
                     const cols = row.includes(';') ? row.split(';') : row.split(',');
-                    if (cols.length < 4) {
-                        console.warn(`第 ${i+1} 行欄位不足，已跳過:`, row);
-                        continue;
-                    }
+                    if (cols.length < 4) continue;
 
-                    const docRef = db.collection('users').doc();
-                    batch.set(docRef, {
-                        unitId: cols[0].trim(), 
-                        employeeId: cols[1].trim(), 
-                        displayName: cols[2].trim(), 
-                        email: cols[3].trim(),
-                        level: (cols[4] || 'N').trim(), 
-                        hireDate: (cols[5] || '').trim(), 
-                        role: 'user', 
-                        isActive: true,
-                        schedulingParams: { isPregnant: false, isBreastfeeding: false, canBundleShifts: false },
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
+                    const unitId = cols[0].trim();
+                    const employeeId = cols[1].trim();
+                    const displayName = cols[2].trim();
+                    const email = cols[3].trim();
+                    const level = (cols[4] || 'N').trim();
+                    const hireDate = (cols[5] || '').trim();
+
+                    // 2. 檢查是否已存在
+                    const existingDocId = existingStaffMap[employeeId];
+                    const docRef = existingDocId ? db.collection('users').doc(existingDocId) : db.collection('users').doc();
+                    
+                    const staffData = {
+                        unitId,
+                        employeeId,
+                        displayName,
+                        email,
+                        level,
+                        hireDate,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    };
+
+                    if (existingDocId) {
+                        // 更新現有資料
+                        batch.update(docRef, staffData);
+                        updateCount++;
+                    } else {
+                        // 新增資料
+                        Object.assign(staffData, {
+                            role: 'user',
+                            isActive: true,
+                            schedulingParams: { isPregnant: false, isBreastfeeding: false, canBundleShifts: false },
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        batch.set(docRef, staffData);
+                        newCount++;
+                    }
                     
                     count++;
                     totalProcessed++;
 
-                    // 每 450 筆提交一次並重新初始化 batch
                     if (count === 450) {
                         await batch.commit();
                         batch = db.batch();
@@ -1028,12 +1058,11 @@ const staffManager = {
                     }
                 }
                 
-                // 提交剩餘的資料
                 if (count > 0) {
                     await batch.commit();
                 }
 
-                alert(`匯入完成！共 ${totalProcessed} 筆`);
+                alert(`匯入完成！\n總計處理：${totalProcessed} 筆\n新增：${newCount} 筆\n更新：${updateCount} 筆`);
                 this.closeImportModal(); 
                 await this.fetchData();
             } catch(error) { 
