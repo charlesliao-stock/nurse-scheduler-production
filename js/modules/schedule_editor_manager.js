@@ -654,64 +654,141 @@ const scheduleEditorManager = {
         this.executeAI();
     },
 
-    executeAI: async function() {
-        if (!confirm("確定執行 AI 排班? (將覆蓋目前的草稿)")) return;
+// ✅ schedule_editor_manager.js - executeAI 方法完整修正版
+// 關鍵修正：正確傳遞完整的 schedulingParams 給 AI 排班引擎
+
+executeAI: async function() {
+    if (!confirm("確定執行 AI 排班? (將覆蓋目前的草稿)")) return;
+    
+    this.isLoading = true;
+    this.showLoading();
+    
+    try {
+        const year = this.data.year;
+        const month = this.data.month;
         
-        this.isLoading = true;
-        this.showLoading();
-        
-        try {
-            const year = this.data.year;
-            const month = this.data.month;
+        // ✅ 關鍵修正：正確建立 staffListForAI
+        const staffListForAI = this.data.staffList.map(s => {
+            const ua = this.assignments[s.uid] || {};
             
-            const staffListForAI = this.data.staffList.map(s => {
-                const ua = this.assignments[s.uid] || {};
-                const preReq = {};
-                for(let d=1; d<=31; d++) {
-                    const k = `current_${d}`;
-                    if(ua[k] === 'REQ_OFF') preReq[`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`] = 'REQ_OFF';
+            // 1. 收集預假資料
+            const preReq = {};
+            for(let d=1; d<=31; d++) {
+                const k = `current_${d}`;
+                if(ua[k] === 'REQ_OFF') {
+                    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                    preReq[dateStr] = 'REQ_OFF';
                 }
-                return {
-                    id: s.uid, uid: s.uid, name: s.name, group: s.group,
-                    prefs: s.prefs || ua.preferences || {},
-                    packageType: (s.prefs||{}).bundleShift || null,
-                    schedulingParams: preReq
-                };
+            }
+            
+            // 2. ✅ 從 usersMap 取得完整的使用者資訊（包含特殊身分）
+            const userInfo = this.usersMap[s.uid] || {};
+            const userParams = userInfo.schedulingParams || {};
+            
+            // 記錄日誌以便追蹤
+            console.log(`📋 載入人員資料: ${s.name}`, {
+                hasPregnant: !!userParams.isPregnant,
+                hasBreastfeeding: !!userParams.isBreastfeeding,
+                hasPGY: !!userParams.isPGY,
+                independence: userParams.independence
             });
-
-            const rules = {
-                dailyNeeds: this.data.dailyNeeds || {},
-                specificNeeds: this.data.specificNeeds || {}, 
-                groupLimits: this.data.groupLimits || {}, 
-                shiftCodes: this.shifts.map(s => s.code),
-                shifts: this.shifts, 
-                ...this.unitRules, ...(this.data.settings || {})
+            
+            return {
+                id: s.uid, 
+                uid: s.uid, 
+                name: s.name, 
+                group: s.group,
+                prefs: s.prefs || ua.preferences || {},
+                packageType: (s.prefs||{}).bundleShift || null,
+                preferences: s.prefs || ua.preferences || {},  // ✅ 新增：志願資訊
+                
+                // ✅ 3. 完整的 schedulingParams（預假 + 特殊身分）
+                schedulingParams: {
+                    // 預假資料
+                    ...preReq,
+                    
+                    // ✅ 特殊身分資訊（從 usersMap 取得）
+                    isPregnant: userParams.isPregnant || false,
+                    pregnantExpiry: userParams.pregnantExpiry || null,
+                    
+                    isBreastfeeding: userParams.isBreastfeeding || false,
+                    breastfeedingExpiry: userParams.breastfeedingExpiry || null,
+                    
+                    isPGY: userParams.isPGY || false,
+                    pgyExpiry: userParams.pgyExpiry || null,
+                    
+                    independence: userParams.independence || 'independent',
+                    clinicalTeacherId: userParams.clinicalTeacherId || null,
+                    
+                    // ✅ 其他可能的設定
+                    canBundleShifts: userParams.canBundleShifts || false
+                }
             };
+        });
 
-            const scheduler = SchedulerFactory.create('V2', staffListForAI, year, month, this.lastMonthData, rules);
-            const aiResult = scheduler.run();
-            
-            this.applyAIResult(aiResult);
-            
-            this.renderMatrix();
-            this.updateRealTimeStats();
-            if(typeof scoringManager !== 'undefined') scoringManager.setBase(null);
-            this.updateScheduleScore();
+        // ✅ 驗證：檢查是否有特殊身分人員
+        const specialStaff = staffListForAI.filter(s => {
+            const p = s.schedulingParams;
+            return p.isPregnant || p.isBreastfeeding || p.isPGY || p.independence === 'dependent';
+        });
+        
+        console.log(`✅ 特殊身分人員: ${specialStaff.length} 人`, 
+            specialStaff.map(s => `${s.name}(${
+                s.schedulingParams.isPregnant ? '孕' : ''
+            }${
+                s.schedulingParams.isBreastfeeding ? '哺' : ''
+            }${
+                s.schedulingParams.isPGY ? 'P' : ''
+            }${
+                s.schedulingParams.independence === 'dependent' ? 'D' : ''
+            })`));
 
-            await this.saveDraft(true);
-            
-            alert("AI 排班完成!");
-        } catch (e) { 
-            console.error("❌ AI 排班失敗:", e); 
-            alert("AI 失敗: " + e.message); 
-            this.renderMatrix(); 
-        }
-        finally { 
-            this.isLoading = false;
-            const loader = document.getElementById('globalLoader');
-            if (loader) loader.remove();
-        }
-    },
+        // 建立規則物件
+        const rules = {
+            dailyNeeds: this.data.dailyNeeds || {},
+            specificNeeds: this.data.specificNeeds || {}, 
+            groupLimits: this.data.groupLimits || {}, 
+            shiftCodes: this.shifts.map(s => s.code),
+            shifts: this.shifts, 
+            ...this.unitRules, 
+            ...(this.data.settings || {})
+        };
+
+        // ✅ 記錄規則載入情況
+        console.log('📝 規則載入:', {
+            protectPregnant: rules.hard?.protectPregnant,
+            protectPGY: rules.policy?.protectPGY,
+            protectPGY_List: rules.policy?.protectPGY_List,
+            minGap11: rules.hard?.minGap11,
+            minGapHours: rules.hard?.minGapHours
+        });
+
+        // 建立排班引擎並執行
+        console.log('🚀 開始執行 AI 排班引擎...');
+        const scheduler = SchedulerFactory.create('V2', staffListForAI, year, month, this.lastMonthData, rules);
+        const aiResult = scheduler.run();
+        
+        this.applyAIResult(aiResult);
+        
+        this.renderMatrix();
+        this.updateRealTimeStats();
+        if(typeof scoringManager !== 'undefined') scoringManager.setBase(null);
+        this.updateScheduleScore();
+
+        await this.saveDraft(true);
+        
+        alert("AI 排班完成!");
+    } catch (e) { 
+        console.error("❌ AI 排班失敗:", e); 
+        alert("AI 失敗: " + e.message); 
+        this.renderMatrix(); 
+    }
+    finally { 
+        this.isLoading = false;
+        const loader = document.getElementById('globalLoader');
+        if (loader) loader.remove();
+    }
+},
 
     applyAIResult: function(res) {
         if (res.assignments) {
