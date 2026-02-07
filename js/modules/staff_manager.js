@@ -973,7 +973,7 @@ const staffManager = {
     },
     
     downloadTemplate: function() {
-        const content = "\uFEFF單位代碼,員工編號,姓名,Email,層級,到職日(YYYY-MM-DD),組別";
+        const content = "\uFEFF單位代碼,員工編號,姓名,Email,進階層級,到職日(YYYY-MM-DD)";
         const link = document.createElement("a");
         link.href = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8;' }));
         link.download = "人員匯入範例.csv";
@@ -1000,7 +1000,6 @@ const staffManager = {
                         email: cols[3].trim(),
                         level: cols[4]||'N', 
                         hireDate: cols[5]||'', 
-                        groupId: cols[6]||'', 
                         role: 'user', 
                         isActive: true,
                         schedulingParams: { isPregnant: false, isBreastfeeding: false, canBundleShifts: false },
