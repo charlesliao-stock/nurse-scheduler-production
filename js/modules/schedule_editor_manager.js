@@ -167,8 +167,40 @@ const scheduleEditorManager = {
     getStaffStatusBadges: function(uid) { const p = this.usersMap[uid]?.schedulingParams || {}; const b = []; if (p.isPregnant) b.push('<span class="status-badge" style="background:#ff9800;">孕</span>'); if (p.isBreastfeeding) b.push('<span class="status-badge" style="background:#4caf50;">哺</span>'); if (p.isPGY) b.push('<span class="status-badge" style="background:#2196f3;">P</span>'); if (p.independence === 'dependent') b.push('<span class="status-badge" style="background:#9c27b0;">D</span>'); return b.join(''); },
     showLoading: function() { if(!document.getElementById('globalLoader')) document.body.insertAdjacentHTML('beforeend', '<div id="globalLoader" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:99999; display:flex; justify-content:center; align-items:center;"><div style="background:white; padding:20px; border-radius:8px;">載入中...</div></div>'); },
     updateRealTimeStats: function() { /* 每日缺額監控邏輯 */ },
-    renderScoreBoardContainer: function() { /* 評分面板邏輯 */ },
-    updateScheduleScore: function() { if (typeof scoringManager==='undefined') return; const res = scoringManager.calculate(this.assignments, this.data.staffList, this.data.year, this.data.month); document.getElementById('scoreValue').innerText = Math.round(res.total); this.lastScoreResult = res; },
+    renderScoreBoardContainer: function() { 
+        const toolbar = document.getElementById('editorToolbar');
+        if (!toolbar) return;
+        
+        // 檢查是否已經存在評分面板，避免重複渲染
+        if (document.getElementById('scoreBoard')) return;
+
+        const scoreHtml = `
+            <div id="scoreBoard" style="display:flex; align-items:center; gap:10px; background:#f8f9fa; padding:5px 15px; border-radius:20px; border:1px solid #eee; margin-left:15px;">
+                <span style="font-size:0.85rem; color:#666;"><i class="fas fa-chart-line"></i> 排班評分</span>
+                <b id="scoreValue" style="font-size:1.1rem; color:#2c3e50;">--</b>
+                <button class="btn btn-sm" onclick="scheduleEditorManager.showScoreDetail()" style="padding:2px 8px; font-size:0.75rem; background:none; color:#3498db; border:none; text-decoration:underline;">詳情</button>
+            </div>
+        `;
+        
+        // 插入到標題後面
+        const title = document.getElementById('schTitle');
+        if (title) {
+            title.insertAdjacentHTML('afterend', scoreHtml);
+        }
+    },
+    showScoreDetail: function() {
+        if (!this.lastScoreResult) return;
+        alert("當前排班總分: " + this.lastScoreResult.total + "\n(詳細評分報告功能開發中)");
+    },
+    updateScheduleScore: function() { 
+        if (typeof scoringManager === 'undefined') return; 
+        const res = scoringManager.calculate(this.assignments, this.data.staffList, this.data.year, this.data.month); 
+        const scoreEl = document.getElementById('scoreValue');
+        if (scoreEl) {
+            scoreEl.innerText = Math.round(res.total); 
+        }
+        this.lastScoreResult = res; 
+    },
     initContextMenu: function() { /* 右鍵選單初始化 */ },
     showContextMenu: function(e, u, d) { /* 右鍵選單顯示 */ },
     bindEvents: function() { document.addEventListener('click', () => { const m = document.getElementById('schContextMenu'); if(m) m.style.display='none'; }); }
