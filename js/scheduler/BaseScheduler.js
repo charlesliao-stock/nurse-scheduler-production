@@ -170,8 +170,12 @@ class BaseScheduler {
         this.staffList.forEach(s => {
             const params = s.schedulingParams || {};
             for (let d = 1; d <= this.daysInMonth; d++) {
-                const ds = this.getDateStr(d), req = params[ds];
-                if (req && (req === 'REQ_OFF' || this.shiftCodes.includes(req))) this.updateShift(ds, s.id, 'OFF', req);
+                const key = `current_${d}`;
+                const req = params[key];
+                if (req && (req === 'REQ_OFF' || this.shiftCodes.includes(req))) {
+                    const ds = this.getDateStr(d);
+                    this.updateShift(ds, s.id, 'OFF', req);
+                }
             }
         });
     }

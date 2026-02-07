@@ -94,10 +94,30 @@ class SchedulerV2 extends BaseScheduler {
         const ds = this.getDateStr(day);
         const dayIdx = (new Date(this.year, this.month-1, day).getDay() + 6) % 7;
         if (this.rules.specificNeeds?.[ds]) return this.rules.specificNeeds[ds];
+        
         const needs = {};
+        let hasConfiguredNeeds = false;
+        
         this.shiftCodes.forEach(c => {
-            if (c !== 'OFF' && c !== 'REQ_OFF') needs[c] = this.rules.dailyNeeds?.[`${c}_${dayIdx}`] || 0;
+            if (c !== 'OFF' && c !== 'REQ_OFF') {
+                const val = this.rules.dailyNeeds?.[`${c}_${dayIdx}`];
+                if (val !== undefined && val !== null) {
+                    needs[c] = parseInt(val) || 0;
+                    hasConfiguredNeeds = true;
+                } else {
+                    needs[c] = 0;
+                }
+            }
         });
+
+        // ✅ 如果完全沒有設定人力需求，則給予預設值 (D:3, E:2, N:2) 避免全體休假
+        if (!hasConfiguredNeeds) {
+            console.warn(`⚠️ 單位未設定人力需求，使用系統預設值排班`);
+            if (this.shiftCodes.includes('D')) needs['D'] = 3;
+            if (this.shiftCodes.includes('E')) needs['E'] = 2;
+            if (this.shiftCodes.includes('N')) needs['N'] = 2;
+        }
+        
         return needs;
     }
 }
