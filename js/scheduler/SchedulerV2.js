@@ -1,4 +1,7 @@
 // js/scheduler/SchedulerV2.js
+/**
+ * 階層式 AI 排班引擎 - 平衡優化版
+ */
 class SchedulerV2 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
         super(allStaff, year, month, lastMonthData, rules);
@@ -8,14 +11,12 @@ class SchedulerV2 extends BaseScheduler {
     }
 
     initV2() {
-        const avgOff = parseFloat(this.rules.avgOffDays) || 8;
         this.staffList.forEach(s => {
             const bundleShift = s.packageType || s.prefs?.bundleShift;
             this.staffStats[s.id] = {
                 workPressure: 0,
                 isBundle: !!bundleShift,
-                targetShift: bundleShift || null,
-                targetQuota: bundleShift ? (this.daysInMonth - avgOff) : 0
+                targetShift: bundleShift || null
             };
         });
     }
@@ -24,7 +25,7 @@ class SchedulerV2 extends BaseScheduler {
         this.applyPreSchedules();
         for (let d = 1; d <= this.daysInMonth; d++) {
             this.fillDailyShifts(d);
-            // ✅ 每段結束進行壓力平衡校正，確保廖苡凱不超修/超排
+            // ✅ 每段落結束進行壓力校正，避免廖苡凱休假過少
             if (d % Math.ceil(this.daysInMonth / this.segments) === 0) this.rebalancePressure();
         }
         return this.schedule;
@@ -38,10 +39,10 @@ class SchedulerV2 extends BaseScheduler {
             let gap = needs[code] - (this.schedule[ds][code]?.length || 0);
             if (gap <= 0) return;
 
-            // ✅ 階層 1：優先分配包班人員
+            // ✅ 階層 1：包班人員優先
             gap = this.processQueue(day, code, gap, s => this.staffStats[s.id].targetShift === code);
             
-            // ✅ 階層 2：其次分配有排班志願的人
+            // ✅ 階層 2：志願人員遞補
             if (gap > 0) {
                 gap = this.processQueue(day, code, gap, s => {
                     const p = s.preferences || s.prefs || {};
@@ -49,7 +50,7 @@ class SchedulerV2 extends BaseScheduler {
                 });
             }
 
-            // ✅ 階層 3：一般補位（根據工作壓力值自動排隊）
+            // ✅ 階層 3：一般補位（按壓力值自動排隊）
             if (gap > 0) {
                 gap = this.processQueue(day, code, gap, s => true);
             }
@@ -58,18 +59,16 @@ class SchedulerV2 extends BaseScheduler {
 
     processQueue(day, code, gap, filterFn) {
         const ds = this.getDateStr(day);
-        const candidates = this.staffList.filter(s => 
-            this.getShiftByDate(ds, s.id) === 'OFF' && filterFn(s)
-        );
+        const candidates = this.staffList.filter(s => this.getShiftByDate(ds, s.id) === 'OFF' && filterFn(s));
 
-        // ✅ 壓力越小（排班越少）的人分數越低，優先度越高
+        // ✅ 壓力越小（休假越多）的人分數越低，越優先排班
         candidates.sort((a, b) => this.calculateScore(a, code) - this.calculateScore(b, code));
 
         for (const s of candidates) {
             if (gap <= 0) break;
             if (this.isValidAssignment(s, ds, code)) {
                 this.updateShift(ds, s.id, 'OFF', code);
-                this.staffStats[s.id].workPressure += 1.5; // 每排一班增加壓力權重
+                this.staffStats[s.id].workPressure += 1.5; 
                 gap--;
             }
         }
@@ -78,29 +77,24 @@ class SchedulerV2 extends BaseScheduler {
 
     calculateScore(staff, code) {
         const stats = this.staffStats[staff.id];
-        let score = stats.workPressure * 100; // 壓力值權重最高
-        
+        let score = stats.workPressure * 100; 
         const p = staff.preferences || staff.prefs || {};
-        if (p.favShift === code) score -= 50; // 志願加分
-        if (p.favShift2 === code) score -= 20;
-        
+        if (p.favShift === code) score -= 50;
         return score;
     }
 
     rebalancePressure() {
         const avgWork = Object.values(this.staffStats).reduce((a,b)=>a+b.workPressure,0) / this.staffList.length;
         this.staffList.forEach(s => {
-            // 給予超時工作者額外的負載權重，讓他們下一段更容易獲得 FF
             if (this.staffStats[s.id].workPressure > avgWork) this.staffStats[s.id].workPressure += 5;
         });
     }
 
     getDailyNeeds(day) {
         const ds = this.getDateStr(day);
-        const date = new Date(this.year, this.month-1, day);
-        const dayIdx = (date.getDay() + 6) % 7;
-        const needs = {};
+        const dayIdx = (new Date(this.year, this.month-1, day).getDay() + 6) % 7;
         if (this.rules.specificNeeds?.[ds]) return this.rules.specificNeeds[ds];
+        const needs = {};
         this.shiftCodes.forEach(c => {
             if (c !== 'OFF' && c !== 'REQ_OFF') needs[c] = this.rules.dailyNeeds?.[`${c}_${dayIdx}`] || 0;
         });
