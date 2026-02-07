@@ -986,33 +986,58 @@ const staffManager = {
         const reader = new FileReader();
         reader.onload = async (e) => {
             try {
-                const rows = e.target.result.split(/\r\n|\n/);
-                const batch = db.batch();
+                // 支援多種換行符號 (\r\n, \n, \r)
+                const rows = e.target.result.split(/\r\n|\n|\r/);
+                let batch = db.batch();
                 let count = 0;
+                let totalProcessed = 0;
+
                 for (let i = 1; i < rows.length; i++) {
-                    const cols = rows[i].trim().split(',');
-                    if (cols.length < 4) continue;
+                    const row = rows[i].trim();
+                    if (!row) continue;
+
+                    // 支援逗號或分號分隔
+                    const cols = row.includes(';') ? row.split(';') : row.split(',');
+                    if (cols.length < 4) {
+                        console.warn(`第 ${i+1} 行欄位不足，已跳過:`, row);
+                        continue;
+                    }
+
                     const docRef = db.collection('users').doc();
                     batch.set(docRef, {
                         unitId: cols[0].trim(), 
                         employeeId: cols[1].trim(), 
                         displayName: cols[2].trim(), 
                         email: cols[3].trim(),
-                        level: cols[4]||'N', 
-                        hireDate: cols[5]||'', 
+                        level: (cols[4] || 'N').trim(), 
+                        hireDate: (cols[5] || '').trim(), 
                         role: 'user', 
                         isActive: true,
                         schedulingParams: { isPregnant: false, isBreastfeeding: false, canBundleShifts: false },
                         createdAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
+                    
                     count++;
-                    if (count % 450 === 0) await batch.commit();
+                    totalProcessed++;
+
+                    // 每 450 筆提交一次並重新初始化 batch
+                    if (count === 450) {
+                        await batch.commit();
+                        batch = db.batch();
+                        count = 0;
+                    }
                 }
-                if(count > 0) await batch.commit();
-                alert(`匯入完成！共 ${count} 筆`);
+                
+                // 提交剩餘的資料
+                if (count > 0) {
+                    await batch.commit();
+                }
+
+                alert(`匯入完成！共 ${totalProcessed} 筆`);
                 this.closeImportModal(); 
                 await this.fetchData();
             } catch(error) { 
+                console.error("匯入失敗詳情:", error);
                 alert("匯入失敗: " + error.message); 
             }
         };
