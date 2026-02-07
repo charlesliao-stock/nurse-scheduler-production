@@ -1,6 +1,7 @@
 // js/scheduler/BaseScheduler.js
 /**
  * 核心排班引擎 - 硬性規則檢查版
+ * 🔧 修正版：修復 shiftCodes 初始化問題
  */
 class BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -10,13 +11,38 @@ class BaseScheduler {
         this.daysInMonth = new Date(year, month, 0).getDate();
         this.lastMonthData = lastMonthData || {};
         this.rules = rules || {};
-        this.shiftCodes = this.rules.shiftCodes || [];
-        if (!this.shiftCodes.includes('OFF')) this.shiftCodes.push('OFF');
+        
+        // ✅ 關鍵修正：從 rules.shifts 陣列建立 shiftCodes
+        this.buildShiftCodes();
+        
         this.schedule = {}; 
         this.counters = {}; 
         this.shiftTimes = this.buildShiftTimeMap();
         this.parseRules();
         this.init();
+    }
+
+    /**
+     * 🔧 新增方法：正確建立 shiftCodes 陣列
+     */
+    buildShiftCodes() {
+        this.shiftCodes = [];
+        
+        // 從 rules.shifts 陣列中提取班別代碼
+        if (Array.isArray(this.rules.shifts)) {
+            this.shiftCodes = this.rules.shifts.map(s => s.code);
+            console.log(`✅ 從 shifts 陣列建立 shiftCodes:`, this.shiftCodes);
+        } else if (this.rules.shiftCodes && Array.isArray(this.rules.shiftCodes)) {
+            // 備用：如果有直接提供 shiftCodes
+            this.shiftCodes = this.rules.shiftCodes;
+        } else {
+            console.error(`❌ 無法建立 shiftCodes，rules.shifts:`, this.rules.shifts);
+        }
+        
+        // 確保包含 OFF
+        if (!this.shiftCodes.includes('OFF')) {
+            this.shiftCodes.push('OFF');
+        }
     }
 
     parseRules() {
