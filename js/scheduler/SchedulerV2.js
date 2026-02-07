@@ -196,7 +196,12 @@ class SchedulerV2 extends BaseScheduler {
         if (prefs.favShift === shiftCode) { score += 3000; isPreferred = true; }
         if (prefs.favShift2 === shiftCode) { score += 1000; isPreferred = true; }
         if (prefs.favShift3 === shiftCode) { score += 200; isPreferred = true; }
-        if ((prefs.favShift || bundleShift) && !isPreferred) score -= 999999; 
+        // 如果是包班人員，且目前班別不是他的包班班別，給予極大懲罰（除非是休假）
+        if (bundleShift && shiftCode !== 'OFF' && shiftCode !== 'REQ_OFF' && shiftCode !== bundleShift) {
+            score -= 999999;
+        }
+        
+        // 如果設定了避開此班別，給予極大懲罰
         if (staff.schedulingParams?.[dateStr] === '!' + shiftCode) score -= 999999;
 
         // 🔥 新增：孤兒休懲罰與連休獎勵
@@ -435,3 +440,4 @@ class SchedulerV2 extends BaseScheduler {
         }
     }
 }
+

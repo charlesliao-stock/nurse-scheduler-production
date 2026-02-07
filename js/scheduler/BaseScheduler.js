@@ -157,15 +157,15 @@ class BaseScheduler {
         if (this.rule_maxDiversity3 && !this.checkFixedWeekDiversity(staff.id, dateStr, shiftCode)) return false;
 
         // 🔥 新增：志願排班邏輯 (Priority 1, 2, 3)
-        const prefs = staff.preferences || {};
+        const prefs = staff.preferences || staff.prefs || {};
         // 支援多種志願格式
         const priorities = prefs.priorities || [prefs.favShift, prefs.favShift2, prefs.favShift3].filter(Boolean);
         
         if (priorities.length > 0) {
             const pIndex = priorities.indexOf(shiftCode);
             
-            // 如果設定為硬性志願，且排的班不在志願內，則不合法
-            if (this.rule_strictPref && pIndex === -1) return false;
+            // 如果設定為硬性志願，且排的班不在志願內，且該班別不是 OFF，則不合法
+            if (this.rule_strictPref && pIndex === -1 && shiftCode !== 'OFF' && shiftCode !== 'REQ_OFF') return false;
 
             // 如果啟用了比例分配，檢查是否超過管理者設定的比例
             if (pIndex !== -1 && this.rule_enablePrefRatio) {
@@ -314,7 +314,9 @@ class BaseScheduler {
     isNightShift(shiftCode) {
         const time = this.shiftTimes[shiftCode];
         if (!time) return false;
-        return time.end < time.start || (time.end > 0 && time.end <= 8);
+        // 大夜班通常是 23:00 或 00:00 開始，結束於隔天 07:00 或 08:00
+        // 或是跨日班別 (end < start)
+        return (time.start >= 22 || time.start <= 2) || (time.end < time.start);
     }
 
     checkFixedWeekDiversity(uid, dateStr, newShift) {
@@ -349,3 +351,4 @@ class BaseScheduler {
         return true;
     }
 }
+

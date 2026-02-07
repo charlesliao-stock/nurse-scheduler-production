@@ -16,3 +16,4 @@ class SchedulerFactory {
         throw new Error(`無法建立排班器: SchedulerV2 未載入`);
     }
 }
+
