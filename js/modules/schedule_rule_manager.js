@@ -1,6 +1,6 @@
 // js/modules/schedule_rule_manager.js
-// 🔧 最終完美版 v2 - 加強權限控制（比照 staff_manager.js）
-// 🆕 包含：週日(0)修復、缺額處理優先順序設定、PGY保護
+// 🔧 最終完美版 v3 - 加強權限控制 + 過濾排班不可用班別
+// 🆕 包含：週日(0)修復、缺額處理優先順序設定、PGY保護、排班可用過濾
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -85,29 +85,36 @@ const scheduleRuleManager = {
                     select.style.backgroundColor = '#f5f5f5';
                 }
                 
-            select.dispatchEvent(new Event('change'));
-        }
+                select.dispatchEvent(new Event('change'));
+            }
 
-        // ✅ 新增：排班偏好比例勾選連動
-        const enablePrefRatio = document.getElementById('rule_enablePrefRatio');
-        if (enablePrefRatio) {
-            enablePrefRatio.onchange = () => {
-                const container = document.getElementById('prefRatioContainer');
-                if (container) container.style.opacity = enablePrefRatio.checked ? '1' : '0.5';
-            };
-        }
+            // ✅ 新增：排班偏好比例勾選連動
+            const enablePrefRatio = document.getElementById('rule_enablePrefRatio');
+            if (enablePrefRatio) {
+                enablePrefRatio.onchange = () => {
+                    const container = document.getElementById('prefRatioContainer');
+                    if (container) container.style.opacity = enablePrefRatio.checked ? '1' : '0.5';
+                };
+            }
 
-    } catch (e) { 
-        console.error(e); 
-        select.innerHTML = '<option value="">載入失敗</option>';
-    }
-},
+        } catch (e) { 
+            console.error(e); 
+            select.innerHTML = '<option value="">載入失敗</option>';
+        }
+    },
 
     loadDataToForm: async function() {
         if(!this.currentUnitId) return;
         try {
-            const shiftSnap = await db.collection('shifts').where('unitId','==',this.currentUnitId).get();
-            this.activeShifts = shiftSnap.docs.map(d => d.data());
+            const shiftSnap = await db.collection('shifts')
+                .where('unitId','==',this.currentUnitId)
+                .get();
+            
+            // ✅ 修正：過濾掉排班不可用的班別
+            this.activeShifts = shiftSnap.docs.map(d => d.data())
+                .filter(s => s.isScheduleAvailable !== false);
+            
+            console.log(`✅ 排班規則載入 ${this.activeShifts.length} 個可用班別:`, this.activeShifts.map(s => s.code));
 
             const doc = await db.collection('units').doc(this.currentUnitId).get();
             if(!doc.exists) return;
@@ -183,7 +190,9 @@ const scheduleRuleManager = {
             const container = document.getElementById('rulesContainer');
             if(container) container.style.display = 'block';
 
-        } catch (e) { console.error(e); }
+        } catch (e) { 
+            console.error("❌ 載入排班規則失敗:", e); 
+        }
     },
 
     saveData: async function() {
@@ -275,10 +284,11 @@ const scheduleRuleManager = {
         
         let order = savedOrder && savedOrder.length > 0 ? [...savedOrder] : [];
         
-        // 過濾掉已經不存在於 activeShifts 的班別
+        // ✅ 過濾掉已經不存在於 activeShifts 的班別（包含排班不可用的）
         const activeCodes = this.activeShifts.map(s => s.code);
         order = order.filter(code => activeCodes.includes(code));
 
+        // ✅ 補充遺漏的可用班別
         if (this.activeShifts.length > 0) {
             this.activeShifts.forEach(shift => {
                 if (!order.includes(shift.code)) {
@@ -287,6 +297,7 @@ const scheduleRuleManager = {
             });
         }
         
+        // ✅ 如果沒有任何順序，自動建立預設順序（夜班優先）
         if (order.length === 0) {
             const nightShifts = [];
             const dayShifts = [];
@@ -352,29 +363,45 @@ const scheduleRuleManager = {
         const select = document.getElementById('rule_dayStartShift');
         if(!select) return;
         select.innerHTML = '';
+        
+        // ✅ 只渲染排班可用的班別
         this.activeShifts.forEach(s => {
             const opt = document.createElement('option');
             opt.value = s.code;
             opt.textContent = `${s.code} (${s.name})`;
             select.appendChild(opt);
         });
+        
         if (select.options.length === 0) {
-            const opt = document.createElement('option'); opt.value = 'D'; opt.textContent = 'D';
+            const opt = document.createElement('option'); 
+            opt.value = 'D'; 
+            opt.textContent = 'D';
             select.appendChild(opt);
         }
-        if (currentVal && Array.from(select.options).some(o => o.value === currentVal)) select.value = currentVal;
-        else select.selectedIndex = 0;
+        
+        if (currentVal && Array.from(select.options).some(o => o.value === currentVal)) {
+            select.value = currentVal;
+        } else {
+            select.selectedIndex = 0;
+        }
     },
 
     renderRotationSortableList: function(savedOrderStr) {
         const container = document.getElementById('rotationSortableList');
         if(!container) return;
         container.innerHTML = '';
+        
+        // ✅ 只包含排班可用的班別
         const availableCodes = ['OFF', ...this.activeShifts.map(s => s.code)];
         let orderArray = savedOrderStr ? savedOrderStr.split(',').map(s => s.trim()) : [];
         
+        // ✅ 過濾掉不可用的班別
         const finalOrder = orderArray.filter(code => availableCodes.includes(code));
-        availableCodes.forEach(code => { if (!finalOrder.includes(code)) finalOrder.push(code); });
+        
+        // ✅ 補充遺漏的可用班別
+        availableCodes.forEach(code => { 
+            if (!finalOrder.includes(code)) finalOrder.push(code); 
+        });
 
         finalOrder.forEach(code => {
             const item = document.createElement('div');
@@ -412,17 +439,22 @@ const scheduleRuleManager = {
     getRotationOrderFromDOM: function() {
         const container = document.getElementById('rotationSortableList');
         if(!container) return 'OFF,N,E,D';
-        return Array.from(container.querySelectorAll('.sortable-item')).map(item => item.dataset.code).join(',');
+        return Array.from(container.querySelectorAll('.sortable-item'))
+            .map(item => item.dataset.code)
+            .join(',');
     },
 
     renderNightShiftOptions: function(checkedCodes) {
         const container = document.getElementById('nightShiftOptions');
         if(!container) return;
         container.innerHTML = '';
+        
         const nStart = this.parseTime(document.getElementById('rule_nightStart').value || '20:00');
         const nEnd = this.parseTime(document.getElementById('rule_nightEnd').value || '06:00');
 
         let hasOptions = false;
+        
+        // ✅ 只渲染排班可用的班別
         this.activeShifts.forEach(s => {
             const sStart = this.parseTime(s.startTime);
             let isNight = (nStart > nEnd) ? (sStart >= nStart || sStart <= nEnd) : (sStart >= nStart && sStart <= nEnd);
@@ -431,15 +463,29 @@ const scheduleRuleManager = {
                 hasOptions = true;
                 const isChecked = checkedCodes.includes(s.code);
                 const div = document.createElement('div');
-                div.innerHTML = `<label style="display:inline-flex; align-items:center; margin-right:15px;"><input type="checkbox" value="${s.code}" class="night-limit-chk" ${isChecked?'checked':''}> <span style="margin-left:4px; font-weight:bold;">${s.code}</span></label>`;
+                div.innerHTML = `<label style="display:inline-flex; align-items:center; margin-right:15px;">
+                    <input type="checkbox" value="${s.code}" class="night-limit-chk" ${isChecked?'checked':''}> 
+                    <span style="margin-left:4px; font-weight:bold;">${s.code}</span>
+                </label>`;
                 container.appendChild(div);
             }
         });
-        if (!hasOptions) container.innerHTML = '<span style="color:#999;">(無符合班別)</span>';
+        
+        if (!hasOptions) {
+            container.innerHTML = '<span style="color:#999;">(無符合班別)</span>';
+        }
     },
 
-    parseTime: function(t) { if(!t) return 0; const [h, m] = t.split(':').map(Number); return h + m/60; },
-    getCheckedNightLimits: function() { return Array.from(document.querySelectorAll('.night-limit-chk:checked')).map(c => c.value); },
+    parseTime: function(t) { 
+        if(!t) return 0; 
+        const [h, m] = t.split(':').map(Number); 
+        return h + m/60; 
+    },
+    
+    getCheckedNightLimits: function() { 
+        return Array.from(document.querySelectorAll('.night-limit-chk:checked'))
+            .map(c => c.value); 
+    },
     
     renderPGYShiftOptions: function(checkedCodes) {
         const container = document.getElementById('pgyShiftOptions');
@@ -451,17 +497,22 @@ const scheduleRuleManager = {
             return;
         }
 
+        // ✅ 只渲染排班可用的班別
         this.activeShifts.forEach(s => {
             const isChecked = checkedCodes.includes(s.code);
             const div = document.createElement('div');
             div.style.display = 'inline-block';
-            div.innerHTML = `<label style="display:inline-flex; align-items:center; margin-right:15px; cursor:pointer;"><input type="checkbox" value="${s.code}" class="pgy-limit-chk" ${isChecked?'checked':''}> <span style="margin-left:4px; font-weight:bold;">${s.code}</span></label>`;
+            div.innerHTML = `<label style="display:inline-flex; align-items:center; margin-right:15px; cursor:pointer;">
+                <input type="checkbox" value="${s.code}" class="pgy-limit-chk" ${isChecked?'checked':''}> 
+                <span style="margin-left:4px; font-weight:bold;">${s.code}</span>
+            </label>`;
             container.appendChild(div);
         });
     },
 
     getCheckedPGYLimits: function() { 
-        return Array.from(document.querySelectorAll('.pgy-limit-chk:checked')).map(c => c.value); 
+        return Array.from(document.querySelectorAll('.pgy-limit-chk:checked'))
+            .map(c => c.value); 
     },
 
     switchTab: function(tabName) {
