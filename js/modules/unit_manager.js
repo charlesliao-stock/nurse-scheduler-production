@@ -1,4 +1,4 @@
-// js/modules/unit_manager.js (修正身分模擬支援)
+// js/modules/unit_manager.js (完整版 - 雙向同步)
 
 const unitManager = {
     allUnits: [],
@@ -15,17 +15,13 @@ const unitManager = {
             searchInput.oninput = this.debounce(() => this.renderTable(), 300);
         }
 
-        // ✅ 修正：權限控制改用 activeRole
+        // 權限控制
         const activeRole = app.impersonatedRole || app.userRole;
         const btnAdd = document.getElementById('btnAddUnit');
         const btnImport = document.getElementById('btnImportUnit');
-        
         if (activeRole !== 'system_admin') {
             if(btnAdd) btnAdd.style.display = 'none';
             if(btnImport) btnImport.style.display = 'none';
-        } else {
-            if(btnAdd) btnAdd.style.display = '';
-            if(btnImport) btnImport.style.display = '';
         }
 
         await this.fetchAllUsers(); 
@@ -43,13 +39,11 @@ const unitManager = {
     // --- 2. 取得資料 ---
     fetchAllUsers: async function() {
         try {
-            // ✅ 新增：根據模擬身分決定可見範圍
             const activeRole = app.impersonatedRole || app.userRole;
             const activeUnitId = app.impersonatedUnitId || app.userUnitId;
             
             let query = db.collection('users').where('isActive', '==', true);
             
-            // 如果是單位管理者/排班者，只顯示該單位的人員
             if ((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && activeUnitId) {
                 query = query.where('unitId', '==', activeUnitId);
             }
@@ -78,13 +72,11 @@ const unitManager = {
         this.isLoading = true;
         
         try {
-            // ✅ 新增：根據模擬身分決定可見單位
             const activeRole = app.impersonatedRole || app.userRole;
             const activeUnitId = app.impersonatedUnitId || app.userUnitId;
             
             let query = db.collection('units');
             
-            // 如果是單位管理者/排班者，只顯示該單位
             if ((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && activeUnitId) {
                 query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
             }
@@ -111,7 +103,6 @@ const unitManager = {
         
         tbody.innerHTML = '';
 
-        // 更新表頭圖示
         document.querySelectorAll('th i[id^="sort_icon_unit_"]').forEach(i => {
             i.className = 'fas fa-sort';
         });
@@ -122,14 +113,12 @@ const unitManager = {
 
         const searchTerm = (document.getElementById('searchUnitInput')?.value || '').toLowerCase().trim();
         
-        // 篩選
         let filtered = this.allUnits.filter(u => {
             if(!searchTerm) return true;
             return u.id.toLowerCase().includes(searchTerm) || 
                    (u.name && u.name.toLowerCase().includes(searchTerm));
         });
 
-        // 排序
         const { field, order } = this.sortState;
         filtered.sort((a, b) => {
             let valA, valB;
@@ -155,7 +144,6 @@ const unitManager = {
             return;
         }
 
-        // ✅ 新增：檢查當前權限
         const activeRole = app.impersonatedRole || app.userRole;
         const isSystemAdmin = (activeRole === 'system_admin');
 
@@ -188,6 +176,16 @@ const unitManager = {
         return names.length > 0 ? names.join(', ') : '<span style="color:#999;">(未設定)</span>';
     },
 
+    sortData: function(field) {
+        if (this.sortState.field === field) {
+            this.sortState.order = this.sortState.order === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.sortState.field = field;
+            this.sortState.order = 'asc';
+        }
+        this.renderTable();
+    },
+
     // --- 4. Modal 操作 ---
     openModal: function(unitId = null) {
         const modal = document.getElementById('unitModal');
@@ -196,8 +194,6 @@ const unitManager = {
         
         const inputId = document.getElementById('inputUnitId');
         const inputName = document.getElementById('inputUnitName');
-        
-        // ✅ 修正：改用 activeRole
         const activeRole = app.impersonatedRole || app.userRole;
         const isAdmin = (activeRole === 'system_admin');
 
@@ -255,7 +251,7 @@ const unitManager = {
         return Array.from(inputs).map(cb => cb.value);
     },
 
-    // --- 5. 儲存 ---
+    // --- 5. 儲存（含雙向同步） ---
     saveData: async function() {
         const mode = document.getElementById('currentMode').value;
         const unitId = document.getElementById('inputUnitId').value.trim();
@@ -266,6 +262,7 @@ const unitManager = {
 
         const managers = this.getCheckedValues('managerList');
         const schedulers = this.getCheckedValues('schedulerList');
+        
         const unitData = {
             name: unitName,
             managers: managers,
@@ -287,11 +284,38 @@ const unitManager = {
                 batch.set(unitRef, unitData);
             }
 
+            // ✅ 雙向同步：更新所有該單位人員的 role
+            const unitStaff = this.allUsers.filter(u => u.unitId === unitId);
+            
+            unitStaff.forEach(user => {
+                const userRef = db.collection('users').doc(user.uid);
+                let newRole = 'user';
+                
+                if (managers.includes(user.uid)) {
+                    newRole = 'unit_manager';
+                } else if (schedulers.includes(user.uid)) {
+                    newRole = 'unit_scheduler';
+                }
+                
+                // 只在 role 改變時更新
+                if (user.role !== newRole) {
+                    batch.update(userRef, {
+                        role: newRole,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    console.log(`✅ 同步：${user.name} 的角色更新為 ${newRole}`);
+                }
+            });
+
             await batch.commit();
             alert("儲存成功！");
             this.closeModal();
+            await this.fetchAllUsers(); // 重新載入使用者以反映角色變更
             await this.fetchUnits();
-        } catch (e) { alert("儲存失敗: " + e.message); }
+        } catch (e) { 
+            console.error("儲存失敗:", e);
+            alert("儲存失敗: " + e.message); 
+        }
     },
 
     deleteUnit: async function(id) {
@@ -388,17 +412,6 @@ const unitManager = {
         link.href = URL.createObjectURL(blob);
         link.download = "單位匯入範例.csv";
         link.click();
-    },
-    
-    // ✅ 新增：排序功能
-    sortData: function(field) {
-        if (this.sortState.field === field) {
-            this.sortState.order = this.sortState.order === 'asc' ? 'desc' : 'asc';
-        } else {
-            this.sortState.field = field;
-            this.sortState.order = 'asc';
-        }
-        this.renderTable();
     }
 };
 
