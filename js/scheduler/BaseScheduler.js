@@ -63,8 +63,8 @@ module.exports = module.exports = class BaseScheduler {
         shiftsArr.forEach(s => {
             const [sh, sm] = (s.startTime || '00:00').split(':').map(Number);
             let [eh, em] = (s.endTime || '00:00').split(':').map(Number);
-            // ✅ 核心修正：小夜 00:00 視為 24:00 以利日期差計算
-            if ((s.code === 'E' || s.code === '小夜') && eh === 0) eh = 24; 
+            // ✅ 核心修正：如果下班時間是 00:00 且上班時間不是 00:00，視為 24:00 以利跨日計算
+            if (eh === 0 && sh !== 0) eh = 24; 
             map[s.code] = { startH: sh, startM: sm, endH: eh, endM: em, startTime: s.startTime };
         });
         
@@ -100,12 +100,10 @@ module.exports = module.exports = class BaseScheduler {
         // ✅ 1. 日期加權休息時間檢查 (11小時一票否決)
         const prevDate = this.getPreviousDate(dateStr);
         const prevShift = this.getShiftByDateStr(prevDate, staff.id);
+
         
-        // 🔧 修正：如果是同班別延續（isContinuing），且班別相同，則跳過間隔檢查（因為同班別本來就是間隔 24 小時）
-        const skipGapCheck = isContinuing && prevShift === shiftCode;
-        if (!skipGapCheck) {
-            if (!this.checkRestPeriodWithDate(prevDate, prevShift, dateStr, shiftCode, staff.name)) return false;
-        }
+        // ✅ 11 小時休息為硬性規則，不論是否為延續班別皆須檢查
+        if (!this.checkRestPeriodWithDate(prevDate, prevShift, dateStr, shiftCode, staff.name)) return false;
 
         const nextDate = this.getNextDate(dateStr);
         const nextShift = this.getShiftByDateStr(nextDate, staff.id);
@@ -128,12 +126,18 @@ module.exports = module.exports = class BaseScheduler {
         if (!p || !c) return true;
 
         // ✅ 核心公式：(日期差 * 24) + 今日上班 - 昨日下班
-        const d1 = new Date(prevDateStr), d2 = new Date(currDateStr);
+        // 使用 Date.UTC 確保日期差計算不受時區影響
+        const d1Parts = prevDateStr.split('-').map(Number);
+        const d2Parts = currDateStr.split('-').map(Number);
+        const d1 = Date.UTC(d1Parts[0], d1Parts[1] - 1, d1Parts[2]);
+        const d2 = Date.UTC(d2Parts[0], d2Parts[1] - 1, d2Parts[2]);
+        
         const dayDiff = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
         const gap = (dayDiff * 24) + (c.startH + c.startM/60) - (p.endH + p.endM/60);
+
         
         if (gap < this.rule_minGapHours) {
-            console.warn(`🚨 [攔截] ${staffName}: ${prevShiftCode}->${currShiftCode} 間隔僅 ${gap.toFixed(1)}h`);
+            console.warn(`🚨 [攔截] ${staffName}: ${prevShiftCode}->${currShiftCode} 間隔僅 ${gap.toFixed(1)}h (${prevDateStr} vs ${currDateStr})`);
             return false;
         }
         return true;
@@ -188,15 +192,31 @@ module.exports = module.exports = class BaseScheduler {
     checkPGYStatusByDate() { return true; }
 
     getDateStr(d) { return `${this.year}-${String(this.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
-    getDateStrFromDate(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
-    getPreviousDate(ds) { const d = new Date(ds); d.setDate(d.getDate()-1); return this.getDateStrFromDate(d); }
-    getNextDate(ds) { const d = new Date(ds); d.setDate(d.getDate()+1); return this.getDateStrFromDate(d); }
+    getDateStrFromDate(d) {
+        // 優先使用 UTC 方法以確保一致性
+        const y = d.getUTCFullYear();
+        const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(d.getUTCDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    }
+    getPreviousDate(ds) {
+        const parts = ds.split('-').map(Number);
+        // 注意：Date 月份是 0-indexed
+        const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+        d.setUTCDate(d.getUTCDate() - 1);
+        return this.getDateStrFromDate(d);
+    }
+    getNextDate(ds) {
+        const parts = ds.split('-').map(Number);
+        const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+        d.setUTCDate(d.getUTCDate() + 1);
+        return this.getDateStrFromDate(d);
+    }
     
-    getShiftByDateStr(ds, uid) { 
-        const d = new Date(ds); 
-        const year = d.getFullYear();
-        const month = d.getMonth() + 1;
-        const day = d.getDate();
+    getShiftByDateStr(ds, uid) {
+        // 使用字串分割以避免時區造成的 Date 解析誤差
+        const parts = ds.split('-').map(Number);
+        const year = parts[0], month = parts[1], day = parts[2];
         
         if (year < this.year || (year === this.year && month < this.month)) {
             const key = `current_${day}`;

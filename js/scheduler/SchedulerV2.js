@@ -4,7 +4,6 @@
  * 🔧 修正版 v4：修復載入衝突、強化偏好權重、優化壓力平衡、實作月初班別延續
  */
 const BaseScheduler = require("./BaseScheduler.js");
-module.exports = const BaseScheduler = require("./BaseScheduler.js");
 module.exports = class SchedulerV2 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
         super(allStaff, year, month, lastMonthData, rules);
