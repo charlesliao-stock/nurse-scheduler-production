@@ -1,7 +1,7 @@
 // js/scheduler/BaseScheduler.js
 /**
  * 核心排班引擎 - 硬性規則檢查版
- * 🔧 修正版：修復 shiftCodes 初始化問題
+ * 🔧 修正版：修復 shiftCodes 初始化問題、上月資料讀取、新增狀態檢查
  */
 class BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -65,7 +65,7 @@ class BaseScheduler {
             let [eh, em] = (s.endTime || '00:00').split(':').map(Number);
             // ✅ 核心修正：小夜 00:00 視為 24:00 以利日期差計算
             if ((s.code === 'E' || s.code === '小夜') && eh === 0) eh = 24; 
-            map[s.code] = { startH: sh, startM: sm, endH: eh, endM: em };
+            map[s.code] = { startH: sh, startM: sm, endH: eh, endM: em, startTime: s.startTime };
         });
         
         map['OFF'] = map['REQ_OFF'] = { startH: 0, startM: 0, endH: 0, endM: 0 };
@@ -93,6 +93,9 @@ class BaseScheduler {
 
         // ✅ 未獨立人員不排班
         if (staff.schedulingParams?.independence === 'dependent') return false;
+
+        // ✅ 檢查特殊狀態限制 (如懷孕不排夜班)
+        if (!this.checkSpecialStatusByDate(staff, dateStr, shiftCode)) return false;
 
         // ✅ 1. 日期加權休息時間檢查 (11小時一票否決)
         const prevDate = this.getPreviousDate(dateStr);
@@ -150,26 +153,62 @@ class BaseScheduler {
         return shiftsInWeek.size <= 2; 
     }
 
-    // 相容性補丁方法
+    // ✅ 實作特殊狀態檢查 (如懷孕不排夜班)
+    checkSpecialStatusByDate(staff, dateStr, shiftCode) {
+        const p = staff.schedulingParams || {};
+        if (!p.isPregnant && !p.isBreastfeeding) return true;
+
+        const date = new Date(dateStr);
+        const isPregnant = p.isPregnant && p.pregnantExpiry && new Date(p.pregnantExpiry) >= date;
+        const isBreastfeeding = p.isBreastfeeding && p.breastfeedingExpiry && new Date(p.breastfeedingExpiry) >= date;
+
+        if (isPregnant || isBreastfeeding) {
+            const shift = this.shiftTimes[shiftCode];
+            if (!shift) return true;
+            
+            // 判斷是否為夜班 (20:00 - 08:00 之間上班都算廣義夜班限制)
+            // 參考 shift_utils.js 的邏輯，但這裡直接實作以減少依賴
+            const startH = shift.startH;
+            const isNight = (startH >= 20 || startH <= 6); // 20:00 之後或 06:00 之前上班
+            const isEvening = (startH >= 15 && startH < 20); // 15:00 - 20:00 上班 (小夜)
+
+            if (isNight || isEvening) {
+                console.warn(`🤰 [限制] ${staff.name} 為孕/哺狀態，攔截${isNight?'大夜':'小夜'}班 (${shiftCode})`);
+                return false;
+            }
+        }
+        return true;
+    }
+
     isLongVacationMonth(staff) { return false; }
     checkOffGap() { return true; }
-    checkSpecialStatusByDate() { return true; }
     checkPGYStatusByDate() { return true; }
 
     getDateStr(d) { return `${this.year}-${String(this.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
     getDateStrFromDate(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
     getPreviousDate(ds) { const d = new Date(ds); d.setDate(d.getDate()-1); return this.getDateStrFromDate(d); }
     getNextDate(ds) { const d = new Date(ds); d.setDate(d.getDate()+1); return this.getDateStrFromDate(d); }
+    
     getShiftByDateStr(ds, uid) { 
         const d = new Date(ds); 
-        if (d.getMonth() + 1 !== this.month) return this.lastMonthData[uid]?.lastShift || 'OFF';
+        const year = d.getFullYear();
+        const month = d.getMonth() + 1;
+        const day = d.getDate();
+        
+        // ✅ 修正：讀取上個月資料
+        if (year < this.year || (year === this.year && month < this.month)) {
+            const key = `current_${day}`;
+            return this.lastMonthData[uid]?.[key] || 'OFF';
+        }
         return this.getShiftByDate(ds, uid);
     }
+
     getShiftByDate(ds, uid) {
         if (!this.schedule[ds]) return 'OFF';
         for (let code in this.schedule[ds]) if (this.schedule[ds][code].includes(uid)) return code;
         return 'OFF';
     }
+
     getConsecutiveWorkDays(uid, ds) {
         let count = 0, curr = new Date(ds);
         for (let i = 1; i < 14; i++) {
@@ -180,6 +219,7 @@ class BaseScheduler {
         }
         return count;
     }
+
     updateShift(ds, uid, oldS, newS) {
         if (oldS === newS) return;
         if (oldS && this.schedule[ds][oldS]) {
@@ -192,6 +232,7 @@ class BaseScheduler {
             if (newS === 'OFF' || newS === 'REQ_OFF') this.counters[uid].OFF++;
         }
     }
+
     applyPreSchedules() {
         this.staffList.forEach(s => {
             const params = s.schedulingParams || {};

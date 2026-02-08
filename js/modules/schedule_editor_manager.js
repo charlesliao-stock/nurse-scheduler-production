@@ -103,7 +103,9 @@ const scheduleEditorManager = {
             .where('month', '==', lm)
             .where('status', '==', 'published')
             .limit(1).get();
+        // ✅ 修正：讀取上個月班表的 assignments 資料
         this.lastMonthData = !snap.empty ? snap.docs[0].data().assignments || {} : {};
+        console.log(`📅 已載入上月班表資料: ${!snap.empty ? '成功' : '無資料'}`);
     },
 
     renderToolbar: function() {

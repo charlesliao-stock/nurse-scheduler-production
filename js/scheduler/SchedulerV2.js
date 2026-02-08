@@ -1,14 +1,10 @@
 // js/scheduler/SchedulerV2.js
 /**
  * 階層式 AI 排班引擎 - 平衡優化版
- * 🔧 修正版 v2：修復 getDailyNeeds 預設值無效導致全員 OFF 的問題
- * 
- * 修正內容：
- * 1. getDailyNeeds() 改為根據實際班別動態分配人力
- * 2. 避免硬編碼 D/E/N，改用 this.shiftCodes 自動偵測
- * 3. 新增詳細除錯 log 以利追蹤
+ * 🔧 修正版 v3：修復 getDailyNeeds 預設值、強化偏好權重、優化壓力平衡
  */
-class SchedulerV2 extends BaseScheduler {
+const BaseScheduler = require("./BaseScheduler.js");
+module.exports = class SchedulerV2 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
         super(allStaff, year, month, lastMonthData, rules);
         this.staffStats = {};
@@ -49,11 +45,13 @@ class SchedulerV2 extends BaseScheduler {
             // ✅ 階層 1：包班人員優先
             gap = this.processQueue(day, code, gap, s => this.staffStats[s.id].targetShift === code);
             
-            // ✅ 階層 2：志願人員遞補
+            // ✅ 階層 2：志願人員遞補 (包含預班偏好)
             if (gap > 0) {
                 gap = this.processQueue(day, code, gap, s => {
                     const p = s.preferences || s.prefs || {};
-                    return !this.staffStats[s.id].isBundle && [p.favShift, p.favShift2].includes(code);
+                    // 檢查預班偏好或個人設定偏好
+                    const isPref = (p.favShift === code || p.favShift2 === code);
+                    return !this.staffStats[s.id].isBundle && isPref;
                 });
             }
 
@@ -85,8 +83,16 @@ class SchedulerV2 extends BaseScheduler {
     calculateScore(staff, code) {
         const stats = this.staffStats[staff.id];
         let score = stats.workPressure * 100; 
+        
         const p = staff.preferences || staff.prefs || {};
-        if (p.favShift === code) score -= 50;
+        // 強化偏好權重：如果是第一志願，大幅降分（增加優先度）
+        if (p.favShift === code) score -= 150;
+        else if (p.favShift2 === code) score -= 80;
+        
+        // 考慮跨月連續上班風險 (預判)
+        const consDays = this.getConsecutiveWorkDays(staff.id, this.getDateStr(1));
+        if (consDays > 3) score += (consDays * 20);
+
         return score;
     }
 
@@ -97,30 +103,15 @@ class SchedulerV2 extends BaseScheduler {
         });
     }
 
-    /**
-     * 🔧 核心修正：getDailyNeeds()
-     * 
-     * 原問題：
-     * - 當 unitRules 沒有 dailyNeeds 時，硬編碼給 D:3, E:2, N:2
-     * - 但如果系統中沒有這些班別代碼，預設值無效，導致 needs 全為 0
-     * - 結果所有員工都停留在初始的 OFF 狀態
-     * 
-     * 修正方案：
-     * - 改為動態偵測 this.shiftCodes 中的實際班別
-     * - 根據總人數自動平均分配人力需求
-     * - 確保每個班別至少需要 2 人
-     */
     getDailyNeeds(day) {
         const ds = this.getDateStr(day);
         const dayIdx = (new Date(this.year, this.month-1, day).getDay() + 6) % 7;
         
-        // 優先使用特定日期的需求設定
         if (this.rules.specificNeeds?.[ds]) return this.rules.specificNeeds[ds];
         
         const needs = {};
         let hasConfiguredNeeds = false;
         
-        // 嘗試從 dailyNeeds 讀取設定值
         this.shiftCodes.forEach(c => {
             if (c !== 'OFF' && c !== 'REQ_OFF') {
                 const val = this.rules.dailyNeeds?.[`${c}_${dayIdx}`];
@@ -133,30 +124,15 @@ class SchedulerV2 extends BaseScheduler {
             }
         });
 
-        // ✅ 關鍵修正：如果完全沒有設定人力需求，根據實際班別自動分配
         if (!hasConfiguredNeeds) {
-            console.warn(`⚠️ ${ds} 單位未設定人力需求，使用系統預設值排班`);
-            
-            // 計算總人力和可用班別
             const totalStaff = this.staffList.length;
             const activeShifts = this.shiftCodes.filter(c => c !== 'OFF' && c !== 'REQ_OFF');
             
             if (activeShifts.length > 0) {
-                // 平均分配人力：總人數 / (班別數 + 1)
-                // +1 是為了保留一些人可以休假
-                // 但每班至少需要 2 人
                 const avgNeed = Math.max(2, Math.floor(totalStaff / (activeShifts.length + 1)));
-                
                 activeShifts.forEach(code => {
                     needs[code] = avgNeed;
                 });
-                
-                // 第一天顯示詳細資訊，其他天簡化 log
-                if (day === 1) {
-                    console.log(`📊 自動分配人力需求 (總人數=${totalStaff}, 班別數=${activeShifts.length}, 每班=${avgNeed}人):`, needs);
-                }
-            } else {
-                console.error(`❌ 錯誤：找不到任何可用班別！shiftCodes:`, this.shiftCodes);
             }
         }
         
