@@ -3,8 +3,8 @@
  * 階層式 AI 排班引擎 - 平衡優化版
  * 🔧 修正版 v4：修復載入衝突、強化偏好權重、優化壓力平衡、實作月初班別延續
  */
-const BaseScheduler = require("./BaseScheduler.js");
-module.exports = class SchedulerV2 extends BaseScheduler {
+// 在瀏覽器環境中，BaseScheduler 應已透過 <script> 標籤載入至 window
+window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}) {
     constructor(allStaff, year, month, lastMonthData, rules) {
         super(allStaff, year, month, lastMonthData, rules);
         this.staffStats = {};

@@ -3,7 +3,7 @@
  * 核心排班引擎 - 硬性規則檢查版
  * 🔧 修正版：修復 shiftCodes 初始化問題、上月資料讀取、新增狀態檢查、支援月初班別延續
  */
-module.exports = module.exports = class BaseScheduler {
+window.BaseScheduler = class BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
         this.staffList = allStaff;
         this.year = year;
