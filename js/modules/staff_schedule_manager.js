@@ -1,5 +1,5 @@
 // js/modules/staff_schedule_manager.js
-// 完整版：配合現有 HTML 結構，支援模擬、換班選擇
+// 修正版：解決模擬身分查詢班表時的 UID 比對問題
 
 const staffScheduleManager = {
     currentYear: new Date().getFullYear(),
@@ -105,10 +105,46 @@ const staffScheduleManager = {
             console.log(`✅ 找到班表: ${doc.id}`);
             console.log(`📋 班表人員: ${this.scheduleData.staffList?.length || 0} 位`);
 
+            // 🔍 除錯：列出班表中所有的 UID
+            if (this.scheduleData.assignments) {
+                const allUids = Object.keys(this.scheduleData.assignments);
+                console.log(`📝 班表中的所有 UID (${allUids.length} 位):`, allUids);
+                console.log(`🔍 正在查找的 UID: "${this.currentUid}"`);
+                console.log(`✅ UID 存在於 assignments?: ${allUids.includes(this.currentUid)}`);
+                
+                // 檢查是否有相似但不完全相同的 UID（空格、大小寫等問題）
+                const trimmedCurrentUid = this.currentUid.trim();
+                const similarUids = allUids.filter(uid => 
+                    uid.trim().toLowerCase() === trimmedCurrentUid.toLowerCase()
+                );
+                if (similarUids.length > 0 && !allUids.includes(this.currentUid)) {
+                    console.warn(`⚠️ 發現格式相似但不完全相同的 UID:`, similarUids);
+                    console.warn(`   可能是空格或大小寫問題`);
+                }
+            }
+
             if (!this.scheduleData.assignments || !this.scheduleData.assignments[this.currentUid]) {
                 console.warn(`⚠️ UID ${this.currentUid} 不在班表中`);
-                this.showError('您不在本月班表中');
-                return;
+                
+                // 🔧 嘗試用 trim 後的 UID 再找一次
+                const trimmedUid = this.currentUid.trim();
+                let foundAssignment = null;
+                
+                if (this.scheduleData.assignments) {
+                    for (let uid in this.scheduleData.assignments) {
+                        if (uid.trim() === trimmedUid) {
+                            console.log(`🔧 找到 trim 後符合的 UID: "${uid}"`);
+                            foundAssignment = this.scheduleData.assignments[uid];
+                            this.currentUid = uid; // 更新為正確的 UID
+                            break;
+                        }
+                    }
+                }
+                
+                if (!foundAssignment) {
+                    this.showError('您不在本月班表中');
+                    return;
+                }
             }
 
             console.log(`✅ 找到 UID ${this.currentUid} 的班表資料`);
