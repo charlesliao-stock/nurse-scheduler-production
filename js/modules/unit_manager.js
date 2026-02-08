@@ -1,4 +1,4 @@
-// js/modules/unit_manager.js (完整修復版)
+// js/modules/unit_manager.js (修正身分模擬支援)
 
 const unitManager = {
     allUnits: [],
@@ -15,12 +15,17 @@ const unitManager = {
             searchInput.oninput = this.debounce(() => this.renderTable(), 300);
         }
 
-        // 權限控制
+        // ✅ 修正：權限控制改用 activeRole
+        const activeRole = app.impersonatedRole || app.userRole;
         const btnAdd = document.getElementById('btnAddUnit');
         const btnImport = document.getElementById('btnImportUnit');
-        if (app && app.userRole !== 'system_admin') {
+        
+        if (activeRole !== 'system_admin') {
             if(btnAdd) btnAdd.style.display = 'none';
             if(btnImport) btnImport.style.display = 'none';
+        } else {
+            if(btnAdd) btnAdd.style.display = '';
+            if(btnImport) btnImport.style.display = '';
         }
 
         await this.fetchAllUsers(); 
@@ -38,7 +43,18 @@ const unitManager = {
     // --- 2. 取得資料 ---
     fetchAllUsers: async function() {
         try {
-            const snapshot = await db.collection('users').where('isActive', '==', true).get();
+            // ✅ 新增：根據模擬身分決定可見範圍
+            const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+            
+            let query = db.collection('users').where('isActive', '==', true);
+            
+            // 如果是單位管理者/排班者，只顯示該單位的人員
+            if ((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && activeUnitId) {
+                query = query.where('unitId', '==', activeUnitId);
+            }
+            
+            const snapshot = await query.get();
             this.allUsers = snapshot.docs.map(doc => ({
                 uid: doc.id,
                 name: doc.data().displayName || '未命名',
@@ -62,7 +78,18 @@ const unitManager = {
         this.isLoading = true;
         
         try {
-            const snapshot = await db.collection('units').get();
+            // ✅ 新增：根據模擬身分決定可見單位
+            const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+            
+            let query = db.collection('units');
+            
+            // 如果是單位管理者/排班者，只顯示該單位
+            if ((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && activeUnitId) {
+                query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
+            }
+            
+            const snapshot = await query.get();
             this.allUnits = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
@@ -128,6 +155,10 @@ const unitManager = {
             return;
         }
 
+        // ✅ 新增：檢查當前權限
+        const activeRole = app.impersonatedRole || app.userRole;
+        const isSystemAdmin = (activeRole === 'system_admin');
+
         const fragment = document.createDocumentFragment();
         filtered.forEach(u => {
             const tr = document.createElement('tr');
@@ -138,7 +169,7 @@ const unitManager = {
                 <td>${this.getNames(u.schedulers)}</td>
                 <td>
                     <button class="btn btn-edit" onclick="unitManager.openModal('${u.id}')">編輯</button>
-                    ${(app && app.userRole === 'system_admin') ? `<button class="btn btn-delete" onclick="unitManager.deleteUnit('${u.id}')">刪除</button>` : ''}
+                    ${isSystemAdmin ? `<button class="btn btn-delete" onclick="unitManager.deleteUnit('${u.id}')">刪除</button>` : ''}
                 </td>
             `;
             fragment.appendChild(tr);
@@ -165,7 +196,10 @@ const unitManager = {
         
         const inputId = document.getElementById('inputUnitId');
         const inputName = document.getElementById('inputUnitName');
-        const isAdmin = (app && app.userRole === 'system_admin');
+        
+        // ✅ 修正：改用 activeRole
+        const activeRole = app.impersonatedRole || app.userRole;
+        const isAdmin = (activeRole === 'system_admin');
 
         if (unitId) {
             document.getElementById('currentMode').value = 'edit';
@@ -253,7 +287,6 @@ const unitManager = {
                 batch.set(unitRef, unitData);
             }
 
-            // 同步 Role 邏輯...
             await batch.commit();
             alert("儲存成功！");
             this.closeModal();
@@ -270,7 +303,7 @@ const unitManager = {
         } catch (e) { alert("刪除失敗: " + e.message); }
     },
 
-    // --- 6. 匯入 (包含重複名稱檢查與略過功能) ---
+    // --- 6. 匯入 ---
     openImportModal: function() {
         const modal = document.getElementById('unitImportModal');
         if(modal) modal.classList.add('show');
@@ -288,7 +321,6 @@ const unitManager = {
         
         resultDiv.innerHTML = "讀取中...";
         
-        // 取得現有系統中的所有名稱以供比對
         const existingNames = new Set(this.allUnits.map(u => u.name));
         
         const reader = new FileReader();
@@ -312,7 +344,6 @@ const unitManager = {
 
                     if(!uid || !uname) continue;
 
-                    // 檢查重複名稱
                     if (existingNames.has(uname) || currentImportNames.has(uname)) {
                         errors.push(`第 ${i+1} 行：名稱 「${uname}」 已重複，已略過。`);
                         skipCount++;
@@ -357,8 +388,18 @@ const unitManager = {
         link.href = URL.createObjectURL(blob);
         link.download = "單位匯入範例.csv";
         link.click();
+    },
+    
+    // ✅ 新增：排序功能
+    sortData: function(field) {
+        if (this.sortState.field === field) {
+            this.sortState.order = this.sortState.order === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.sortState.field = field;
+            this.sortState.order = 'asc';
+        }
+        this.renderTable();
     }
 };
 
-// 確保匯出物件
 window.unitManager = unitManager;
