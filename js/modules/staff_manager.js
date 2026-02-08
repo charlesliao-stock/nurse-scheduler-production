@@ -1,8 +1,4 @@
-// js/modules/staff_manager.js (完整版 - 無需 Cloud Functions)
-// 修改重點：
-// 1. 所有人員都有重設密碼按鈕（不論是否已開通）
-// 2. 刪除改為停用，可復原
-// 3. 重設密碼：直接標記在 Firestore，員工用員工編號登入即可
+// js/modules/staff_manager.js (完整版 - 雙向同步)
 
 const staffManager = {
     allData: [],
@@ -420,7 +416,6 @@ const staffManager = {
                 const teacherSelect = document.getElementById('selectClinicalTeacher');
                 if (teacherSelect && params.clinicalTeacherId) {
                     teacherSelect.value = params.clinicalTeacherId;
-                    console.log('✅ 已設定臨床教師:', params.clinicalTeacherId);
                 }
             }, 200);
             
@@ -445,7 +440,7 @@ const staffManager = {
         document.getElementById('staffModal').classList.remove('show');
     },
 
-    // --- 7. 儲存資料 ---
+    // --- 7. 儲存資料（含雙向同步） ---
     saveData: async function() {
         const docId = document.getElementById('staffDocId').value;
         const empId = document.getElementById('inputEmpId').value.trim();
@@ -510,7 +505,7 @@ const staffManager = {
                 const existingData = existingDoc.data();
                 
                 if (existingData.email !== email) {
-                    const emailCheck = await db.collection('users')
+                    emailCheck = await db.collection('users')
                         .where('email', '==', email)
                         .get();
                     
@@ -608,6 +603,7 @@ const staffManager = {
             
             const targetUid = docId || userRef.id;
             
+            // ✅ 雙向同步：更新 units 集合的 managers/schedulers
             if (selectedRole !== 'system_admin') {
                 const unitRef = db.collection('units').doc(selectedUnitId);
                 const unitDoc = await unitRef.get();
@@ -615,9 +611,20 @@ const staffManager = {
                     let { managers, schedulers } = unitDoc.data();
                     managers = (managers || []).filter(id => id !== targetUid);
                     schedulers = (schedulers || []).filter(id => id !== targetUid);
-                    if (selectedRole === 'unit_manager') managers.push(targetUid);
-                    else if (selectedRole === 'unit_scheduler') schedulers.push(targetUid);
-                    batch.update(unitRef, { managers, schedulers });
+                    
+                    if (selectedRole === 'unit_manager') {
+                        managers.push(targetUid);
+                        console.log(`✅ 同步：加入單位管理者列表 (${selectedUnitId})`);
+                    } else if (selectedRole === 'unit_scheduler') {
+                        schedulers.push(targetUid);
+                        console.log(`✅ 同步：加入單位排班者列表 (${selectedUnitId})`);
+                    }
+                    
+                    batch.update(unitRef, { 
+                        managers, 
+                        schedulers,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
                 }
             }
             
@@ -647,7 +654,7 @@ const staffManager = {
         }
     },
 
-    // --- 8. 停用員工（取代原本的刪除） ---
+    // --- 8. 停用員工 ---
     deactivateUser: async function(id) {
         const u = this.allData.find(d => d.id === id);
         if (u && u.role === 'system_admin') { 
@@ -707,7 +714,7 @@ const staffManager = {
         }
     },
 
-    // --- 10. 重設密碼（不需要 Cloud Functions） ---
+    // --- 10. 重設密碼 ---
     resetPassword: function(userId) {
         const user = this.allData.find(u => u.id === userId);
         if (!user) {
@@ -730,7 +737,6 @@ const staffManager = {
         }
     },
 
-    // --- 11. 開啟重設密碼 Modal ---
     openResetPasswordModal: function(userId) {
         const user = this.allData.find(u => u.id === userId);
         if (!user) return;
@@ -793,13 +799,11 @@ const staffManager = {
         }, 100);
     },
 
-    // --- 12. 關閉重設密碼 Modal ---
     closeResetPasswordModal: function() {
         const modal = document.getElementById('resetPasswordModal');
         if (modal) modal.remove();
     },
 
-    // --- 13. 確認重設密碼 ---
     confirmResetPassword: async function(userId) {
         const user = this.allData.find(u => u.id === userId);
         if (!user) return;
@@ -863,7 +867,6 @@ const staffManager = {
         }
     },
 
-    // --- 14. 批次重設密碼 ---
     batchResetPasswords: async function() {
         const confirm1 = confirm(
             `⚠️ 批次重設密碼\n\n` +
@@ -988,7 +991,6 @@ const staffManager = {
             try {
                 const rows = e.target.result.split(/\r\n|\n|\r/);
                 
-                // 1. 先獲取現有所有員工，建立 employeeId -> docId 的對照表
                 const existingStaffMap = {};
                 const snapshot = await db.collection('users').get();
                 snapshot.forEach(doc => {
@@ -1018,7 +1020,6 @@ const staffManager = {
                     const level = (cols[4] || 'N').trim();
                     const hireDate = (cols[5] || '').trim();
 
-                    // 2. 檢查是否已存在
                     const existingDocId = existingStaffMap[employeeId];
                     const docRef = existingDocId ? db.collection('users').doc(existingDocId) : db.collection('users').doc();
                     
@@ -1033,11 +1034,9 @@ const staffManager = {
                     };
 
                     if (existingDocId) {
-                        // 更新現有資料
                         batch.update(docRef, staffData);
                         updateCount++;
                     } else {
-                        // 新增資料
                         Object.assign(staffData, {
                             role: 'user',
                             isActive: true,
