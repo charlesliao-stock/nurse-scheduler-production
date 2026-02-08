@@ -224,24 +224,30 @@ window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}
 
     getDailyNeeds(day) {
         const ds = this.getDateStr(day);
-        const dayIdx = (new Date(this.year, this.month-1, day).getDay() + 6) % 7;
+        const dateObj = new Date(this.year, this.month - 1, day);
+        const jsDay = dateObj.getDay(); 
+        const dayIdx = (jsDay === 0) ? 6 : jsDay - 1; 
         
-        if (this.rules.specificNeeds?.[ds]) return this.rules.specificNeeds[ds];
+        if (this.rules.specificNeeds && this.rules.specificNeeds[ds]) {
+            return this.rules.specificNeeds[ds];
+        }
         
         const needs = {};
         let hasConfiguredNeeds = false;
         
-        this.shiftCodes.forEach(c => {
-            if (c !== 'OFF' && c !== 'REQ_OFF') {
-                const val = this.rules.dailyNeeds?.[`${c}_${dayIdx}`];
-                if (val !== undefined && val !== null) {
-                    needs[c] = parseInt(val) || 0;
-                    hasConfiguredNeeds = true;
-                } else {
-                    needs[c] = 0;
+        if (this.rules.dailyNeeds) {
+            this.shiftCodes.forEach(c => {
+                if (c !== 'OFF' && c !== 'REQ_OFF') {
+                    const val = this.rules.dailyNeeds[`${c}_${dayIdx}`];
+                    if (val !== undefined && val !== null) {
+                        needs[c] = parseInt(val) || 0;
+                        hasConfiguredNeeds = true;
+                    } else {
+                        needs[c] = 0;
+                    }
                 }
-            }
-        });
+            });
+        }
 
         if (!hasConfiguredNeeds) {
             const totalStaff = this.staffList.length;

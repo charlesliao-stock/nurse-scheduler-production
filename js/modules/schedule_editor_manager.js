@@ -325,7 +325,12 @@ const scheduleEditorManager = {
                 preferences: this.assignments[s.uid]?.preferences || {}
             }));
             
-            const rules = { ...this.unitRules, shifts: this.shifts };
+            const rules = { 
+                ...this.unitRules, 
+                shifts: this.shifts,
+                dailyNeeds: this.data.dailyNeeds || {},
+                specificNeeds: this.data.specificNeeds || {}
+            };
             const scheduler = SchedulerFactory.create('V2', staffListWithId, this.data.year, this.data.month, this.lastMonthData, rules);
             const result = scheduler.run();
             
