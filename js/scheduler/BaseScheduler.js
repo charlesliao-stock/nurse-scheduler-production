@@ -1,9 +1,9 @@
 // js/scheduler/BaseScheduler.js
 /**
  * 核心排班引擎 - 硬性規則檢查版
- * 🔧 修正版：修復 shiftCodes 初始化問題、上月資料讀取、新增狀態檢查
+ * 🔧 修正版：修復 shiftCodes 初始化問題、上月資料讀取、新增狀態檢查、支援月初班別延續
  */
-class BaseScheduler {
+module.exports = module.exports = class BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
         this.staffList = allStaff;
         this.year = year;
@@ -88,7 +88,7 @@ class BaseScheduler {
         }
     }
 
-    isValidAssignment(staff, dateStr, shiftCode) {
+    isValidAssignment(staff, dateStr, shiftCode, isContinuing = false) {
         if (shiftCode === 'OFF' || shiftCode === 'REQ_OFF') return true;
 
         // ✅ 未獨立人員不排班
@@ -100,7 +100,12 @@ class BaseScheduler {
         // ✅ 1. 日期加權休息時間檢查 (11小時一票否決)
         const prevDate = this.getPreviousDate(dateStr);
         const prevShift = this.getShiftByDateStr(prevDate, staff.id);
-        if (!this.checkRestPeriodWithDate(prevDate, prevShift, dateStr, shiftCode, staff.name)) return false;
+        
+        // 🔧 修正：如果是同班別延續（isContinuing），且班別相同，則跳過間隔檢查（因為同班別本來就是間隔 24 小時）
+        const skipGapCheck = isContinuing && prevShift === shiftCode;
+        if (!skipGapCheck) {
+            if (!this.checkRestPeriodWithDate(prevDate, prevShift, dateStr, shiftCode, staff.name)) return false;
+        }
 
         const nextDate = this.getNextDate(dateStr);
         const nextShift = this.getShiftByDateStr(nextDate, staff.id);
@@ -166,11 +171,9 @@ class BaseScheduler {
             const shift = this.shiftTimes[shiftCode];
             if (!shift) return true;
             
-            // 判斷是否為夜班 (20:00 - 08:00 之間上班都算廣義夜班限制)
-            // 參考 shift_utils.js 的邏輯，但這裡直接實作以減少依賴
             const startH = shift.startH;
-            const isNight = (startH >= 20 || startH <= 6); // 20:00 之後或 06:00 之前上班
-            const isEvening = (startH >= 15 && startH < 20); // 15:00 - 20:00 上班 (小夜)
+            const isNight = (startH >= 20 || startH <= 6); 
+            const isEvening = (startH >= 15 && startH < 20); 
 
             if (isNight || isEvening) {
                 console.warn(`🤰 [限制] ${staff.name} 為孕/哺狀態，攔截${isNight?'大夜':'小夜'}班 (${shiftCode})`);
@@ -195,7 +198,6 @@ class BaseScheduler {
         const month = d.getMonth() + 1;
         const day = d.getDate();
         
-        // ✅ 修正：讀取上個月資料
         if (year < this.year || (year === this.year && month < this.month)) {
             const key = `current_${day}`;
             return this.lastMonthData[uid]?.[key] || 'OFF';
@@ -242,6 +244,33 @@ class BaseScheduler {
                 if (req && (req === 'REQ_OFF' || this.shiftCodes.includes(req))) {
                     const ds = this.getDateStr(d);
                     this.updateShift(ds, s.id, 'OFF', req);
+                }
+            }
+        });
+    }
+
+    getLastMonthFinalShift(uid) {
+        const lastMonthDays = new Date(this.year, this.month - 1, 0).getDate();
+        const key = `current_${lastMonthDays}`;
+        return this.lastMonthData[uid]?.[key] || 'OFF';
+    }
+
+    // ✅ 新增：在排班開始前，自動套用月初延續班別
+    applyEarlyMonthContinuity() {
+        this.staffList.forEach(s => {
+            const lastShift = this.getLastMonthFinalShift(s.id);
+            if (lastShift === 'OFF' || lastShift === 'REQ_OFF') return;
+
+            for (let d = 1; d <= 7; d++) {
+                const ds = this.getDateStr(d);
+                const currentS = this.getShiftByDate(ds, s.id);
+                if (currentS !== 'OFF') break;
+
+                // 嘗試延續班別 (傳入 isContinuing = true)
+                if (this.isValidAssignment(s, ds, lastShift, true)) {
+                    this.updateShift(ds, s.id, 'OFF', lastShift);
+                } else {
+                    break;
                 }
             }
         });

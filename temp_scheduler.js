@@ -1,3 +1,4 @@
+const BaseScheduler = require("./js/scheduler/BaseScheduler.js"); module.exports = 
 // js/scheduler/SchedulerV2.js
 /**
  * 階層式 AI 排班引擎 - 平衡優化版
