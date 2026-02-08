@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 修正版：解決 AI 排班全部變 OFF+統一使用 uid 識別員工
+// 🚀 修正版 v2：解決 AI 排班全部變 OFF + 過濾排班不可用班別
 
 const scheduleEditorManager = {
     scheduleId: null, 
@@ -31,7 +31,6 @@ const scheduleEditorManager = {
             if (!schDoc.exists) { alert("找不到此排班表"); return; }
             this.data = schDoc.data();
             
-            // 載入必要資料
             await Promise.all([
                 this.loadShifts(), 
                 this.loadUsers(), 
@@ -41,7 +40,6 @@ const scheduleEditorManager = {
             
             this.data.staffList.forEach(s => { if (s.uid) this.staffMap[s.uid.trim()] = s; });
 
-            // ✅ 關鍵：如果是初次建立（assignments 為空），自動從預班表帶入資料
             if ((!this.data.assignments || Object.keys(this.data.assignments).length === 0) && this.data.sourceId) {
                 console.log("🚀 初次轉入：自動從預班表導入初始資料");
                 await this.importFromPreSchedule();
@@ -69,7 +67,6 @@ const scheduleEditorManager = {
         }
     },
 
-    // ✅ 實作從預班表導入資料
     importFromPreSchedule: async function() {
         try {
             const preDoc = await db.collection('pre_schedules').doc(this.data.sourceId).get();
@@ -103,7 +100,6 @@ const scheduleEditorManager = {
             .where('month', '==', lm)
             .where('status', '==', 'published')
             .limit(1).get();
-        // ✅ 修正：讀取上個月班表的 assignments 資料
         this.lastMonthData = !snap.empty ? snap.docs[0].data().assignments || {} : {};
         console.log(`📅 已載入上月班表資料: ${!snap.empty ? '成功' : '無資料'}`);
     },
@@ -142,7 +138,6 @@ const scheduleEditorManager = {
             const badges = this.getStaffStatusBadges(uid);
             bHtml += `<tr><td>${user.employeeId||''}</td><td>${s.name}</td><td>${badges}</td><td>${s.packageType?`包${s.packageType}`:''}</td>`;
             
-            // ✅ 帶入上月月底 6 天資料
             const lm = this.lastMonthData[uid] || {};
             for(let d=lastD-5; d<=lastD; d++) {
                 const v = lm[`current_${d}`];
@@ -161,7 +156,6 @@ const scheduleEditorManager = {
         });
         tbody.innerHTML = bHtml;
 
-        // ✅ 新增：每日人力監控 (tfoot)
         if (tfoot) {
             let footHtml = '';
             this.shifts.forEach((s, idx) => {
@@ -193,12 +187,24 @@ const scheduleEditorManager = {
             });
             tfoot.innerHTML = footHtml;
             
-            // 立即更新統計數字
             setTimeout(() => this.updateRealTimeStats(), 0);
         }
     },
 
-    loadShifts: async function() { const snap = await db.collection('shifts').where('unitId', '==', this.data.unitId).orderBy('startTime').get(); this.shifts = snap.docs.map(d => d.data()); },
+    // ✅ 修正：過濾排班不可用的班別
+    loadShifts: async function() { 
+        const snap = await db.collection('shifts')
+            .where('unitId', '==', this.data.unitId)
+            .orderBy('startTime')
+            .get(); 
+        
+        // ✅ 過濾掉排班不可用的班別
+        this.shifts = snap.docs.map(d => d.data())
+            .filter(s => s.isScheduleAvailable !== false);
+        
+        console.log(`✅ 排班編輯器載入 ${this.shifts.length} 個可用班別:`, this.shifts.map(s => s.code));
+    },
+    
     loadUsers: async function() { const snap = await db.collection('users').get(); snap.forEach(d => this.usersMap[d.id] = d.data()); },
     loadUnitRules: async function() { const doc = await db.collection('units').doc(this.data.unitId).get(); this.unitRules = doc.data()?.schedulingRules || {}; },
     getStaffStatusBadges: function(uid) { const p = this.usersMap[uid]?.schedulingParams || {}; const b = []; if (p.isPregnant) b.push('<span class="status-badge" style="background:#ff9800;">孕</span>'); if (p.isBreastfeeding) b.push('<span class="status-badge" style="background:#4caf50;">哺</span>'); if (p.isPGY) b.push('<span class="status-badge" style="background:#2196f3;">P</span>'); if (p.independence === 'dependent') b.push('<span class="status-badge" style="background:#9c27b0;">D</span>'); return b.join(''); },
@@ -312,12 +318,11 @@ const scheduleEditorManager = {
         try {
             if(typeof SchedulerFactory === 'undefined') throw new Error("排班引擎未載入");
             
-            // ✅ 準備 AI 所需資料 - 統一使用 uid 作為員工識別碼
             const staffListWithId = this.data.staffList.map(s => ({
                 ...s,
-                id: s.uid || s.id,  // 確保每個 staff 都有 id 屬性，優先使用 uid
-                schedulingParams: this.usersMap[s.uid]?.schedulingParams || {},  // 補充完整參數
-                preferences: this.assignments[s.uid]?.preferences || {}  // 補充偏好設定
+                id: s.uid || s.id,
+                schedulingParams: this.usersMap[s.uid]?.schedulingParams || {},
+                preferences: this.assignments[s.uid]?.preferences || {}
             }));
             
             const rules = { ...this.unitRules, shifts: this.shifts };
@@ -326,17 +331,15 @@ const scheduleEditorManager = {
             
             console.log("🤖 AI 排班結果樣本:", result[Object.keys(result)[0]]);
             
-            // ✅ 轉換結果格式為 assignments
             const newAssignments = {};
             this.data.staffList.forEach(s => {
-                const uid = s.uid.trim();  // 統一使用 uid
+                const uid = s.uid.trim();
                 newAssignments[uid] = { preferences: (this.assignments[uid]?.preferences || {}) };
                 
                 for(let d=1; d<=new Date(this.data.year, this.data.month, 0).getDate(); d++) {
                     const ds = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
                     let shift = 'OFF';
                     
-                    // 在結果中查找該員工的班別
                     if (result[ds]) {
                         for(let code in result[ds]) {
                             if(result[ds][code].includes(uid)) { 
