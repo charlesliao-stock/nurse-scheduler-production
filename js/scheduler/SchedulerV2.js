@@ -44,7 +44,15 @@ window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}
 
         shiftOrder.forEach(code => {
             // ✅ 修正：如果原始需求數為 0，則絕對不排班
-            if ((needs[code] || 0) <= 0) return;
+            if ((needs[code] || 0) <= 0) {
+                // 確保即使是預班或延續班別，若需求為 0 也應移除
+                const currentStaffs = [...(this.schedule[ds][code] || [])];
+                currentStaffs.forEach(uid => {
+                    this.updateShift(ds, uid, code, 'OFF');
+                    this.staffStats[uid].workPressure -= 1.5;
+                });
+                return;
+            }
 
             let gap = needs[code] - (this.schedule[ds][code]?.length || 0);
             if (gap <= 0) return;

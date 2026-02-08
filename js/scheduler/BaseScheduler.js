@@ -176,11 +176,14 @@ window.BaseScheduler = class BaseScheduler {
             if (!shift) return true;
             
             const startH = shift.startH;
+            const endH = shift.endH;
             const isNight = (startH >= 20 || startH <= 6); 
             const isEvening = (startH >= 15 && startH < 20); 
+            // ✅ 修正：除了上班時間，也要檢查下班時間是否超過 22:00
+            const isLateEvening = (endH > 22 || (endH <= 6 && endH > 0));
 
-            if (isNight || isEvening) {
-                console.warn(`🤰 [限制] ${staff.name} 為孕/哺狀態，攔截${isNight?'大夜':'小夜'}班 (${shiftCode})`);
+            if (isNight || isEvening || isLateEvening) {
+                console.warn(`🤰 [限制] ${staff.name} 為孕/哺狀態，攔截夜班或晚下班 (${shiftCode}: ${startH}:00-${endH}:00)`);
                 return false;
             }
         }
