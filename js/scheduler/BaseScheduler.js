@@ -286,6 +286,10 @@ window.BaseScheduler = class BaseScheduler {
                 const currentS = this.getShiftByDate(ds, s.id);
                 if (currentS !== 'OFF') break;
 
+                // ✅ 修正：檢查當日該班別是否有人力需求，若需求為 0 則不延續
+                const needs = typeof this.getDailyNeeds === 'function' ? this.getDailyNeeds(d) : null;
+                if (needs && (needs[lastShift] || 0) <= 0) break;
+
                 // 嘗試延續班別 (傳入 isContinuing = true)
                 if (this.isValidAssignment(s, ds, lastShift, true)) {
                     this.updateShift(ds, s.id, 'OFF', lastShift);

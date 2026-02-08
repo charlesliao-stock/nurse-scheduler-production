@@ -43,6 +43,9 @@ window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}
         const shiftOrder = Object.keys(needs).sort((a,b) => needs[b] - needs[a]);
 
         shiftOrder.forEach(code => {
+            // ✅ 修正：如果原始需求數為 0，則絕對不排班
+            if ((needs[code] || 0) <= 0) return;
+
             let gap = needs[code] - (this.schedule[ds][code]?.length || 0);
             if (gap <= 0) return;
 
