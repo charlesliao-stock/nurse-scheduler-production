@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 修正版：解決 AI 排班全部變 OFF + 統一使用 uid 識別員工
+// 🚀 修正版：解決 AI 排班全部變 OFF+統一使用 uid 識別員工
 
 const scheduleEditorManager = {
     scheduleId: null, 
