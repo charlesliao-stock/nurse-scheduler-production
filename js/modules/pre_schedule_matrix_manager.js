@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_matrix_manager.js
-// 🔧 完整版 v4.1：修正支援人員誤判問題
+// 🔧 完整版 v4.2：修正偏好與狀態傳遞問題
 
 const matrixManager = {
     docId: null, 
@@ -880,10 +880,14 @@ const matrixManager = {
         }
     },
 
+    // 🔧 修正版：正確傳遞包班偏好和狀態資料
     executeSchedule: async function() {
         if(!confirm("確定執行排班? 將鎖定預班並建立正式草稿。")) return;
-        this.isLoading = true; this.showLoading();
+        this.isLoading = true; 
+        this.showLoading();
+        
         try {
+            // 1. 準備初始排班資料（包含偏好設定）
             const initialAssignments = {};
             if (this.localAssignments) {
                 Object.keys(this.localAssignments).forEach(uid => {
@@ -891,6 +895,7 @@ const matrixManager = {
                 });
             }
 
+            // 2. 準備上個月資料
             const lastMonthData = {};
             const allUids = new Set([
                 ...Object.keys(this.localAssignments), 
@@ -917,21 +922,47 @@ const matrixManager = {
                 }
             });
 
+            // 🔧 關鍵修正：正確組合人員清單，保留狀態與偏好
             const staffListForSchedule = (this.data.staffList || []).map(staff => {
                 const uid = staff.uid || staff.id;
-                const assign = this.localAssignments[uid] || {};
-                const prefs = assign.preferences || {};
+                const userAssign = this.localAssignments[uid] || {};
+                const userPrefs = userAssign.preferences || {};
+                
+                // 從 usersMap 取得最新的 schedulingParams（狀態資料）
+                const latestUser = this.usersMap[uid] || {};
+                const latestParams = latestUser.schedulingParams || staff.schedulingParams || {};
                 
                 return {
-                    ...staff,
-                    prefs: prefs, 
-                    schedulingParams: assign
+                    uid: uid,
+                    empId: staff.empId,
+                    name: staff.name,
+                    level: staff.level || 'N',
+                    group: staff.group || '',
+                    isSupport: staff.isSupport || false,
+                    
+                    // ✅ 正確傳遞排班參數（孕/哺/P/協等狀態）
+                    schedulingParams: latestParams,
+                    
+                    // ✅ 正確傳遞偏好設定（包班與志願）
+                    preferences: {
+                        bundleShift: userPrefs.bundleShift || '',
+                        favShift: userPrefs.favShift || '',
+                        favShift2: userPrefs.favShift2 || '',
+                        favShift3: userPrefs.favShift3 || ''
+                    }
                 };
             });
 
+            console.log('📋 準備轉入排班編輯器的人員清單:', staffListForSchedule);
+            console.log('📋 包含偏好設定的人員數:', staffListForSchedule.filter(s => s.preferences.bundleShift || s.preferences.favShift).length);
+
+            // 3. 建立排班文件
             const scheduleData = {
-                unitId: this.data.unitId, year: this.data.year, month: this.data.month,
-                sourceId: this.docId, status: 'draft',
+                unitId: this.data.unitId, 
+                year: this.data.year, 
+                month: this.data.month,
+                sourceId: this.docId, 
+                status: 'draft',
                 staffList: staffListForSchedule,
                 assignments: initialAssignments,
                 lastMonthData: lastMonthData,
@@ -944,16 +975,34 @@ const matrixManager = {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
 
+            // 4. 批次更新
             const batch = db.batch();
-            batch.update(db.collection('pre_schedules').doc(this.docId), { status: 'closed', assignments: this.localAssignments });
+            batch.update(
+                db.collection('pre_schedules').doc(this.docId), 
+                { 
+                    status: 'closed', 
+                    assignments: this.localAssignments,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }
+            );
+            
             const newSchRef = db.collection('schedules').doc();
             batch.set(newSchRef, scheduleData);
 
             await batch.commit();
+            
+            console.log('✅ 排班文件已建立，ID:', newSchRef.id);
             alert("執行成功! 轉跳中...");
             window.location.hash = `/admin/schedule_editor?id=${newSchRef.id}`;
-        } catch(e) { console.error(e); alert("失敗: "+e.message); this.renderMatrix(); } 
-        finally { this.isLoading = false; }
+            
+        } catch(e) { 
+            console.error('❌ 執行排班失敗:', e); 
+            alert("失敗: " + e.message); 
+            this.renderMatrix(); 
+        } 
+        finally { 
+            this.isLoading = false; 
+        }
     },
     
     openPrefModal: function(uid, name) { 
