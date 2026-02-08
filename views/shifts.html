@@ -19,24 +19,34 @@
         <table id="shiftTable">
             <thead>
                 <tr>
-                    <th style="width: 10%; cursor:pointer;" onclick="shiftManager.sortData('color')">
+                    <th style="width: 8%; cursor:pointer;" onclick="shiftManager.sortData('color')">
                         顏色 <i id="sort_icon_shift_color" class="fas fa-sort"></i>
                     </th>
-                    <th style="width: 10%; cursor:pointer;" onclick="shiftManager.sortData('code')">
-                        班別代號 <i id="sort_icon_shift_code" class="fas fa-sort"></i>
+                    <th style="width: 8%; cursor:pointer;" onclick="shiftManager.sortData('code')">
+                        代號 <i id="sort_icon_shift_code" class="fas fa-sort"></i>
                     </th>
-                    <th style="width: 10%; cursor:pointer;" onclick="shiftManager.sortData('name')">
-                        班別名稱 <i id="sort_icon_shift_name" class="fas fa-sort"></i>
+                    <th style="width: 12%; cursor:pointer;" onclick="shiftManager.sortData('name')">
+                        名稱 <i id="sort_icon_shift_name" class="fas fa-sort"></i>
                     </th>
-                    <th style="width: 20%; cursor:pointer;" onclick="shiftManager.sortData('startTime')">
+                    <th style="width: 15%; cursor:pointer;" onclick="shiftManager.sortData('startTime')">
                         起訖時間 <i id="sort_icon_shift_startTime" class="fas fa-sort"></i>
                     </th>
-                    <th style="width: 10%; cursor:pointer;" onclick="shiftManager.sortData('hours')">
-                        工時 <i id="sort_icon_shift_hours" class="fas fa-sort"></i>
+                    <th style="width: 7%; cursor:pointer;" onclick="shiftManager.sortData('hours')">
+                        時數 <i id="sort_icon_shift_hours" class="fas fa-sort"></i>
                     </th>
-                    <th style="width: 10%;">包班</th>
-                    <th style="width: 10%;">排班志願</th>
-                    <th style="width: 20%;">操作</th>
+                    <th style="width: 9%; text-align:center;" title="是否可用於預班設定">
+                        預班可用 <i class="fas fa-info-circle" style="color:#95a5a6; font-size:0.75rem;"></i>
+                    </th>
+                    <th style="width: 9%; text-align:center;" title="是否可用於正式排班">
+                        排班可用 <i class="fas fa-info-circle" style="color:#95a5a6; font-size:0.75rem;"></i>
+                    </th>
+                    <th style="width: 9%; text-align:center;" title="是否可設為包班">
+                        包班可用 <i class="fas fa-info-circle" style="color:#95a5a6; font-size:0.75rem;"></i>
+                    </th>
+                    <th style="width: 10%; text-align:center;" title="是否可設為排班志願">
+                        志願可用 <i class="fas fa-info-circle" style="color:#95a5a6; font-size:0.75rem;"></i>
+                    </th>
+                    <th style="width: 13%;">操作</th>
                 </tr>
             </thead>
             <tbody id="shiftTableBody"></tbody>
@@ -44,76 +54,268 @@
     </div>
 </div>
 
+<!-- ✅ 編輯/新增班別視窗 (更新版) -->
 <div id="shiftModal" class="modal">
-    <div class="modal-content" style="max-width: 500px;">
-        <h3 id="modalTitle">班別資訊</h3>
-        <input type="hidden" id="shiftDocId">
-        <input type="hidden" id="currentMode">
-
-        <div class="form-row">
-            <div class="form-group">
-                <label>所屬單位 *</label>
-                <select id="inputShiftUnit" disabled style="background:#f9f9f9;">
-                </select>
-            </div>
+    <div class="modal-content" style="max-width: 650px;">
+        <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; padding:20px; border-bottom:2px solid #eee;">
+            <h3 id="modalTitle" style="margin:0;">
+                <i class="fas fa-clock"></i> 班別設定
+            </h3>
+            <button class="close-btn" onclick="shiftManager.closeModal()" style="background:none; border:none; font-size:1.5rem; cursor:pointer; color:#999; line-height:1;">×</button>
         </div>
+        
+        <div class="modal-body" style="padding:25px;">
+            <input type="hidden" id="shiftDocId">
+            <input type="hidden" id="currentMode">
 
-        <div class="form-row">
-            <div class="form-group">
-                <label>班別代號 *</label>
-                <input type="text" id="inputShiftCode" placeholder="例如: D, E, N">
+            <!-- 基本資訊 -->
+            <div style="background:#f8f9fa; padding:18px; border-radius:8px; margin-bottom:20px;">
+                <h4 style="margin:0 0 15px 0; font-size:1rem; color:#2c3e50;">
+                    <i class="fas fa-info-circle"></i> 基本資訊
+                </h4>
+                
+                <div class="form-group">
+                    <label>所屬單位 <span style="color:red;">*</span></label>
+                    <select id="inputShiftUnit" class="form-control">
+                        <!-- 動態載入 -->
+                    </select>
+                </div>
+                
+                <div style="display:grid; grid-template-columns:1fr 2fr; gap:15px;">
+                    <div class="form-group">
+                        <label>班別代號 <span style="color:red;">*</span></label>
+                        <input type="text" id="inputShiftCode" class="form-control" placeholder="例如: D, E, N" maxlength="5" style="text-transform:uppercase;">
+                        <small style="color:#666; display:block; margin-top:4px;">建議使用簡短英文代碼</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>班別名稱 <span style="color:red;">*</span></label>
+                        <input type="text" id="inputShiftName" class="form-control" placeholder="例如: 白班, 小夜, 大夜">
+                    </div>
+                </div>
             </div>
-            <div class="form-group">
-                <label>班別名稱 *</label>
-                <input type="text" id="inputShiftName" placeholder="例如: 白班">
+            
+            <!-- 時間設定 -->
+            <div style="background:#f8f9fa; padding:18px; border-radius:8px; margin-bottom:20px;">
+                <h4 style="margin:0 0 15px 0; font-size:1rem; color:#2c3e50;">
+                    <i class="fas fa-clock"></i> 時間設定
+                </h4>
+                
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:15px;">
+                    <div class="form-group">
+                        <label>上班時間 <span style="color:red;">*</span></label>
+                        <input type="time" id="inputStartTime" class="form-control" step="3600">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>下班時間 <span style="color:red;">*</span></label>
+                        <input type="time" id="inputEndTime" class="form-control" step="1800">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>工時 (小時)</label>
+                        <input type="number" id="inputWorkHours" class="form-control" step="0.5" placeholder="8">
+                        <button type="button" class="btn btn-sm" style="background:#95a5a6; color:white; padding:4px 10px; font-size:0.8rem; margin-top:5px; width:100%;" onclick="shiftManager.autoCalcHours()">
+                            <i class="fas fa-calculator"></i> 自動計算
+                        </button>
+                    </div>
+                </div>
             </div>
-        </div>
-
-        <div class="form-row">
-            <div class="form-group">
-                <label>上班時間 *</label>
-                <input type="time" id="inputStartTime" step="3600"> 
+            
+            <!-- 顯示設定 -->
+            <div style="background:#f8f9fa; padding:18px; border-radius:8px; margin-bottom:20px;">
+                <h4 style="margin:0 0 15px 0; font-size:1rem; color:#2c3e50;">
+                    <i class="fas fa-palette"></i> 顯示設定
+                </h4>
+                
+                <div class="form-group">
+                    <label>班表顯示顏色</label>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <input type="color" id="inputShiftColor" value="#3498db" style="width:60px; height:40px; padding:0; border:1px solid #ddd; border-radius:4px; cursor:pointer;">
+                        <span id="colorHexCode" style="font-family:monospace; color:#666; font-size:0.95rem; font-weight:500;">#3498db</span>
+                        <span style="color:#999; font-size:0.85rem;">選擇在班表中顯示的背景顏色</span>
+                    </div>
+                </div>
             </div>
-            <div class="form-group">
-                <label>下班時間 *</label>
-                <input type="time" id="inputEndTime" step="1800">
-            </div>
-        </div>
-
-        <div class="form-row">
-            <div class="form-group">
-                <label>工時 (小時)</label>
-                <input type="number" id="inputWorkHours" step="0.5" placeholder="例如: 8">
-                <button type="button" class="btn" style="background:#95a5a6; padding:2px 6px; font-size:0.8rem; margin-top:5px;" onclick="shiftManager.autoCalcHours()">自動計算</button>
-            </div>
-            <div class="form-group">
-                <label>班別顏色</label>
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <input type="color" id="inputShiftColor" value="#3498db" style="width:50px; height:40px; padding:0; border:none; cursor:pointer;">
-                    <span id="colorHexCode" style="color:#666;">#3498db</span>
+            
+            <!-- ✅ 功能啟用設定 -->
+            <div style="background:#e8f4fd; padding:20px; border-radius:8px; border-left:4px solid #3498db;">
+                <h4 style="margin:0 0 15px 0; font-size:1rem; color:#2c3e50;">
+                    <i class="fas fa-toggle-on"></i> 功能啟用設定
+                </h4>
+                
+                <div style="display:grid; gap:15px;">
+                    <!-- 預班可用 -->
+                    <div class="form-group" style="margin:0;">
+                        <label style="display:flex; align-items:flex-start; gap:12px; cursor:pointer; margin:0;">
+                            <input type="checkbox" id="checkIsPreSchedule" style="width:20px; height:20px; min-width:20px; margin-top:2px; cursor:pointer;">
+                            <div style="flex:1;">
+                                <div style="font-weight:bold; color:#2c3e50; margin-bottom:4px;">
+                                    <i class="fas fa-calendar-check" style="color:#3498db; margin-right:5px;"></i>
+                                    預班可用
+                                </div>
+                                <div style="font-size:0.85rem; color:#666; line-height:1.5;">
+                                    啟用後，此班別會出現在「預班管理」的人力需求設定中，護理師可選擇此班別作為預班需求
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+                    
+                    <hr style="margin:5px 0; border:none; border-top:1px solid #d0e7f7;">
+                    
+                    <!-- 排班可用 -->
+                    <div class="form-group" style="margin:0;">
+                        <label style="display:flex; align-items:flex-start; gap:12px; cursor:pointer; margin:0;">
+                            <input type="checkbox" id="checkIsSchedule" checked style="width:20px; height:20px; min-width:20px; margin-top:2px; cursor:pointer;">
+                            <div style="flex:1;">
+                                <div style="font-weight:bold; color:#2c3e50; margin-bottom:4px;">
+                                    <i class="fas fa-calendar-alt" style="color:#27ae60; margin-right:5px;"></i>
+                                    排班可用
+                                </div>
+                                <div style="font-size:0.85rem; color:#666; line-height:1.5;">
+                                    啟用後，此班別可用於正式排班，AI 排班引擎會將人員分配至此班別
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+                    
+                    <hr style="margin:5px 0; border:none; border-top:1px solid #d0e7f7;">
+                    
+                    <!-- 包班可用 -->
+                    <div class="form-group" style="margin:0;">
+                        <label style="display:flex; align-items:flex-start; gap:12px; cursor:pointer; margin:0;">
+                            <input type="checkbox" id="checkIsBundle" style="width:20px; height:20px; min-width:20px; margin-top:2px; cursor:pointer;">
+                            <div style="flex:1;">
+                                <div style="font-weight:bold; color:#2c3e50; margin-bottom:4px;">
+                                    <i class="fas fa-layer-group" style="color:#f39c12; margin-right:5px;"></i>
+                                    包班可用
+                                </div>
+                                <div style="font-size:0.85rem; color:#666; line-height:1.5;">
+                                    啟用後，人員可選擇固定排此班別（包班制度），系統會優先將該人員分配至此班別
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+                    
+                    <hr style="margin:5px 0; border:none; border-top:1px solid #d0e7f7;">
+                    
+                    <!-- 排班志願可用 -->
+                    <div class="form-group" style="margin:0;">
+                        <label style="display:flex; align-items:flex-start; gap:12px; cursor:pointer; margin:0;">
+                            <input type="checkbox" id="checkIsPreference" checked style="width:20px; height:20px; min-width:20px; margin-top:2px; cursor:pointer;">
+                            <div style="flex:1;">
+                                <div style="font-weight:bold; color:#2c3e50; margin-bottom:4px;">
+                                    <i class="fas fa-heart" style="color:#e74c3c; margin-right:5px;"></i>
+                                    排班志願可用
+                                </div>
+                                <div style="font-size:0.85rem; color:#666; line-height:1.5;">
+                                    啟用後，人員可在預班中設定此班別為第一、第二、第三志願，AI 會參考志願進行排班
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+                
+                <div style="background:#fff; margin-top:15px; padding:12px; border-radius:4px; border:1px solid #d0e7f7;">
+                    <div style="font-size:0.85rem; color:#2c3e50; line-height:1.6;">
+                        <i class="fas fa-lightbulb" style="color:#f39c12; margin-right:5px;"></i>
+                        <strong>設定建議：</strong>
+                        <ul style="margin:8px 0 0 0; padding-left:20px;">
+                            <li>一般班別建議啟用「排班可用」與「排班志願可用」</li>
+                            <li>夜班類班別可啟用「包班可用」，讓固定夜班人員選擇</li>
+                            <li>需要預先規劃人力的班別應啟用「預班可用」</li>
+                        </ul>
+                    </div>
                 </div>
             </div>
         </div>
-
-        <div class="form-group" style="background:#f9f9f9; padding:10px; border-radius:4px; margin-top:10px;">
-            <label style="cursor:pointer; display:flex; align-items:center;">
-                <input type="checkbox" id="checkIsBundle" style="width:auto; margin-right:10px;">
-                列入「包班意願」選項
-            </label>
-            <small style="color:#7f8c8d; display:block; margin-top:5px;">勾選後，同仁在填寫預班時可選擇包此班別 (如：大夜包班)。</small>
-        </div>
-
-        <div class="form-group" style="background:#f9f9f9; padding:10px; border-radius:4px; margin-top:10px;">
-            <label style="cursor:pointer; display:flex; align-items:center;">
-                <input type="checkbox" id="checkIsPreSchedule" style="width:auto; margin-right:10px;">
-                列入「排班志願」選項
-            </label>
-            <small style="color:#7f8c8d; display:block; margin-top:5px;">勾選後，此班別將出現在同仁的預班志願選項中。</small>
-        </div>
-
-        <div style="text-align:right; margin-top:25px;">
-            <button class="btn btn-close" onclick="shiftManager.closeModal()">取消</button>
-            <button class="btn btn-add" onclick="shiftManager.saveData()">儲存</button>
+        
+        <div class="modal-footer" style="padding:15px 25px; border-top:2px solid #eee; text-align:right;">
+            <button class="btn btn-secondary" onclick="shiftManager.closeModal()" style="margin-right:10px; background:#95a5a6; color:white; padding:10px 20px; border:none; border-radius:4px; cursor:pointer;">
+                <i class="fas fa-times"></i> 取消
+            </button>
+            <button class="btn btn-primary" onclick="shiftManager.saveData()" style="background:#3498db; color:white; padding:10px 20px; border:none; border-radius:4px; cursor:pointer;">
+                <i class="fas fa-save"></i> 儲存
+            </button>
         </div>
     </div>
 </div>
+
+<style>
+/* ✅ 切換開關樣式 */
+.toggle-switch input:checked + .toggle-slider {
+    background-color: #27ae60 !important;
+}
+
+.toggle-switch input:focus + .toggle-slider {
+    box-shadow: 0 0 1px #27ae60;
+}
+
+.toggle-slider {
+    transition: background-color 0.3s;
+}
+
+.toggle-slider span {
+    transition: left 0.3s;
+}
+
+/* 表格樣式優化 */
+#shiftTable th {
+    background: #f8f9fa;
+    font-weight: 600;
+    color: #2c3e50;
+    padding: 12px 8px;
+}
+
+#shiftTable td {
+    padding: 10px 8px;
+    vertical-align: middle;
+}
+
+/* 模態視窗樣式 */
+.modal-content {
+    box-shadow: 0 5px 25px rgba(0,0,0,0.2);
+    border-radius: 8px;
+}
+
+.form-control {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.95rem;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #3498db;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.1);
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+    color: #2c3e50;
+    font-size: 0.9rem;
+}
+
+/* 按鈕樣式 */
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 0.85rem;
+}
+
+.btn:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.btn:active {
+    transform: translateY(0);
+}
+</style>
