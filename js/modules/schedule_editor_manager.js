@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 修正版 v2：解決 AI 排班全部變 OFF + 過濾排班不可用班別
+// 🚀 修正版 v3：解決偏好顯示問題 + AI 排班全部變 OFF + 過濾排班不可用班別
 
 const scheduleEditorManager = {
     scheduleId: null, 
@@ -121,46 +121,114 @@ const scheduleEditorManager = {
     },
 
     renderMatrix: function() {
-        const thead = document.getElementById('schHead'), tbody = document.getElementById('schBody'), tfoot = document.getElementById('schFoot');
-        const { year, month } = this.data, days = new Date(year, month, 0).getDate(), lastD = this.lastMonthDays || 31;
+        const thead = document.getElementById('schHead'), 
+              tbody = document.getElementById('schBody'), 
+              tfoot = document.getElementById('schFoot');
+        const { year, month } = this.data, 
+              days = new Date(year, month, 0).getDate(), 
+              lastD = this.lastMonthDays || 31;
         
-        let h = `<tr><th rowspan="2">職編</th><th rowspan="2">姓名</th><th rowspan="2">狀態</th><th rowspan="2">偏好</th><th colspan="6" style="background:#eee;">上月月底</th>`;
+        // === 表頭 ===
+        let h = `<tr>
+            <th rowspan="2">職編</th>
+            <th rowspan="2">姓名</th>
+            <th rowspan="2">狀態</th>
+            <th rowspan="2">偏好</th>
+            <th colspan="6" style="background:#eee;">上月月底</th>`;
         for(let d=1; d<=days; d++) h += `<th>${d}</th>`;
         h += `<th colspan="4">統計</th></tr><tr>`;
-        for(let d=lastD-5; d<=lastD; d++) h += `<th style="background:#f5f5f5; color:#999; font-size:0.7rem;">${d}</th>`;
-        for(let d=1; d<=days; d++) h += `<th style="font-size:0.8rem;">${['日','一','二','三','四','五','六'][new Date(year, month-1, d).getDay()]}</th>`;
+        
+        for(let d=lastD-5; d<=lastD; d++) {
+            h += `<th style="background:#f5f5f5; color:#999; font-size:0.7rem;">${d}</th>`;
+        }
+        for(let d=1; d<=days; d++) {
+            h += `<th style="font-size:0.8rem;">${['日','一','二','三','四','五','六'][new Date(year, month-1, d).getDay()]}</th>`;
+        }
         h += `<th>總OFF</th><th>假OFF</th><th>E</th><th>N</th></tr>`;
         thead.innerHTML = h;
 
+        // === 表身 ===
         let bHtml = '';
         this.data.staffList.forEach(s => {
-            const uid = s.uid, ua = this.assignments[uid] || {}, user = this.usersMap[uid] || {};
+            const uid = s.uid, 
+                  ua = this.assignments[uid] || {}, 
+                  user = this.usersMap[uid] || {};
             const badges = this.getStaffStatusBadges(uid);
-            bHtml += `<tr><td>${user.employeeId||''}</td><td>${s.name}</td><td>${badges}</td><td>${s.packageType?`包${s.packageType}`:''}</td>`;
             
+            // 🔧 修正：從 assignments 中取得偏好設定
+            const prefs = ua.preferences || {};
+            let prefDisplay = '';
+            
+            // 顯示包班
+            if (prefs.bundleShift) {
+                prefDisplay += `<div style="font-weight:bold; font-size:0.85rem; color:#e67e22;">包${prefs.bundleShift}</div>`;
+            }
+            
+            // 顯示志願
+            let favs = [];
+            if (prefs.favShift) favs.push(prefs.favShift);
+            if (prefs.favShift2) favs.push(prefs.favShift2);
+            if (prefs.favShift3) favs.push(prefs.favShift3);
+            if (favs.length > 0) {
+                prefDisplay += `<div style="font-size:0.75rem; color:#666; margin-top:2px;">${favs.join(' → ')}</div>`;
+            }
+            
+            // 如果沒有任何偏好，顯示提示圖示
+            if (!prefDisplay) {
+                prefDisplay = '<span style="color:#ccc;">-</span>';
+            }
+            
+            bHtml += `<tr>
+                <td>${user.employeeId||''}</td>
+                <td>${s.name}${s.isSupport ? '<br><span style="color:#27ae60; font-size:0.7rem;">(支援)</span>' : ''}</td>
+                <td style="text-align:center;">${badges || '<span style="color:#ccc;">-</span>'}</td>
+                <td style="text-align:center; line-height:1.3; padding:4px 2px;">${prefDisplay}</td>`;
+            
+            // 上月月底班別
             const lm = this.lastMonthData[uid] || {};
             for(let d=lastD-5; d<=lastD; d++) {
                 const v = lm[`current_${d}`];
-                bHtml += `<td style="font-size:0.7rem; background:#f9f9f9; color:#999;">${v==='OFF'?'FF':(v||'-')}</td>`;
+                bHtml += `<td style="font-size:0.7rem; background:#f9f9f9; color:#999; text-align:center;">${v==='OFF'?'FF':(v||'-')}</td>`;
             }
+            
+            // 當月班別 + 統計
             let off=0, req=0, e=0, n=0;
             for(let d=1; d<=days; d++) {
                 const v = ua[`current_${d}`];
                 let txt = v || '', cls = 'cell-clickable';
-                if(v === 'OFF') { off++; txt='FF'; cls+=' cell-off'; }
-                else if(v === 'REQ_OFF') { off++; req++; txt='V'; cls+=' cell-req-off'; }
-                else if(v === 'E') e++; else if(v === 'N') n++;
+                if(v === 'OFF') { 
+                    off++; 
+                    txt='FF'; 
+                    cls+=' cell-off'; 
+                } else if(v === 'REQ_OFF') { 
+                    off++; 
+                    req++; 
+                    txt='V'; 
+                    cls+=' cell-req-off'; 
+                } else if(v === 'E') {
+                    e++;
+                } else if(v === 'N') {
+                    n++;
+                }
                 bHtml += `<td class="${cls}" oncontextmenu="scheduleEditorManager.showContextMenu(event,'${uid}',${d}); return false;">${txt}</td>`;
             }
-            bHtml += `<td>${off}</td><td>${req}</td><td>${e}</td><td>${n}</td></tr>`;
+            
+            bHtml += `<td style="text-align:center;">${off}</td>
+                      <td style="text-align:center; color:red;">${req}</td>
+                      <td style="text-align:center;">${e}</td>
+                      <td style="text-align:center;">${n}</td>`;
+            bHtml += `</tr>`;
         });
         tbody.innerHTML = bHtml;
 
+        // === 表尾（人力監控）===
         if (tfoot) {
             let footHtml = '';
             this.shifts.forEach((s, idx) => {
                 footHtml += `<tr>`;
-                if(idx === 0) footHtml += `<td colspan="10" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; vertical-align:middle; background:#f8f9fa;">每日人力<br>監控</td>`;
+                if(idx === 0) {
+                    footHtml += `<td colspan="10" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; vertical-align:middle; background:#f8f9fa;">每日人力<br>監控</td>`;
+                }
                 
                 for(let d=1; d<=days; d++) {
                     const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
@@ -191,7 +259,6 @@ const scheduleEditorManager = {
         }
     },
 
-    // ✅ 修正：過濾排班不可用的班別
     loadShifts: async function() { 
         const snap = await db.collection('shifts')
             .where('unitId', '==', this.data.unitId)
@@ -205,10 +272,31 @@ const scheduleEditorManager = {
         console.log(`✅ 排班編輯器載入 ${this.shifts.length} 個可用班別:`, this.shifts.map(s => s.code));
     },
     
-    loadUsers: async function() { const snap = await db.collection('users').get(); snap.forEach(d => this.usersMap[d.id] = d.data()); },
-    loadUnitRules: async function() { const doc = await db.collection('units').doc(this.data.unitId).get(); this.unitRules = doc.data()?.schedulingRules || {}; },
-    getStaffStatusBadges: function(uid) { const p = this.usersMap[uid]?.schedulingParams || {}; const b = []; if (p.isPregnant) b.push('<span class="status-badge" style="background:#ff9800;">孕</span>'); if (p.isBreastfeeding) b.push('<span class="status-badge" style="background:#4caf50;">哺</span>'); if (p.isPGY) b.push('<span class="status-badge" style="background:#2196f3;">P</span>'); if (p.independence === 'dependent') b.push('<span class="status-badge" style="background:#9c27b0;">D</span>'); return b.join(''); },
-    showLoading: function() { if(!document.getElementById('globalLoader')) document.body.insertAdjacentHTML('beforeend', '<div id="globalLoader" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:99999; display:flex; justify-content:center; align-items:center;"><div style="background:white; padding:20px; border-radius:8px;">載入中...</div></div>'); },
+    loadUsers: async function() { 
+        const snap = await db.collection('users').get(); 
+        snap.forEach(d => this.usersMap[d.id] = d.data()); 
+    },
+    
+    loadUnitRules: async function() { 
+        const doc = await db.collection('units').doc(this.data.unitId).get(); 
+        this.unitRules = doc.data()?.schedulingRules || {}; 
+    },
+    
+    getStaffStatusBadges: function(uid) { 
+        const p = this.usersMap[uid]?.schedulingParams || {}; 
+        const b = []; 
+        if (p.isPregnant) b.push('<span class="status-badge" style="background:#ff9800;">孕</span>'); 
+        if (p.isBreastfeeding) b.push('<span class="status-badge" style="background:#4caf50;">哺</span>'); 
+        if (p.isPGY) b.push('<span class="status-badge" style="background:#2196f3;">P</span>'); 
+        if (p.independence === 'dependent') b.push('<span class="status-badge" style="background:#9c27b0;">D</span>'); 
+        return b.join(''); 
+    },
+    
+    showLoading: function() { 
+        if(!document.getElementById('globalLoader')) {
+            document.body.insertAdjacentHTML('beforeend', '<div id="globalLoader" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:99999; display:flex; justify-content:center; align-items:center;"><div style="background:white; padding:20px; border-radius:8px;">載入中...</div></div>');
+        }
+    },
     
     updateRealTimeStats: function() { 
         const { year, month } = this.data;
@@ -283,21 +371,31 @@ const scheduleEditorManager = {
     publishSchedule: async function() {
         if(!confirm("確定要發布此班表嗎？發布後員工將可查看。")) return;
         try {
-            await db.collection('schedules').doc(this.scheduleId).update({ status: 'published', updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            await db.collection('schedules').doc(this.scheduleId).update({ 
+                status: 'published', 
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp() 
+            });
             this.data.status = 'published';
             this.renderToolbar();
             alert("發布成功！");
-        } catch(e) { alert("發布失敗: " + e.message); }
+        } catch(e) { 
+            alert("發布失敗: " + e.message); 
+        }
     },
 
     unpublishSchedule: async function() {
         if(!confirm("確定要取消發布嗎？")) return;
         try {
-            await db.collection('schedules').doc(this.scheduleId).update({ status: 'draft', updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            await db.collection('schedules').doc(this.scheduleId).update({ 
+                status: 'draft', 
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp() 
+            });
             this.data.status = 'draft';
             this.renderToolbar();
             alert("已恢復為草稿狀態。");
-        } catch(e) { alert("操作失敗: " + e.message); }
+        } catch(e) { 
+            alert("操作失敗: " + e.message); 
+        }
     },
 
     resetSchedule: async function() {
@@ -308,8 +406,12 @@ const scheduleEditorManager = {
             this.renderMatrix();
             this.updateScheduleScore();
             alert("班表已重置。");
-        } catch(e) { alert("重置失敗: " + e.message); }
-        finally { const l = document.getElementById('globalLoader'); if(l) l.remove(); }
+        } catch(e) { 
+            alert("重置失敗: " + e.message); 
+        } finally { 
+            const l = document.getElementById('globalLoader'); 
+            if(l) l.remove(); 
+        }
     },
 
     runAI: async function() {
@@ -366,10 +468,18 @@ const scheduleEditorManager = {
         } catch(e) { 
             console.error("❌ AI 排班錯誤:", e);
             alert("AI 排班失敗: " + e.message); 
-        } finally { const l = document.getElementById('globalLoader'); if(l) l.remove(); }
+        } finally { 
+            const l = document.getElementById('globalLoader'); 
+            if(l) l.remove(); 
+        }
     },
 
     initContextMenu: function() { /* 右鍵選單初始化 */ },
     showContextMenu: function(e, u, d) { /* 右鍵選單顯示 */ },
-    bindEvents: function() { document.addEventListener('click', () => { const m = document.getElementById('schContextMenu'); if(m) m.style.display='none'; }); }
+    bindEvents: function() { 
+        document.addEventListener('click', () => { 
+            const m = document.getElementById('schContextMenu'); 
+            if(m) m.style.display='none'; 
+        }); 
+    }
 };
