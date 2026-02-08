@@ -1,9 +1,8 @@
 // js/scheduler/SchedulerV2.js
 /**
  * 階層式 AI 排班引擎 - 平衡優化版
- * 🔧 修正版 v4：修復載入衝突、強化偏好權重、優化壓力平衡、實作月初班別延續
+ * 🔧 修正版 v5：解決包班人員超額問題 - 改用輪流制
  */
-// 在瀏覽器環境中，BaseScheduler 應已透過 <script> 標籤載入至 window
 window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}) {
     constructor(allStaff, year, month, lastMonthData, rules) {
         super(allStaff, year, month, lastMonthData, rules);
@@ -18,20 +17,19 @@ window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}
             this.staffStats[s.id] = {
                 workPressure: 0,
                 isBundle: !!bundleShift,
-                targetShift: bundleShift || null
+                targetShift: bundleShift || null,
+                // ✅ 新增：記錄該班別已排班次數
+                bundleShiftCount: 0
             };
         });
     }
 
     run() {
         this.applyPreSchedules();
-        
-        // ✅ 關鍵：在正式排班前，先套用月初延續班別邏輯
         this.applyEarlyMonthContinuity();
         
         for (let d = 1; d <= this.daysInMonth; d++) {
             this.fillDailyShifts(d);
-            // ✅ 每段落結束進行壓力校正，避免特定員工休假過少
             if (d % Math.ceil(this.daysInMonth / this.segments) === 0) this.rebalancePressure();
         }
         return this.schedule;
@@ -43,9 +41,10 @@ window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}
         const shiftOrder = Object.keys(needs).sort((a,b) => needs[b] - needs[a]);
 
         shiftOrder.forEach(code => {
-            // ✅ 修正：如果原始需求數為 0，則絕對不排班
-            if ((needs[code] || 0) <= 0) {
-                // 確保即使是預班或延續班別，若需求為 0 也應移除
+            const originalNeed = needs[code] || 0;
+            
+            // ✅ 如果原始需求為 0，清空所有該班別
+            if (originalNeed <= 0) {
                 const currentStaffs = [...(this.schedule[ds][code] || [])];
                 currentStaffs.forEach(uid => {
                     this.updateShift(ds, uid, code, 'OFF');
@@ -54,34 +53,141 @@ window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}
                 return;
             }
 
-            let gap = needs[code] - (this.schedule[ds][code]?.length || 0);
+            // ✅ 關鍵修正：如果當前已排人數超過需求，移除多餘人員
+            let currentCount = (this.schedule[ds][code] || []).length;
+            if (currentCount > originalNeed) {
+                const excess = currentCount - originalNeed;
+                console.warn(`⚠️ 第 ${day} 日 ${code} 班超額 ${excess} 人，開始調整...`);
+                this.removeExcessStaff(ds, code, excess);
+                currentCount = (this.schedule[ds][code] || []).length;
+            }
+
+            // ✅ 計算缺額
+            let gap = originalNeed - currentCount;
             if (gap <= 0) return;
 
-            // ✅ 階層 1：包班人員優先
-            gap = this.processQueue(day, code, gap, s => this.staffStats[s.id].targetShift === code);
+            // ✅ 階層 1：包班人員優先（使用輪流制）
+            gap = this.processQueueWithRotation(day, code, gap);
             
-            // ✅ 階層 2：志願人員遞補 (包含預班偏好)
+            // ✅ 階層 2：志願人員遞補
             if (gap > 0) {
                 gap = this.processQueue(day, code, gap, s => {
                     const p = s.preferences || s.prefs || {};
-                    // 檢查預班偏好或個人設定偏好
                     const isPref = (p.favShift === code || p.favShift2 === code);
                     return !this.staffStats[s.id].isBundle && isPref;
                 });
             }
 
-            // ✅ 階層 3：一般補位（按壓力值自動排隊）
+            // ✅ 階層 3：一般補位
             if (gap > 0) {
                 gap = this.processQueue(day, code, gap, s => true);
             }
         });
     }
 
+    /**
+     * ✅ 新增方法：包班人員輪流分配
+     * 策略：按照已排班次數排序，次數少的優先排班
+     */
+    processQueueWithRotation(day, code, gap) {
+        const ds = this.getDateStr(day);
+        
+        // 找出所有包這個班別的人員
+        const bundleStaff = this.staffList.filter(s => 
+            this.staffStats[s.id].targetShift === code && 
+            this.getShiftByDate(ds, s.id) === 'OFF'
+        );
+
+        if (bundleStaff.length === 0) return gap;
+
+        // ✅ 關鍵：按照已排班次數排序（次數少的優先）
+        bundleStaff.sort((a, b) => {
+            const countA = this.staffStats[a.id].bundleShiftCount || 0;
+            const countB = this.staffStats[b.id].bundleShiftCount || 0;
+            
+            // 次數相同時，按壓力值排序
+            if (countA === countB) {
+                return this.calculateScore(a, code) - this.calculateScore(b, code);
+            }
+            
+            return countA - countB;  // 次數少的排前面
+        });
+
+        // 依序排班，直到滿足需求
+        for (const s of bundleStaff) {
+            if (gap <= 0) break;
+            
+            if (this.isValidAssignment(s, ds, code)) {
+                this.updateShift(ds, s.id, 'OFF', code);
+                this.staffStats[s.id].workPressure += 1.5;
+                this.staffStats[s.id].bundleShiftCount++;  // ✅ 增加計數
+                gap--;
+                
+                console.log(`  ✓ 包班輪流：${s.name} 排入 ${code} 班 (第 ${this.staffStats[s.id].bundleShiftCount} 次)`);
+            }
+        }
+        
+        return gap;
+    }
+
+    /**
+     * ✅ 移除超額人員
+     * 策略：優先移除該班別已排最多次的人
+     */
+    removeExcessStaff(dateStr, shiftCode, excessCount) {
+        const staffInShift = [...(this.schedule[dateStr][shiftCode] || [])];
+        
+        // 找出包班人員
+        const bundleStaffIds = this.staffList
+            .filter(s => this.staffStats[s.id].targetShift === shiftCode)
+            .map(s => s.id);
+        
+        // 分為包班人員和一般人員
+        const bundleInShift = staffInShift.filter(uid => bundleStaffIds.includes(uid));
+        const normalInShift = staffInShift.filter(uid => !bundleStaffIds.includes(uid));
+        
+        let removed = 0;
+        
+        // ✅ 策略 1：優先移除一般人員（不是包班的）
+        if (normalInShift.length > 0 && removed < excessCount) {
+            const toRemove = normalInShift.slice(0, excessCount - removed);
+            toRemove.forEach(uid => {
+                const staff = this.staffList.find(s => s.id === uid);
+                this.updateShift(dateStr, uid, shiftCode, 'OFF');
+                this.staffStats[uid].workPressure -= 1.5;
+                console.log(`  ↳ 移除一般人員 ${staff?.name || uid} 從 ${shiftCode} 班`);
+                removed++;
+            });
+        }
+        
+        // ✅ 策略 2：如果還有多餘，移除包班中已排最多次的人
+        if (removed < excessCount && bundleInShift.length > 0) {
+            const sortedBundle = bundleInShift
+                .map(uid => {
+                    const staff = this.staffList.find(s => s.id === uid);
+                    const count = this.staffStats[uid].bundleShiftCount || 0;
+                    return { uid, staff, count };
+                })
+                .sort((a, b) => b.count - a.count);  // 已排最多次的排前面
+            
+            const toRemove = sortedBundle.slice(0, excessCount - removed);
+            toRemove.forEach(({ uid, staff }) => {
+                this.updateShift(dateStr, uid, shiftCode, 'OFF');
+                this.staffStats[uid].workPressure -= 1.5;
+                this.staffStats[uid].bundleShiftCount--;  // ✅ 減少計數
+                console.log(`  ↳ 移除包班人員 ${staff?.name || uid} 從 ${shiftCode} 班 (剩餘 ${this.staffStats[uid].bundleShiftCount} 次)`);
+                removed++;
+            });
+        }
+    }
+
     processQueue(day, code, gap, filterFn) {
         const ds = this.getDateStr(day);
-        const candidates = this.staffList.filter(s => this.getShiftByDate(ds, s.id) === 'OFF' && filterFn(s));
+        const candidates = this.staffList.filter(s => 
+            this.getShiftByDate(ds, s.id) === 'OFF' && 
+            filterFn(s)
+        );
 
-        // ✅ 壓力越小（休假越多）的人分數越低，越優先排班
         candidates.sort((a, b) => this.calculateScore(a, code) - this.calculateScore(b, code));
 
         for (const s of candidates) {
@@ -100,11 +206,9 @@ window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}
         let score = stats.workPressure * 100; 
         
         const p = staff.preferences || staff.prefs || {};
-        // 強化偏好權重：如果是第一志願，大幅降分（增加優先度）
         if (p.favShift === code) score -= 150;
         else if (p.favShift2 === code) score -= 80;
         
-        // 考慮跨月連續上班風險 (預判)
         const consDays = this.getConsecutiveWorkDays(staff.id, this.getDateStr(1));
         if (consDays > 3) score += (consDays * 20);
 
