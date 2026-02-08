@@ -203,14 +203,32 @@ window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}
 
     calculateScore(staff, code) {
         const stats = this.staffStats[staff.id];
+        const counters = this.counters[staff.id] || {};
+        
+        // 1. 基礎壓力分數 (workPressure 隨排班增加)
         let score = stats.workPressure * 100; 
         
+        // 2. 總 OFF 數平衡 (關鍵修正)
+        // 如果該人員目前的總 OFF 數較多，則增加其排班權重（降低分數），使其更容易被排入班別
+        const currentOff = counters.OFF || 0;
+        const avgOff = Object.values(this.counters).reduce((sum, c) => sum + (c.OFF || 0), 0) / this.staffList.length;
+        
+        if (currentOff > avgOff) {
+            // 每多休一天，排班意願增加 (分數降低)
+            score -= (currentOff - avgOff) * 200;
+        } else if (currentOff < avgOff) {
+            // 每少休一天，排班意願減少 (分數增加)
+            score += (avgOff - currentOff) * 200;
+        }
+        
+        // 3. 志願班別偏好
         const p = staff.preferences || staff.prefs || {};
         if (p.favShift === code) score -= 150;
         else if (p.favShift2 === code) score -= 80;
         
+        // 4. 連續上班天數懲罰
         const consDays = this.getConsecutiveWorkDays(staff.id, this.getDateStr(1));
-        if (consDays > 3) score += (consDays * 20);
+        if (consDays > 3) score += (consDays * 50);
 
         return score;
     }
