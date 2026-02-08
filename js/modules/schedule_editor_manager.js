@@ -123,7 +123,7 @@ const scheduleEditorManager = {
     },
 
     renderMatrix: function() {
-        const thead = document.getElementById('schHead'), tbody = document.getElementById('schBody');
+        const thead = document.getElementById('schHead'), tbody = document.getElementById('schBody'), tfoot = document.getElementById('schFoot');
         const { year, month } = this.data, days = new Date(year, month, 0).getDate(), lastD = this.lastMonthDays || 31;
         
         let h = `<tr><th rowspan="2">職編</th><th rowspan="2">姓名</th><th rowspan="2">狀態</th><th rowspan="2">偏好</th><th colspan="6" style="background:#eee;">上月月底</th>`;
@@ -158,6 +158,42 @@ const scheduleEditorManager = {
             bHtml += `<td>${off}</td><td>${req}</td><td>${e}</td><td>${n}</td></tr>`;
         });
         tbody.innerHTML = bHtml;
+
+        // ✅ 新增：每日人力監控 (tfoot)
+        if (tfoot) {
+            let footHtml = '';
+            this.shifts.forEach((s, idx) => {
+                footHtml += `<tr>`;
+                if(idx === 0) footHtml += `<td colspan="10" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; vertical-align:middle; background:#f8f9fa;">每日人力<br>監控</td>`;
+                
+                for(let d=1; d<=days; d++) {
+                    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                    const jsDay = new Date(year, month-1, d).getDay(); 
+                    const dayIdx = (jsDay === 0) ? 6 : jsDay - 1; 
+                    
+                    let need = 0;
+                    let isTemp = false;
+                    
+                    if (this.data.specificNeeds && this.data.specificNeeds[dateStr] && this.data.specificNeeds[dateStr][s.code] !== undefined) {
+                        need = this.data.specificNeeds[dateStr][s.code];
+                        isTemp = true;
+                    } else if (this.data.dailyNeeds) {
+                        need = this.data.dailyNeeds[`${s.code}_${dayIdx}`] || 0;
+                    }
+
+                    const style = isTemp ? 'background:#fff3cd; border:1px solid #f39c12;' : '';
+                    footHtml += `<td id="stat_cell_${s.code}_${d}" style="text-align:center; font-size:0.8rem; ${style}">
+                                    <span class="stat-actual">-</span>/<span class="stat-need" style="font-weight:bold;">${need}</span>
+                                 </td>`;
+                }
+                footHtml += `<td colspan="4" style="background:#f0f0f0;"></td>`;
+                footHtml += `</tr>`;
+            });
+            tfoot.innerHTML = footHtml;
+            
+            // 立即更新統計數字
+            setTimeout(() => this.updateRealTimeStats(), 0);
+        }
     },
 
     loadShifts: async function() { const snap = await db.collection('shifts').where('unitId', '==', this.data.unitId).orderBy('startTime').get(); this.shifts = snap.docs.map(d => d.data()); },
@@ -166,7 +202,47 @@ const scheduleEditorManager = {
     getStaffStatusBadges: function(uid) { const p = this.usersMap[uid]?.schedulingParams || {}; const b = []; if (p.isPregnant) b.push('<span class="status-badge" style="background:#ff9800;">孕</span>'); if (p.isBreastfeeding) b.push('<span class="status-badge" style="background:#4caf50;">哺</span>'); if (p.isPGY) b.push('<span class="status-badge" style="background:#2196f3;">P</span>'); if (p.independence === 'dependent') b.push('<span class="status-badge" style="background:#9c27b0;">D</span>'); return b.join(''); },
     showLoading: function() { if(!document.getElementById('globalLoader')) document.body.insertAdjacentHTML('beforeend', '<div id="globalLoader" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:99999; display:flex; justify-content:center; align-items:center;"><div style="background:white; padding:20px; border-radius:8px;">載入中...</div></div>'); },
     
-    updateRealTimeStats: function() { /* 每日缺額監控邏輯 */ },
+    updateRealTimeStats: function() { 
+        const { year, month } = this.data;
+        const days = new Date(year, month, 0).getDate();
+        const counts = {};
+
+        for(let d=1; d<=days; d++) {
+            counts[d] = {};
+            this.shifts.forEach(s => counts[d][s.code] = 0);
+        }
+
+        Object.values(this.assignments).forEach(ua => {
+            for(let d=1; d<=days; d++) {
+                const v = ua[`current_${d}`];
+                if(v && v !== 'OFF' && v !== 'REQ_OFF' && counts[d][v] !== undefined) {
+                    counts[d][v]++;
+                }
+            }
+        });
+
+        for(let d=1; d<=days; d++) {
+            this.shifts.forEach(s => {
+                const cell = document.getElementById(`stat_cell_${s.code}_${d}`);
+                if(cell) {
+                    const actualSpan = cell.querySelector('.stat-actual');
+                    const needSpan = cell.querySelector('.stat-need');
+                    const actual = counts[d][s.code];
+                    const need = parseInt(needSpan.innerText) || 0;
+                    
+                    if(actualSpan) actualSpan.innerText = actual;
+                    
+                    if(actual < need) {
+                        cell.style.color = 'red';
+                        cell.style.fontWeight = 'bold';
+                    } else {
+                        cell.style.color = '';
+                        cell.style.fontWeight = '';
+                    }
+                }
+            });
+        }
+    },
     
     renderScoreBoardContainer: function() { 
         const toolbar = document.getElementById('editorToolbar');
@@ -271,9 +347,7 @@ const scheduleEditorManager = {
                     newAssignments[uid][`current_${d}`] = shift;
                 }
             });
-
             console.log("📊 轉換後的 assignments 樣本:", Object.keys(newAssignments)[0], newAssignments[Object.keys(newAssignments)[0]]);
-
             this.assignments = newAssignments;
             await db.collection('schedules').doc(this.scheduleId).update({ assignments: this.assignments });
             this.renderMatrix();
