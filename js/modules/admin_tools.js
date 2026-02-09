@@ -11,13 +11,13 @@ const AdminTools = {
     },
 
     // 檢查管理員權限
-    checkAdminPermission: async function() {
-        const user = firebase.auth().currentUser;
-        if (!user) {
-            alert('請先登入');
-            window.location.href = '/';
-            return false;
-        }
+checkAdminPermission: async function() {
+    const user = firebase.auth().currentUser;
+    if (!user) {
+        alert('請先登入');
+        window.location.href = '/nurse-scheduler-production/';  // ✅ 修改這行
+        return false;
+    }
 
         try {
             const userDoc = await db.collection('users').doc(user.uid).get();
