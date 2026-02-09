@@ -12,16 +12,13 @@
         <div style="display:flex; align-items:center; gap:10px;">
             <div class="legend-box" style="font-size:0.85rem; color:#555; display:flex; gap:12px; margin-right:15px; background:#f9f9f9; padding:5px 10px; border-radius:4px;">
                 <span style="display:flex; align-items:center; gap:4px;">
-                    <span class="color-dot" style="background:#9b59b6;"></span> 強制休 (Admin)
+                    <span class="color-dot" style="background:#fff3cd; border:1px solid #f39c12;"></span> 預休 (REQ_OFF)
                 </span>
                 <span style="display:flex; align-items:center; gap:4px;">
-                    <span class="color-dot" style="background:#2ecc71;"></span> 預休 (User)
+                    <span class="color-dot" style="background:#fff; border:1px solid #ccc;"></span> 系統休 (OFF)
                 </span>
                 <span style="display:flex; align-items:center; gap:4px;">
                     <span class="color-dot" style="background:#fff; border:1px solid #ccc; color:red; font-size:10px; display:flex; justify-content:center; align-items:center;"><i class="fas fa-ban"></i></span> 勿排
-                </span>
-                <span style="display:flex; align-items:center; gap:4px;">
-                    <span style="color:red; font-weight:bold;">10</span> 超限警告
                 </span>
             </div>
 
@@ -34,7 +31,6 @@
         </div>
     </div>
 
-    <!-- [關鍵修正] 移除 inline oncontextmenu 屬性 -->
     <div id="matrixContainer" class="matrix-container" style="flex:1; overflow:auto; position:relative;">
         <table id="scheduleMatrix">
             <thead id="matrixHead"></thead>
@@ -76,8 +72,6 @@
 </div>
 
 <style>
-/* [新增] 額外的 CSS 確保右鍵選單不會被瀏覽器預設選單覆蓋 */
-<style>
 /* 狀態標記樣式 */
 .status-badge {
     display: inline-block;
@@ -89,7 +83,27 @@
     line-height: 1.2;
 }
 
-/* 原有的樣式保持不變 */
+/* 預休黃底樣式 */
+.cell-req-off {
+    background: #fff3cd !important;
+    color: #856404 !important;
+    font-weight: bold;
+}
+
+/* 系統休白底樣式 */
+.cell-off {
+    background: #fff !important;
+}
+
+/* 圖例色塊 */
+.color-dot {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+}
+
+/* 防止文字選取 */
 #matrixContainer, 
 #matrixContainer *, 
 #scheduleMatrix,
@@ -107,5 +121,71 @@
 
 .cell-clickable:active {
     background-color: #f0f8ff;
+}
+
+/* 右鍵選單樣式 */
+.context-menu {
+    background: white;
+    border: 1px solid #ccc;
+    box-shadow: 2px 2px 8px rgba(0,0,0,0.2);
+    border-radius: 4px;
+    padding: 0;
+    min-width: 180px;
+}
+
+.context-menu ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.context-menu li {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #eee;
+}
+
+.context-menu li:last-child {
+    border-bottom: none;
+}
+
+.context-menu li:hover {
+    background-color: #f5f5f5;
+}
+
+.menu-header {
+    background: #f8f9fa;
+    padding: 8px 12px;
+    font-weight: bold;
+    border-bottom: 1px solid #ddd;
+    color: #666;
+    font-size: 0.9rem;
+}
+
+/* Modal 樣式 */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+    overflow: auto;
+}
+
+.modal.show {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-content {
+    background-color: #fefefe;
+    padding: 30px;
+    border: 1px solid #888;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
 }
 </style>
