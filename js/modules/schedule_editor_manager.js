@@ -1,5 +1,9 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 修正版 v4：加入 AI 排班頻率限制 + 優化 Firebase 讀寫
+// 🎯 完整修正版：解決上月月底資料無法顯示的問題
+// 修正重點：
+// 1. init() 優先使用預班傳入的 lastMonthData
+// 2. renderMatrix() 使用 last_X 格式讀取資料
+// 3. 移除 loadLastMonthSchedule() 的自動執行
 
 const scheduleEditorManager = {
     scheduleId: null, 
@@ -15,7 +19,7 @@ const scheduleEditorManager = {
     lastScoreResult: null,
     contextMenuHandler: null,
     
-    // ✅ 新增：AI 排班頻率控制
+    // ✅ AI 排班頻率控制
     lastAIRunTime: 0,
     aiRunCooldown: 3000, // 3 秒冷卻時間
 
@@ -35,12 +39,38 @@ const scheduleEditorManager = {
             if (!schDoc.exists) { alert("找不到此排班表"); return; }
             this.data = schDoc.data();
             
+            // ✅ 核心修正 1：優先使用預班表傳入的 lastMonthData
+            if (this.data.lastMonthData && Object.keys(this.data.lastMonthData).length > 0) {
+                this.lastMonthData = this.data.lastMonthData;
+                
+                // 計算上月天數（從 last_X 的 key 中找出最大值）
+                const sampleUid = Object.keys(this.lastMonthData)[0];
+                if (sampleUid) {
+                    const dayKeys = Object.keys(this.lastMonthData[sampleUid])
+                        .filter(k => k.startsWith('last_'));
+                    if (dayKeys.length > 0) {
+                        const days = dayKeys.map(k => parseInt(k.replace('last_', '')));
+                        this.lastMonthDays = Math.max(...days);
+                    }
+                }
+                
+                console.log(`✅ 使用預班傳入的上月資料 (${Object.keys(this.lastMonthData).length} 位人員, 上月有 ${this.lastMonthDays} 天)`);
+            } else {
+                console.log('⚠️ 預班未提供上月資料');
+            }
+            
+            // ✅ 修正：移除 loadLastMonthSchedule() 的自動執行
             await Promise.all([
                 this.loadShifts(), 
                 this.loadUsers(), 
-                this.loadUnitRules(),
-                this.loadLastMonthSchedule() 
+                this.loadUnitRules()
             ]);
+            
+            // ✅ 只有在沒有預班資料時，才嘗試載入已發布的上月班表
+            if (!this.lastMonthData || Object.keys(this.lastMonthData).length === 0) {
+                console.log('⚠️ 無預班資料，嘗試載入上月已發布班表');
+                await this.loadLastMonthSchedule();
+            }
             
             this.data.staffList.forEach(s => { if (s.uid) this.staffMap[s.uid.trim()] = s; });
 
@@ -98,14 +128,38 @@ const scheduleEditorManager = {
         let ly = year, lm = month - 1;
         if (lm === 0) { lm = 12; ly--; }
         this.lastMonthDays = new Date(ly, lm, 0).getDate();
+        
         const snap = await db.collection('schedules')
             .where('unitId', '==', this.data.unitId)
             .where('year', '==', ly)
             .where('month', '==', lm)
             .where('status', '==', 'published')
             .limit(1).get();
-        this.lastMonthData = !snap.empty ? snap.docs[0].data().assignments || {} : {};
-        console.log(`📅 已載入上月班表資料: ${!snap.empty ? '成功' : '無資料'}`);
+        
+        if (!snap.empty) {
+            const lastData = snap.docs[0].data();
+            const lastAssignments = lastData.assignments || {};
+            
+            // 轉換為 last_X 格式
+            this.lastMonthData = {};
+            Object.keys(lastAssignments).forEach(uid => {
+                const ua = lastAssignments[uid];
+                this.lastMonthData[uid] = {
+                    lastShift: ua[`current_${this.lastMonthDays}`] || 'OFF'
+                };
+                
+                // 取最後 6 天
+                for (let i = 0; i < 6; i++) {
+                    const d = this.lastMonthDays - i;
+                    this.lastMonthData[uid][`last_${d}`] = ua[`current_${d}`] || 'OFF';
+                }
+            });
+            
+            console.log(`📅 已從已發布班表載入上月資料 (${ly}/${lm})`);
+        } else {
+            this.lastMonthData = {};
+            console.log(`📅 找不到上月已發布班表 (${ly}/${lm})`);
+        }
     },
 
     renderToolbar: function() {
@@ -185,9 +239,10 @@ const scheduleEditorManager = {
                 <td style="text-align:center;">${badges || '<span style="color:#ccc;">-</span>'}</td>
                 <td style="text-align:center; line-height:1.3; padding:4px 2px;">${prefDisplay}</td>`;
             
+            // ✅ 核心修正 2：使用 last_X 格式讀取上月資料
             const lm = this.lastMonthData[uid] || {};
             for(let d=lastD-5; d<=lastD; d++) {
-                const v = lm[`last_${d}`];
+                const v = lm[`last_${d}`];  // ✅ 改為 last_X（而不是 current_X）
                 bHtml += `<td style="font-size:0.7rem; background:#f9f9f9; color:#999; text-align:center;">${v==='OFF'?'FF':(v||'-')}</td>`;
             }
             
@@ -413,7 +468,6 @@ const scheduleEditorManager = {
         }
     },
 
-    // ✅ 核心修正：AI 排班加上頻率限制
     runAI: async function() {
         // ✅ 檢查冷卻時間，避免短時間內重複執行
         const now = Date.now();
@@ -425,7 +479,7 @@ const scheduleEditorManager = {
         
         if(!confirm("啟動 AI 自動排班？這將覆蓋目前的排班結果。")) return;
         
-        this.lastAIRunTime = now; // ✅ 記錄執行時間
+        this.lastAIRunTime = now;
         this.showLoading();
         
         console.log('🤖 AI 排班開始執行，時間:', new Date().toLocaleTimeString());
@@ -433,7 +487,7 @@ const scheduleEditorManager = {
         try {
             if(typeof SchedulerFactory === 'undefined') throw new Error("排班引擎未載入");
             
-            // ✅ 準備資料（記憶體操作）
+            // 準備資料
             const staffListWithId = this.data.staffList.map(s => ({
                 ...s,
                 id: s.uid || s.id,
@@ -448,13 +502,13 @@ const scheduleEditorManager = {
                 specificNeeds: this.data.specificNeeds || {}
             };
             
-            // ✅ 執行排班（純記憶體操作，無 Firebase 讀寫）
+            // 執行排班
             const scheduler = SchedulerFactory.create('V2', staffListWithId, this.data.year, this.data.month, this.lastMonthData, rules);
             const result = scheduler.run();
             
             console.log("🤖 AI 排班結果樣本:", result[Object.keys(result)[0]]);
             
-            // ✅ 轉換結果格式
+            // 轉換結果格式
             const newAssignments = {};
             this.data.staffList.forEach(s => {
                 const uid = s.uid.trim();
@@ -479,10 +533,10 @@ const scheduleEditorManager = {
             
             console.log("📊 轉換後的 assignments 樣本:", Object.keys(newAssignments)[0], newAssignments[Object.keys(newAssignments)[0]]);
             
-            // ✅ 更新記憶體
+            // 更新記憶體
             this.assignments = newAssignments;
             
-            // ✅ 一次性寫入 Firebase（僅此一次！）
+            // 一次性寫入 Firebase
             await db.collection('schedules').doc(this.scheduleId).update({ 
                 assignments: this.assignments,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
