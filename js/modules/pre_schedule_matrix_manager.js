@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_matrix_manager.js
-// 🎯 符合設計原則版：載入一次 → 記憶體操作 → 儲存一次
+// 🎯 視覺強化 + 記憶體優化完整版
 
 const matrixManager = {
     docId: null, 
@@ -77,7 +77,7 @@ const matrixManager = {
             this.updateStats(); 
             this.setupEvents();
             
-            console.log('✅ 預班表載入完成，所有資料已在記憶體中');
+            console.log('✅ 預班表載入完成，視覺樣式已套用');
             
         } catch(e) { 
             console.error("❌ 載入失敗:", e); 
@@ -479,39 +479,40 @@ const matrixManager = {
         const month = this.data.month;
         const daysInMonth = new Date(year, month, 0).getDate();
         
+        // 🎯 [視覺] 強化格線：加入 border:1px solid #bbb
         let h1 = `<tr>
-            <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa;">職編</th>
-            <th rowspan="2" style="width:80px; position:sticky; left:60px; z-index:110; background:#f8f9fa;">姓名</th>
-            <th rowspan="2" style="width:50px; position:sticky; left:140px; z-index:110; background:#f8f9fa;">狀態</th>
-            <th rowspan="2" style="width:50px;">偏好</th>
-            <th colspan="6" style="background:#eee; font-size:0.8rem;">上月月底 (可修)</th>`;
+            <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa; border:1px solid #bbb;">職編</th>
+            <th rowspan="2" style="width:80px; position:sticky; left:60px; z-index:110; background:#f8f9fa; border:1px solid #bbb;">姓名</th>
+            <th rowspan="2" style="width:50px; position:sticky; left:140px; z-index:110; background:#f8f9fa; border:1px solid #bbb;">狀態</th>
+            <th rowspan="2" style="width:50px; border:1px solid #bbb;">偏好</th>
+            <th colspan="6" style="background:#eee; font-size:0.8rem; border:1px solid #bbb;">上月月底 (可修)</th>`;
         
         for(let d=1; d<=daysInMonth; d++) {
             const date = new Date(year, month-1, d);
             const w = date.getDay();
             const color = (w===0||w===6) ? 'color:red;' : '';
-            h1 += `<th class="cell-narrow" style="${color}">${d}</th>`;
+            h1 += `<th class="cell-narrow" style="${color}; border:1px solid #bbb;">${d}</th>`;
         }
-        h1 += `<th colspan="4" style="background:#e8f4fd; font-size:0.8rem;">統計</th></tr>`;
+        h1 += `<th colspan="4" style="background:#e8f4fd; font-size:0.8rem; border:1px solid #bbb;">統計</th></tr>`;
 
         let h2 = `<tr>`;
         const weeks = ['日','一','二','三','四','五','六'];
         
         const lastMonthDays = this.lastMonthDays || 31;
         for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
-            h2 += `<th class="cell-narrow" style="background:#f5f5f5; font-size:0.7rem; color:#666;">${d}</th>`;
+            h2 += `<th class="cell-narrow" style="background:#f5f5f5; font-size:0.7rem; color:#666; border:1px solid #bbb;">${d}</th>`;
         }
 
         for(let d=1; d<=daysInMonth; d++) {
             const date = new Date(year, month-1, d);
             const w = weeks[date.getDay()];
             const color = (date.getDay()===0 || date.getDay()===6) ? 'color:red;' : '';
-            h2 += `<th class="cell-narrow" style="font-size:0.8rem; ${color}">${w}</th>`;
+            h2 += `<th class="cell-narrow" style="font-size:0.8rem; ${color}; border:1px solid #bbb;">${w}</th>`;
         }
-        h2 += `<th style="width:40px; background:#f0f7ff; font-size:0.75rem;">總OFF</th>
-               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">假OFF</th>
-               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">小夜</th>
-               <th style="width:40px; background:#f0f7ff; font-size:0.75rem;">大夜</th></tr>`;
+        h2 += `<th style="width:40px; background:#f0f7ff; font-size:0.75rem; border:1px solid #bbb;">總OFF</th>
+               <th style="width:40px; background:#f0f7ff; font-size:0.75rem; border:1px solid #bbb;">假OFF</th>
+               <th style="width:40px; background:#f0f7ff; font-size:0.75rem; border:1px solid #bbb;">小夜</th>
+               <th style="width:40px; background:#f0f7ff; font-size:0.75rem; border:1px solid #bbb;">大夜</th></tr>`;
         thead.innerHTML = h1 + h2;
 
         let bodyHtml = '';
@@ -533,15 +534,15 @@ const matrixManager = {
             const statusBadges = this.getStaffStatusBadges(uid);
 
             bodyHtml += `<tr data-uid="${uid}">
-                <td style="position:sticky; left:0; background:#fff; z-index:10;">${empId}</td>
-                <td style="position:sticky; left:60px; background:#fff; z-index:10;">
+                <td style="position:sticky; left:0; background:#fff; z-index:10; border:1px solid #bbb;">${empId}</td>
+                <td style="position:sticky; left:60px; background:#fff; z-index:10; border:1px solid #bbb;">
                     ${staff.name}
                     ${staff.isSupport ? '<br><span style="color:#27ae60; font-size:0.7rem; font-weight:bold;">(支援)</span>' : ''}
                 </td>
-                <td style="position:sticky; left:140px; background:#fff; z-index:10; text-align:center; line-height:1.2;">
+                <td style="position:sticky; left:140px; background:#fff; z-index:10; text-align:center; line-height:1.2; border:1px solid #bbb;">
                     ${statusBadges || '<span style="color:#ccc;">-</span>'}
                 </td>
-                <td style="cursor:pointer; text-align:center; line-height:1.3; padding:4px 2px;" onclick="matrixManager.openPrefModal('${uid}','${staff.name}')">
+                <td style="cursor:pointer; text-align:center; line-height:1.3; padding:4px 2px; border:1px solid #bbb;" onclick="matrixManager.openPrefModal('${uid}','${staff.name}')">
                     ${prefDisplay || '<i class="fas fa-cog" style="color:#ccc;"></i>'}
                 </td>`;
             
@@ -561,7 +562,7 @@ const matrixManager = {
                                  data-uid="${uid}" 
                                  data-day="${d}" 
                                  data-type="history"
-                                 style="${bgStyle} font-size:0.85rem; text-align:center; cursor:pointer;">
+                                 style="${bgStyle} font-size:0.85rem; text-align:center; cursor:pointer; border:1px solid #bbb;">
                                  ${displayVal === 'OFF' ? 'FF' : displayVal}
                              </td>`;
             }
@@ -574,7 +575,13 @@ const matrixManager = {
             for(let d=1; d<=daysInMonth; d++) {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
-                bodyHtml += `<td class="cell-clickable" data-uid="${uid}" data-day="${d}" data-type="current">${this.renderCellContent(val)}</td>`;
+                
+                // 🎯 [視覺] 區分預休(REQ_OFF)黃底與系統休(OFF)白底
+                const cellClass = (val === 'REQ_OFF') ? 'cell-clickable cell-req-off' : 'cell-clickable';
+                
+                bodyHtml += `<td class="${cellClass}" data-uid="${uid}" data-day="${d}" data-type="current" style="border:1px solid #bbb;">
+                                ${this.renderCellContent(val)}
+                             </td>`;
                 
                 if (val === 'REQ_OFF') {
                     totalOff++;
@@ -585,10 +592,10 @@ const matrixManager = {
                 else if (val === 'N') nightCount++;
             }
 
-            bodyHtml += `<td style="background:#f9f9f9; font-weight:bold; text-align:center;">${totalOff}</td>
-                         <td style="background:#f9f9f9; color:red; text-align:center;">${holidayOff}</td>
-                         <td style="background:#f9f9f9; text-align:center;">${eveningCount}</td>
-                         <td style="background:#f9f9f9; text-align:center;">${nightCount}</td>`;
+            bodyHtml += `<td style="background:#f9f9f9; font-weight:bold; text-align:center; border:1px solid #bbb;">${totalOff}</td>
+                         <td style="background:#f9f9f9; color:red; text-align:center; border:1px solid #bbb;">${holidayOff}</td>
+                         <td style="background:#f9f9f9; text-align:center; border:1px solid #bbb;">${eveningCount}</td>
+                         <td style="background:#f9f9f9; text-align:center; border:1px solid #bbb;">${nightCount}</td>`;
             
             bodyHtml += `</tr>`;
         });
@@ -597,7 +604,7 @@ const matrixManager = {
         let footHtml = '';
         this.shifts.forEach((s, idx) => {
             footHtml += `<tr>`;
-            if(idx === 0) footHtml += `<td colspan="10" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; vertical-align:middle;">每日人力<br>監控 (點擊調整)</td>`;
+            if(idx === 0) footHtml += `<td colspan="10" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; vertical-align:middle; border:1px solid #bbb;">每日人力<br>監控 (點擊調整)</td>`;
             
             for(let d=1; d<=daysInMonth; d++) {
                 const dateStr = this.getDateStr(d);
@@ -614,13 +621,13 @@ const matrixManager = {
                     need = this.data.dailyNeeds[`${s.code}_${dayIdx}`] || 0;
                 }
 
-                const style = isTemp ? 'background:#fff3cd; border:2px solid #f39c12;' : '';
+                const style = isTemp ? 'background:#fff3cd; border:2px solid #f39c12;' : 'border:1px solid #bbb;';
                 footHtml += `<td id="stat_cell_${s.code}_${d}" style="cursor:pointer; ${style}" 
                                 onclick="matrixManager.handleNeedClick('${dateStr}', '${s.code}', ${need})">
                                 <span class="stat-actual">-</span> / <span class="stat-need" style="font-weight:bold;">${need}</span>
                              </td>`;
             }
-            footHtml += `<td colspan="4" style="background:#f0f0f0;"></td>`;
+            footHtml += `<td colspan="4" style="background:#f0f0f0; border:1px solid #bbb;"></td>`;
             footHtml += `</tr>`;
         });
         tfoot.innerHTML = footHtml;
@@ -629,10 +636,18 @@ const matrixManager = {
         this.bindCellEvents();
     },
 
+    // 🎯 [視覺] 修正內容顯示邏輯與顏色同步
     renderCellContent: function(val) {
         if(!val) return '';
         if(val === 'OFF') return 'FF';
-        if(val === 'REQ_OFF') return '<span class="badge" style="background:#fff3cd; color:#856404; border:1px solid #ffeeba;">預休</span>';
+        if(val === 'REQ_OFF') return 'FF'; // 黃底由 class 控制，文字顯示 FF
+        
+        // 同步班別顏色
+        const shift = this.shifts.find(s => s.code === val);
+        if (shift && shift.color) {
+            return `<span style="color:${shift.color}; font-weight:bold;">${val}</span>`;
+        }
+        
         if(typeof val === 'string' && val.startsWith('!')) return `<span style="color:red; font-size:0.8rem;">!${val.replace('!','')}</span>`;
         return val;
     },
