@@ -1,4 +1,4 @@
-// js/modules/staff_manager.js (完整版 - 雙向同步)
+// js/modules/staff_manager.js (完整修正版)
 
 const staffManager = {
     allData: [],
@@ -154,7 +154,7 @@ const staffManager = {
         }
     },
 
-    // --- 更新獨立性欄位狀態 ---
+    // --- ✅ 修正：更新獨立性欄位狀態 ---
     updateIndependenceFieldState: function() {
         const radioDependent = document.getElementById('radioDependent');
         const selectClinicalTeacher = document.getElementById('selectClinicalTeacher');
@@ -167,6 +167,9 @@ const staffManager = {
         
         if (!isDependentSelected) {
             selectClinicalTeacher.value = '';
+        } else {
+            // ✅ 修正：選擇「未獨立」時自動載入臨床教師列表
+            this.loadClinicalTeachers();
         }
     },
 
