@@ -1,5 +1,5 @@
 // js/modules/pre_schedule_matrix_manager.js
-// 🔧 完整版 v4.2：修正偏好與狀態傳遞問題
+// 🎯 符合設計原則版：載入一次 → 記憶體操作 → 儲存一次
 
 const matrixManager = {
     docId: null, 
@@ -11,6 +11,9 @@ const matrixManager = {
     historyCorrections: {},
     lastMonthAssignments: {},
     lastMonthDays: 31,
+    
+    // ✅ 未儲存變更追蹤
+    pendingSave: false,
 
     init: async function(id) { 
         if(!id) { 
@@ -35,6 +38,7 @@ const matrixManager = {
         try {
             this.showLoading();
             
+            // ✅ 一次性載入所有資料
             const preDoc = await db.collection('pre_schedules').doc(id).get();
             if (!preDoc.exists) {
                 alert("找不到此預班表");
@@ -43,6 +47,7 @@ const matrixManager = {
             
             const preData = preDoc.data();
             
+            // 權限檢查
             const activeRole = app.impersonatedRole || app.userRole;
             const activeUnitId = app.impersonatedUnitId || app.userUnitId;
             if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
@@ -64,7 +69,6 @@ const matrixManager = {
                 this.loadScheduleData()
             ]);
             
-            // 🆕 檢查人員與狀態變更
             await this.checkStaffAndStatusChanges();
             
             this.restoreTableStructure(); 
@@ -72,6 +76,8 @@ const matrixManager = {
             this.renderMatrix(); 
             this.updateStats(); 
             this.setupEvents();
+            
+            console.log('✅ 預班表載入完成，所有資料已在記憶體中');
             
         } catch(e) { 
             console.error("❌ 載入失敗:", e); 
@@ -82,17 +88,15 @@ const matrixManager = {
         }
     },
 
-    // 🆕 檢查人員與狀態變更
+    // ✅ 檢查人員與狀態變更（保持原有邏輯）
     checkStaffAndStatusChanges: async function() {
         if (!this.data || !this.data.unitId) return;
         
-        // 1. 先建立舊有的 staffMap，以便比對
         const oldStaffMap = {};
         (this.data.staffList || []).forEach(staff => {
             oldStaffMap[staff.uid] = staff;
         });
 
-        // 2. 取得該單位最新的人員清單（包含正式人員與支援人員）
         const snapshot = await db.collection('users')
             .where('isActive', '==', true)
             .get();
@@ -100,10 +104,6 @@ const matrixManager = {
         const currentUsers = {};
         snapshot.forEach(doc => {
             const user = doc.data();
-            
-            // 判定是否為該單位人員：
-            // 1. 正式編制在此單位
-            // 2. 支援清單中有此單位
             const isFormalMember = user.unitId === this.data.unitId;
             const isSupportMember = Array.isArray(user.supportUnits) && user.supportUnits.includes(this.data.unitId);
             
@@ -120,10 +120,8 @@ const matrixManager = {
             }
         });
         
-        // 🔧 重要：將原名單中的人員也加入 currentUsers（避免手動加入的支援人員被誤判為移除）
         (this.data.staffList || []).forEach(staff => {
             if (!currentUsers[staff.uid]) {
-                // 檢查此人是否仍為啟用狀態
                 const userDoc = snapshot.docs.find(d => d.id === staff.uid);
                 if (userDoc) {
                     const user = userDoc.data();
@@ -140,14 +138,12 @@ const matrixManager = {
             }
         });
         
-        // 3. 比對 staffList 的變更
         const changes = {
-            added: [],      // 新增的人員
-            removed: [],    // 移除的人員（已停用）
-            statusChanged: [] // 狀態變更的人員
+            added: [],
+            removed: [],
+            statusChanged: []
         };
         
-        // 檢查新增的人員
         Object.keys(currentUsers).forEach(uid => {
             if (!oldStaffMap[uid]) {
                 changes.added.push({
@@ -159,7 +155,6 @@ const matrixManager = {
             }
         });
         
-        // 檢查移除的人員（真正已停用的人員）
         Object.keys(oldStaffMap).forEach(uid => {
             if (!currentUsers[uid]) {
                 changes.removed.push({
@@ -170,7 +165,6 @@ const matrixManager = {
             }
         });
         
-        // 檢查狀態變更
         Object.keys(currentUsers).forEach(uid => {
             if (oldStaffMap[uid]) {
                 const oldParams = oldStaffMap[uid].schedulingParams || {};
@@ -188,7 +182,6 @@ const matrixManager = {
             }
         });
         
-        // 4. 如果有變更，顯示確認視窗
         if (changes.added.length > 0 || changes.removed.length > 0 || changes.statusChanged.length > 0) {
             const shouldUpdate = await this.showStaffChangesModal(changes);
             
@@ -198,12 +191,10 @@ const matrixManager = {
         }
     },
 
-    // 🆕 比對排班參數變更
     compareSchedulingParams: function(oldParams, newParams) {
         const changes = [];
         const today = new Date();
         
-        // 檢查懷孕狀態
         const oldPregnant = oldParams.isPregnant && oldParams.pregnantExpiry && new Date(oldParams.pregnantExpiry) >= today;
         const newPregnant = newParams.isPregnant && newParams.pregnantExpiry && new Date(newParams.pregnantExpiry) >= today;
         
@@ -211,7 +202,6 @@ const matrixManager = {
             changes.push(newPregnant ? '新增「孕」狀態' : '移除「孕」狀態');
         }
         
-        // 檢查哺乳狀態
         const oldBreastfeeding = oldParams.isBreastfeeding && oldParams.breastfeedingExpiry && new Date(oldParams.breastfeedingExpiry) >= today;
         const newBreastfeeding = newParams.isBreastfeeding && newParams.breastfeedingExpiry && new Date(newParams.breastfeedingExpiry) >= today;
         
@@ -219,7 +209,6 @@ const matrixManager = {
             changes.push(newBreastfeeding ? '新增「哺」狀態' : '移除「哺」狀態');
         }
         
-        // 檢查 PGY 狀態
         const oldPGY = oldParams.isPGY && oldParams.pgyExpiry && new Date(oldParams.pgyExpiry) >= today;
         const newPGY = newParams.isPGY && newParams.pgyExpiry && new Date(newParams.pgyExpiry) >= today;
         
@@ -227,7 +216,6 @@ const matrixManager = {
             changes.push(newPGY ? '新增「PGY」狀態' : '移除「PGY」狀態');
         }
         
-        // 檢查獨立性狀態
         const oldDependent = oldParams.independence === 'dependent';
         const newDependent = newParams.independence === 'dependent';
         
@@ -238,7 +226,6 @@ const matrixManager = {
         return changes;
     },
 
-    // 🆕 顯示人員變更確認視窗
     showStaffChangesModal: function(changes) {
         return new Promise((resolve) => {
             const modalHtml = `
@@ -259,9 +246,6 @@ const matrixManager = {
                         <ul style="margin:0; padding-left:20px; line-height:1.8;">
                             ${changes.added.map(p => `<li><strong>${p.empId}</strong> - ${p.name} ${p.isSupport ? '<span style="color:#27ae60; font-size:0.8rem;">(支援)</span>' : ''}</li>`).join('')}
                         </ul>
-                        <div style="margin-top:10px; padding:10px; background:#d4edda; border-radius:4px; font-size:0.9rem;">
-                            <i class="fas fa-info-circle"></i> 新增人員將自動加入預班表，初始狀態為空白
-                        </div>
                     </div>
                     ` : ''}
                     
@@ -273,9 +257,6 @@ const matrixManager = {
                         <ul style="margin:0; padding-left:20px; line-height:1.8;">
                             ${changes.removed.map(p => `<li><strong>${p.empId}</strong> - ${p.name}</li>`).join('')}
                         </ul>
-                        <div style="margin-top:10px; padding:10px; background:#f8d7da; border-radius:4px; font-size:0.9rem;">
-                            <i class="fas fa-exclamation-triangle"></i> 這些人員已停用，其預班資料將保留但不會顯示在表格中
-                        </div>
                     </div>
                     ` : ''}
                     
@@ -294,21 +275,8 @@ const matrixManager = {
                                 </li>
                             `).join('')}
                         </ul>
-                        <div style="margin-top:10px; padding:10px; background:#fff3cd; border-radius:4px; font-size:0.9rem;">
-                            <i class="fas fa-info-circle"></i> 狀態變更會影響排班規則（如夜班限制、獨立性等）
-                        </div>
                     </div>
                     ` : ''}
-                    
-                    <div style="background:#e8f4fd; border-left:4px solid #3498db; padding:15px; border-radius:4px; margin-bottom:20px;">
-                        <strong style="color:#2c3e50;">建議操作：</strong>
-                        <ul style="margin:10px 0 0 0; padding-left:20px; line-height:1.6;">
-                            <li>點擊「同步更新」將套用以上變更</li>
-                            <li>已設定的預班資料將保留</li>
-                            <li>新增人員需要手動設定其預班與偏好</li>
-                            <li>移除人員的資料仍會保留在系統中</li>
-                        </ul>
-                    </div>
                     
                     <div style="display:flex; gap:15px; justify-content:flex-end;">
                         <button id="btnCancelSync" style="padding:10px 20px; border:1px solid #95a5a6; background:#fff; border-radius:4px; cursor:pointer; font-size:1rem;">
@@ -335,15 +303,11 @@ const matrixManager = {
         });
     },
 
-    // 🆕 更新人員清單
     updateStaffList: async function(currentUsers) {
         try {
-            // 1. 建立新的 staffList
             const newStaffList = [];
             Object.keys(currentUsers).forEach(uid => {
                 const user = currentUsers[uid];
-                
-                // 保留原有的預班資料（如果存在）
                 const existingStaff = (this.data.staffList || []).find(s => s.uid === uid);
                 
                 newStaffList.push({
@@ -357,16 +321,14 @@ const matrixManager = {
                 });
             });
             
-            // 2. 更新到 Firestore
+            // ✅ 這裡需要寫入，因為是明確的同步操作
             await db.collection('pre_schedules').doc(this.docId).update({
                 staffList: newStaffList,
                 lastSyncAt: firebase.firestore.FieldValue.serverTimestamp(),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
-            // 3. 更新本地資料
             this.data.staffList = newStaffList;
-            
             console.log('✅ 人員清單已同步更新');
             
         } catch (error) {
@@ -420,10 +382,11 @@ const matrixManager = {
         const doc = await db.collection('pre_schedules').doc(this.docId).get();
         this.data = doc.data();
         
-        this.localAssignments = this.data.assignments || {};
-        this.historyCorrections = this.data.historyCorrections || {}; 
+        // ✅ 載入到記憶體
+        this.localAssignments = JSON.parse(JSON.stringify(this.data.assignments || {}));
+        this.historyCorrections = JSON.parse(JSON.stringify(this.data.historyCorrections || {}));
         
-        console.log("Loaded localAssignments:", Object.keys(this.localAssignments).length, "users");
+        console.log("✅ 載入 localAssignments:", Object.keys(this.localAssignments).length, "位人員");
         
         if(!this.data.specificNeeds) {
             this.data.specificNeeds = {};
@@ -680,20 +643,14 @@ const matrixManager = {
         const val = parseInt(newNeed);
         if (isNaN(val) || val < 0) return;
 
+        // ✅ 只更新記憶體
         if (!this.data.specificNeeds[dateStr]) this.data.specificNeeds[dateStr] = {};
         this.data.specificNeeds[dateStr][shiftCode] = val;
-
-        try {
-            await db.collection('pre_schedules').doc(this.docId).update({
-                specificNeeds: this.data.specificNeeds,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            const schSnap = await db.collection('schedules').where('sourceId', '==', this.docId).get();
-            if (!schSnap.empty) {
-                await db.collection('schedules').doc(schSnap.docs[0].id).update({ specificNeeds: this.data.specificNeeds });
-            }
-            this.renderMatrix();
-        } catch(e) { console.error(e); alert("更新失敗"); }
+        
+        this.pendingSave = true;
+        this.updateUnsavedIndicator(true);
+        
+        this.renderMatrix();
     },
 
     updateStats: function() {
@@ -727,7 +684,9 @@ const matrixManager = {
         }
     },
 
-    getDateStr: function(d) { return `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`; },
+    getDateStr: function(d) { 
+        return `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`; 
+    },
     
     bindCellEvents: function() {
         const cells = document.querySelectorAll('.cell-clickable');
@@ -836,175 +795,112 @@ const matrixManager = {
         menu.style.visibility = 'visible';
     },
 
+    // ✅ 核心修正：只更新記憶體，不寫入資料庫
     setShift: function(uid, key, val) {
         if(!this.localAssignments[uid]) this.localAssignments[uid] = {};
         if(val === null) delete this.localAssignments[uid][key];
         else this.localAssignments[uid][key] = val;
         
-        db.collection('pre_schedules').doc(this.docId).update({
-            [`assignments.${uid}.${key}`]: val === null ? firebase.firestore.FieldValue.delete() : val
-        });
+        this.pendingSave = true;
+        this.updateUnsavedIndicator(true);
+        
         this.renderMatrix();
         this.updateStats();
     },
 
+    // ✅ 核心修正：只更新記憶體，不寫入資料庫
     setHistoryShift: function(uid, day, val) {
         const key = `last_${day}`;
         if (!this.historyCorrections[uid]) this.historyCorrections[uid] = {};
         if (val === null) delete this.historyCorrections[uid][key];
         else this.historyCorrections[uid][key] = val;
 
-        db.collection('pre_schedules').doc(this.docId).update({
-            [`historyCorrections.${uid}.${key}`]: val === null ? firebase.firestore.FieldValue.delete() : val
-        });
+        this.pendingSave = true;
+        this.updateUnsavedIndicator(true);
+        
         this.renderMatrix();
     },
 
+    // ✅ 明確的儲存動作：手動點擊「儲存草稿」按鈕時才執行
     saveData: async function() {
         if (this.isLoading) return;
+        if (!this.pendingSave) {
+            alert("沒有需要儲存的變更");
+            return;
+        }
+        
         this.isLoading = true;
         
         try {
+            console.log('💾 開始儲存到 Firebase...');
+            
+            // ✅ 一次性批次寫入
             await db.collection('pre_schedules').doc(this.docId).update({
                 assignments: this.localAssignments,
                 historyCorrections: this.historyCorrections,
+                specificNeeds: this.data.specificNeeds,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
+            this.pendingSave = false;
+            this.updateUnsavedIndicator(false);
+            
+            console.log('✅ 儲存成功');
             alert("✅ 草稿已儲存");
+            
         } catch(e) {
-            console.error("儲存失敗:", e);
+            console.error("❌ 儲存失敗:", e);
             alert("❌ 儲存失敗: " + e.message);
         } finally {
             this.isLoading = false;
         }
     },
 
-    // 🔧 修正版：正確傳遞包班偏好和狀態資料
-    executeSchedule: async function() {
-        if(!confirm("確定執行排班? 將鎖定預班並建立正式草稿。")) return;
-        this.isLoading = true; 
-        this.showLoading();
+    // ✅ 更新未儲存指示器
+    updateUnsavedIndicator: function(hasUnsaved) {
+        let indicator = document.getElementById('unsavedIndicator');
         
-        try {
-            // 1. 準備初始排班資料（包含偏好設定）
-            const initialAssignments = {};
-            if (this.localAssignments) {
-                Object.keys(this.localAssignments).forEach(uid => {
-                    initialAssignments[uid] = JSON.parse(JSON.stringify(this.localAssignments[uid]));
-                });
+        if (hasUnsaved) {
+            if (!indicator) {
+                const title = document.getElementById('matrixTitle');
+                if (title) {
+                    indicator = document.createElement('span');
+                    indicator.id = 'unsavedIndicator';
+                    indicator.style.cssText = 'color:#e67e22; font-size:0.9rem; margin-left:10px;';
+                    indicator.innerHTML = '<i class="fas fa-exclamation-circle"></i> 有未儲存的變更';
+                    title.parentNode.insertBefore(indicator, title.nextSibling);
+                }
             }
-
-            // 2. 準備上個月資料
-            const lastMonthData = {};
-            const allUids = new Set([
-                ...Object.keys(this.localAssignments), 
-                ...Object.keys(this.lastMonthAssignments || {}),
-                ...Object.keys(this.historyCorrections || {})
-            ]);
-
-            allUids.forEach(uid => {
-                const userAssign = this.lastMonthAssignments[uid] || {};
-                const lastDay = this.lastMonthDays || 31;
-                
-                const lastDayCorrected = this.historyCorrections[uid]?.[`last_${lastDay}`];
-                const lastDayOriginal = userAssign[`current_${lastDay}`] || userAssign[lastDay] || 'OFF';
-
-                lastMonthData[uid] = {
-                    lastShift: (lastDayCorrected !== undefined) ? lastDayCorrected : lastDayOriginal
-                };
-                
-                for (let i = 0; i < 6; i++) {
-                    const d = lastDay - i;
-                    const originalVal = userAssign[`current_${d}`] || userAssign[d] || 'OFF';
-                    const correctedVal = this.historyCorrections[uid]?.[`last_${d}`];
-                    lastMonthData[uid][`last_${d}`] = (correctedVal !== undefined) ? correctedVal : originalVal;
-                }
-            });
-
-            // 🔧 關鍵修正：正確組合人員清單，保留狀態與偏好
-            const staffListForSchedule = (this.data.staffList || []).map(staff => {
-                const uid = staff.uid || staff.id;
-                const userAssign = this.localAssignments[uid] || {};
-                const userPrefs = userAssign.preferences || {};
-                
-                // 從 usersMap 取得最新的 schedulingParams（狀態資料）
-                const latestUser = this.usersMap[uid] || {};
-                const latestParams = latestUser.schedulingParams || staff.schedulingParams || {};
-                
-                return {
-                    uid: uid,
-                    empId: staff.empId,
-                    name: staff.name,
-                    level: staff.level || 'N',
-                    group: staff.group || '',
-                    isSupport: staff.isSupport || false,
-                    
-                    // ✅ 正確傳遞排班參數（孕/哺/P/協等狀態）
-                    schedulingParams: latestParams,
-                    
-                    // ✅ 正確傳遞偏好設定（包班與志願）
-                    preferences: {
-                        bundleShift: userPrefs.bundleShift || '',
-                        favShift: userPrefs.favShift || '',
-                        favShift2: userPrefs.favShift2 || '',
-                        favShift3: userPrefs.favShift3 || ''
-                    }
-                };
-            });
-
-            console.log('📋 準備轉入排班編輯器的人員清單:', staffListForSchedule);
-            console.log('📋 包含偏好設定的人員數:', staffListForSchedule.filter(s => s.preferences.bundleShift || s.preferences.favShift).length);
-
-            // 3. 建立排班文件
-            const scheduleData = {
-                unitId: this.data.unitId, 
-                year: this.data.year, 
-                month: this.data.month,
-                sourceId: this.docId, 
-                status: 'draft',
-                staffList: staffListForSchedule,
-                assignments: initialAssignments,
-                lastMonthData: lastMonthData,
-                dailyNeeds: this.data.dailyNeeds || {},
-                specificNeeds: this.data.specificNeeds || {}, 
-                groupLimits: this.data.groupLimits || {},
-                bundleLimits: this.data.bundleLimits || {},
-                settings: this.data.settings || {},
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            };
-
-            // 4. 批次更新
-            const batch = db.batch();
-            batch.update(
-                db.collection('pre_schedules').doc(this.docId), 
-                { 
-                    status: 'closed', 
-                    assignments: this.localAssignments,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                }
-            );
-            
-            const newSchRef = db.collection('schedules').doc();
-            batch.set(newSchRef, scheduleData);
-
-            await batch.commit();
-            
-            console.log('✅ 排班文件已建立，ID:', newSchRef.id);
-            alert("執行成功! 轉跳中...");
-            window.location.hash = `/admin/schedule_editor?id=${newSchRef.id}`;
-            
-        } catch(e) { 
-            console.error('❌ 執行排班失敗:', e); 
-            alert("失敗: " + e.message); 
-            this.renderMatrix(); 
-        } 
-        finally { 
-            this.isLoading = false; 
+        } else {
+            if (indicator) indicator.remove();
         }
     },
-    
+
+    // ✅ 顯示臨時訊息
+    showTempMessage: function(message) {
+        const existing = document.getElementById('tempMessage');
+        if (existing) existing.remove();
+        
+        const msg = document.createElement('div');
+        msg.id = 'tempMessage';
+        msg.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #3498db;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 4px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 10001;
+            font-size: 0.9rem;
+        `;
+        msg.textContent = message;
+        document.body.appendChild(msg);
+        
+        setTimeout(() => msg.remove(), 3000);
+    },
+
     openPrefModal: function(uid, name) { 
         document.getElementById('prefTargetUid').value = uid;
         document.getElementById('prefTargetName').innerText = `人員：${name}`;
@@ -1025,7 +921,6 @@ const matrixManager = {
             const currentBundle = bundleSelect.value;
             const bundleShiftData = currentBundle ? this.shifts.find(s => s.code === currentBundle) : null;
 
-            // 取得當前已選的志願，用於排除重複
             const s1 = document.getElementById('editFavShift')?.value || prefs.favShift || '';
             const s2 = document.getElementById('editFavShift2')?.value || prefs.favShift2 || '';
             const s3 = document.getElementById('editFavShift3')?.value || prefs.favShift3 || '';
@@ -1038,7 +933,6 @@ const matrixManager = {
                 const isBreastfeeding = params.isBreastfeeding && params.breastfeedingExpiry && new Date(params.breastfeedingExpiry) >= today;
                 const isPGY = params.isPGY && params.pgyExpiry && new Date(params.pgyExpiry) >= today;
 
-                // 判斷包班是否為小夜或大夜
                 const isEveningOrNightBundle = currentBundle && bundleShiftData 
                     ? shiftUtils.isEveningOrNightShift(bundleShiftData)
                     : false;
@@ -1046,21 +940,13 @@ const matrixManager = {
                 return this.shifts.filter(s => {
                     if (s.code === 'OFF') return false;
                     
-                    // 判斷當前班別是否為大夜（僅大夜需要被特殊身分過濾）
                     const isNightShift = shiftUtils.isNightShift(s);
-                    
-                    // 判斷當前班別是否為小夜或大夜（用於包班過濾）
                     const isEveningOrNightShift = shiftUtils.isEveningOrNightShift(s);
                     
-                    // 1. 特殊身份過濾：懷孕、哺乳、PGY 隱藏大夜班 (23:00-02:00)
                     if ((isPregnant || isBreastfeeding || isPGY) && isNightShift) return false;
-
-                    // 2. 包班過濾：如果是小夜或大夜包班，隱藏「其他」的小夜/大夜班別
                     if (isEveningOrNightBundle && isEveningOrNightShift && s.code !== currentBundle) {
                         return false;
                     }
-
-                    // 3. 彼此不重複：排除已被其他志願選取的班別
                     if (s.code !== '' && otherVals.includes(s.code) && s.code !== currentVal) return false;
 
                     return true;
@@ -1099,7 +985,6 @@ const matrixManager = {
             }
             prefContainer.innerHTML = prefHtml;
 
-            // 綁定志願變更事件
             ['editFavShift', 'editFavShift2', 'editFavShift3'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) {
@@ -1120,7 +1005,12 @@ const matrixManager = {
 
         document.getElementById('prefModal').classList.add('show');
     },
-    closePrefModal: function() { document.getElementById('prefModal').classList.remove('show'); },
+
+    closePrefModal: function() { 
+        document.getElementById('prefModal').classList.remove('show'); 
+    },
+
+    // ✅ 核心修正：只更新記憶體
     savePreferences: async function() { 
         const uid = document.getElementById('prefTargetUid').value;
         if (!uid) return;
@@ -1135,19 +1025,146 @@ const matrixManager = {
         const favShift3Select = document.getElementById('editFavShift3');
         if (favShift3Select) prefs.favShift3 = favShift3Select.value;
 
+        this.pendingSave = true;
+        this.updateUnsavedIndicator(true);
+        
+        this.closePrefModal();
+        this.renderMatrix();
+        this.updateStats();
+        
+        this.showTempMessage('偏好設定已更新，請記得點擊「儲存草稿」');
+    },
+
+    // ✅ 執行排班：一次性寫入
+    executeSchedule: async function() {
+        if(!confirm("確定執行排班? 將鎖定預班並建立正式草稿。")) return;
+        this.isLoading = true; 
+        this.showLoading();
+        
         try {
-            await db.collection('pre_schedules').doc(this.docId).update({
-                [`assignments.${uid}.preferences`]: prefs
+            const initialAssignments = {};
+            if (this.localAssignments) {
+                Object.keys(this.localAssignments).forEach(uid => {
+                    initialAssignments[uid] = JSON.parse(JSON.stringify(this.localAssignments[uid]));
+                });
+            }
+
+            const lastMonthData = {};
+            const allUids = new Set([
+                ...Object.keys(this.localAssignments), 
+                ...Object.keys(this.lastMonthAssignments || {}),
+                ...Object.keys(this.historyCorrections || {})
+            ]);
+
+            allUids.forEach(uid => {
+                const userAssign = this.lastMonthAssignments[uid] || {};
+                const lastDay = this.lastMonthDays || 31;
+                
+                const lastDayCorrected = this.historyCorrections[uid]?.[`last_${lastDay}`];
+                const lastDayOriginal = userAssign[`current_${lastDay}`] || userAssign[lastDay] || 'OFF';
+
+                lastMonthData[uid] = {
+                    lastShift: (lastDayCorrected !== undefined) ? lastDayCorrected : lastDayOriginal
+                };
+                
+                for (let i = 0; i < 6; i++) {
+                    const d = lastDay - i;
+                    const originalVal = userAssign[`current_${d}`] || userAssign[d] || 'OFF';
+                    const correctedVal = this.historyCorrections[uid]?.[`last_${d}`];
+                    lastMonthData[uid][`last_${d}`] = (correctedVal !== undefined) ? correctedVal : originalVal;
+                }
             });
-            this.closePrefModal();
-            this.renderMatrix();
-            this.updateStats();
-            alert("偏好設定已儲存");
-        } catch(e) {
-            console.error(e);
-            alert("儲存失敗");
+
+            const staffListForSchedule = (this.data.staffList || []).map(staff => {
+                const uid = staff.uid || staff.id;
+                const userAssign = this.localAssignments[uid] || {};
+                const userPrefs = userAssign.preferences || {};
+                
+                const latestUser = this.usersMap[uid] || {};
+                const latestParams = latestUser.schedulingParams || staff.schedulingParams || {};
+                
+                return {
+                    uid: uid,
+                    empId: staff.empId,
+                    name: staff.name,
+                    level: staff.level || 'N',
+                    group: staff.group || '',
+                    isSupport: staff.isSupport || false,
+                    schedulingParams: latestParams,
+                    preferences: {
+                        bundleShift: userPrefs.bundleShift || '',
+                        favShift: userPrefs.favShift || '',
+                        favShift2: userPrefs.favShift2 || '',
+                        favShift3: userPrefs.favShift3 || ''
+                    }
+                };
+            });
+
+            console.log('📋 準備轉入排班編輯器的人員清單:', staffListForSchedule);
+
+            const scheduleData = {
+                unitId: this.data.unitId, 
+                year: this.data.year, 
+                month: this.data.month,
+                sourceId: this.docId, 
+                status: 'draft',
+                staffList: staffListForSchedule,
+                assignments: initialAssignments,
+                lastMonthData: lastMonthData,
+                dailyNeeds: this.data.dailyNeeds || {},
+                specificNeeds: this.data.specificNeeds || {}, 
+                groupLimits: this.data.groupLimits || {},
+                bundleLimits: this.data.bundleLimits || {},
+                settings: this.data.settings || {},
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+
+            // ✅ 批次寫入
+            const batch = db.batch();
+            batch.update(
+                db.collection('pre_schedules').doc(this.docId), 
+                { 
+                    status: 'closed', 
+                    assignments: this.localAssignments,
+                    historyCorrections: this.historyCorrections,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }
+            );
+            
+            const newSchRef = db.collection('schedules').doc();
+            batch.set(newSchRef, scheduleData);
+
+            await batch.commit();
+            
+            console.log('✅ 排班文件已建立，ID:', newSchRef.id);
+            alert("執行成功! 轉跳中...");
+            window.location.hash = `/admin/schedule_editor?id=${newSchRef.id}`;
+            
+        } catch(e) { 
+            console.error('❌ 執行排班失敗:', e); 
+            alert("失敗: " + e.message); 
+            this.renderMatrix(); 
+        } 
+        finally { 
+            this.isLoading = false; 
         }
     },
-    setupEvents: function() { },
-    cleanup: function() { document.getElementById('customContextMenu').style.display='none'; }
+    
+    setupEvents: function() {
+        // ✅ 離開前提醒
+        window.addEventListener('beforeunload', (e) => {
+            if (this.pendingSave) {
+                e.preventDefault();
+                e.returnValue = '您有未儲存的變更，確定要離開嗎？';
+            }
+        });
+    },
+
+    cleanup: function() { 
+        document.getElementById('customContextMenu').style.display='none';
+        
+        // 移除事件監聽
+        window.removeEventListener('beforeunload', null);
+    }
 };
