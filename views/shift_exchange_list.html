@@ -1,36 +1,68 @@
-<div class="page-section active">
-    <h2><i class="fas fa-tasks"></i> 換班申請與審核</h2>
+<div class="content-wrapper">
+    <h2><i class="fas fa-exchange-alt"></i> 換班申請與審核</h2>
     
-    <div class="toolbar" style="margin-bottom: 20px;">
-        <div class="tab-nav">
-            <button class="tab-btn active" onclick="shiftExchangeManager.load('my')">
-                <i class="fas fa-user"></i> 我的申請
-            </button>
-            <button class="tab-btn" onclick="shiftExchangeManager.load('incoming')">
-                <i class="fas fa-inbox"></i> 待我審核 (同事)
-            </button>
-            <button class="tab-btn" id="btnManagerTab" onclick="shiftExchangeManager.load('manager')" style="display:none;">
-                <i class="fas fa-user-shield"></i> 護理長審核
-            </button>
-        </div>
+    <div class="exchange-tabs" style="display:flex; gap:10px; margin-bottom:20px; border-bottom:2px solid #eee; padding-bottom:10px;">
+        <button class="tab active" data-tab="my_requests" style="padding:10px 20px; border:none; background:none; cursor:pointer; border-bottom:3px solid #3498db; font-weight:bold; color:#3498db;">
+            <i class="fas fa-paper-plane"></i> 我發出的申請
+        </button>
+        <button class="tab" data-tab="to_me" style="padding:10px 20px; border:none; background:none; cursor:pointer; color:#7f8c8d;">
+            <i class="fas fa-inbox"></i> 待我同意
+        </button>
+        <button class="tab" data-tab="manager" style="padding:10px 20px; border:none; background:none; cursor:pointer; color:#7f8c8d;">
+            <i class="fas fa-user-tie"></i> 待護理長審核
+        </button>
+        <button class="tab" data-tab="all" style="padding:10px 20px; border:none; background:none; cursor:pointer; color:#7f8c8d;">
+            <i class="fas fa-list"></i> 全部記錄
+        </button>
     </div>
 
-    <div class="table-container">
-        <table id="exchangeTable">
+    <div class="table-wrapper" style="overflow-x:auto;">
+        <table class="data-table">
             <thead>
                 <tr>
                     <th>日期</th>
                     <th>申請人</th>
+                    <th>原班別</th>
+                    <th style="width:30px;"></th>
                     <th>對象</th>
-                    <th>內容 (申請人 ↔ 對象)</th>
-                    <th>事由分類</th>
-                    <th>事由說明</th>
+                    <th>對象班別</th>
                     <th>狀態</th>
-                    <th>操作</th>
+                    <th>原因</th>
+                    <th>申請時間</th>
+                    <th style="width:180px;">操作</th>
                 </tr>
             </thead>
-            <tbody id="exchangeBody">
-                </tbody>
+            <tbody id="exchangeTableBody">
+                <tr><td colspan="10" style="text-align:center; padding:20px;">載入中...</td></tr>
+            </tbody>
         </table>
     </div>
 </div>
+
+<style>
+.exchange-tabs .tab {
+    transition: all 0.3s;
+}
+.exchange-tabs .tab:hover {
+    color: #3498db;
+}
+.exchange-tabs .tab.active {
+    border-bottom: 3px solid #3498db !important;
+    color: #3498db !important;
+    font-weight: bold !important;
+}
+
+.status-badge {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.status-pending { background: #fff3cd; color: #856404; }
+.status-review { background: #cfe2ff; color: #084298; }
+.status-approved { background: #d1e7dd; color: #0f5132; }
+.status-rejected { background: #f8d7da; color: #842029; }
+.status-cancelled { background: #e2e3e5; color: #41464b; }
+</style>
