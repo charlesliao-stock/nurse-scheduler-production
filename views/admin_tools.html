@@ -1,0 +1,451 @@
+<!-- views/admin_tools.html -->
+<!-- 系統管理工具視圖 -->
+
+<style>
+    .admin-container {
+        max-width: 1400px;
+        margin: 20px auto;
+        padding: 0 20px;
+    }
+
+    .admin-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 30px;
+        border-radius: 10px;
+        margin-bottom: 30px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    .admin-header h1 {
+        margin: 0 0 10px 0;
+        font-size: 28px;
+    }
+
+    .admin-header p {
+        margin: 0;
+        opacity: 0.9;
+    }
+
+    .tool-categories {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+    }
+
+    .tool-card {
+        background: white;
+        border-radius: 10px;
+        padding: 25px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .tool-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    .tool-card-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .tool-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        margin-right: 15px;
+    }
+
+    .tool-icon.schedule { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .tool-icon.user { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+    .tool-icon.shift { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+    .tool-icon.unit { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
+    .tool-icon.system { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
+    .tool-icon.backup { background: linear-gradient(135deg, #30cfd0 0%, #330867 100%); }
+
+    .tool-card h3 {
+        margin: 0;
+        font-size: 20px;
+        color: #2c3e50;
+    }
+
+    .tool-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .action-btn {
+        padding: 12px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .action-btn:hover {
+        transform: translateX(5px);
+    }
+
+    .action-btn.primary { background: #667eea; color: white; }
+    .action-btn.danger { background: #e74c3c; color: white; }
+    .action-btn.warning { background: #f39c12; color: white; }
+    .action-btn.success { background: #27ae60; color: white; }
+    .action-btn.info { background: #3498db; color: white; }
+
+    .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        z-index: 1000;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .modal.active {
+        display: flex;
+    }
+
+    .modal-content {
+        background: white;
+        border-radius: 10px;
+        padding: 30px;
+        max-width: 800px;
+        width: 90%;
+        max-height: 80vh;
+        overflow-y: auto;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 15px;
+        border-bottom: 2px solid #ecf0f1;
+    }
+
+    .modal-header h2 {
+        margin: 0;
+        color: #2c3e50;
+    }
+
+    .close-btn {
+        background: none;
+        border: none;
+        font-size: 28px;
+        cursor: pointer;
+        color: #95a5a6;
+        padding: 0;
+        width: 30px;
+        height: 30px;
+        line-height: 30px;
+    }
+
+    .close-btn:hover {
+        color: #e74c3c;
+    }
+
+    .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+    }
+
+    .data-table th,
+    .data-table td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #ecf0f1;
+    }
+
+    .data-table th {
+        background: #f8f9fa;
+        font-weight: 600;
+        color: #2c3e50;
+    }
+
+    .data-table tr:hover {
+        background: #f8f9fa;
+    }
+
+    .status-badge {
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+    .status-badge.active { background: #d4edda; color: #155724; }
+    .status-badge.inactive { background: #f8d7da; color: #721c24; }
+    .status-badge.published { background: #d1ecf1; color: #0c5460; }
+    .status-badge.draft { background: #fff3cd; color: #856404; }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin: 20px 0;
+    }
+
+    .stat-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+    }
+
+    .stat-value {
+        font-size: 36px;
+        font-weight: 700;
+        margin: 10px 0;
+    }
+
+    .stat-label {
+        font-size: 14px;
+        opacity: 0.9;
+    }
+
+    .filter-bar {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .filter-bar input,
+    .filter-bar select {
+        padding: 8px 12px;
+        border: 1px solid #dfe6e9;
+        border-radius: 6px;
+        font-size: 14px;
+    }
+
+    .btn-group {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+    }
+
+    .btn-group button {
+        flex: 1;
+    }
+</style>
+
+<div class="admin-container">
+    <!-- 頁面標題 -->
+    <div class="admin-header">
+        <h1>🛠️ 系統管理工具</h1>
+        <p>集中管理帳號、班表、班別、單位等系統資料</p>
+    </div>
+
+    <!-- 工具卡片 -->
+    <div class="tool-categories">
+        <!-- 班表管理 -->
+        <div class="tool-card">
+            <div class="tool-card-header">
+                <div class="tool-icon schedule">📅</div>
+                <h3>班表管理</h3>
+            </div>
+            <div class="tool-actions">
+                <button class="action-btn info" onclick="AdminTools.scanSchedules()">
+                    <span>🔍 掃描班表問題</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn success" onclick="AdminTools.fixSchedules()">
+                    <span>🔧 修復問題班表</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn warning" onclick="AdminTools.deleteDuplicates()">
+                    <span>🗑️ 刪除重複班表</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn primary" onclick="AdminTools.viewSchedules()">
+                    <span>📋 查看所有班表</span>
+                    <span>→</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 人員管理 -->
+        <div class="tool-card">
+            <div class="tool-card-header">
+                <div class="tool-icon user">👥</div>
+                <h3>人員管理</h3>
+            </div>
+            <div class="tool-actions">
+                <button class="action-btn info" onclick="AdminTools.viewUsers()">
+                    <span>📋 查看所有帳號</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn warning" onclick="AdminTools.checkInvalidUIDs()">
+                    <span>⚠️ 檢查無效 UID</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn success" onclick="AdminTools.resetPassword()">
+                    <span>🔑 重設使用者密碼</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn danger" onclick="AdminTools.disableUser()">
+                    <span>🚫 停用帳號</span>
+                    <span>→</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 班別管理 -->
+        <div class="tool-card">
+            <div class="tool-card-header">
+                <div class="tool-icon shift">⏰</div>
+                <h3>班別管理</h3>
+            </div>
+            <div class="tool-actions">
+                <button class="action-btn info" onclick="AdminTools.viewShifts()">
+                    <span>📋 查看所有班別</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn success" onclick="AdminTools.addShift()">
+                    <span>➕ 新增班別</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn warning" onclick="AdminTools.editShift()">
+                    <span>✏️ 編輯班別</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn danger" onclick="AdminTools.deleteShift()">
+                    <span>🗑️ 刪除班別</span>
+                    <span>→</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 單位管理 -->
+        <div class="tool-card">
+            <div class="tool-card-header">
+                <div class="tool-icon unit">🏥</div>
+                <h3>單位管理</h3>
+            </div>
+            <div class="tool-actions">
+                <button class="action-btn info" onclick="AdminTools.viewUnits()">
+                    <span>📋 查看所有單位</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn success" onclick="AdminTools.addUnit()">
+                    <span>➕ 新增單位</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn warning" onclick="AdminTools.editUnit()">
+                    <span>✏️ 編輯單位</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn info" onclick="AdminTools.syncUnitStaff()">
+                    <span>🔄 同步單位人員</span>
+                    <span>→</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 系統資訊 -->
+        <div class="tool-card">
+            <div class="tool-card-header">
+                <div class="tool-icon system">📊</div>
+                <h3>系統資訊</h3>
+            </div>
+            <div class="tool-actions">
+                <button class="action-btn info" onclick="AdminTools.viewStats()">
+                    <span>📈 系統統計資訊</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn warning" onclick="AdminTools.viewFirebaseUsage()">
+                    <span>🔥 Firebase 用量</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn info" onclick="AdminTools.viewActivityLog()">
+                    <span>📝 操作記錄</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn success" onclick="AdminTools.exportData()">
+                    <span>💾 匯出系統資料</span>
+                    <span>→</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 備份與還原 -->
+        <div class="tool-card">
+            <div class="tool-card-header">
+                <div class="tool-icon backup">💾</div>
+                <h3>備份與還原</h3>
+            </div>
+            <div class="tool-actions">
+                <button class="action-btn success" onclick="AdminTools.backupAll()">
+                    <span>💾 完整備份</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn warning" onclick="AdminTools.restoreBackup()">
+                    <span>📥 還原備份</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn info" onclick="AdminTools.viewBackups()">
+                    <span>📋 查看備份紀錄</span>
+                    <span>→</span>
+                </button>
+                <button class="action-btn danger" onclick="AdminTools.cleanupOldBackups()">
+                    <span>🧹 清理舊備份</span>
+                    <span>→</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 通用 Modal -->
+<div id="adminModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="modalTitle">標題</h2>
+            <button class="close-btn" onclick="AdminTools.closeModal()">&times;</button>
+        </div>
+        <div id="modalBody">
+            <!-- 動態內容 -->
+        </div>
+    </div>
+</div>
+
+<script>
+// 頁面載入時初始化
+if (typeof AdminTools !== 'undefined') {
+    AdminTools.init();
+} else {
+    console.error('❌ AdminTools 模組未載入');
+}
+
+// Modal 點擊外部關閉
+document.addEventListener('click', function(e) {
+    if (e.target.id === 'adminModal') {
+        AdminTools.closeModal();
+    }
+});
+</script>
