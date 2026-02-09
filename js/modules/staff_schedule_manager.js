@@ -1,14 +1,13 @@
 // js/modules/staff_schedule_manager.js
-// 修正版：解決模擬身分查詢班表時的 UID 比對問題
+// 修正版：解決模擬身分查詢班表時的 UID 比對問題 + 黃底預休顯示
 
 const staffScheduleManager = {
     currentYear: new Date().getFullYear(),
     currentMonth: new Date().getMonth() + 1,
     scheduleData: null,
     currentUid: null,
-    viewMode: 'personal', // 'personal' 或 'unit'
+    viewMode: 'personal',
     
-    // 換班選擇
     selectedCell: null,
     selectedDay: null,
     selectedShift: null,
@@ -36,10 +35,8 @@ const staffScheduleManager = {
             return;
         }
 
-        // 設定預設值
         input.value = `${this.currentYear}-${String(this.currentMonth).padStart(2, '0')}`;
         
-        // 監聽變更
         input.addEventListener('change', (e) => {
             const [year, month] = e.target.value.split('-');
             this.currentYear = parseInt(year);
@@ -48,7 +45,6 @@ const staffScheduleManager = {
     },
 
     loadData: async function() {
-        // 從輸入框取得年月
         const input = document.getElementById('scheduleMonth');
         if (input && input.value) {
             const [year, month] = input.value.split('-');
@@ -105,14 +101,12 @@ const staffScheduleManager = {
             console.log(`✅ 找到班表: ${doc.id}`);
             console.log(`📋 班表人員: ${this.scheduleData.staffList?.length || 0} 位`);
 
-            // 🔍 除錯：列出班表中所有的 UID
             if (this.scheduleData.assignments) {
                 const allUids = Object.keys(this.scheduleData.assignments);
                 console.log(`📝 班表中的所有 UID (${allUids.length} 位):`, allUids);
                 console.log(`🔍 正在查找的 UID: "${this.currentUid}"`);
                 console.log(`✅ UID 存在於 assignments?: ${allUids.includes(this.currentUid)}`);
                 
-                // 檢查是否有相似但不完全相同的 UID（空格、大小寫等問題）
                 const trimmedCurrentUid = this.currentUid.trim();
                 const similarUids = allUids.filter(uid => 
                     uid.trim().toLowerCase() === trimmedCurrentUid.toLowerCase()
@@ -126,7 +120,6 @@ const staffScheduleManager = {
             if (!this.scheduleData.assignments || !this.scheduleData.assignments[this.currentUid]) {
                 console.warn(`⚠️ UID ${this.currentUid} 不在班表中`);
                 
-                // 🔧 嘗試用 trim 後的 UID 再找一次
                 const trimmedUid = this.currentUid.trim();
                 let foundAssignment = null;
                 
@@ -135,7 +128,7 @@ const staffScheduleManager = {
                         if (uid.trim() === trimmedUid) {
                             console.log(`🔧 找到 trim 後符合的 UID: "${uid}"`);
                             foundAssignment = this.scheduleData.assignments[uid];
-                            this.currentUid = uid; // 更新為正確的 UID
+                            this.currentUid = uid;
                             break;
                         }
                     }
@@ -149,7 +142,6 @@ const staffScheduleManager = {
 
             console.log(`✅ 找到 UID ${this.currentUid} 的班表資料`);
             
-            // 根據檢視模式渲染
             wrapper.style.display = 'block';
             if (noDataMsg) noDataMsg.style.display = 'none';
             
@@ -179,28 +171,22 @@ const staffScheduleManager = {
         
         console.log(`📅 渲染個人班表 - ${daysInMonth} 天`);
 
-        // 清空並重建整個表格
         myView.innerHTML = '';
         
-        // 建立表格
         const table = document.createElement('table');
         table.className = 'table table-bordered text-center';
         table.style.margin = '0';
         table.style.fontSize = '0.9rem';
         
-        // 建立表頭
         const thead = document.createElement('thead');
         thead.style.background = '#f8f9fa';
         
-        // 星期列
         const rowWeekday = document.createElement('tr');
         rowWeekday.innerHTML = '<th style="width:80px; background:#fff; position:sticky; left:0; z-index:10;">星期</th>';
         
-        // 日期列
         const rowDate = document.createElement('tr');
         rowDate.innerHTML = '<th style="width:80px; background:#fff; position:sticky; left:0; z-index:10;">日期</th>';
         
-        // 填充日期和星期
         for (let d = 1; d <= daysInMonth; d++) {
             const date = new Date(this.currentYear, this.currentMonth - 1, d);
             const dayOfWeek = date.getDay();
@@ -217,23 +203,36 @@ const staffScheduleManager = {
         thead.appendChild(rowWeekday);
         thead.appendChild(rowDate);
         
-        // 建立表身 - 班別列
         const tbody = document.createElement('tbody');
         const rowShift = document.createElement('tr');
         rowShift.innerHTML = '<th style="width:80px; background:#eef2f3; vertical-align:middle; position:sticky; left:0; z-index:10; font-weight:bold;">我的班別</th>';
         
         for (let d = 1; d <= daysInMonth; d++) {
             const shift = assignments[`current_${d}`] || 'OFF';
-            const isOff = shift === 'OFF' || shift === 'REQ_OFF';
-            const cellBg = isOff ? '#e8f5e9' : '#e3f2fd';
-            const cellColor = isOff ? '#2e7d32' : '#1565c0';
+            const isReqOff = shift === 'REQ_OFF';
+            const isOff = shift === 'OFF';
             
-            rowShift.innerHTML += `<td style="background:${cellBg}; color:${cellColor}; font-weight:bold; padding:10px; min-width:60px;">${shift}</td>`;
+            let cellBg, cellColor, displayText;
+            
+            if (isReqOff) {
+                cellBg = '#fff3cd';
+                cellColor = '#856404';
+                displayText = 'FF';
+            } else if (isOff) {
+                cellBg = '#e8f5e9';
+                cellColor = '#2e7d32';
+                displayText = 'FF';
+            } else {
+                cellBg = '#e3f2fd';
+                cellColor = '#1565c0';
+                displayText = shift;
+            }
+            
+            rowShift.innerHTML += `<td style="background:${cellBg}; color:${cellColor}; font-weight:bold; padding:10px; min-width:60px;">${displayText}</td>`;
         }
         
         tbody.appendChild(rowShift);
         
-        // 組合表格
         table.appendChild(thead);
         table.appendChild(tbody);
         myView.appendChild(table);
@@ -254,7 +253,6 @@ const staffScheduleManager = {
         
         console.log(`📋 渲染全單位班表 - ${staffList.length} 位人員`);
 
-        // 表頭
         let headHtml = '<tr><th style="position:sticky; left:0; z-index:20; background:#f8f9fa; min-width:100px;">姓名</th>';
         
         for (let d = 1; d <= daysInMonth; d++) {
@@ -273,7 +271,6 @@ const staffScheduleManager = {
         headHtml += '</tr>';
         unitHead.innerHTML = headHtml;
 
-        // 表身
         let bodyHtml = '';
         staffList.forEach(staff => {
             const assignments = this.scheduleData.assignments[staff.uid] || {};
@@ -287,18 +284,32 @@ const staffScheduleManager = {
             
             for (let d = 1; d <= daysInMonth; d++) {
                 const shift = assignments[`current_${d}`] || 'OFF';
-                const isOff = shift === 'OFF' || shift === 'REQ_OFF';
-                const cellBg = isOff ? '#e8f5e9' : '#e3f2fd';
-                const cellColor = isOff ? '#2e7d32' : '#1565c0';
+                const isReqOff = shift === 'REQ_OFF';
+                const isOff = shift === 'OFF';
                 
-                // 🔥 可點擊的儲存格（用於換班）
+                let cellBg, cellColor, displayText;
+                
+                if (isReqOff) {
+                    cellBg = '#fff3cd';
+                    cellColor = '#856404';
+                    displayText = 'FF';
+                } else if (isOff) {
+                    cellBg = '#e8f5e9';
+                    cellColor = '#2e7d32';
+                    displayText = 'FF';
+                } else {
+                    cellBg = '#e3f2fd';
+                    cellColor = '#1565c0';
+                    displayText = shift;
+                }
+                
                 bodyHtml += `<td class="shift-cell" 
                     data-uid="${staff.uid}" 
                     data-day="${d}" 
                     data-shift="${shift}"
                     data-name="${staff.name || staff.displayName}"
                     style="background:${cellBg}; color:${cellColor}; cursor:pointer; padding:8px; font-size:0.9rem;"
-                    onclick="staffScheduleManager.handleCellClick(this, event)">${shift}</td>`;
+                    onclick="staffScheduleManager.handleCellClick(this, event)">${displayText}</td>`;
             }
             
             bodyHtml += '</tr>';
@@ -307,7 +318,6 @@ const staffScheduleManager = {
         unitBody.innerHTML = bodyHtml;
     },
 
-    // 🔥 處理儲存格點擊（換班）
     handleCellClick: function(cell, event) {
         if (event) event.stopPropagation();
         
@@ -316,19 +326,16 @@ const staffScheduleManager = {
         const shift = cell.dataset.shift;
         const name = cell.dataset.name;
         
-        // 不能換 OFF
         if (shift === 'OFF' || shift === 'REQ_OFF') {
             alert('休假日無法換班');
             return;
         }
         
-        // 只能點自己的班
         if (uid !== this.currentUid) {
             alert('請點擊自己的班別以發起換班申請');
             return;
         }
         
-        // 開啟換班對話框
         this.openExchangeModal(day, shift);
     },
 
@@ -345,22 +352,19 @@ const staffScheduleManager = {
             return;
         }
 
-        // 顯示資訊
         info.innerHTML = `
             <strong>您的班別：</strong> ${this.currentYear}/${this.currentMonth}/${day} - ${myShift} 班
         `;
         
-        // 填充對象選單（只列出當日班別與我不同的人）
         select.innerHTML = '<option value="">請選擇交換對象</option>';
         
         const staffList = this.scheduleData.staffList || [];
         staffList.forEach(staff => {
-            if (staff.uid === this.currentUid) return; // 跳過自己
+            if (staff.uid === this.currentUid) return;
             
             const assignments = this.scheduleData.assignments[staff.uid] || {};
             const theirShift = assignments[`current_${day}`] || 'OFF';
             
-            // 只列出非 OFF 且與我班別不同的人
             if (theirShift !== 'OFF' && theirShift !== 'REQ_OFF' && theirShift !== myShift) {
                 const name = staff.name || staff.displayName || '未命名';
                 select.innerHTML += `<option value="${staff.uid}" data-shift="${theirShift}">${name} (${theirShift} 班)</option>`;
@@ -371,7 +375,6 @@ const staffScheduleManager = {
             select.innerHTML = '<option value="">當日無可交換對象</option>';
         }
         
-        // 清空表單
         document.querySelectorAll('input[name="reason"]').forEach(r => r.checked = false);
         document.getElementById('otherReasonBox').style.display = 'none';
         document.getElementById('otherReasonBox').value = '';
@@ -400,7 +403,6 @@ const staffScheduleManager = {
         const targetShift = targetOption.dataset.shift;
         const targetName = targetOption.text.split(' (')[0];
         
-        // 檢查原因
         const reasonRadio = document.querySelector('input[name="reason"]:checked');
         if (!reasonRadio) {
             alert('請選擇換班原因');
@@ -428,25 +430,20 @@ const staffScheduleManager = {
             reason += ': ' + otherReason;
         }
         
-        // 取得我的姓名
         const myData = await db.collection('users').doc(this.currentUid).get();
         const myName = myData.data().displayName || myData.data().name || '未命名';
         
-        // 確認
         const confirmMsg = `確定要申請換班嗎？\n\n您 (${myName}) 的 ${this.selectedShift} 班 ⇄ ${targetName} 的 ${targetShift} 班\n日期: ${this.currentYear}/${this.currentMonth}/${this.selectedDay}\n原因: ${reason}`;
         
         if (!confirm(confirmMsg)) return;
         
-        // 關鍵：確保使用正確的 UID (優先使用模擬 UID)
         const targetRequesterId = this.currentUid || app.getUid();
         
-        // ✅ 產生完整日期字串 "YYYY-MM-DD"
         const dateStr = `${this.currentYear}-${String(this.currentMonth).padStart(2, '0')}-${String(this.selectedDay).padStart(2, '0')}`;
 
         try {
             console.log('--- 換班申請提交流程開始 ---');
             
-            // 檢查 Firebase 認證狀態
             const currentUser = firebase.auth().currentUser;
             const isImpersonating = app.impersonatedUid && app.impersonatedUid === targetRequesterId;
 
@@ -455,7 +452,6 @@ const staffScheduleManager = {
             console.log('   - 模擬狀態:', isImpersonating ? '✅ 模擬中' : '❌ 非模擬');
             console.log('   - 最終寫入 (Requester UID):', targetRequesterId);
             
-            // 測試 Security Rules 邏輯：檢查當前登入者在資料庫中的角色
             if (currentUser) {
                 try {
                     const userDoc = await db.collection('users').doc(currentUser.uid).get();
@@ -476,9 +472,8 @@ const staffScheduleManager = {
                 unitId: this.scheduleData.unitId || null, 
                 year: this.currentYear,
                 month: this.currentMonth,
-                date: dateStr, // ✅ 使用完整日期字串
+                date: dateStr,
                 
-                // ✅ 使用 Uid 後綴，對齊新的資料結構
                 requesterUid: targetRequesterId, 
                 requesterName: myName || 'Unknown',
                 requesterShift: this.selectedShift || '',
@@ -497,11 +492,9 @@ const staffScheduleManager = {
             console.log('2. [待提交數據檢查]');
             console.log('   - 數據內容:', JSON.stringify(reqData, null, 2));
             
-            // 診斷：檢查關鍵欄位是否為空
             if (!reqData.unitId) console.warn('   - ⚠️ 警告：unitId 為空，這可能導致 isMyUnit() 相關規則失敗');
             if (!reqData.scheduleId) console.warn('   - ⚠️ 警告：scheduleId 為空');
             
-            // 提交申請
             console.log('3. [執行 Firestore 寫入] 集合: shift_requests');
             const docRef = await db.collection('shift_requests').add(reqData);
             console.log('   - 寫入成功, 文件 ID:', docRef.id);
@@ -516,7 +509,6 @@ const staffScheduleManager = {
             if (error.code) console.error('錯誤代碼:', error.code);
             console.error('完整錯誤對象:', error);
             
-            // 特別針對權限錯誤提供建議
             if (error.message.includes('permission') || error.code === 'permission-denied') {
                 const authUid = (firebase.auth().currentUser) ? firebase.auth().currentUser.uid : '未登入';
                 const reqUid = targetRequesterId || '未知';
