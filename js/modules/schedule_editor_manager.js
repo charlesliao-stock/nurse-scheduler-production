@@ -578,27 +578,38 @@ const scheduleEditorManager = {
             
             console.log("🤖 AI 排班結果樣本:", result[Object.keys(result)[0]]);
             
-            const newAssignments = {};
-            this.data.staffList.forEach(s => {
-                const uid = s.uid.trim();
-                newAssignments[uid] = { preferences: (this.assignments[uid]?.preferences || {}) };
-                
-                for(let d=1; d<=new Date(this.data.year, this.data.month, 0).getDate(); d++) {
-                    const ds = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-                    let shift = 'OFF';
-                    
-                    if (result[ds]) {
-                        for(let code in result[ds]) {
-                            if(result[ds][code].includes(uid)) { 
-                                shift = code; 
-                                break; 
-                            }
-                        }
-                    }
-                    
-                    newAssignments[uid][`current_${d}`] = shift;
+const newAssignments = {};
+this.data.staffList.forEach(s => {
+    const uid = s.uid.trim();
+    const oldAssign = this.assignments[uid] || {};
+    newAssignments[uid] = { preferences: (oldAssign.preferences || {}) };
+    
+    for(let d=1; d<=new Date(this.data.year, this.data.month, 0).getDate(); d++) {
+        const key = `current_${d}`;
+        const oldValue = oldAssign[key];
+        
+        // ✅ 保留預休 (REQ_OFF)
+        if (oldValue === 'REQ_OFF') {
+            newAssignments[uid][key] = 'REQ_OFF';
+            console.log(`  🔒 保留預休: ${s.name} 第${d}日 = REQ_OFF`);
+            continue;
+        }
+        
+        const ds = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        let shift = 'OFF';
+        
+        if (result[ds]) {
+            for(let code in result[ds]) {
+                if(result[ds][code].includes(uid)) { 
+                    shift = code; 
+                    break; 
                 }
-            });
+            }
+        }
+        
+        newAssignments[uid][key] = shift;
+    }
+});
             
             console.log("📊 轉換後的 assignments 樣本:", Object.keys(newAssignments)[0], newAssignments[Object.keys(newAssignments)[0]]);
             
