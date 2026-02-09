@@ -31,26 +31,27 @@ const shiftExchangeManager = {
             let snapshot;
             const type = this.currentTab;
 
+            const activeUid = app.getUid();
+            const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.getUnitId();
+
             if (type === 'my_requests') {
                 // ✅ 我發出的申請（全部狀態）
-                snapshot = await db.collection('shift_exchanges')
-                    .where('requesterUid', '==', app.currentUser.uid)
+                snapshot = await db.collection('shift_requests')
+                    .where('requesterUid', '==', activeUid)
                     .orderBy('createdAt', 'desc')
                     .get();
             } 
             else if (type === 'to_me') {
                 // ✅ 與我相關的申請（我是對象，全部狀態）
-                snapshot = await db.collection('shift_exchanges')
-                    .where('targetUid', '==', app.currentUser.uid)
+                snapshot = await db.collection('shift_requests')
+                    .where('targetUid', '==', activeUid)
                     .orderBy('createdAt', 'desc')
                     .get();
             } 
             else if (type === 'manager') {
                 // ✅ 等待護理長審核
-                const activeRole = app.impersonatedRole || app.userRole;
-                const activeUnitId = app.impersonatedUnitId || app.userUnitId;
-                
-                let query = db.collection('shift_exchanges')
+                let query = db.collection('shift_requests')
                     .where('status', '==', 'pending_manager')
                     .orderBy('createdAt', 'desc');
                 
@@ -63,10 +64,7 @@ const shiftExchangeManager = {
             }
             else if (type === 'all') {
                 // ✅ 全部申請（系統管理員或單位護理長可見）
-                const activeRole = app.impersonatedRole || app.userRole;
-                const activeUnitId = app.impersonatedUnitId || app.userUnitId;
-                
-                let query = db.collection('shift_exchanges')
+                let query = db.collection('shift_requests')
                     .orderBy('createdAt', 'desc')
                     .limit(100); // 限制筆數避免過多
                 
@@ -124,10 +122,11 @@ const shiftExchangeManager = {
      * ✅ 根據狀態和角色決定可執行的操作
      */
     getActionsHTML: function(id, data) {
+        const activeUid = app.getUid();
         const activeRole = app.impersonatedRole || app.userRole;
-        const activeUnitId = app.impersonatedUnitId || app.userUnitId;
-        const isRequester = data.requesterUid === app.currentUser.uid;
-        const isTarget = data.targetUid === app.currentUser.uid;
+        const activeUnitId = app.getUnitId();
+        const isRequester = data.requesterUid === activeUid;
+        const isTarget = data.targetUid === activeUid;
         
         // 待對方同意階段
         if (data.status === 'pending_target') {
@@ -268,7 +267,7 @@ const shiftExchangeManager = {
         if (!confirm("確定要取消此換班申請嗎？")) return;
         
         try {
-            await db.collection('shift_exchanges').doc(id).update({
+            await db.collection('shift_requests').doc(id).update({
                 status: 'cancelled',
                 cancelledAt: firebase.firestore.FieldValue.serverTimestamp(),
                 cancelledBy: app.currentUser.uid
@@ -286,7 +285,7 @@ const shiftExchangeManager = {
         if (!confirm("確定要核准此調班申請嗎？")) return;
         
         try {
-            const reqDoc = await db.collection('shift_exchanges').doc(id).get();
+            const reqDoc = await db.collection('shift_requests').doc(id).get();
             if (!reqDoc.exists) {
                 alert("找不到此申請");
                 return;
@@ -296,7 +295,7 @@ const shiftExchangeManager = {
             
             if (step === 'target') {
                 // 對方同意 -> 進入護理長審核
-                await db.collection('shift_exchanges').doc(id).update({
+                await db.collection('shift_requests').doc(id).update({
                     status: 'pending_manager',
                     targetApprovedAt: firebase.firestore.FieldValue.serverTimestamp(),
                     targetApprovedBy: app.currentUser.uid
@@ -318,7 +317,7 @@ const shiftExchangeManager = {
                 // 執行班表交換
                 await this.executeShiftSwap(reqData);
                 
-                await db.collection('shift_exchanges').doc(id).update({
+                await db.collection('shift_requests').doc(id).update({
                     status: 'approved',
                     managerApprovedAt: firebase.firestore.FieldValue.serverTimestamp(),
                     managerApprovedBy: app.currentUser.uid
@@ -343,7 +342,7 @@ const shiftExchangeManager = {
         }
 
         try {
-            await db.collection('shift_exchanges').doc(id).update({
+            await db.collection('shift_requests').doc(id).update({
                 status: 'rejected',
                 rejectReason: reason,
                 rejectedAt: firebase.firestore.FieldValue.serverTimestamp(),
