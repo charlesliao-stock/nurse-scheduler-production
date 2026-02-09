@@ -22,7 +22,7 @@ checkAdminPermission: async function() {
             const userDoc = await db.collection('users').doc(user.uid).get();
             const userData = userDoc.data();
             
-            if (userData.role !== 'admin' && userData.role !== 'supervisor') {
+            if (userData.role !== 'admin' && userData.role !== 'supervisor' && userData.role !== 'system_admin') {
                 alert('您沒有系統管理權限');
                 window.location.href = '/';
                 return false;
