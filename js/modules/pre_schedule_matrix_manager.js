@@ -76,6 +76,7 @@ const matrixManager = {
             this.renderMatrix(); 
             this.updateStats(); 
             this.setupEvents();
+            this.addCellStyles();
             
             console.log('✅ 預班表載入完成，視覺樣式已套用');
             
@@ -88,7 +89,24 @@ const matrixManager = {
         }
     },
 
-    // ✅ 檢查人員與狀態變更（保持原有邏輯）
+    addCellStyles: function() {
+        if (document.getElementById('schedule-cell-styles')) return;
+        
+        const styleElement = document.createElement('style');
+        styleElement.id = 'schedule-cell-styles';
+        styleElement.textContent = `
+            .cell-req-off {
+                background: #fff3cd !important;
+                color: #856404 !important;
+                font-weight: bold;
+            }
+            .cell-off {
+                background: #fff !important;
+            }
+        `;
+        document.head.appendChild(styleElement);
+    },
+
     checkStaffAndStatusChanges: async function() {
         if (!this.data || !this.data.unitId) return;
         
@@ -321,7 +339,6 @@ const matrixManager = {
                 });
             });
             
-            // ✅ 這裡需要寫入，因為是明確的同步操作
             await db.collection('pre_schedules').doc(this.docId).update({
                 staffList: newStaffList,
                 lastSyncAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -382,7 +399,6 @@ const matrixManager = {
         const doc = await db.collection('pre_schedules').doc(this.docId).get();
         this.data = doc.data();
         
-        // ✅ 載入到記憶體
         this.localAssignments = JSON.parse(JSON.stringify(this.data.assignments || {}));
         this.historyCorrections = JSON.parse(JSON.stringify(this.data.historyCorrections || {}));
         
@@ -479,7 +495,6 @@ const matrixManager = {
         const month = this.data.month;
         const daysInMonth = new Date(year, month, 0).getDate();
         
-        // 🎯 [視覺] 強化格線：加入 border:1px solid #bbb
         let h1 = `<tr>
             <th rowspan="2" style="width:60px; position:sticky; left:0; z-index:110; background:#f8f9fa; border:1px solid #bbb;">職編</th>
             <th rowspan="2" style="width:80px; position:sticky; left:60px; z-index:110; background:#f8f9fa; border:1px solid #bbb;">姓名</th>
@@ -576,7 +591,6 @@ const matrixManager = {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
                 
-                // 🎯 [視覺] 區分預休(REQ_OFF)黃底與系統休(OFF)白底
                 const cellClass = (val === 'REQ_OFF') ? 'cell-clickable cell-req-off' : 'cell-clickable';
                 
                 bodyHtml += `<td class="${cellClass}" data-uid="${uid}" data-day="${d}" data-type="current" style="border:1px solid #bbb;">
@@ -636,13 +650,11 @@ const matrixManager = {
         this.bindCellEvents();
     },
 
-    // 🎯 [視覺] 修正內容顯示邏輯與顏色同步
     renderCellContent: function(val) {
         if(!val) return '';
         if(val === 'OFF') return 'FF';
-        if(val === 'REQ_OFF') return 'FF'; // 黃底由 class 控制，文字顯示 FF
+        if(val === 'REQ_OFF') return 'FF';
         
-        // 同步班別顏色
         const shift = this.shifts.find(s => s.code === val);
         if (shift && shift.color) {
             return `<span style="color:${shift.color}; font-weight:bold;">${val}</span>`;
@@ -658,7 +670,6 @@ const matrixManager = {
         const val = parseInt(newNeed);
         if (isNaN(val) || val < 0) return;
 
-        // ✅ 只更新記憶體
         if (!this.data.specificNeeds[dateStr]) this.data.specificNeeds[dateStr] = {};
         this.data.specificNeeds[dateStr][shiftCode] = val;
         
@@ -810,7 +821,6 @@ const matrixManager = {
         menu.style.visibility = 'visible';
     },
 
-    // ✅ 核心修正：只更新記憶體，不寫入資料庫
     setShift: function(uid, key, val) {
         if(!this.localAssignments[uid]) this.localAssignments[uid] = {};
         if(val === null) delete this.localAssignments[uid][key];
@@ -823,7 +833,6 @@ const matrixManager = {
         this.updateStats();
     },
 
-    // ✅ 核心修正：只更新記憶體，不寫入資料庫
     setHistoryShift: function(uid, day, val) {
         const key = `last_${day}`;
         if (!this.historyCorrections[uid]) this.historyCorrections[uid] = {};
@@ -836,7 +845,6 @@ const matrixManager = {
         this.renderMatrix();
     },
 
-    // ✅ 明確的儲存動作：手動點擊「儲存草稿」按鈕時才執行
     saveData: async function() {
         if (this.isLoading) return;
         if (!this.pendingSave) {
@@ -849,7 +857,6 @@ const matrixManager = {
         try {
             console.log('💾 開始儲存到 Firebase...');
             
-            // ✅ 一次性批次寫入
             await db.collection('pre_schedules').doc(this.docId).update({
                 assignments: this.localAssignments,
                 historyCorrections: this.historyCorrections,
@@ -871,7 +878,6 @@ const matrixManager = {
         }
     },
 
-    // ✅ 更新未儲存指示器
     updateUnsavedIndicator: function(hasUnsaved) {
         let indicator = document.getElementById('unsavedIndicator');
         
@@ -891,7 +897,6 @@ const matrixManager = {
         }
     },
 
-    // ✅ 顯示臨時訊息
     showTempMessage: function(message) {
         const existing = document.getElementById('tempMessage');
         if (existing) existing.remove();
@@ -1025,7 +1030,6 @@ const matrixManager = {
         document.getElementById('prefModal').classList.remove('show'); 
     },
 
-    // ✅ 核心修正：只更新記憶體
     savePreferences: async function() { 
         const uid = document.getElementById('prefTargetUid').value;
         if (!uid) return;
@@ -1050,7 +1054,6 @@ const matrixManager = {
         this.showTempMessage('偏好設定已更新，請記得點擊「儲存草稿」');
     },
 
-    // ✅ 執行排班：一次性寫入
     executeSchedule: async function() {
         if(!confirm("確定執行排班? 將鎖定預班並建立正式草稿。")) return;
         this.isLoading = true; 
@@ -1135,7 +1138,6 @@ const matrixManager = {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
 
-            // ✅ 批次寫入
             const batch = db.batch();
             batch.update(
                 db.collection('pre_schedules').doc(this.docId), 
@@ -1167,7 +1169,6 @@ const matrixManager = {
     },
     
     setupEvents: function() {
-        // ✅ 離開前提醒
         window.addEventListener('beforeunload', (e) => {
             if (this.pendingSave) {
                 e.preventDefault();
@@ -1178,8 +1179,6 @@ const matrixManager = {
 
     cleanup: function() { 
         document.getElementById('customContextMenu').style.display='none';
-        
-        // 移除事件監聽
         window.removeEventListener('beforeunload', null);
     }
 };
