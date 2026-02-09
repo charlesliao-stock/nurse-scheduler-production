@@ -1,7 +1,7 @@
 // js/scheduler/SchedulerV2.js
 /**
  * 階層式 AI 排班引擎 - 平衡優化版
- * 🔧 修正版 v6：絕對保護預班，AI 排班不得覆蓋或移除預班人員
+ * 🔧 修正版 v7：絕對保護預班，從 schedulingParams 和 preferences 讀取
  */
 window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}) {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -9,15 +9,17 @@ window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}
         this.staffStats = {};
         this.segments = parseInt(rules.aiParams?.balancingSegments) || 4; 
         
-        // ✅ 新增：記錄所有預班人員
+        // ✅ 記錄所有預班人員
         this.preScheduledMap = new Map(); // key: "dateStr-uid", value: shiftCode
         
         this.initV2();
     }
 
     initV2() {
+        console.log('🔍 開始初始化 V2，人員數量:', this.staffList.length);
+        
         this.staffList.forEach(s => {
-            const bundleShift = s.packageType || s.prefs?.bundleShift;
+            const bundleShift = s.packageType || s.prefs?.bundleShift || s.preferences?.bundleShift;
             this.staffStats[s.id] = {
                 workPressure: 0,
                 isBundle: !!bundleShift,
@@ -25,19 +27,57 @@ window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}
                 bundleShiftCount: 0
             };
             
-            // ✅ 建立預班索引
+            // ✅ 關鍵修正：從 schedulingParams 和 preferences 讀取預班
             const params = s.schedulingParams || {};
+            const prefs = s.preferences || s.prefs || {};
+            
+            let staffPreCount = 0;
+            
             for (let d = 1; d <= this.daysInMonth; d++) {
                 const key = `current_${d}`;
-                const preShift = params[key];
+                const ds = this.getDateStr(d);
+                
+                // ✅ 優先從 preferences 讀取，再從 schedulingParams 讀取
+                let preShift = prefs[key] || params[key];
+                
+                // ✅ 包含所有非 OFF 的班別（包括 REQ_OFF）
                 if (preShift && preShift !== 'OFF') {
-                    const ds = this.getDateStr(d);
                     this.preScheduledMap.set(`${ds}-${s.id}`, preShift);
+                    staffPreCount++;
+                    
+                    console.log(`  📌 預班: ${s.name} 第${d}日 → ${preShift} (來源: ${prefs[key] ? 'preferences' : 'schedulingParams'})`);
                 }
+            }
+            
+            if (staffPreCount > 0) {
+                console.log(`✅ ${s.name} 共 ${staffPreCount} 天預班`);
             }
         });
         
         console.log(`📋 已載入 ${this.preScheduledMap.size} 筆預班記錄`);
+        
+        // ✅ 詳細列出所有預班（除錯用）
+        if (this.preScheduledMap.size > 0) {
+            const preview = Array.from(this.preScheduledMap.entries()).slice(0, 10);
+            console.log('📋 預班清單預覽 (前10筆):');
+            preview.forEach(([key, shift]) => {
+                console.log(`  ${key} → ${shift}`);
+            });
+        } else {
+            console.warn('⚠️ 警告：沒有找到任何預班記錄！');
+            
+            // 除錯：列出第一位人員的完整資料結構
+            if (this.staffList.length > 0) {
+                const sample = this.staffList[0];
+                console.log('🔍 人員資料範例:', {
+                    name: sample.name,
+                    id: sample.id,
+                    schedulingParams: sample.schedulingParams,
+                    preferences: sample.preferences,
+                    prefs: sample.prefs
+                });
+            }
+        }
     }
 
     /**
