@@ -7,15 +7,14 @@ const AdminTools = {
     // ========================================
     init: function() {
         console.log('🛠️ 系統管理工具已載入');
-        this.checkAdminPermission();
+
     },
 
     // 檢查管理員權限
 checkAdminPermission: async function() {
     const user = firebase.auth().currentUser;
     if (!user) {
-        alert('請先登入');
-        window.location.href = '/nurse-scheduler-production/';  // ✅ 修改這行
+        console.warn('未登入');  // 只在 console 顯示
         return false;
     }
 
