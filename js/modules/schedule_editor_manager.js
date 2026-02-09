@@ -15,9 +15,8 @@ const scheduleEditorManager = {
     lastScoreResult: null,
     contextMenuHandler: null,
     
-    // ✅ AI 排班頻率控制
     lastAIRunTime: 0,
-    aiRunCooldown: 3000, // 3 秒冷卻時間
+    aiRunCooldown: 3000,
 
     init: async function(id) { 
         console.log("Schedule Editor Init:", id);
@@ -35,11 +34,9 @@ const scheduleEditorManager = {
             if (!schDoc.exists) { alert("找不到此排班表"); return; }
             this.data = schDoc.data();
             
-            // ✅ 核心修正 1：優先使用預班傳入的 lastMonthData
             if (this.data.lastMonthData && Object.keys(this.data.lastMonthData).length > 0) {
                 this.lastMonthData = this.data.lastMonthData;
                 
-                // 計算上月天數（從 last_X 的 key 中找出最大值）
                 const sampleUid = Object.keys(this.lastMonthData)[0];
                 if (sampleUid) {
                     const dayKeys = Object.keys(this.lastMonthData[sampleUid])
@@ -55,14 +52,12 @@ const scheduleEditorManager = {
                 console.log('⚠️ 預班未提供上月資料');
             }
             
-            // ✅ 修正：移除 loadLastMonthSchedule() 的自動執行
             await Promise.all([
                 this.loadShifts(), 
                 this.loadUsers(), 
                 this.loadUnitRules()
             ]);
             
-            // ✅ 只有在沒有預班資料時，才嘗試載入已發布的上月班表
             if (!this.lastMonthData || Object.keys(this.lastMonthData).length === 0) {
                 console.log('⚠️ 無預班資料，嘗試載入上月已發布班表');
                 await this.loadLastMonthSchedule();
@@ -88,6 +83,7 @@ const scheduleEditorManager = {
             this.updateScheduleScore(); 
             this.bindEvents();
             this.initContextMenu();
+            this.addCellStyles();
         } catch (e) { 
             console.error("❌ 初始化失敗:", e); 
         } finally { 
@@ -95,6 +91,24 @@ const scheduleEditorManager = {
             const loader = document.getElementById('globalLoader');
             if (loader) loader.remove();
         }
+    },
+
+    addCellStyles: function() {
+        if (document.getElementById('schedule-cell-styles')) return;
+        
+        const styleElement = document.createElement('style');
+        styleElement.id = 'schedule-cell-styles';
+        styleElement.textContent = `
+            .cell-req-off {
+                background: #fff3cd !important;
+                color: #856404 !important;
+                font-weight: bold;
+            }
+            .cell-off {
+                background: #fff !important;
+            }
+        `;
+        document.head.appendChild(styleElement);
     },
 
     importFromPreSchedule: async function() {
@@ -114,14 +128,12 @@ const scheduleEditorManager = {
                 const uid = s.uid.trim();
                 const pre = sourceAssign[uid] || {};
                 
-                // ✅ 建立完整的 assignments 結構
                 this.assignments[uid] = { 
                     preferences: pre.preferences || {} 
                 };
                 
                 let staffPreDays = 0;
                 
-                // ✅ 複製所有 current_X 欄位（包含預班）
                 for (let d = 1; d <= daysInMonth; d++) {
                     const key = `current_${d}`;
                     if (pre[key]) {
@@ -166,7 +178,6 @@ const scheduleEditorManager = {
             const lastData = snap.docs[0].data();
             const lastAssignments = lastData.assignments || {};
             
-            // 轉換為 last_X 格式
             this.lastMonthData = {};
             Object.keys(lastAssignments).forEach(uid => {
                 const ua = lastAssignments[uid];
@@ -174,7 +185,6 @@ const scheduleEditorManager = {
                     lastShift: ua[`current_${this.lastMonthDays}`] || 'OFF'
                 };
                 
-                // 取最後 6 天
                 for (let i = 0; i < 6; i++) {
                     const d = this.lastMonthDays - i;
                     this.lastMonthData[uid][`last_${d}`] = ua[`current_${d}`] || 'OFF';
@@ -212,7 +222,6 @@ const scheduleEditorManager = {
               days = new Date(year, month, 0).getDate(), 
               lastD = this.lastMonthDays || 31;
         
-        // === 表頭 (🎯 強化格線) ===
         let h = `<tr>
             <th rowspan="2" style="border:1px solid #bbb;">職編</th>
             <th rowspan="2" style="border:1px solid #bbb;">姓名</th>
@@ -231,7 +240,6 @@ const scheduleEditorManager = {
         h += `<th style="border:1px solid #bbb;">總OFF</th><th style="border:1px solid #bbb;">假OFF</th><th style="border:1px solid #bbb;">E</th><th style="border:1px solid #bbb;">N</th></tr>`;
         thead.innerHTML = h;
 
-        // === 表身 ===
         let bHtml = '';
         this.data.staffList.forEach(s => {
             const uid = s.uid, 
@@ -239,7 +247,6 @@ const scheduleEditorManager = {
                   user = this.usersMap[uid] || {};
             const badges = this.getStaffStatusBadges(uid);
             
-            // 從 assignments 中取得偏好設定
             const prefs = ua.preferences || {};
             let prefDisplay = '';
             
@@ -265,10 +272,9 @@ const scheduleEditorManager = {
                 <td style="text-align:center; border:1px solid #bbb;">${badges || '<span style="color:#ccc;">-</span>'}</td>
                 <td style="text-align:center; line-height:1.3; padding:4px 2px; border:1px solid #bbb;">${prefDisplay}</td>`;
             
-            // ✅ 核心修正 2：使用 last_X 格式讀取上月資料
             const lm = this.lastMonthData[uid] || {};
             for(let d=lastD-5; d<=lastD; d++) {
-                const v = lm[`last_${d}`];  // ✅ 改為 last_X（而不是 current_X）
+                const v = lm[`last_${d}`];
                 bHtml += `<td style="font-size:0.7rem; background:#f9f9f9; color:#999; text-align:center; border:1px solid #bbb;">${v==='OFF'?'FF':(v||'-')}</td>`;
             }
             
@@ -278,18 +284,18 @@ const scheduleEditorManager = {
                 let txt = v || '', cls = 'cell-clickable';
                 let cellStyle = 'border:1px solid #bbb;';
 
-                // 🎯 [視覺] 區分預休(REQ_OFF)黃底與系統休(OFF)白底
                 if(v === 'OFF') { 
                     off++; 
                     txt = 'FF'; 
-                    cls += ' cell-off'; // 白底
+                    cls += ' cell-off';
+                    cellStyle += 'background:#fff;';
                 } else if(v === 'REQ_OFF') { 
                     off++; 
                     req++; 
                     txt = 'FF'; 
-                    cls += ' cell-req-off'; // 黃底
+                    cls += ' cell-req-off';
+                    cellStyle += 'background:#fff3cd; color:#856404; font-weight:bold;';
                 } else {
-                    // 🎯 [視覺] 套用班別顏色
                     const shift = this.shifts.find(sh => sh.code === v);
                     if(shift && shift.color) {
                         cellStyle += `color: ${shift.color}; font-weight: bold;`;
@@ -309,7 +315,6 @@ const scheduleEditorManager = {
         });
         tbody.innerHTML = bHtml;
 
-        // === 表尾（人力監控）===
         if (tfoot) {
             let footHtml = '';
             this.shifts.forEach((s, idx) => {
@@ -353,7 +358,6 @@ const scheduleEditorManager = {
             .orderBy('startTime')
             .get(); 
         
-        // ✅ 過濾掉排班不可用的班別
         this.shifts = snap.docs.map(d => d.data())
             .filter(s => s.isScheduleAvailable !== false);
         
@@ -503,7 +507,6 @@ const scheduleEditorManager = {
     },
 
     runAI: async function() {
-        // ✅ 檢查冷卻時間
         const now = Date.now();
         if (now - this.lastAIRunTime < this.aiRunCooldown) {
             const remaining = Math.ceil((this.aiRunCooldown - (now - this.lastAIRunTime)) / 1000);
@@ -521,18 +524,15 @@ const scheduleEditorManager = {
         try {
             if(typeof SchedulerFactory === 'undefined') throw new Error("排班引擎未載入");
             
-            // ✅ 確保 preferences 包含預班資料
             const staffListWithId = this.data.staffList.map(s => {
                 const uid = s.uid || s.id;
                 const userAssign = this.assignments[uid] || {};
                 
-                // ✅ 合併 schedulingParams
                 const combinedParams = {
                     ...(this.usersMap[uid]?.schedulingParams || {}),
                     ...(s.schedulingParams || {})
                 };
                 
-                // ✅ 將預班資料 (current_X) 也放入 schedulingParams
                 const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
                 for (let d = 1; d <= daysInMonth; d++) {
                     const key = `current_${d}`;
@@ -549,7 +549,6 @@ const scheduleEditorManager = {
                 };
             });
             
-            // ✅ 加入除錯：確認傳入的人員資料格式
             console.log('🔍 傳入 AI 排班的人員資料範例:');
             if (staffListWithId.length > 0) {
                 const sample = staffListWithId[0];
@@ -560,7 +559,6 @@ const scheduleEditorManager = {
                     preferences: sample.preferences
                 });
                 
-                // 檢查是否有預班資料
                 const preScheduleDays = Object.keys(sample.schedulingParams || {})
                     .filter(k => k.startsWith('current_') && sample.schedulingParams[k] !== 'OFF')
                     .concat(Object.keys(sample.preferences || {}).filter(k => k.startsWith('current_') && sample.preferences[k] !== 'OFF'));
@@ -575,13 +573,11 @@ const scheduleEditorManager = {
                 specificNeeds: this.data.specificNeeds || {}
             };
             
-            // 執行排班
             const scheduler = SchedulerFactory.create('V2', staffListWithId, this.data.year, this.data.month, this.lastMonthData, rules);
             const result = scheduler.run();
             
             console.log("🤖 AI 排班結果樣本:", result[Object.keys(result)[0]]);
             
-            // 轉換結果格式
             const newAssignments = {};
             this.data.staffList.forEach(s => {
                 const uid = s.uid.trim();
@@ -606,10 +602,8 @@ const scheduleEditorManager = {
             
             console.log("📊 轉換後的 assignments 樣本:", Object.keys(newAssignments)[0], newAssignments[Object.keys(newAssignments)[0]]);
             
-            // 更新記憶體
             this.assignments = newAssignments;
             
-            // 一次性寫入 Firebase
             await db.collection('schedules').doc(this.scheduleId).update({ 
                 assignments: this.assignments,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -630,8 +624,8 @@ const scheduleEditorManager = {
         }
     },
 
-    initContextMenu: function() { /* 右鍵選單初始化 */ },
-    showContextMenu: function(e, u, d) { /* 右鍵選單顯示 */ },
+    initContextMenu: function() {},
+    showContextMenu: function(e, u, d) {},
     bindEvents: function() { 
         document.addEventListener('click', () => { 
             const m = document.getElementById('schContextMenu'); 
