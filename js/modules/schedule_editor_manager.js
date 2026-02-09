@@ -187,7 +187,7 @@ const scheduleEditorManager = {
             
             const lm = this.lastMonthData[uid] || {};
             for(let d=lastD-5; d<=lastD; d++) {
-                const v = lm[`current_${d}`];
+                const v = lm[`last_${d}`];
                 bHtml += `<td style="font-size:0.7rem; background:#f9f9f9; color:#999; text-align:center;">${v==='OFF'?'FF':(v||'-')}</td>`;
             }
             
