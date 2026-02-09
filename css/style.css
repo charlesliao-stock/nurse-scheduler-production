@@ -165,3 +165,62 @@ th { background-color: #f8f9fa; font-weight: bold; position: sticky; top: 0; z-i
 .context-menu li:hover {
     background-color: #f0f0f0;
 }
+
+/* 統計卡片樣式 */
+.stat-card {
+    background: white;
+    border-radius: 8px;
+    padding: 15px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.08);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.stat-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.stat-icon {
+    width: 45px;
+    height: 45px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 1.2rem;
+}
+
+.stat-content {
+    flex: 1;
+}
+
+.stat-label {
+    font-size: 0.85rem;
+    color: #7f8c8d;
+    margin-bottom: 4px;
+    white-space: nowrap;
+}
+
+.stat-value {
+    font-size: 1.8rem;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+/* 響應式設計 - 小螢幕時改為 3x2 */
+@media (max-width: 1200px) {
+    #personalStatsContainer {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+/* 更小螢幕時改為 2x3 */
+@media (max-width: 768px) {
+    #personalStatsContainer {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
