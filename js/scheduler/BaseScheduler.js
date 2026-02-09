@@ -260,19 +260,35 @@ window.BaseScheduler = class BaseScheduler {
         }
     }
 
-    applyPreSchedules() {
-        this.staffList.forEach(s => {
-            const params = s.schedulingParams || {};
-            for (let d = 1; d <= this.daysInMonth; d++) {
-                const key = `current_${d}`;
-                const req = params[key];
-                if (req && (req === 'REQ_OFF' || this.shiftCodes.includes(req))) {
-                    const ds = this.getDateStr(d);
-                    this.updateShift(ds, s.id, 'OFF', req);
-                }
+applyPreSchedules() {
+    console.log('🔍 開始套用預班...');
+    
+    this.staffList.forEach(s => {
+        // ✅ 優先從 preferences 讀取，再從 schedulingParams 讀取
+        const prefs = s.preferences || s.prefs || {};
+        const params = s.schedulingParams || {};
+        
+        let appliedCount = 0;
+        
+        for (let d = 1; d <= this.daysInMonth; d++) {
+            const key = `current_${d}`;
+            const ds = this.getDateStr(d);
+            
+            // ✅ 優先使用 preferences，其次 schedulingParams
+            const req = prefs[key] || params[key];
+            
+            if (req && (req === 'REQ_OFF' || this.shiftCodes.includes(req))) {
+                this.updateShift(ds, s.id, 'OFF', req);
+                appliedCount++;
+                console.log(`  ✓ 套用預班: ${s.name} 第${d}日 → ${req}`);
             }
-        });
-    }
+        }
+        
+        if (appliedCount > 0) {
+            console.log(`  ✅ ${s.name} 套用 ${appliedCount} 天預班`);
+        }
+    });
+}
 
     getLastMonthFinalShift(uid) {
         const lastMonthDays = new Date(this.year, this.month - 1, 0).getDate();
