@@ -179,18 +179,28 @@ const staffScheduleManager = {
         
         console.log(`📅 渲染個人班表 - ${daysInMonth} 天`);
 
-        // 渲染表頭
-        const rowWeekday = document.getElementById('row-weekday');
-        const rowDate = document.getElementById('row-date');
-        const rowShift = document.getElementById('row-shift');
+        // 清空並重建整個表格
+        myView.innerHTML = '';
         
-        if (!rowWeekday || !rowDate || !rowShift) return;
-
-        // 清空後重新填充
-        rowWeekday.innerHTML = '<th style="width:100px; background:#fff;">星期</th>';
-        rowDate.innerHTML = '<th style="width:100px; background:#fff;">日期</th>';
-        rowShift.innerHTML = '<th style="width:100px; background:#eef2f3; vertical-align: middle;">我的班別</th>';
-
+        // 建立表格
+        const table = document.createElement('table');
+        table.className = 'table table-bordered text-center';
+        table.style.margin = '0';
+        table.style.fontSize = '0.9rem';
+        
+        // 建立表頭
+        const thead = document.createElement('thead');
+        thead.style.background = '#f8f9fa';
+        
+        // 星期列
+        const rowWeekday = document.createElement('tr');
+        rowWeekday.innerHTML = '<th style="width:80px; background:#fff; position:sticky; left:0; z-index:10;">星期</th>';
+        
+        // 日期列
+        const rowDate = document.createElement('tr');
+        rowDate.innerHTML = '<th style="width:80px; background:#fff; position:sticky; left:0; z-index:10;">日期</th>';
+        
+        // 填充日期和星期
         for (let d = 1; d <= daysInMonth; d++) {
             const date = new Date(this.currentYear, this.currentMonth - 1, d);
             const dayOfWeek = date.getDay();
@@ -200,16 +210,33 @@ const staffScheduleManager = {
             const bgColor = isWeekend ? '#ffebee' : '#fff';
             const textColor = isWeekend ? '#d32f2f' : '#333';
 
-            rowWeekday.innerHTML += `<th style="background:${bgColor}; color:${textColor}; min-width:50px;">${weekdayName}</th>`;
-            rowDate.innerHTML += `<th style="background:${bgColor}; color:${textColor}; min-width:50px;">${d}</th>`;
-            
+            rowWeekday.innerHTML += `<th style="background:${bgColor}; color:${textColor}; min-width:60px; padding:8px;">${weekdayName}</th>`;
+            rowDate.innerHTML += `<th style="background:${bgColor}; color:${textColor}; min-width:60px; padding:8px;">${d}</th>`;
+        }
+        
+        thead.appendChild(rowWeekday);
+        thead.appendChild(rowDate);
+        
+        // 建立表身 - 班別列
+        const tbody = document.createElement('tbody');
+        const rowShift = document.createElement('tr');
+        rowShift.innerHTML = '<th style="width:80px; background:#eef2f3; vertical-align:middle; position:sticky; left:0; z-index:10; font-weight:bold;">我的班別</th>';
+        
+        for (let d = 1; d <= daysInMonth; d++) {
             const shift = assignments[`current_${d}`] || 'OFF';
             const isOff = shift === 'OFF' || shift === 'REQ_OFF';
             const cellBg = isOff ? '#e8f5e9' : '#e3f2fd';
             const cellColor = isOff ? '#2e7d32' : '#1565c0';
             
-            rowShift.innerHTML += `<td style="background:${cellBg}; color:${cellColor}; font-weight:bold;">${shift}</td>`;
+            rowShift.innerHTML += `<td style="background:${cellBg}; color:${cellColor}; font-weight:bold; padding:10px; min-width:60px;">${shift}</td>`;
         }
+        
+        tbody.appendChild(rowShift);
+        
+        // 組合表格
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        myView.appendChild(table);
     },
 
     renderUnitSchedule: function() {
