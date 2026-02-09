@@ -22,62 +22,62 @@
         </div>
     </div>
     
-<div id="personalStatsContainer" style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 20px;">
-    <div class="stat-card">
-        <div class="stat-icon" style="background: #2c3e50;">
-            <i class="fas fa-briefcase"></i>
+    <div id="personalStatsContainer" style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 20px;">
+        <div class="stat-card">
+            <div class="stat-icon" style="background: #2c3e50;">
+                <i class="fas fa-briefcase"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">上班總數</div>
+                <div class="stat-value" id="statTotalShifts">-</div>
+            </div>
         </div>
-        <div class="stat-content">
-            <div class="stat-label">上班總數</div>
-            <div class="stat-value" id="statTotalShifts">-</div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background: #27ae60;">
+                <i class="fas fa-umbrella-beach"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">休假天數</div>
+                <div class="stat-value" id="statTotalOff" style="color: #27ae60;">-</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background: #e67e22;">
+                <i class="fas fa-calendar-week"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">假日休</div>
+                <div class="stat-value" id="statHolidayOff" style="color: #e67e22;">-</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background: #3498db;">
+                <i class="fas fa-sun"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">白班(D)</div>
+                <div class="stat-value" id="statDay" style="color: #3498db;">-</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background: #9b59b6;">
+                <i class="fas fa-cloud-moon"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">小夜(E)</div>
+                <div class="stat-value" id="statEvening" style="color: #9b59b6;">-</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background: #34495e;">
+                <i class="fas fa-moon"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">大夜(N)</div>
+                <div class="stat-value" id="statNight" style="color: #34495e;">-</div>
+            </div>
         </div>
     </div>
-    <div class="stat-card">
-        <div class="stat-icon" style="background: #27ae60;">
-            <i class="fas fa-umbrella-beach"></i>
-        </div>
-        <div class="stat-content">
-            <div class="stat-label">休假天數</div>
-            <div class="stat-value" id="statTotalOff" style="color: #27ae60;">-</div>
-        </div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-icon" style="background: #e67e22;">
-            <i class="fas fa-calendar-week"></i>
-        </div>
-        <div class="stat-content">
-            <div class="stat-label">假日休</div>
-            <div class="stat-value" id="statHolidayOff" style="color: #e67e22;">-</div>
-        </div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-icon" style="background: #3498db;">
-            <i class="fas fa-sun"></i>
-        </div>
-        <div class="stat-content">
-            <div class="stat-label">白班(D)</div>
-            <div class="stat-value" id="statDay" style="color: #3498db;">-</div>
-        </div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-icon" style="background: #9b59b6;">
-            <i class="fas fa-cloud-moon"></i>
-        </div>
-        <div class="stat-content">
-            <div class="stat-label">小夜(E)</div>
-            <div class="stat-value" id="statEvening" style="color: #9b59b6;">-</div>
-        </div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-icon" style="background: #34495e;">
-            <i class="fas fa-moon"></i>
-        </div>
-        <div class="stat-content">
-            <div class="stat-label">大夜(N)</div>
-            <div class="stat-value" id="statNight" style="color: #34495e;">-</div>
-        </div>
-    </div>
-</div>
 
     <div id="horizontalScheduleWrapper" class="card" style="padding: 0; overflow: hidden; display:none;">
         <!-- 個人班表檢視 - 橫式捲動 -->
@@ -173,6 +173,32 @@
         box-shadow: 2px 0 5px rgba(0,0,0,0.05);
     }
 
+    /* 預休黃底樣式 - 個人班表 */
+    #myScheduleView .cell-req-off {
+        background: #fff3cd !important;
+        color: #856404 !important;
+        font-weight: bold;
+    }
+
+    /* OFF 綠底樣式 - 個人班表 */
+    #myScheduleView .cell-off {
+        background: #e8f5e9 !important;
+        color: #2e7d32 !important;
+    }
+
+    /* 預休黃底樣式 - 全單位班表 */
+    #unitScheduleView .cell-req-off {
+        background: #fff3cd !important;
+        color: #856404 !important;
+        font-weight: bold;
+    }
+
+    /* OFF 綠底樣式 - 全單位班表 */
+    #unitScheduleView .cell-off {
+        background: #e8f5e9 !important;
+        color: #2e7d32 !important;
+    }
+
     .radio-label { 
         display: flex; 
         align-items: center; 
@@ -231,5 +257,63 @@
         width: 90%;
         max-width: 650px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+
+    /* 統計卡片樣式 */
+    .stat-card {
+        background: white;
+        border-radius: 8px;
+        padding: 15px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.08);
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .stat-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    .stat-icon {
+        width: 45px;
+        height: 45px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 1.2rem;
+    }
+
+    .stat-content {
+        flex: 1;
+    }
+
+    .stat-label {
+        font-size: 0.85rem;
+        color: #7f8c8d;
+        margin-bottom: 4px;
+        white-space: nowrap;
+    }
+
+    .stat-value {
+        font-size: 1.8rem;
+        font-weight: bold;
+        color: #2c3e50;
+    }
+
+    /* 響應式設計 */
+    @media (max-width: 1200px) {
+        #personalStatsContainer {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    }
+
+    @media (max-width: 768px) {
+        #personalStatsContainer {
+            grid-template-columns: repeat(2, 1fr);
+        }
     }
 </style>
