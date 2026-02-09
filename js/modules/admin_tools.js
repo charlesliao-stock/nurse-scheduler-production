@@ -15,7 +15,7 @@ const AdminTools = {
         const user = firebase.auth().currentUser;
         if (!user) {
             alert('請先登入');
-            window.location.href = '/login.html';
+            window.location.href = '/';
             return false;
         }
 
