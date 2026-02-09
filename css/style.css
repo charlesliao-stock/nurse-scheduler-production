@@ -1,4 +1,4 @@
-/* css/style.css - 完整統一管理版 */
+/* css/style.css - 視覺強化完整版 */
 
 :root {
     --primary-color: #2c3e50;
@@ -10,6 +10,7 @@
     --sidebar-width: 250px;
     --header-height: 60px;
     --transition-speed: 0.3s;
+    --border-gray: #bbb; /* 設定明顯的灰色格線顏色 */
 }
 
 /* === 全域設定 === */
@@ -23,6 +24,17 @@ body {
     height: 100vh;
     display: flex;
     font-size: 14px;
+}
+
+/* === 預修與排休顏色規範 === */
+.cell-req-off {
+    background-color: #fff3cd !important; /* 預班/預修：黃底 */
+    color: #856404 !important;
+}
+
+.cell-off {
+    background-color: #ffffff !important; /* 系統排休：白底 */
+    color: #333 !important;
 }
 
 /* === 登入畫面 === */
@@ -91,7 +103,7 @@ body {
 .btn-primary { background: var(--accent-color); }
 .btn-add { background: var(--accent-color); }
 .btn-import { background: var(--success-color); }
-.btn-edit { background: var(--warning-color); box-shadow: 0 2px 4px rgba(243, 156, 18, 0.3); } /* 強化設定按鈕 */
+.btn-edit { background: var(--warning-color); box-shadow: 0 2px 4px rgba(243, 156, 18, 0.3); }
 .btn-delete { background: var(--danger-color); }
 .btn-close { background: #95a5a6; }
 
@@ -117,7 +129,7 @@ body {
 .form-group label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 0.85rem; }
 .form-group input, .form-group select { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 13px; }
 
-/* === 表格與工具列 === */
+/* === 表格與工具列修正 === */
 .toolbar { 
     background: white; padding: 10px; border-radius: 8px; 
     box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 15px;
@@ -125,43 +137,14 @@ body {
 }
 .table-container { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
 
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { padding: 8px; text-align: left; border-bottom: 1px solid #eee; white-space: nowrap; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; border: 1px solid var(--border-gray); }
+th, td { 
+    padding: 8px; 
+    text-align: center; 
+    border: 1px solid var(--border-gray) !important; /* 統一格線顏色 */
+    white-space: nowrap; 
+}
 th { background-color: #f8f9fa; font-weight: bold; position: sticky; top: 0; z-index: 10; }
-
-/* === 身分模擬工具樣式 === */
-#impersonation-tool {
-    padding: 15px; border-top: 1px solid rgba(255,255,255,0.1); 
-    background: rgba(0,0,0,0.2); font-size: 0.85rem; color: white;
-}
-#impersonation-tool select {
-    width: 100%; padding: 6px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); 
-    background: #2c3e50; color: white; margin-bottom: 5px; cursor: pointer;
-}
-
-/* === 評分設定頁面專用 === */
-.score-cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px; }
-.score-card { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden; }
-.card-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 20px; display: flex; align-items: center; gap: 10px; }
-
-/* === 日曆與預班矩陣 === */
-.calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
-.calendar-day { 
-    min-height: 80px; background: white; border: 1px solid #ddd; border-radius: 4px; 
-    padding: 5px; position: relative; cursor: pointer; 
-}
-.calendar-day:hover { border-color: var(--accent-color); }
-.calendar-day.selected { background: #d5f5e3; border: 1px solid #2ecc71; }
-
-/* 管理員「再開放」連結樣式 */
-a[onclick*="reOpen"] {
-    display: inline-block;
-    margin-top: 4px;
-    color: var(--accent-color);
-    text-decoration: underline;
-    transition: color 0.2s;
-}
-a[onclick*="reOpen"]:hover { color: #2980b9 !important; }
 
 /* === 右鍵選單樣式 === */
 .context-menu {
