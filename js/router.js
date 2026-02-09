@@ -24,14 +24,17 @@ const router = {
         '/admin/score_settings': 'score_settings',
         '/admin/schedule_list': 'schedule_list',
         '/admin/schedule_editor': 'schedule_matrix',
-        '/admin/schedule_rules': 'schedule_rules', // <--- 這裡原本可能少了逗號
+        '/admin/schedule_rules': 'schedule_rules',
         
-        // --- [新增] 員工個人功能 ---
-        '/staff/schedule': 'staff_schedule',          // 對應 staff_schedule.html
-        '/staff/exchange_list': 'shift_exchange_list', // 對應 shift_exchange_list.html
+        // --- 員工個人功能 ---
+        '/staff/schedule': 'staff_schedule',
+        '/staff/exchange_list': 'shift_exchange_list',
         
         // --- 系統統計 ---
-        '/admin/system_statistics': 'system_statistics' // 對應 system_statistics.html
+        '/admin/system_statistics': 'system_statistics',
+        
+        // --- ✅ 系統管理工具 ---
+        '/admin/tools': 'admin_tools'
     },
 
     currentView: null,
@@ -66,55 +69,64 @@ const router = {
             document.getElementById('content-area').innerHTML = html;
             this.currentView = viewName;
 
-            // 2. 初始化對應的 Manager (包含新功能)
-            if (viewName === 'dashboard' && typeof dashboardManager !== 'undefined') dashboardManager.init();
-            else if (viewName === 'staff' && typeof staffManager !== 'undefined') staffManager.init();
-            else if (viewName === 'units' && typeof unitManager !== 'undefined') unitManager.init();
-            else if (viewName === 'shifts' && typeof shiftManager !== 'undefined') shiftManager.init();
-            else if (viewName === 'groups' && typeof groupManager !== 'undefined') groupManager.init();
-  else if (viewName === 'menus') {
-                if(typeof menuManager !== 'undefined') menuManager.init();
+            // 2. 初始化對應的 Manager
+            if (viewName === 'dashboard' && typeof dashboardManager !== 'undefined') {
+                dashboardManager.init();
             }
-            else if (viewName === 'dashboard_items') {
-                if(typeof dashboardItemManager !== 'undefined') dashboardItemManager.init();
-            }   else if (viewName === 'pre_schedules') { 
-                if(typeof preScheduleManager !== 'undefined') preScheduleManager.init(); 
+            else if (viewName === 'staff' && typeof staffManager !== 'undefined') {
+                staffManager.init();
             }
-            else if (viewName === 'pre_schedule_matrix') { 
-                if(typeof matrixManager !== 'undefined') matrixManager.init(id); 
+            else if (viewName === 'units' && typeof unitManager !== 'undefined') {
+                unitManager.init();
             }
-            else if (viewName === 'staff_pre_schedule_list') {
-                if(typeof staffPreScheduleListManager !== 'undefined') staffPreScheduleListManager.init();
+            else if (viewName === 'shifts' && typeof shiftManager !== 'undefined') {
+                shiftManager.init();
             }
-            else if (viewName === 'staff_pre_schedule') {
-                if(typeof staffPreScheduleManager !== 'undefined') staffPreScheduleManager.init(id);
+            else if (viewName === 'groups' && typeof groupManager !== 'undefined') {
+                groupManager.init();
             }
-
-            else if (viewName === 'schedule_list') {
-                if(typeof scheduleListManager !== 'undefined') scheduleListManager.init();
+            else if (viewName === 'menus' && typeof menuManager !== 'undefined') {
+                menuManager.init();
             }
-            else if (viewName === 'schedule_matrix') { 
-                if(typeof scheduleEditorManager !== 'undefined') scheduleEditorManager.init(id);
+            else if (viewName === 'dashboard_items' && typeof dashboardItemManager !== 'undefined') {
+                dashboardItemManager.init();
             }
-            else if (viewName === 'schedule_rules') {
-                if(typeof scheduleRuleManager !== 'undefined') scheduleRuleManager.init();
+            else if (viewName === 'pre_schedules' && typeof preScheduleManager !== 'undefined') { 
+                preScheduleManager.init(); 
             }
-            else if (viewName === 'score_settings') {
-                if(typeof scoreSettingsManager !== 'undefined') scoreSettingsManager.init();
+            else if (viewName === 'pre_schedule_matrix' && typeof matrixManager !== 'undefined') { 
+                matrixManager.init(id); 
             }
-
-            // --- [新增] 新功能的初始化 ---
-            else if (viewName === 'staff_schedule') {
-                // 我的班表與統計
-                if(typeof staffScheduleManager !== 'undefined') staffScheduleManager.init();
+            else if (viewName === 'staff_pre_schedule_list' && typeof staffPreScheduleListManager !== 'undefined') {
+                staffPreScheduleListManager.init();
             }
-            else if (viewName === 'shift_exchange_list') {
-                // 換班申請列表 (若有獨立 Manager 則在此初始化，目前共用 shiftExchangeManager)
-                if(typeof shiftExchangeManager !== 'undefined') shiftExchangeManager.init();
+            else if (viewName === 'staff_pre_schedule' && typeof staffPreScheduleManager !== 'undefined') {
+                staffPreScheduleManager.init(id);
             }
-            else if (viewName === 'system_statistics') {
-                // 系統統計
-                if(typeof systemStatisticsManager !== 'undefined') systemStatisticsManager.init();
+            else if (viewName === 'schedule_list' && typeof scheduleListManager !== 'undefined') {
+                scheduleListManager.init();
+            }
+            else if (viewName === 'schedule_matrix' && typeof scheduleEditorManager !== 'undefined') { 
+                scheduleEditorManager.init(id);
+            }
+            else if (viewName === 'schedule_rules' && typeof scheduleRuleManager !== 'undefined') {
+                scheduleRuleManager.init();
+            }
+            else if (viewName === 'score_settings' && typeof scoreSettingsManager !== 'undefined') {
+                scoreSettingsManager.init();
+            }
+            else if (viewName === 'staff_schedule' && typeof staffScheduleManager !== 'undefined') {
+                staffScheduleManager.init();
+            }
+            else if (viewName === 'shift_exchange_list' && typeof shiftExchangeManager !== 'undefined') {
+                shiftExchangeManager.init();
+            }
+            else if (viewName === 'system_statistics' && typeof systemStatisticsManager !== 'undefined') {
+                systemStatisticsManager.init();
+            }
+            // --- ✅ 系統管理工具初始化 ---
+            else if (viewName === 'admin_tools' && typeof AdminTools !== 'undefined') {
+                AdminTools.init();
             }
 
         } catch (e) {
