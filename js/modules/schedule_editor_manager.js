@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 🚀 修正版 v3：解決偏好顯示問題 + AI 排班全部變 OFF + 過濾排班不可用班別
+// 🚀 修正版 v4：加入 AI 排班頻率限制 + 優化 Firebase 讀寫
 
 const scheduleEditorManager = {
     scheduleId: null, 
@@ -14,6 +14,10 @@ const scheduleEditorManager = {
     lastMonthDays: 31,
     lastScoreResult: null,
     contextMenuHandler: null,
+    
+    // ✅ 新增：AI 排班頻率控制
+    lastAIRunTime: 0,
+    aiRunCooldown: 3000, // 3 秒冷卻時間
 
     init: async function(id) { 
         console.log("Schedule Editor Init:", id);
@@ -155,16 +159,14 @@ const scheduleEditorManager = {
                   user = this.usersMap[uid] || {};
             const badges = this.getStaffStatusBadges(uid);
             
-            // 🔧 修正：從 assignments 中取得偏好設定
+            // 從 assignments 中取得偏好設定
             const prefs = ua.preferences || {};
             let prefDisplay = '';
             
-            // 顯示包班
             if (prefs.bundleShift) {
                 prefDisplay += `<div style="font-weight:bold; font-size:0.85rem; color:#e67e22;">包${prefs.bundleShift}</div>`;
             }
             
-            // 顯示志願
             let favs = [];
             if (prefs.favShift) favs.push(prefs.favShift);
             if (prefs.favShift2) favs.push(prefs.favShift2);
@@ -173,7 +175,6 @@ const scheduleEditorManager = {
                 prefDisplay += `<div style="font-size:0.75rem; color:#666; margin-top:2px;">${favs.join(' → ')}</div>`;
             }
             
-            // 如果沒有任何偏好，顯示提示圖示
             if (!prefDisplay) {
                 prefDisplay = '<span style="color:#ccc;">-</span>';
             }
@@ -184,14 +185,12 @@ const scheduleEditorManager = {
                 <td style="text-align:center;">${badges || '<span style="color:#ccc;">-</span>'}</td>
                 <td style="text-align:center; line-height:1.3; padding:4px 2px;">${prefDisplay}</td>`;
             
-            // 上月月底班別
             const lm = this.lastMonthData[uid] || {};
             for(let d=lastD-5; d<=lastD; d++) {
                 const v = lm[`current_${d}`];
                 bHtml += `<td style="font-size:0.7rem; background:#f9f9f9; color:#999; text-align:center;">${v==='OFF'?'FF':(v||'-')}</td>`;
             }
             
-            // 當月班別 + 統計
             let off=0, req=0, e=0, n=0;
             for(let d=1; d<=days; d++) {
                 const v = ua[`current_${d}`];
@@ -414,12 +413,27 @@ const scheduleEditorManager = {
         }
     },
 
+    // ✅ 核心修正：AI 排班加上頻率限制
     runAI: async function() {
+        // ✅ 檢查冷卻時間，避免短時間內重複執行
+        const now = Date.now();
+        if (now - this.lastAIRunTime < this.aiRunCooldown) {
+            const remaining = Math.ceil((this.aiRunCooldown - (now - this.lastAIRunTime)) / 1000);
+            alert(`⏰ 請稍候 ${remaining} 秒後再執行 AI 排班\n\n(避免過度消耗 Firebase 配額)`);
+            return;
+        }
+        
         if(!confirm("啟動 AI 自動排班？這將覆蓋目前的排班結果。")) return;
+        
+        this.lastAIRunTime = now; // ✅ 記錄執行時間
         this.showLoading();
+        
+        console.log('🤖 AI 排班開始執行，時間:', new Date().toLocaleTimeString());
+        
         try {
             if(typeof SchedulerFactory === 'undefined') throw new Error("排班引擎未載入");
             
+            // ✅ 準備資料（記憶體操作）
             const staffListWithId = this.data.staffList.map(s => ({
                 ...s,
                 id: s.uid || s.id,
@@ -433,11 +447,14 @@ const scheduleEditorManager = {
                 dailyNeeds: this.data.dailyNeeds || {},
                 specificNeeds: this.data.specificNeeds || {}
             };
+            
+            // ✅ 執行排班（純記憶體操作，無 Firebase 讀寫）
             const scheduler = SchedulerFactory.create('V2', staffListWithId, this.data.year, this.data.month, this.lastMonthData, rules);
             const result = scheduler.run();
             
             console.log("🤖 AI 排班結果樣本:", result[Object.keys(result)[0]]);
             
+            // ✅ 轉換結果格式
             const newAssignments = {};
             this.data.staffList.forEach(s => {
                 const uid = s.uid.trim();
@@ -459,12 +476,24 @@ const scheduleEditorManager = {
                     newAssignments[uid][`current_${d}`] = shift;
                 }
             });
+            
             console.log("📊 轉換後的 assignments 樣本:", Object.keys(newAssignments)[0], newAssignments[Object.keys(newAssignments)[0]]);
+            
+            // ✅ 更新記憶體
             this.assignments = newAssignments;
-            await db.collection('schedules').doc(this.scheduleId).update({ assignments: this.assignments });
+            
+            // ✅ 一次性寫入 Firebase（僅此一次！）
+            await db.collection('schedules').doc(this.scheduleId).update({ 
+                assignments: this.assignments,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            console.log('✅ AI 排班完成，僅寫入 Firebase 1 次');
+            
             this.renderMatrix();
             this.updateScheduleScore();
             alert("AI 排班完成！");
+            
         } catch(e) { 
             console.error("❌ AI 排班錯誤:", e);
             alert("AI 排班失敗: " + e.message); 
