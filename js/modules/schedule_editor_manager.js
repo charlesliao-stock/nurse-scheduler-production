@@ -101,27 +101,57 @@ const scheduleEditorManager = {
         }
     },
 
-    importFromPreSchedule: async function() {
-        try {
-            const preDoc = await db.collection('pre_schedules').doc(this.data.sourceId).get();
-            if (!preDoc.exists) return;
-            const preData = preDoc.data();
-            const sourceAssign = preData.assignments || {};
-            const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+importFromPreSchedule: async function() {
+    try {
+        const preDoc = await db.collection('pre_schedules').doc(this.data.sourceId).get();
+        if (!preDoc.exists) return;
+        const preData = preDoc.data();
+        const sourceAssign = preData.assignments || {};
+        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+        
+        console.log('🔍 開始從預班表導入資料...');
+        
+        this.assignments = {};
+        let totalPreScheduleDays = 0;
+        
+        this.data.staffList.forEach(s => {
+            const uid = s.uid.trim();
+            const pre = sourceAssign[uid] || {};
             
-            this.assignments = {};
-            this.data.staffList.forEach(s => {
-                const uid = s.uid.trim();
-                const pre = sourceAssign[uid] || {};
-                this.assignments[uid] = { preferences: pre.preferences || {} };
-                for (let d = 1; d <= daysInMonth; d++) {
-                    const key = `current_${d}`;
-                    if (pre[key]) this.assignments[uid][key] = pre[key];
+            // ✅ 建立完整的 assignments 結構
+            this.assignments[uid] = { 
+                preferences: pre.preferences || {} 
+            };
+            
+            let staffPreDays = 0;
+            
+            // ✅ 複製所有 current_X 欄位（包含預班）
+            for (let d = 1; d <= daysInMonth; d++) {
+                const key = `current_${d}`;
+                if (pre[key]) {
+                    this.assignments[uid][key] = pre[key];
+                    if (pre[key] !== 'OFF') {
+                        staffPreDays++;
+                        totalPreScheduleDays++;
+                        console.log(`  📋 導入預班: ${s.name} 第${d}日 = ${pre[key]}`);
+                    }
                 }
-            });
-            await db.collection('schedules').doc(this.scheduleId).update({ assignments: this.assignments });
-        } catch (e) { console.error("導入失敗:", e); }
-    },
+            }
+            
+            if (staffPreDays > 0) {
+                console.log(`  ✅ ${s.name}: ${staffPreDays} 天預班`);
+            }
+        });
+        
+        console.log(`✅ 已從預班表導入 ${Object.keys(this.assignments).length} 位人員資料，共 ${totalPreScheduleDays} 天預班`);
+        
+        await db.collection('schedules').doc(this.scheduleId).update({ 
+            assignments: this.assignments 
+        });
+    } catch (e) { 
+        console.error("導入失敗:", e); 
+    }
+},
 
     loadLastMonthSchedule: async function() {
         const { year, month } = this.data;
