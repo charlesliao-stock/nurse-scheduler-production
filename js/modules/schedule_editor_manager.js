@@ -1,9 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 🎯 完整修正版：解決上月月底資料無法顯示的問題
-// 修正重點：
-// 1. init() 優先使用預班傳入的 lastMonthData
-// 2. renderMatrix() 使用 last_X 格式讀取資料
-// 3. 移除 loadLastMonthSchedule() 的自動執行
+// 🎯 視覺強化 + AI功能修復完整版
 
 const scheduleEditorManager = {
     scheduleId: null, 
@@ -39,7 +35,7 @@ const scheduleEditorManager = {
             if (!schDoc.exists) { alert("找不到此排班表"); return; }
             this.data = schDoc.data();
             
-            // ✅ 核心修正 1：優先使用預班表傳入的 lastMonthData
+            // ✅ 核心修正 1：優先使用預班傳入的 lastMonthData
             if (this.data.lastMonthData && Object.keys(this.data.lastMonthData).length > 0) {
                 this.lastMonthData = this.data.lastMonthData;
                 
@@ -101,57 +97,57 @@ const scheduleEditorManager = {
         }
     },
 
-importFromPreSchedule: async function() {
-    try {
-        const preDoc = await db.collection('pre_schedules').doc(this.data.sourceId).get();
-        if (!preDoc.exists) return;
-        const preData = preDoc.data();
-        const sourceAssign = preData.assignments || {};
-        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
-        
-        console.log('🔍 開始從預班表導入資料...');
-        
-        this.assignments = {};
-        let totalPreScheduleDays = 0;
-        
-        this.data.staffList.forEach(s => {
-            const uid = s.uid.trim();
-            const pre = sourceAssign[uid] || {};
+    importFromPreSchedule: async function() {
+        try {
+            const preDoc = await db.collection('pre_schedules').doc(this.data.sourceId).get();
+            if (!preDoc.exists) return;
+            const preData = preDoc.data();
+            const sourceAssign = preData.assignments || {};
+            const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
             
-            // ✅ 建立完整的 assignments 結構
-            this.assignments[uid] = { 
-                preferences: pre.preferences || {} 
-            };
+            console.log('🔍 開始從預班表導入資料...');
             
-            let staffPreDays = 0;
+            this.assignments = {};
+            let totalPreScheduleDays = 0;
             
-            // ✅ 複製所有 current_X 欄位（包含預班）
-            for (let d = 1; d <= daysInMonth; d++) {
-                const key = `current_${d}`;
-                if (pre[key]) {
-                    this.assignments[uid][key] = pre[key];
-                    if (pre[key] !== 'OFF') {
-                        staffPreDays++;
-                        totalPreScheduleDays++;
-                        console.log(`  📋 導入預班: ${s.name} 第${d}日 = ${pre[key]}`);
+            this.data.staffList.forEach(s => {
+                const uid = s.uid.trim();
+                const pre = sourceAssign[uid] || {};
+                
+                // ✅ 建立完整的 assignments 結構
+                this.assignments[uid] = { 
+                    preferences: pre.preferences || {} 
+                };
+                
+                let staffPreDays = 0;
+                
+                // ✅ 複製所有 current_X 欄位（包含預班）
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const key = `current_${d}`;
+                    if (pre[key]) {
+                        this.assignments[uid][key] = pre[key];
+                        if (pre[key] !== 'OFF') {
+                            staffPreDays++;
+                            totalPreScheduleDays++;
+                            console.log(`  📋 導入預班: ${s.name} 第${d}日 = ${pre[key]}`);
+                        }
                     }
                 }
-            }
+                
+                if (staffPreDays > 0) {
+                    console.log(`  ✅ ${s.name}: ${staffPreDays} 天預班`);
+                }
+            });
             
-            if (staffPreDays > 0) {
-                console.log(`  ✅ ${s.name}: ${staffPreDays} 天預班`);
-            }
-        });
-        
-        console.log(`✅ 已從預班表導入 ${Object.keys(this.assignments).length} 位人員資料，共 ${totalPreScheduleDays} 天預班`);
-        
-        await db.collection('schedules').doc(this.scheduleId).update({ 
-            assignments: this.assignments 
-        });
-    } catch (e) { 
-        console.error("導入失敗:", e); 
-    }
-},
+            console.log(`✅ 已從預班表導入 ${Object.keys(this.assignments).length} 位人員資料，共 ${totalPreScheduleDays} 天預班`);
+            
+            await db.collection('schedules').doc(this.scheduleId).update({ 
+                assignments: this.assignments 
+            });
+        } catch (e) { 
+            console.error("導入失敗:", e); 
+        }
+    },
 
     loadLastMonthSchedule: async function() {
         const { year, month } = this.data;
@@ -216,23 +212,23 @@ importFromPreSchedule: async function() {
               days = new Date(year, month, 0).getDate(), 
               lastD = this.lastMonthDays || 31;
         
-        // === 表頭 ===
+        // === 表頭 (🎯 強化格線) ===
         let h = `<tr>
-            <th rowspan="2">職編</th>
-            <th rowspan="2">姓名</th>
-            <th rowspan="2">狀態</th>
-            <th rowspan="2">偏好</th>
-            <th colspan="6" style="background:#eee;">上月月底</th>`;
-        for(let d=1; d<=days; d++) h += `<th>${d}</th>`;
-        h += `<th colspan="4">統計</th></tr><tr>`;
+            <th rowspan="2" style="border:1px solid #bbb;">職編</th>
+            <th rowspan="2" style="border:1px solid #bbb;">姓名</th>
+            <th rowspan="2" style="border:1px solid #bbb;">狀態</th>
+            <th rowspan="2" style="border:1px solid #bbb;">偏好</th>
+            <th colspan="6" style="background:#eee; border:1px solid #bbb;">上月月底</th>`;
+        for(let d=1; d<=days; d++) h += `<th style="border:1px solid #bbb;">${d}</th>`;
+        h += `<th colspan="4" style="border:1px solid #bbb;">統計</th></tr><tr>`;
         
         for(let d=lastD-5; d<=lastD; d++) {
-            h += `<th style="background:#f5f5f5; color:#999; font-size:0.7rem;">${d}</th>`;
+            h += `<th style="background:#f5f5f5; color:#999; font-size:0.7rem; border:1px solid #bbb;">${d}</th>`;
         }
         for(let d=1; d<=days; d++) {
-            h += `<th style="font-size:0.8rem;">${['日','一','二','三','四','五','六'][new Date(year, month-1, d).getDay()]}</th>`;
+            h += `<th style="font-size:0.8rem; border:1px solid #bbb;">${['日','一','二','三','四','五','六'][new Date(year, month-1, d).getDay()]}</th>`;
         }
-        h += `<th>總OFF</th><th>假OFF</th><th>E</th><th>N</th></tr>`;
+        h += `<th style="border:1px solid #bbb;">總OFF</th><th style="border:1px solid #bbb;">假OFF</th><th style="border:1px solid #bbb;">E</th><th style="border:1px solid #bbb;">N</th></tr>`;
         thead.innerHTML = h;
 
         // === 表身 ===
@@ -264,43 +260,51 @@ importFromPreSchedule: async function() {
             }
             
             bHtml += `<tr>
-                <td>${user.employeeId||''}</td>
-                <td>${s.name}${s.isSupport ? '<br><span style="color:#27ae60; font-size:0.7rem;">(支援)</span>' : ''}</td>
-                <td style="text-align:center;">${badges || '<span style="color:#ccc;">-</span>'}</td>
-                <td style="text-align:center; line-height:1.3; padding:4px 2px;">${prefDisplay}</td>`;
+                <td style="border:1px solid #bbb;">${user.employeeId||''}</td>
+                <td style="border:1px solid #bbb;">${s.name}${s.isSupport ? '<br><span style="color:#27ae60; font-size:0.7rem;">(支援)</span>' : ''}</td>
+                <td style="text-align:center; border:1px solid #bbb;">${badges || '<span style="color:#ccc;">-</span>'}</td>
+                <td style="text-align:center; line-height:1.3; padding:4px 2px; border:1px solid #bbb;">${prefDisplay}</td>`;
             
             // ✅ 核心修正 2：使用 last_X 格式讀取上月資料
             const lm = this.lastMonthData[uid] || {};
             for(let d=lastD-5; d<=lastD; d++) {
                 const v = lm[`last_${d}`];  // ✅ 改為 last_X（而不是 current_X）
-                bHtml += `<td style="font-size:0.7rem; background:#f9f9f9; color:#999; text-align:center;">${v==='OFF'?'FF':(v||'-')}</td>`;
+                bHtml += `<td style="font-size:0.7rem; background:#f9f9f9; color:#999; text-align:center; border:1px solid #bbb;">${v==='OFF'?'FF':(v||'-')}</td>`;
             }
             
             let off=0, req=0, e=0, n=0;
             for(let d=1; d<=days; d++) {
                 const v = ua[`current_${d}`];
                 let txt = v || '', cls = 'cell-clickable';
+                let cellStyle = 'border:1px solid #bbb;';
+
+                // 🎯 [視覺] 區分預休(REQ_OFF)黃底與系統休(OFF)白底
                 if(v === 'OFF') { 
                     off++; 
-                    txt='FF'; 
-                    cls+=' cell-off'; 
+                    txt = 'FF'; 
+                    cls += ' cell-off'; // 白底
                 } else if(v === 'REQ_OFF') { 
                     off++; 
                     req++; 
-                    txt='V'; 
-                    cls+=' cell-req-off'; 
-                } else if(v === 'E') {
-                    e++;
-                } else if(v === 'N') {
-                    n++;
+                    txt = 'FF'; 
+                    cls += ' cell-req-off'; // 黃底
+                } else {
+                    // 🎯 [視覺] 套用班別顏色
+                    const shift = this.shifts.find(sh => sh.code === v);
+                    if(shift && shift.color) {
+                        cellStyle += `color: ${shift.color}; font-weight: bold;`;
+                    }
+                    if(v === 'E') e++;
+                    else if(v === 'N') n++;
                 }
-                bHtml += `<td class="${cls}" oncontextmenu="scheduleEditorManager.showContextMenu(event,'${uid}',${d}); return false;">${txt}</td>`;
+                
+                bHtml += `<td class="${cls}" style="${cellStyle}" oncontextmenu="scheduleEditorManager.showContextMenu(event,'${uid}',${d}); return false;">${txt}</td>`;
             }
             
-            bHtml += `<td style="text-align:center;">${off}</td>
-                      <td style="text-align:center; color:red;">${req}</td>
-                      <td style="text-align:center;">${e}</td>
-                      <td style="text-align:center;">${n}</td>`;
+            bHtml += `<td style="text-align:center; border:1px solid #bbb;">${off}</td>
+                      <td style="text-align:center; color:red; border:1px solid #bbb;">${req}</td>
+                      <td style="text-align:center; border:1px solid #bbb;">${e}</td>
+                      <td style="text-align:center; border:1px solid #bbb;">${n}</td>`;
             bHtml += `</tr>`;
         });
         tbody.innerHTML = bHtml;
@@ -311,7 +315,7 @@ importFromPreSchedule: async function() {
             this.shifts.forEach((s, idx) => {
                 footHtml += `<tr>`;
                 if(idx === 0) {
-                    footHtml += `<td colspan="10" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; vertical-align:middle; background:#f8f9fa;">每日人力<br>監控</td>`;
+                    footHtml += `<td colspan="10" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; vertical-align:middle; background:#f8f9fa; border:1px solid #bbb;">每日人力<br>監控</td>`;
                 }
                 
                 for(let d=1; d<=days; d++) {
@@ -329,12 +333,12 @@ importFromPreSchedule: async function() {
                         need = this.data.dailyNeeds[`${s.code}_${dayIdx}`] || 0;
                     }
 
-                    const style = isTemp ? 'background:#fff3cd; border:1px solid #f39c12;' : '';
+                    const style = isTemp ? 'background:#fff3cd; border:1px solid #f39c12;' : 'border:1px solid #bbb;';
                     footHtml += `<td id="stat_cell_${s.code}_${d}" style="text-align:center; font-size:0.8rem; ${style}">
                                     <span class="stat-actual">-</span>/<span class="stat-need" style="font-weight:bold;">${need}</span>
                                  </td>`;
                 }
-                footHtml += `<td colspan="4" style="background:#f0f0f0;"></td>`;
+                footHtml += `<td colspan="4" style="background:#f0f0f0; border:1px solid #bbb;"></td>`;
                 footHtml += `</tr>`;
             });
             tfoot.innerHTML = footHtml;
@@ -498,133 +502,133 @@ importFromPreSchedule: async function() {
         }
     },
 
-runAI: async function() {
-    // ✅ 檢查冷卻時間
-    const now = Date.now();
-    if (now - this.lastAIRunTime < this.aiRunCooldown) {
-        const remaining = Math.ceil((this.aiRunCooldown - (now - this.lastAIRunTime)) / 1000);
-        alert(`⏰ 請稍候 ${remaining} 秒後再執行 AI 排班\n\n(避免過度消耗 Firebase 配額)`);
-        return;
-    }
-    
-    if(!confirm("啟動 AI 自動排班？這將覆蓋目前的排班結果。")) return;
-    
-    this.lastAIRunTime = now;
-    this.showLoading();
-    
-    console.log('🤖 AI 排班開始執行，時間:', new Date().toLocaleTimeString());
-    
-    try {
-        if(typeof SchedulerFactory === 'undefined') throw new Error("排班引擎未載入");
-        
-        // ✅ 確保 preferences 包含預班資料
-        const staffListWithId = this.data.staffList.map(s => {
-            const uid = s.uid || s.id;
-            const userAssign = this.assignments[uid] || {};
-            
-            // ✅ 合併 schedulingParams
-            const combinedParams = {
-                ...(this.usersMap[uid]?.schedulingParams || {}),
-                ...(s.schedulingParams || {})
-            };
-            
-            // ✅ 將預班資料 (current_X) 也放入 schedulingParams
-            const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
-            for (let d = 1; d <= daysInMonth; d++) {
-                const key = `current_${d}`;
-                if (userAssign[key]) {
-                    combinedParams[key] = userAssign[key];
-                }
-            }
-            
-            return {
-                ...s,
-                id: uid,
-                schedulingParams: combinedParams,
-                preferences: userAssign.preferences || {}
-            };
-        });
-        
-        // ✅ 加入除錯：確認傳入的人員資料格式
-        console.log('🔍 傳入 AI 排班的人員資料範例:');
-        if (staffListWithId.length > 0) {
-            const sample = staffListWithId[0];
-            console.log({
-                name: sample.name,
-                id: sample.id,
-                schedulingParams: sample.schedulingParams,
-                preferences: sample.preferences
-            });
-            
-            // 檢查是否有預班資料
-            const preScheduleDays = Object.keys(sample.schedulingParams || {})
-                .filter(k => k.startsWith('current_') && sample.schedulingParams[k] !== 'OFF')
-                .concat(Object.keys(sample.preferences || {}).filter(k => k.startsWith('current_') && sample.preferences[k] !== 'OFF'));
-            
-            console.log('包含預班資料的天數:', preScheduleDays.length, preScheduleDays.slice(0, 5));
+    runAI: async function() {
+        // ✅ 檢查冷卻時間
+        const now = Date.now();
+        if (now - this.lastAIRunTime < this.aiRunCooldown) {
+            const remaining = Math.ceil((this.aiRunCooldown - (now - this.lastAIRunTime)) / 1000);
+            alert(`⏰ 請稍候 ${remaining} 秒後再執行 AI 排班\n\n(避免過度消耗 Firebase 配額)`);
+            return;
         }
         
-        const rules = { 
-            ...this.unitRules, 
-            shifts: this.shifts,
-            dailyNeeds: this.data.dailyNeeds || {},
-            specificNeeds: this.data.specificNeeds || {}
-        };
+        if(!confirm("啟動 AI 自動排班？這將覆蓋目前的排班結果。")) return;
         
-        // 執行排班
-        const scheduler = SchedulerFactory.create('V2', staffListWithId, this.data.year, this.data.month, this.lastMonthData, rules);
-        const result = scheduler.run();
+        this.lastAIRunTime = now;
+        this.showLoading();
         
-        console.log("🤖 AI 排班結果樣本:", result[Object.keys(result)[0]]);
+        console.log('🤖 AI 排班開始執行，時間:', new Date().toLocaleTimeString());
         
-        // 轉換結果格式
-        const newAssignments = {};
-        this.data.staffList.forEach(s => {
-            const uid = s.uid.trim();
-            newAssignments[uid] = { preferences: (this.assignments[uid]?.preferences || {}) };
+        try {
+            if(typeof SchedulerFactory === 'undefined') throw new Error("排班引擎未載入");
             
-            for(let d=1; d<=new Date(this.data.year, this.data.month, 0).getDate(); d++) {
-                const ds = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-                let shift = 'OFF';
+            // ✅ 確保 preferences 包含預班資料
+            const staffListWithId = this.data.staffList.map(s => {
+                const uid = s.uid || s.id;
+                const userAssign = this.assignments[uid] || {};
                 
-                if (result[ds]) {
-                    for(let code in result[ds]) {
-                        if(result[ds][code].includes(uid)) { 
-                            shift = code; 
-                            break; 
-                        }
+                // ✅ 合併 schedulingParams
+                const combinedParams = {
+                    ...(this.usersMap[uid]?.schedulingParams || {}),
+                    ...(s.schedulingParams || {})
+                };
+                
+                // ✅ 將預班資料 (current_X) 也放入 schedulingParams
+                const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const key = `current_${d}`;
+                    if (userAssign[key]) {
+                        combinedParams[key] = userAssign[key];
                     }
                 }
                 
-                newAssignments[uid][`current_${d}`] = shift;
+                return {
+                    ...s,
+                    id: uid,
+                    schedulingParams: combinedParams,
+                    preferences: userAssign.preferences || {}
+                };
+            });
+            
+            // ✅ 加入除錯：確認傳入的人員資料格式
+            console.log('🔍 傳入 AI 排班的人員資料範例:');
+            if (staffListWithId.length > 0) {
+                const sample = staffListWithId[0];
+                console.log({
+                    name: sample.name,
+                    id: sample.id,
+                    schedulingParams: sample.schedulingParams,
+                    preferences: sample.preferences
+                });
+                
+                // 檢查是否有預班資料
+                const preScheduleDays = Object.keys(sample.schedulingParams || {})
+                    .filter(k => k.startsWith('current_') && sample.schedulingParams[k] !== 'OFF')
+                    .concat(Object.keys(sample.preferences || {}).filter(k => k.startsWith('current_') && sample.preferences[k] !== 'OFF'));
+                
+                console.log('包含預班資料的天數:', preScheduleDays.length, preScheduleDays.slice(0, 5));
             }
-        });
-        
-        console.log("📊 轉換後的 assignments 樣本:", Object.keys(newAssignments)[0], newAssignments[Object.keys(newAssignments)[0]]);
-        
-        // 更新記憶體
-        this.assignments = newAssignments;
-        
-        // 一次性寫入 Firebase
-        await db.collection('schedules').doc(this.scheduleId).update({ 
-            assignments: this.assignments,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        console.log('✅ AI 排班完成，僅寫入 Firebase 1 次');
-        
-        this.renderMatrix();
-        this.updateScheduleScore();
-        alert("AI 排班完成！");
-        
-    } catch(e) { 
-        console.error("❌ AI 排班錯誤:", e);
-        alert("AI 排班失敗: " + e.message); 
-    } finally { 
-        const l = document.getElementById('globalLoader'); 
-        if(l) l.remove(); 
-    }
-},
+            
+            const rules = { 
+                ...this.unitRules, 
+                shifts: this.shifts,
+                dailyNeeds: this.data.dailyNeeds || {},
+                specificNeeds: this.data.specificNeeds || {}
+            };
+            
+            // 執行排班
+            const scheduler = SchedulerFactory.create('V2', staffListWithId, this.data.year, this.data.month, this.lastMonthData, rules);
+            const result = scheduler.run();
+            
+            console.log("🤖 AI 排班結果樣本:", result[Object.keys(result)[0]]);
+            
+            // 轉換結果格式
+            const newAssignments = {};
+            this.data.staffList.forEach(s => {
+                const uid = s.uid.trim();
+                newAssignments[uid] = { preferences: (this.assignments[uid]?.preferences || {}) };
+                
+                for(let d=1; d<=new Date(this.data.year, this.data.month, 0).getDate(); d++) {
+                    const ds = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                    let shift = 'OFF';
+                    
+                    if (result[ds]) {
+                        for(let code in result[ds]) {
+                            if(result[ds][code].includes(uid)) { 
+                                shift = code; 
+                                break; 
+                            }
+                        }
+                    }
+                    
+                    newAssignments[uid][`current_${d}`] = shift;
+                }
+            });
+            
+            console.log("📊 轉換後的 assignments 樣本:", Object.keys(newAssignments)[0], newAssignments[Object.keys(newAssignments)[0]]);
+            
+            // 更新記憶體
+            this.assignments = newAssignments;
+            
+            // 一次性寫入 Firebase
+            await db.collection('schedules').doc(this.scheduleId).update({ 
+                assignments: this.assignments,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            console.log('✅ AI 排班完成，僅寫入 Firebase 1 次');
+            
+            this.renderMatrix();
+            this.updateScheduleScore();
+            alert("AI 排班完成！");
+            
+        } catch(e) { 
+            console.error("❌ AI 排班錯誤:", e);
+            alert("AI 排班失敗: " + e.message); 
+        } finally { 
+            const l = document.getElementById('globalLoader'); 
+            if(l) l.remove(); 
+        }
+    },
 
     initContextMenu: function() { /* 右鍵選單初始化 */ },
     showContextMenu: function(e, u, d) { /* 右鍵選單顯示 */ },
