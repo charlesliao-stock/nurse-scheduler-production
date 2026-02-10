@@ -161,72 +161,72 @@ loadData: async function() {
     }
 },
 
-    /**
-     * ✅ 根據狀態和角色決定可執行的操作
-     */
-    getActionsHTML: function(id, data) {
-        const activeUid = app.getUid();
-        const activeRole = app.impersonatedRole || app.userRole;
-        const activeUnitId = app.getUnitId();
-        const isRequester = data.requesterUid === activeUid;
-        const isTarget = data.targetUid === activeUid;
-        
-        // 待對方同意階段
-        if (data.status === 'pending_target') {
-            if (isTarget) {
-                return `
-                    <button class="btn btn-sm btn-success" onclick="shiftExchangeManager.approveRequest('${id}', 'target')" style="margin-right:5px;">
-                        <i class="fas fa-check"></i> 同意
-                    </button>
-                    <button class="btn btn-sm btn-danger" onclick="shiftExchangeManager.rejectRequest('${id}')">
-                        <i class="fas fa-times"></i> 拒絕
-                    </button>
-                `;
-            } else if (isRequester) {
-                return `
-                    <button class="btn btn-sm" style="background:#95a5a6; color:white;" onclick="shiftExchangeManager.cancelRequest('${id}')">
-                        <i class="fas fa-ban"></i> 取消申請
-                    </button>
-                `;
-            }
+/**
+ * ✅ 根據狀態和角色決定可執行的操作
+ */
+getActionsHTML: function(id, data) {
+    const activeUid = app.getUid();
+    const activeRole = app.impersonatedRole || app.userRole;
+    const activeUnitId = app.getUnitId();
+    const isRequester = data.requesterUid === activeUid;
+    const isTarget = data.targetUid === activeUid;
+    
+    // 待對方同意階段
+    if (data.status === 'pending_target') {
+        if (isTarget) {
+            return `
+                <button class="action-btn approve-btn" onclick="shiftExchangeManager.approveRequest('${id}', 'target')" style="margin-right:5px;">
+                    <i class="fas fa-check"></i> 同意
+                </button>
+                <button class="action-btn reject-btn" onclick="shiftExchangeManager.rejectRequest('${id}')">
+                    <i class="fas fa-times"></i> 拒絕
+                </button>
+            `;
+        } else if (isRequester) {
+            return `
+                <button class="action-btn cancel-btn" onclick="shiftExchangeManager.cancelRequest('${id}')">
+                    <i class="fas fa-ban"></i> 取消申請
+                </button>
+            `;
         }
+    }
+    
+    // 待護理長審核階段
+    if (data.status === 'pending_manager') {
+        const canApprove = (activeRole === 'system_admin') || (activeRole === 'unit_manager' && activeUnitId === data.unitId);
         
-        // 待護理長審核階段
-        if (data.status === 'pending_manager') {
-            const canApprove = (activeRole === 'system_admin') || (activeRole === 'unit_manager' && activeUnitId === data.unitId);
-            
-            if (canApprove) {
-                return `
-                    <button class="btn btn-sm btn-success" onclick="shiftExchangeManager.approveRequest('${id}', 'manager')" style="margin-right:5px;">
-                        <i class="fas fa-check"></i> 核准
-                    </button>
-                    <button class="btn btn-sm btn-danger" onclick="shiftExchangeManager.rejectRequest('${id}')">
-                        <i class="fas fa-times"></i> 退回
-                    </button>
-                `;
-            } else {
-                return '<span style="color:#999; font-size:0.85rem;">審核中...</span>';
-            }
+        if (canApprove) {
+            return `
+                <button class="action-btn approve-btn" onclick="shiftExchangeManager.approveRequest('${id}', 'manager')" style="margin-right:5px;">
+                    <i class="fas fa-check"></i> 核准
+                </button>
+                <button class="action-btn reject-btn" onclick="shiftExchangeManager.rejectRequest('${id}')">
+                    <i class="fas fa-times"></i> 退回
+                </button>
+            `;
+        } else {
+            return '<span style="color:#999; font-size:0.85rem;">審核中...</span>';
         }
-        
-        // 已完成
-        if (data.status === 'approved') {
-            return '<span style="color:#27ae60; font-size:0.85rem;"><i class="fas fa-check-circle"></i> 已完成</span>';
-        }
-        
-        // 已拒絕
-        if (data.status === 'rejected') {
-            const reason = data.rejectReason ? `<br><small style="color:#e74c3c;">原因: ${data.rejectReason}</small>` : '';
-            return `<span style="color:#e74c3c; font-size:0.85rem;"><i class="fas fa-times-circle"></i> 已拒絕${reason}</span>`;
-        }
-        
-        // 已取消
-        if (data.status === 'cancelled') {
-            return '<span style="color:#95a5a6; font-size:0.85rem;"><i class="fas fa-ban"></i> 已取消</span>';
-        }
-        
-        return '<span style="color:#ccc;">-</span>';
-    },
+    }
+    
+    // 已完成
+    if (data.status === 'approved') {
+        return '<span style="color:#27ae60; font-size:0.85rem;"><i class="fas fa-check-circle"></i> 已完成</span>';
+    }
+    
+    // 已拒絕
+    if (data.status === 'rejected') {
+        const reason = data.rejectReason ? `<br><small style="color:#e74c3c;">原因: ${data.rejectReason}</small>` : '';
+        return `<span style="color:#e74c3c; font-size:0.85rem;"><i class="fas fa-times-circle"></i> 已拒絕${reason}</span>`;
+    }
+    
+    // 已取消
+    if (data.status === 'cancelled') {
+        return '<span style="color:#95a5a6; font-size:0.85rem;"><i class="fas fa-ban"></i> 已取消</span>';
+    }
+    
+    return '<span style="color:#ccc;">-</span>';
+},
 
     /**
      * ✅ 根據狀態返回列樣式
