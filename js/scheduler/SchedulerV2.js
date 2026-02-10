@@ -1,7 +1,11 @@
 // js/scheduler/SchedulerV2.js
 /**
  * 階層式 AI 排班引擎 - 平衡優化版
- * 🔧 修正版 v7：絕對保護預班，從 schedulingParams 和 preferences 讀取
+ * 🔧 修正版 v8：
+ * 1. 嚴格遵守排班偏好（包含 favShift3）
+ * 2. 包班人員只能排包班或偏好內的班別
+ * 3. 強化 OFF 天數平衡機制
+ * 4. 新增實際的平衡調整階段
  */
 window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}) {
     constructor(allStaff, year, month, lastMonthData, rules) {
@@ -93,13 +97,31 @@ window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}
     }
 
     run() {
+        console.log('🚀 開始執行 AI 排班引擎 V2');
+        
+        // 階段 1: 套用預班
         this.applyPreSchedules();
+        
+        // 階段 2: 月初延續性
         this.applyEarlyMonthContinuity();
+        
+        // 階段 3: 逐日填補 + 分段平衡
+        const segmentSize = Math.ceil(this.daysInMonth / this.segments);
         
         for (let d = 1; d <= this.daysInMonth; d++) {
             this.fillDailyShifts(d);
-            if (d % Math.ceil(this.daysInMonth / this.segments) === 0) this.rebalancePressure();
+            
+            // ✅ 每個 segment 結束時進行平衡調整
+            if (d % segmentSize === 0 || d === this.daysInMonth) {
+                console.log(`📊 第 ${d} 日：執行平衡調整 (Segment ${Math.ceil(d / segmentSize)}/${this.segments})`);
+                this.balanceOffDays(d);
+            }
         }
+        
+        // 階段 4: 最終全局平衡
+        console.log('🔄 最終全局平衡調整');
+        this.finalBalancePass();
+        
         return this.schedule;
     }
 
@@ -124,7 +146,6 @@ window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}
                     if (!this.isPreScheduled(ds, uid, code)) {
                         this.updateShift(ds, uid, code, 'OFF');
                         this.staffStats[uid].workPressure -= 1.5;
-                        console.log(`  ↳ 移除非預班人員從 ${code} 班（需求為 0）`);
                     }
                 });
                 return;
@@ -154,7 +175,7 @@ window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}
             if (gap > 0) {
                 gap = this.processQueue(day, code, gap, s => {
                     const p = s.preferences || s.prefs || {};
-                    const isPref = (p.favShift === code || p.favShift2 === code);
+                    const isPref = (p.favShift === code || p.favShift2 === code || p.favShift3 === code);
                     return !this.staffStats[s.id].isBundle && isPref;
                 });
             }
@@ -310,29 +331,138 @@ window.SchedulerV2 = class SchedulerV2 extends (window.BaseScheduler || class {}
         return gap;
     }
 
+    /**
+     * ✅ 修正：評分函數 - 嚴格遵守偏好和包班限制
+     */
     calculateScore(staff, code) {
         const stats = this.staffStats[staff.id];
         const counters = this.counters[staff.id] || {};
         
         let score = stats.workPressure * 100; 
         
+        // ✅ OFF 天數平衡（更強的權重）
         const currentOff = counters.OFF || 0;
         const avgOff = Object.values(this.counters).reduce((sum, c) => sum + (c.OFF || 0), 0) / this.staffList.length;
         
         if (currentOff > avgOff) {
-            score -= (currentOff - avgOff) * 200;
+            score -= (currentOff - avgOff) * 300; // 提高權重從 200 -> 300
         } else if (currentOff < avgOff) {
-            score += (avgOff - currentOff) * 200;
+            score += (avgOff - currentOff) * 300;
         }
         
+        // ✅ 排班偏好處理（包含 favShift3）
         const p = staff.preferences || staff.prefs || {};
-        if (p.favShift === code) score -= 150;
-        else if (p.favShift2 === code) score -= 80;
+        const bundleShift = stats.targetShift;
+        
+        // ⛔ 包班人員：只能排包班班別或偏好內的班別
+        if (bundleShift) {
+            if (code === bundleShift) {
+                score -= 200; // 包班最優先
+            } else if (p.favShift === code || p.favShift2 === code || p.favShift3 === code) {
+                score -= 50; // 允許偏好內的班別
+            } else {
+                score += 10000; // ⛔ 嚴重懲罰：不在包班或偏好內
+            }
+        } else {
+            // 一般人員：偏好優先
+            if (p.favShift === code) score -= 200;
+            else if (p.favShift2 === code) score -= 120;
+            else if (p.favShift3 === code) score -= 80;
+        }
         
         const consDays = this.getConsecutiveWorkDays(staff.id, this.getDateStr(1));
         if (consDays > 3) score += (consDays * 50);
 
         return score;
+    }
+
+    /**
+     * ✅ 新增：分段平衡調整
+     */
+    balanceOffDays(upToDay) {
+        console.log(`  🔄 執行 OFF 天數平衡（至第 ${upToDay} 日）`);
+        
+        // 計算平均 OFF 天數
+        const avgOff = Object.values(this.counters).reduce((sum, c) => sum + (c.OFF || 0), 0) / this.staffList.length;
+        
+        // 找出 OFF 過多和過少的人員
+        const overOff = [];
+        const underOff = [];
+        
+        this.staffList.forEach(s => {
+            const uid = s.id;
+            const currentOff = this.counters[uid].OFF || 0;
+            const diff = currentOff - avgOff;
+            
+            if (diff > 1) {
+                overOff.push({ uid, staff: s, diff, currentOff });
+            } else if (diff < -1) {
+                underOff.push({ uid, staff: s, diff, currentOff });
+            }
+        });
+        
+        if (overOff.length === 0 || underOff.length === 0) {
+            console.log('  ✓ OFF 天數已平衡，無需調整');
+            return;
+        }
+        
+        console.log(`  📊 過多 OFF: ${overOff.length} 人，過少 OFF: ${underOff.length} 人`);
+        
+        // 嘗試交換班別
+        let swapped = 0;
+        
+        overOff.sort((a, b) => b.diff - a.diff);
+        underOff.sort((a, b) => a.diff - b.diff);
+        
+        for (const over of overOff) {
+            for (const under of underOff) {
+                // 嘗試在這個 segment 內找到可交換的日期
+                for (let d = Math.max(1, upToDay - Math.ceil(this.daysInMonth / this.segments) + 1); d <= upToDay; d++) {
+                    const ds = this.getDateStr(d);
+                    
+                    const overShift = this.getShiftByDate(ds, over.uid);
+                    const underShift = this.getShiftByDate(ds, under.uid);
+                    
+                    // ⛔ 跳過預班
+                    if (this.isPreScheduled(ds, over.uid) || this.isPreScheduled(ds, under.uid)) continue;
+                    
+                    // 案例 1: over 在上班，under 休息 -> 交換
+                    if (overShift !== 'OFF' && overShift !== 'REQ_OFF' && underShift === 'OFF') {
+                        if (this.isValidAssignment(under.staff, ds, overShift)) {
+                            this.updateShift(ds, over.uid, overShift, 'OFF');
+                            this.updateShift(ds, under.uid, 'OFF', overShift);
+                            console.log(`    ↔️ 交換: ${over.staff.name} (${overShift}->OFF) ↔ ${under.staff.name} (OFF->${overShift})`);
+                            swapped++;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        console.log(`  ✓ 共交換 ${swapped} 個班別以平衡 OFF 天數`);
+    }
+
+    /**
+     * ✅ 新增：最終全局平衡
+     */
+    finalBalancePass() {
+        const avgOff = Object.values(this.counters).reduce((sum, c) => sum + (c.OFF || 0), 0) / this.staffList.length;
+        const tolerance = 2; // 允許誤差範圍
+        
+        console.log(`📊 平均 OFF 天數: ${avgOff.toFixed(2)}`);
+        
+        this.staffList.forEach(s => {
+            const currentOff = this.counters[s.id].OFF || 0;
+            const diff = currentOff - avgOff;
+            
+            if (Math.abs(diff) > tolerance) {
+                console.warn(`⚠️ ${s.name}: OFF=${currentOff} (差異 ${diff.toFixed(1)} 天)`);
+            }
+        });
+        
+        // 執行全月範圍的平衡調整
+        this.balanceOffDays(this.daysInMonth);
     }
 
     rebalancePressure() {
