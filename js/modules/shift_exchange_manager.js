@@ -256,53 +256,41 @@ getActionsHTML: function(id, data) {
         return classes[status] || '';
     },
 
-    /**
-     * ✅ 格式化時間戳
-     */
-    formatTimestamp: function(timestamp) {
-        if (!timestamp) return '-';
-        
-        let date;
-        if (timestamp.toDate) {
-            date = timestamp.toDate();
-        } else if (timestamp instanceof Date) {
-            date = timestamp;
-        } else {
-            return '-';
-        }
-        
-        const now = new Date();
-        const diff = now - date;
-        const hours = Math.floor(diff / (1000 * 60 * 60));
-        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-        
-        if (hours < 1) {
-            const minutes = Math.floor(diff / (1000 * 60));
-            return `${minutes} 分鐘前`;
-        } else if (hours < 24) {
-            return `${hours} 小時前`;
-        } else if (days < 7) {
-            return `${days} 天前`;
-        } else {
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            const hour = String(date.getHours()).padStart(2, '0');
-            const minute = String(date.getMinutes()).padStart(2, '0');
-            return `${month}/${day} ${hour}:${minute}`;
-        }
-    },
+/**
+ * ✅ 格式化時間戳 - 顯示完整日期時間
+ */
+formatTimestamp: function(timestamp) {
+    if (!timestamp) return '-';
+    
+    let date;
+    if (timestamp.toDate) {
+        date = timestamp.toDate();
+    } else if (timestamp instanceof Date) {
+        date = timestamp;
+    } else {
+        return '-';
+    }
+    
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hour = String(date.getHours()).padStart(2, '0');
+    const minute = String(date.getMinutes()).padStart(2, '0');
+    const second = String(date.getSeconds()).padStart(2, '0');
+    
+    return `${year}/${month}/${day} ${hour}:${minute}:${second}`;
+},
 
-    translateStatus: function(status) {
-        const map = {
-            'pending_target': '待對方同意',
-            'pending_manager': '待護理長核准',
-            'approved': '已完成',
-            'rejected': '已拒絕',
-            'cancelled': '已取消'
-        };
-        return map[status] || status;
-    },
-
+translateStatus: function(status) {
+    const map = {
+        'pending_target': '待對方同意',
+        'pending_manager': '待護理長核准',
+        'approved': '已完成',
+        'rejected': '已拒絕',
+        'cancelled': '已取消'
+    };
+    return map[status] || status;
+},
     /**
      * ✅ 取消申請（申請人可在待對方同意階段取消）
      */
