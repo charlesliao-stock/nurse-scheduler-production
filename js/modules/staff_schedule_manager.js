@@ -339,195 +339,203 @@ const staffScheduleManager = {
         this.openExchangeModal(day, shift);
     },
 
-    openExchangeModal: function(day, myShift) {
-        this.selectedDay = day;
-        this.selectedShift = myShift;
-        
-        const modal = document.getElementById('exchangeModal');
-        const info = document.getElementById('exchangeInfo');
-        const select = document.getElementById('exchangeTargetSelect');
-        
-        if (!modal || !info || !select) {
-            console.error('找不到 Modal 元素');
-            return;
-        }
+openExchangeModal: function(day, myShift) {
+    this.selectedDay = day;
+    this.selectedShift = myShift;
+    
+    const modal = document.getElementById('exchangeModal');
+    const info = document.getElementById('exchangeInfo');
+    const select = document.getElementById('exchangeTargetSelect');
+    
+    if (!modal || !info || !select) {
+        console.error('找不到 Modal 元素');
+        return;
+    }
 
-        info.innerHTML = `
-            <strong>您的班別：</strong> ${this.currentYear}/${this.currentMonth}/${day} - ${myShift} 班
-        `;
+    info.innerHTML = `
+        <strong>您的班別：</strong> ${this.currentYear}/${this.currentMonth}/${day} - ${myShift} 班
+    `;
+    
+    select.innerHTML = '<option value="">請選擇交換對象</option>';
+    
+    const staffList = this.scheduleData.staffList || [];
+    staffList.forEach(staff => {
+        if (staff.uid === this.currentUid) return;
         
-        select.innerHTML = '<option value="">請選擇交換對象</option>';
+        const assignments = this.scheduleData.assignments[staff.uid] || {};
+        const theirShift = assignments[`current_${day}`] || 'OFF';
         
-        const staffList = this.scheduleData.staffList || [];
-        staffList.forEach(staff => {
-            if (staff.uid === this.currentUid) return;
-            
-            const assignments = this.scheduleData.assignments[staff.uid] || {};
-            const theirShift = assignments[`current_${day}`] || 'OFF';
-            
-            if (theirShift !== 'OFF' && theirShift !== 'REQ_OFF' && theirShift !== myShift) {
-                const name = staff.name || staff.displayName || '未命名';
-                select.innerHTML += `<option value="${staff.uid}" data-shift="${theirShift}">${name} (${theirShift} 班)</option>`;
-            }
-        });
-        
-        if (select.options.length === 1) {
-            select.innerHTML = '<option value="">當日無可交換對象</option>';
+        if (theirShift !== 'OFF' && theirShift !== 'REQ_OFF' && theirShift !== myShift) {
+            const name = staff.name || staff.displayName || '未命名';
+            select.innerHTML += `<option value="${staff.uid}" data-shift="${theirShift}">${name} (${theirShift} 班)</option>`;
         }
-        
-        document.querySelectorAll('input[name="reason"]').forEach(r => r.checked = false);
-        document.getElementById('otherReasonBox').style.display = 'none';
-        document.getElementById('otherReasonBox').value = '';
-        
-        const validResult = document.getElementById('validationResult');
-        if (validResult) validResult.style.display = 'none';
-        
-        modal.classList.add('show');
-    },
+    });
+    
+    if (select.options.length === 1) {
+        select.innerHTML = '<option value="">當日無可交換對象</option>';
+    }
+    
+    // ✅ 清空原因選擇
+    document.querySelectorAll('input[name="reason"]').forEach(r => r.checked = false);
+    document.getElementById('otherReasonBox').style.display = 'none';
+    document.getElementById('otherReasonText').value = '';
+    
+    const validResult = document.getElementById('validationResult');
+    if (validResult) validResult.style.display = 'none';
+    
+    modal.classList.add('show');
+},
 
     closeExchangeModal: function() {
         const modal = document.getElementById('exchangeModal');
         if (modal) modal.classList.remove('show');
     },
 
-    submitExchange: async function() {
-        const select = document.getElementById('exchangeTargetSelect');
-        const targetUid = select.value;
-        
-        if (!targetUid) {
-            alert('請選擇交換對象');
+submitExchange: async function() {
+    const select = document.getElementById('exchangeTargetSelect');
+    const targetUid = select.value;
+    
+    if (!targetUid) {
+        alert('請選擇交換對象');
+        return;
+    }
+    
+    const targetOption = select.options[select.selectedIndex];
+    const targetShift = targetOption.dataset.shift;
+    const targetName = targetOption.text.split(' (')[0];
+    
+    const reasonRadio = document.querySelector('input[name="reason"]:checked');
+    if (!reasonRadio) {
+        alert('請選擇換班原因');
+        return;
+    }
+    
+    let reason = '';
+    const reasonMap = {
+        'unit_adjustment': '單位人力調整',
+        'official_leave': '公假',
+        'sick_leave': '病假',
+        'bereavement_leave': '喪假',
+        'support': '支援',
+        'personal': '個人因素',
+        'other': '其他'
+    };
+    
+    reason = reasonMap[reasonRadio.value];
+    
+    // ✅ "其他" 必填說明，其餘選填
+    const otherReasonText = document.getElementById('otherReasonText').value.trim();
+    
+    if (reasonRadio.value === 'other') {
+        // "其他" 必填
+        if (!otherReasonText) {
+            alert('請填寫具體原因');
             return;
         }
+        reason += ': ' + otherReasonText;
+    } else if (otherReasonText) {
+        // 其他選項的說明為選填
+        reason += ' (' + otherReasonText + ')';
+    }
+    
+    const myData = await db.collection('users').doc(this.currentUid).get();
+    const myName = myData.data().displayName || myData.data().name || '未命名';
+    
+    const confirmMsg = `確定要申請換班嗎？\n\n您 (${myName}) 的 ${this.selectedShift} 班 ⇄ ${targetName} 的 ${targetShift} 班\n日期: ${this.currentYear}/${this.currentMonth}/${this.selectedDay}\n原因: ${reason}`;
+    
+    if (!confirm(confirmMsg)) return;
+    
+    const targetRequesterId = this.currentUid || app.getUid();
+    
+    const dateStr = `${this.currentYear}-${String(this.currentMonth).padStart(2, '0')}-${String(this.selectedDay).padStart(2, '0')}`;
+
+    try {
+        console.log('--- 換班申請提交流程開始 ---');
         
-        const targetOption = select.options[select.selectedIndex];
-        const targetShift = targetOption.dataset.shift;
-        const targetName = targetOption.text.split(' (')[0];
+        const currentUser = firebase.auth().currentUser;
+        const isImpersonating = app.impersonatedUid && app.impersonatedUid === targetRequesterId;
+
+        console.log('1. [身分與 Auth 狀態檢查]');
+        console.log('   - 實際登入 (Auth UID):', currentUser ? currentUser.uid : '未登入');
+        console.log('   - 模擬狀態:', isImpersonating ? '✅ 模擬中' : '❌ 非模擬');
+        console.log('   - 最終寫入 (Requester UID):', targetRequesterId);
         
-        const reasonRadio = document.querySelector('input[name="reason"]:checked');
-        if (!reasonRadio) {
-            alert('請選擇換班原因');
-            return;
+        if (currentUser) {
+            try {
+                const userDoc = await db.collection('users').doc(currentUser.uid).get();
+                if (userDoc.exists) {
+                    const userData = userDoc.data();
+                    console.log(`   - 登入者角色 (DB Role): ${userData.role}`);
+                    console.log(`   - 是否符合 isSystemAdminAdvanced 條件: ${currentUser.uid === '4h62TGbHD4WP73IFoDbtqf6JHDi2' || userData.role === 'system_admin'}`);
+                } else {
+                    console.log('   - ⚠️ 找不到登入者的 User Document，這會導致 isSystemAdminAdvanced() 失敗');
+                }
+            } catch (e) {
+                console.warn('   - ⚠️ 無法讀取 User Document 進行診斷:', e.message);
+            }
         }
         
-        let reason = '';
-        const reasonMap = {
-            'personal': '個人因素',
-            'sick': '身體不適',
-            'family': '家庭照顧',
-            'course': '進修/上課',
-            'official': '公務/會議',
-            'other': '其他'
+        const reqData = {
+            scheduleId: this.scheduleData.id || null,
+            unitId: this.scheduleData.unitId || null, 
+            year: this.currentYear,
+            month: this.currentMonth,
+            date: dateStr,
+            
+            requesterUid: targetRequesterId, 
+            requesterName: myName || 'Unknown',
+            requesterShift: this.selectedShift || '',
+            
+            targetUid: targetUid,
+            targetName: targetName || 'Unknown',
+            targetShift: targetShift || '',
+            
+            status: 'pending_target',
+            reasonCategory: reasonRadio.value,
+            reason: reason || '',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
         
-        reason = reasonMap[reasonRadio.value];
+        console.log('2. [待提交數據檢查]');
+        console.log('   - 數據內容:', JSON.stringify(reqData, null, 2));
         
-        if (reasonRadio.value === 'other') {
-            const otherReason = document.getElementById('otherReasonBox').value.trim();
-            if (!otherReason) {
-                alert('請填寫具體原因');
-                return;
+        if (!reqData.unitId) console.warn('   - ⚠️ 警告：unitId 為空，這可能導致 isMyUnit() 相關規則失敗');
+        if (!reqData.scheduleId) console.warn('   - ⚠️ 警告：scheduleId 為空');
+        
+        console.log('3. [執行 Firestore 寫入] 集合: shift_requests');
+        const docRef = await db.collection('shift_requests').add(reqData);
+        console.log('   - 寫入成功, 文件 ID:', docRef.id);
+        
+        alert('✅ 換班申請已送出！\n請等待對方同意及護理長核准。');
+        this.closeExchangeModal();
+        
+    } catch (error) {
+        console.error('--- 換班申請提交出錯 ---');
+        console.error('錯誤類型:', error.name);
+        console.error('錯誤訊息:', error.message);
+        if (error.code) console.error('錯誤代碼:', error.code);
+        console.error('完整錯誤對象:', error);
+        
+        if (error.message.includes('permission') || error.code === 'permission-denied') {
+            const authUid = (firebase.auth().currentUser) ? firebase.auth().currentUser.uid : '未登入';
+            const reqUid = targetRequesterId || '未知';
+            
+            console.warn('💡 診斷建議: 發生 Firebase 權限錯誤 (Permission Denied)。');
+            console.warn(`👉 當前狀態：\n   - 實際登入者 (Auth UID): ${authUid}\n   - 試圖代表寫入者 (Requester UID): ${reqUid}`);
+            
+            if (authUid !== reqUid) {
+                console.warn('❌ 錯誤原因：目前處於「模擬模式」，但您的 Security Rules 第 159 行限制了 `requesterId == request.auth.uid`。');
+                console.warn('✅ 修復建議：請將 Rules 第 158-159 行修改為允許管理員建立申請，例如：\n' +
+                             '   allow create: if isSignedIn() && (request.resource.data.requesterId == request.auth.uid || isSystemAdminAdvanced());');
+            } else {
+                console.warn('👉 目前非模擬模式，請檢查資料欄位是否完整（例如 unitId, scheduleId 是否為 null）或符合 Rules 其他限制。');
             }
-            reason += ': ' + otherReason;
         }
         
-        const myData = await db.collection('users').doc(this.currentUid).get();
-        const myName = myData.data().displayName || myData.data().name || '未命名';
-        
-        const confirmMsg = `確定要申請換班嗎？\n\n您 (${myName}) 的 ${this.selectedShift} 班 ⇄ ${targetName} 的 ${targetShift} 班\n日期: ${this.currentYear}/${this.currentMonth}/${this.selectedDay}\n原因: ${reason}`;
-        
-        if (!confirm(confirmMsg)) return;
-        
-        const targetRequesterId = this.currentUid || app.getUid();
-        
-        const dateStr = `${this.currentYear}-${String(this.currentMonth).padStart(2, '0')}-${String(this.selectedDay).padStart(2, '0')}`;
-
-        try {
-            console.log('--- 換班申請提交流程開始 ---');
-            
-            const currentUser = firebase.auth().currentUser;
-            const isImpersonating = app.impersonatedUid && app.impersonatedUid === targetRequesterId;
-
-            console.log('1. [身分與 Auth 狀態檢查]');
-            console.log('   - 實際登入 (Auth UID):', currentUser ? currentUser.uid : '未登入');
-            console.log('   - 模擬狀態:', isImpersonating ? '✅ 模擬中' : '❌ 非模擬');
-            console.log('   - 最終寫入 (Requester UID):', targetRequesterId);
-            
-            if (currentUser) {
-                try {
-                    const userDoc = await db.collection('users').doc(currentUser.uid).get();
-                    if (userDoc.exists) {
-                        const userData = userDoc.data();
-                        console.log(`   - 登入者角色 (DB Role): ${userData.role}`);
-                        console.log(`   - 是否符合 isSystemAdminAdvanced 條件: ${currentUser.uid === '4h62TGbHD4WP73IFoDbtqf6JHDi2' || userData.role === 'system_admin'}`);
-                    } else {
-                        console.log('   - ⚠️ 找不到登入者的 User Document，這會導致 isSystemAdminAdvanced() 失敗');
-                    }
-                } catch (e) {
-                    console.warn('   - ⚠️ 無法讀取 User Document 進行診斷:', e.message);
-                }
-            }
-            
-            const reqData = {
-                scheduleId: this.scheduleData.id || null,
-                unitId: this.scheduleData.unitId || null, 
-                year: this.currentYear,
-                month: this.currentMonth,
-                date: dateStr,
-                
-                requesterUid: targetRequesterId, 
-                requesterName: myName || 'Unknown',
-                requesterShift: this.selectedShift || '',
-                
-                targetUid: targetUid,
-                targetName: targetName || 'Unknown',
-                targetShift: targetShift || '',
-                
-                status: 'pending_target',
-                reasonCategory: reasonRadio.value,
-                reason: reason || '',
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            };
-            
-            console.log('2. [待提交數據檢查]');
-            console.log('   - 數據內容:', JSON.stringify(reqData, null, 2));
-            
-            if (!reqData.unitId) console.warn('   - ⚠️ 警告：unitId 為空，這可能導致 isMyUnit() 相關規則失敗');
-            if (!reqData.scheduleId) console.warn('   - ⚠️ 警告：scheduleId 為空');
-            
-            console.log('3. [執行 Firestore 寫入] 集合: shift_requests');
-            const docRef = await db.collection('shift_requests').add(reqData);
-            console.log('   - 寫入成功, 文件 ID:', docRef.id);
-            
-            alert('✅ 換班申請已送出！\n請等待對方同意及護理長核准。');
-            this.closeExchangeModal();
-            
-        } catch (error) {
-            console.error('--- 換班申請提交出錯 ---');
-            console.error('錯誤類型:', error.name);
-            console.error('錯誤訊息:', error.message);
-            if (error.code) console.error('錯誤代碼:', error.code);
-            console.error('完整錯誤對象:', error);
-            
-            if (error.message.includes('permission') || error.code === 'permission-denied') {
-                const authUid = (firebase.auth().currentUser) ? firebase.auth().currentUser.uid : '未登入';
-                const reqUid = targetRequesterId || '未知';
-                
-                console.warn('💡 診斷建議: 發生 Firebase 權限錯誤 (Permission Denied)。');
-                console.warn(`👉 當前狀態：\n   - 實際登入者 (Auth UID): ${authUid}\n   - 試圖代表寫入者 (Requester UID): ${reqUid}`);
-                
-                if (authUid !== reqUid) {
-                    console.warn('❌ 錯誤原因：目前處於「模擬模式」，但您的 Security Rules 第 159 行限制了 `requesterId == request.auth.uid`。');
-                    console.warn('✅ 修復建議：請將 Rules 第 158-159 行修改為允許管理員建立申請，例如：\n' +
-                                 '   allow create: if isSignedIn() && (request.resource.data.requesterId == request.auth.uid || isSystemAdminAdvanced());');
-                } else {
-                    console.warn('👉 目前非模擬模式，請檢查資料欄位是否完整（例如 unitId, scheduleId 是否為 null）或符合 Rules 其他限制。');
-                }
-            }
-            
-            alert('提交失敗: ' + error.message);
-        }
-    },
+        alert('提交失敗: ' + error.message);
+    }
+},
 
     updateStatistics: function() {
         const assignments = this.scheduleData.assignments[this.currentUid] || {};
