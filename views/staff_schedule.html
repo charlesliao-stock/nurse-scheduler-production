@@ -121,18 +121,55 @@
         </div>
 
         <div class="form-section" style="background:#f9f9f9; padding:15px; border-radius:5px;">
-            <label style="font-weight:bold; margin-bottom:10px; display:block;">換班原因 (必填) <span style="color:red;">*</span></label>
+            <label style="font-weight:bold; margin-bottom:10px; display:block;">換班原因（必選）<span style="color:red;">*</span></label>
             
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
-                <label class="radio-label"><input type="radio" name="reason" value="personal"> 個人因素 (事假)</label>
-                <label class="radio-label"><input type="radio" name="reason" value="sick"> 身體不適 (病假)</label>
-                <label class="radio-label"><input type="radio" name="reason" value="family"> 家庭照顧</label>
-                <label class="radio-label"><input type="radio" name="reason" value="course"> 進修/上課</label>
-                <label class="radio-label"><input type="radio" name="reason" value="official"> 公務/會議</label>
-                <label class="radio-label"><input type="radio" name="reason" value="other" onchange="document.getElementById('otherReasonBox').style.display='block'"> 其他</label>
+                <label class="radio-label">
+                    <input type="radio" name="reason" value="unit_adjustment" onchange="staffScheduleManager.toggleOtherReason()">
+                    單位人力調整
+                </label>
+                <label class="radio-label">
+                    <input type="radio" name="reason" value="official_leave" onchange="staffScheduleManager.toggleOtherReason()">
+                    公假
+                </label>
+                <label class="radio-label">
+                    <input type="radio" name="reason" value="sick_leave" onchange="staffScheduleManager.toggleOtherReason()">
+                    病假
+                </label>
+                <label class="radio-label">
+                    <input type="radio" name="reason" value="bereavement_leave" onchange="staffScheduleManager.toggleOtherReason()">
+                    喪假
+                </label>
+                <label class="radio-label">
+                    <input type="radio" name="reason" value="support" onchange="staffScheduleManager.toggleOtherReason()">
+                    支援
+                </label>
+                <label class="radio-label">
+                    <input type="radio" name="reason" value="personal" onchange="staffScheduleManager.toggleOtherReason()">
+                    個人因素
+                </label>
+                <label class="radio-label" style="grid-column: 1 / -1;">
+                    <input type="radio" name="reason" value="other" onchange="staffScheduleManager.toggleOtherReason()">
+                    其他
+                </label>
             </div>
             
-            <textarea id="otherReasonBox" class="form-control" rows="2" placeholder="請填寫具體原因說明..." style="display:none; margin-top:10px;"></textarea>
+            <div style="margin-top:15px;">
+                <label style="font-weight:normal; display:flex; align-items:center; gap:5px;">
+                    說明
+                    <span id="otherReasonRequired" style="color:red; display:none;">*</span>
+                </label>
+                <textarea 
+                    id="otherReasonText" 
+                    class="form-control" 
+                    rows="3" 
+                    placeholder="選填（若選「其他」則必填）"
+                    style="resize:vertical; font-size:0.95rem;">
+                </textarea>
+                <small style="color:#7f8c8d; display:block; margin-top:5px;">
+                    * 選擇「其他」時必須填寫說明，其餘選項可選填補充說明
+                </small>
+            </div>
         </div>
 
         <div style="text-align:right; margin-top:25px; padding-top:15px; border-top:1px solid #eee;">
@@ -203,13 +240,21 @@
         display: flex; 
         align-items: center; 
         cursor: pointer; 
-        font-size: 0.95rem; 
+        font-size: 0.95rem;
+        padding: 8px;
+        border-radius: 4px;
+        transition: background 0.2s;
+    }
+    
+    .radio-label:hover {
+        background: #f0f0f0;
     }
     
     .radio-label input { 
         margin-right: 8px; 
         width: 16px; 
-        height: 16px; 
+        height: 16px;
+        cursor: pointer;
     }
     
     /* 驗證狀態樣式 */
