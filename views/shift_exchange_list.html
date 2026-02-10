@@ -1,20 +1,20 @@
 <div class="content-wrapper">
     <h2><i class="fas fa-exchange-alt"></i> 換班申請與審核</h2>
     
-    <div class="exchange-tabs" style="display:flex; gap:10px; margin-bottom:20px; border-bottom:2px solid #eee; padding-bottom:10px;">
-        <button class="tab active" data-tab="my_requests" style="padding:10px 20px; border:none; background:none; cursor:pointer; border-bottom:3px solid #3498db; font-weight:bold; color:#3498db;">
-            <i class="fas fa-paper-plane"></i> 我發出的申請
-        </button>
-        <button class="tab" data-tab="to_me" style="padding:10px 20px; border:none; background:none; cursor:pointer; color:#7f8c8d;">
-            <i class="fas fa-inbox"></i> 待我同意
-        </button>
-        <button class="tab" data-tab="manager" style="padding:10px 20px; border:none; background:none; cursor:pointer; color:#7f8c8d;">
-            <i class="fas fa-user-tie"></i> 待護理長審核
-        </button>
-        <button class="tab" data-tab="all" style="padding:10px 20px; border:none; background:none; cursor:pointer; color:#7f8c8d;">
-            <i class="fas fa-list"></i> 全部記錄
-        </button>
-    </div>
+<div class="exchange-tabs" style="display:flex; gap:10px; margin-bottom:20px; border-bottom:2px solid #eee; padding-bottom:10px;">
+    <button class="tab active" data-tab="my_requests">
+        <i class="fas fa-paper-plane"></i> 我發出的申請
+    </button>
+    <button class="tab" data-tab="to_me">
+        <i class="fas fa-inbox"></i> 待我同意
+    </button>
+    <button class="tab" data-tab="manager">
+        <i class="fas fa-user-tie"></i> 待護理長審核
+    </button>
+    <button class="tab" data-tab="all">
+        <i class="fas fa-list"></i> 全部記錄
+    </button>
+</div>
 
     <div class="table-wrapper" style="overflow-x:auto;">
         <table class="data-table">
@@ -40,12 +40,30 @@
 </div>
 
 <style>
-.exchange-tabs .tab {
-    transition: all 0.3s;
+.exchange-tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #eee;
+    padding-bottom: 0;
 }
+
+.exchange-tabs .tab {
+    padding: 10px 20px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: #7f8c8d;
+    border-bottom: 3px solid transparent;
+    transition: all 0.3s;
+    position: relative;
+    bottom: -2px; /* 讓底線與父容器底線對齊 */
+}
+
 .exchange-tabs .tab:hover {
     color: #3498db;
 }
+
 .exchange-tabs .tab.active {
     border-bottom: 3px solid #3498db !important;
     color: #3498db !important;
