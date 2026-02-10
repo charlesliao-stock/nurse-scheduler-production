@@ -64,17 +64,52 @@ loadData: async function() {
             snapshot = await query.get();
         }
         else if (type === 'all') {
-            // ✅ 全部申請（系統管理員或單位護理長可見）
-            let query = db.collection('shift_requests')
-                .orderBy('createdAt', 'desc')
-                .limit(100); // 限制筆數避免過多
-            
-            // 單位護理長只看自己單位
-            if (activeRole === 'unit_manager' && activeUnitId) {
-                query = query.where('unitId', '==', activeUnitId);
+            // ✅ 全部申請記錄
+            if (activeRole === 'system_admin') {
+                // 系統管理員：看所有單位
+                snapshot = await db.collection('shift_requests')
+                    .orderBy('createdAt', 'desc')
+                    .limit(100)
+                    .get();
+            } 
+            else if (activeRole === 'unit_manager' && activeUnitId) {
+                // 單位護理長：看該單位所有申請
+                snapshot = await db.collection('shift_requests')
+                    .where('unitId', '==', activeUnitId)
+                    .orderBy('createdAt', 'desc')
+                    .limit(100)
+                    .get();
+            } 
+            else {
+                // 一般員工：只看與自己有關的申請（我發出的 + 對象是我的）
+                const myRequestsSnap = await db.collection('shift_requests')
+                    .where('requesterUid', '==', activeUid)
+                    .orderBy('createdAt', 'desc')
+                    .get();
+                
+                const toMeSnap = await db.collection('shift_requests')
+                    .where('targetUid', '==', activeUid)
+                    .orderBy('createdAt', 'desc')
+                    .get();
+                
+                // 合併兩個查詢結果並去重
+                const allDocs = new Map();
+                myRequestsSnap.forEach(doc => allDocs.set(doc.id, doc));
+                toMeSnap.forEach(doc => allDocs.set(doc.id, doc));
+                
+                // 轉換為類似 QuerySnapshot 的結構
+                snapshot = {
+                    empty: allDocs.size === 0,
+                    docs: Array.from(allDocs.values()).sort((a, b) => {
+                        const aTime = a.data().createdAt?.toMillis() || 0;
+                        const bTime = b.data().createdAt?.toMillis() || 0;
+                        return bTime - aTime; // 降序排列
+                    }),
+                    forEach: function(callback) {
+                        this.docs.forEach(callback);
+                    }
+                };
             }
-            
-            snapshot = await query.get();
         }
 
         if (snapshot.empty) {
