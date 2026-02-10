@@ -32,16 +32,29 @@
                 <span class="badge" style="background:#d35400;" id="badgeBreastfeeding">哺乳中</span>
             </div>
 
-            <div class="stat-card" style="background:#eaf2f8; padding:15px; border-radius:8px; margin-bottom:20px;">
-                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                    <span>總預休天數:</span>
-                    <span style="font-weight:bold;"><span id="statOffCount">0</span> / <span id="limitMaxOff">-</span></span>
-                </div>
-                <div style="display:flex; justify-content:space-between;">
-                    <span>假日預休:</span>
-                    <span style="font-weight:bold;"><span id="statHolidayOffCount">0</span> / <span id="limitMaxHoliday">-</span></span>
-                </div>
-            </div>
+<!-- 總預休天數 -->
+<div class="stat-card" style="background:#eaf2f8; padding:15px; border-radius:8px; margin-bottom:12px;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="color:#5d6d7e; font-size:0.95rem;">總預休天數：</span>
+        <span style="font-size:1.3rem; font-weight:bold;">
+            <span id="statOffCount" style="color:#2c3e50;">0</span>
+            <span style="color:#95a5a6; margin:0 6px; font-size:1.1rem;">/</span>
+            <span id="limitMaxOff" style="color:#7f8c8d;">-</span>
+        </span>
+    </div>
+</div>
+
+<!-- 假日預休 -->
+<div class="stat-card" style="background:#fef5e7; padding:15px; border-radius:8px; margin-bottom:20px;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="color:#5d6d7e; font-size:0.95rem;">假日預休：</span>
+        <span style="font-size:1.3rem; font-weight:bold;">
+            <span id="statHolidayOffCount" style="color:#2c3e50;">0</span>
+            <span style="color:#95a5a6; margin:0 6px; font-size:1.1rem;">/</span>
+            <span id="limitMaxHoliday" style="color:#7f8c8d;">-</span>
+        </span>
+    </div>
+</div>
 
             <h4 style="border-bottom:2px solid #e67e22; padding-bottom:10px; color:#2c3e50;">
                 <i class="fas fa-sliders-h"></i> 排班偏好
