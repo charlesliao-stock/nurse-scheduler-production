@@ -603,7 +603,7 @@ submitExchange: async function() {
         }
     },
 
-    showError: function(message) {
+showError: function(message) {
         const wrapper = document.getElementById('horizontalScheduleWrapper');
         const noDataMsg = document.getElementById('noDataMessage');
         
@@ -615,26 +615,27 @@ submitExchange: async function() {
                 <h3 style="color:#666;">${message}</h3>
             `;
         }
+    },
+
+    toggleOtherReason: function() {
+        const reasonRadio = document.querySelector('input[name="reason"]:checked');
+        const otherReasonText = document.getElementById('otherReasonText');
+        const requiredMark = document.getElementById('otherReasonRequired');
+        
+        if (reasonRadio && reasonRadio.value === 'other') {
+            // 選擇「其他」時，說明欄必填
+            if (otherReasonText) {
+                otherReasonText.placeholder = '必填：請說明具體原因';
+                otherReasonText.style.borderColor = '#e74c3c';
+            }
+            if (requiredMark) requiredMark.style.display = 'inline';
+        } else {
+            // 其他選項，說明欄選填
+            if (otherReasonText) {
+                otherReasonText.placeholder = '選填：補充說明';
+                otherReasonText.style.borderColor = '#ddd';
+            }
+            if (requiredMark) requiredMark.style.display = 'none';
+        }
     }
 };
-toggleOtherReason: function() {
-    const reasonRadio = document.querySelector('input[name="reason"]:checked');
-    const otherReasonText = document.getElementById('otherReasonText');
-    const requiredMark = document.getElementById('otherReasonRequired');
-    
-    if (reasonRadio && reasonRadio.value === 'other') {
-        // 選擇「其他」時，說明欄必填
-        if (otherReasonText) {
-            otherReasonText.placeholder = '必填：請說明具體原因';
-            otherReasonText.style.borderColor = '#e74c3c';
-        }
-        if (requiredMark) requiredMark.style.display = 'inline';
-    } else {
-        // 其他選項，說明欄選填
-        if (otherReasonText) {
-            otherReasonText.placeholder = '選填：補充說明';
-            otherReasonText.style.borderColor = '#ddd';
-        }
-        if (requiredMark) requiredMark.style.display = 'none';
-    }
-},
