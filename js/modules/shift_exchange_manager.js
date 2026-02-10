@@ -10,17 +10,24 @@ const shiftExchangeManager = {
         await this.loadData();
     },
 
-    setupEventListeners: function() {
-        const tabs = document.querySelectorAll('.exchange-tabs .tab');
-        tabs.forEach(tab => {
-            tab.onclick = () => {
-                tabs.forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-                this.currentTab = tab.dataset.tab;
-                this.loadData();
-            };
-        });
-    },
+setupEventListeners: function() {
+    const tabs = document.querySelectorAll('.exchange-tabs .tab');
+    tabs.forEach(tab => {
+        tab.onclick = () => {
+            // 移除所有標籤的 active class
+            tabs.forEach(t => t.classList.remove('active'));
+            
+            // 添加 active class 到當前標籤
+            tab.classList.add('active');
+            
+            // 更新當前標籤狀態
+            this.currentTab = tab.dataset.tab;
+            
+            // 重新載入資料
+            this.loadData();
+        };
+    });
+},
 
 loadData: async function() {
     const tbody = document.getElementById('exchangeTableBody');
