@@ -4,15 +4,14 @@ const groupManager = {
     currentUnitId: null,
     currentUnitData: null,
     staffList: [],
-    staffSortState: { field: 'employeeId', order: 'asc' },
     isLoading: false,
 
     // 預設設定
     defaultConfig: {
         settings: {
-            useClusters: false,
-            useGroups: true,
-            useTiers: false
+            useClusters: true,  // 預設開啟 Cluster
+            useGroups: true,    // 預設開啟 Group
+            useTiers: true      // 預設開啟 Tier
         },
         clusters: [],
         groups: [],
@@ -21,48 +20,101 @@ const groupManager = {
 
     // --- 初始化 ---
     init: async function() {
-        console.log("Group Manager Loaded (Clean View).");
+        console.log("Group Manager Loaded (Kanban + Toggles).");
+        
+        // 權限檢查
         const activeRole = app.impersonatedRole || app.userRole;
         if (activeRole === 'user') {
             document.getElementById('content-area').innerHTML = `<div class="empty-state">權限不足</div>`;
             return;
         }
+
         this.addStyles();
         await this.loadUnitDropdown();
     },
 
-    // --- CSS ---
+    // --- 1. CSS 樣式 ---
     addStyles: function() {
         const style = document.createElement('style');
         style.textContent = `
-            .settings-panel { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e9ecef; }
-            .settings-panel h5 { margin-bottom: 15px; color: #495057; font-weight: bold; }
-            .toggle-wrapper { display: flex; gap: 20px; align-items: center; }
-            .custom-switch { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+            /* 設定面板 */
+            .settings-panel { background: #f8f9fa; padding: 10px 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e9ecef; display: flex; justify-content: space-between; align-items: center; }
+            .toggle-wrapper { display: flex; gap: 15px; }
+            .custom-switch { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; font-size: 0.9em; }
             
-            .config-container { display: flex; gap: 20px; margin-bottom: 30px; flex-wrap: wrap; }
-            .config-card { flex: 1; min-width: 300px; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-            .config-header { font-weight: bold; font-size: 1.1em; margin-bottom: 10px; border-bottom: 2px solid #eee; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
-            .list-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #f0f0f0; }
-            .cluster-tag { font-size: 0.8em; padding: 2px 6px; border-radius: 4px; background: #e3f2fd; color: #0d47a1; margin-left: 5px; }
-            .form-inline-add { display: flex; gap: 5px; margin-top: 10px; }
+            /* 看板容器 */
+            .kanban-container { overflow-x: auto; padding-bottom: 10px; margin-bottom: 20px; }
+            .kanban-board { display: flex; gap: 15px; align-items: flex-start; min-width: 100%; }
+
+            /* 看板欄位 (Cluster) */
+            .cluster-column {
+                background: #f4f5f7; border-radius: 8px; width: 280px; min-width: 280px;
+                display: flex; flex-direction: column; max-height: 75vh;
+                border: 1px solid #dfe1e6;
+            }
+            .cluster-column.unassigned { border-top: 3px solid #6c757d; }
+            .cluster-column.assigned { border-top: 3px solid #007bff; }
+
+            /* 欄位標題 */
+            .cluster-header {
+                padding: 10px 12px; font-weight: bold; color: #172b4d;
+                display: flex; justify-content: space-between; align-items: center;
+                border-bottom: 1px solid #ddd; cursor: default;
+            }
+            .cluster-title { cursor: pointer; flex-grow: 1; } /* 雙擊改名區 */
+
+            /* 卡片列表區 (可拖放) */
+            .group-list-area { padding: 8px; flex-grow: 1; min-height: 50px; overflow-y: auto; }
+
+            /* Group 卡片 */
+            .group-card {
+                background: white; border-radius: 4px; padding: 8px 10px; margin-bottom: 8px;
+                box-shadow: 0 1px 2px rgba(9,30,66,.25); cursor: grab;
+                display: flex; justify-content: space-between; align-items: center;
+                transition: transform 0.1s, box-shadow 0.1s;
+            }
+            .group-card:hover { background: #fafbfc; }
+            .group-card:active { cursor: grabbing; }
+            .group-name { cursor: pointer; flex-grow: 1; }
+
+            /* 底部新增按鈕 */
+            .add-card-btn {
+                background: transparent; border: none; width: 100%; padding: 8px;
+                text-align: left; color: #5e6c84; cursor: pointer; border-top: 1px solid #ddd;
+                font-size: 0.9em;
+            }
+            .add-card-btn:hover { background: #ebecf0; color: #172b4d; }
+
+            /* Tier 標籤 */
+            .tier-tag { 
+                background: #e9ecef; border: 1px solid #ced4da; border-radius: 15px; 
+                padding: 4px 12px; display: inline-flex; align-items: center; gap: 8px; margin-right: 8px; margin-bottom: 8px;
+            }
+            
+            /* 通用介面元件 */
+            .btn-icon { border: none; background: none; color: #6c757d; cursor: pointer; padding: 2px; font-size: 0.9em; }
+            .btn-icon:hover { color: #dc3545; }
+            .edit-input { border: 1px solid #007bff; border-radius: 3px; padding: 2px 4px; width: 80%; font-size: inherit; }
             .staff-select { padding: 4px; border: 1px solid #ddd; border-radius: 4px; width: 100%; }
         `;
         document.head.appendChild(style);
     },
 
-    // --- 載入單位下拉選單 ---
+    // --- 2. 載入單位 ---
     loadUnitDropdown: async function() {
         const select = document.getElementById('filterGroupUnit');
         if(!select) return;
+        
         select.innerHTML = '<option value="">載入中...</option>';
         try {
             let query = db.collection('units');
             const activeRole = app.impersonatedRole || app.userRole;
             const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+            
             if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                 if(activeUnitId) query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
             }
+
             const snapshot = await query.get();
             select.innerHTML = '<option value="">請選擇單位</option>';
             snapshot.forEach(doc => {
@@ -71,18 +123,20 @@ const groupManager = {
                 opt.textContent = doc.data().name;
                 select.appendChild(opt);
             });
+
             if (snapshot.size === 1) { select.selectedIndex = 1; this.onUnitChange(); }
             select.onchange = () => this.onUnitChange();
         } catch (e) { console.error(e); }
     },
 
-    // --- 單位切換 ---
     onUnitChange: async function() {
         const unitId = document.getElementById('filterGroupUnit').value;
         if (!unitId) { this.showEmptyState(); return; }
+
         this.currentUnitId = unitId;
         document.getElementById('groupEmptyState').style.display = 'none';
         document.getElementById('groupMainArea').style.display = 'block';
+
         await this.loadUnitData();
         await this.loadStaffList();
     },
@@ -93,13 +147,15 @@ const groupManager = {
         document.getElementById('groupEmptyState').style.display = 'block';
     },
 
-    // --- 載入資料 ---
+    // --- 3. 載入資料 ---
     loadUnitData: async function() {
         try {
             const doc = await db.collection('units').doc(this.currentUnitId).get();
             if (!doc.exists) return;
+
             const data = doc.data();
             
+            // 合併預設值
             this.currentUnitData = {
                 ...data,
                 config: {
@@ -109,60 +165,71 @@ const groupManager = {
                     tiers: data.config?.tiers || []
                 }
             };
-            
+
             // 舊資料相容
             if (Array.isArray(data.groups) && this.currentUnitData.config.groups.length === 0) {
                 this.currentUnitData.config.groups = data.groups.map(g => ({ id: g, name: g, clusterId: '' }));
             }
-            this.renderConfigArea();
-        } catch (e) { console.error(e); }
+
+            this.renderMainInterface();
+            
+        } catch (e) {
+            console.error("Load Data Error:", e);
+        }
     },
 
-    // --- 切換開關 ---
-    toggleSetting: async function(key, checked) {
-        this.currentUnitData.config.settings[key] = checked;
-        await this.saveConfig();
-        this.renderConfigArea();
-        this.renderStaffList();
-    },
-
-    // --- 渲染主要區域 ---
-    renderConfigArea: function() {
+    // --- 4. 渲染主介面 ---
+    renderMainInterface: function() {
         const mainArea = document.getElementById('groupMainArea');
         const settings = this.currentUnitData.config.settings;
 
         mainArea.innerHTML = `
             <div class="settings-panel">
-                <h5><i class="fas fa-cogs"></i> 分組層級設定</h5>
+                <div style="font-weight:bold; color:#555;"><i class="fas fa-cogs"></i> 分組設定</div>
                 <div class="toggle-wrapper">
                     <label class="custom-switch">
                         <input type="checkbox" ${settings.useClusters ? 'checked' : ''} onchange="groupManager.toggleSetting('useClusters', this.checked)">
-                        <span>啟用 Cluster (互換大組)</span>
+                        <span>啟用 Cluster</span>
                     </label>
                     <label class="custom-switch">
                         <input type="checkbox" ${settings.useGroups ? 'checked' : ''} onchange="groupManager.toggleSetting('useGroups', this.checked)">
-                        <span>啟用 Group (功能組)</span>
+                        <span>啟用 Group</span>
                     </label>
                     <label class="custom-switch">
                         <input type="checkbox" ${settings.useTiers ? 'checked' : ''} onchange="groupManager.toggleSetting('useTiers', this.checked)">
-                        <span>啟用 Tier (能力階級)</span>
+                        <span>啟用 Tier</span>
                     </label>
                 </div>
             </div>
 
-            <div class="config-container">
-                ${settings.useClusters ? this.getClusterCardHTML() : ''}
-                ${settings.useGroups ? this.getGroupCardHTML(settings.useClusters) : ''}
-                ${settings.useTiers ? this.getTierCardHTML() : ''}
-            </div>
-            
-            ${(!settings.useClusters && !settings.useGroups && !settings.useTiers) ? 
-                '<div class="alert alert-info">目前未啟用任何分組層級。</div>' : ''}
+            ${(settings.useClusters || settings.useGroups) ? `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="mb-0"><i class="fas fa-columns"></i> 分組看板</h5>
+                    ${settings.useClusters ? `<button class="btn btn-sm btn-success" onclick="groupManager.addCluster()"><i class="fas fa-plus"></i> 新增 Cluster</button>` : ''}
+                </div>
+                <div id="kanbanBoard" class="kanban-container">
+                    <div class="kanban-board"></div>
+                </div>
+            ` : ''}
+
+            ${settings.useTiers ? `
+                <hr>
+                <h5 class="mb-3"><i class="fas fa-layer-group"></i> 小組/階級 (Tiers)</h5>
+                <div id="tierArea">
+                    <div id="tierList" style="margin-bottom:10px;"></div>
+                    <div class="input-group input-group-sm" style="width: 250px;">
+                        <input type="text" id="newTierInput" class="form-control" placeholder="新增 Tier (如: N1)">
+                        <div class="input-group-append">
+                            <button class="btn btn-primary" onclick="groupManager.addTier()">新增</button>
+                        </div>
+                    </div>
+                </div>
+            ` : ''}
 
             <hr>
-            <h4><i class="fas fa-user-nurse"></i> 人員分組設定</h4>
+            <h5 class="mb-3"><i class="fas fa-user-nurse"></i> 人員分組設定</h5>
             <div class="table-responsive">
-                <table class="table table-bordered table-hover">
+                <table class="table table-bordered table-hover table-sm">
                     <thead>
                         <tr>
                             <th>工號</th>
@@ -177,179 +244,286 @@ const groupManager = {
             </div>
         `;
 
-        if (settings.useClusters) this.renderClusters();
-        if (settings.useGroups) this.renderGroups();
+        if (settings.useClusters || settings.useGroups) this.renderKanban();
         if (settings.useTiers) this.renderTiers();
+        this.renderStaffList();
     },
 
-    // --- HTML Template Helpers ---
-    getClusterCardHTML: function() {
-        return `
-            <div class="config-card">
-                <div class="config-header">
-                    <span><i class="fas fa-project-diagram"></i> 可換班組 (Clusters)</span>
-                </div>
-                <div id="clusterList"></div>
-                <div class="form-inline-add">
-                    <input type="text" id="newClusterName" class="form-control" placeholder="名稱 (如:重症區)">
-                    <button class="btn btn-primary btn-sm" onclick="groupManager.addCluster()">新增</button>
-                </div>
-            </div>`;
-    },
+    // --- 5. 渲染看板 (Kanban) ---
+    renderKanban: function() {
+        const board = document.querySelector('.kanban-board');
+        if(!board) return;
+        board.innerHTML = '';
 
-    getGroupCardHTML: function(showClusterSelect) {
-        // 如果有啟用 Cluster，這裡會顯示下拉選單讓 User 綁定 Group -> Cluster
-        const clusterSelectHTML = showClusterSelect ? 
-            `<select id="newGroupCluster" class="form-control" style="width: 120px;"><option value="">(無Cluster)</option></select>` : 
-            `<input type="hidden" id="newGroupCluster" value="">`;
+        const config = this.currentUnitData.config;
+        const groups = config.groups || [];
+        const clusters = config.clusters || [];
+        const useClusters = config.settings.useClusters;
 
-        return `
-            <div class="config-card">
-                <div class="config-header">
-                    <span><i class="fas fa-users"></i> 功能組 (Groups)</span>
-                </div>
-                <div id="groupList"></div>
-                <div class="form-inline-add">
-                    <input type="text" id="newGroupName" class="form-control" placeholder="組別名稱">
-                    ${clusterSelectHTML}
-                    <button class="btn btn-primary btn-sm" onclick="groupManager.addGroup()">新增</button>
-                </div>
-            </div>`;
-    },
+        // 5.1 渲染 "未分類" 或 "所有組別" (當 Cluster 關閉時)
+        const unassignedGroups = useClusters 
+            ? groups.filter(g => !g.clusterId || !clusters.find(c => c.id === g.clusterId))
+            : groups; // 如果沒開 Cluster，全部顯示在這裡
 
-    getTierCardHTML: function() {
-        return `
-            <div class="config-card">
-                <div class="config-header">
-                    <span><i class="fas fa-layer-group"></i> 小組/階級 (Tiers)</span>
-                </div>
-                <div id="tierList"></div>
-                <div class="form-inline-add">
-                    <input type="text" id="newTierName" class="form-control" placeholder="階級名稱">
-                    <button class="btn btn-primary btn-sm" onclick="groupManager.addTier()">新增</button>
-                </div>
-            </div>`;
-    },
-
-    // --- 渲染各個列表 ---
-    renderClusters: function() {
-        const list = document.getElementById('clusterList');
-        const select = document.getElementById('newGroupCluster');
+        const unassignedTitle = useClusters ? '未分類 (No Cluster)' : '所有功能組 (Groups)';
         
-        if(list) {
-            list.innerHTML = '';
-            this.currentUnitData.config.clusters.forEach(c => {
-                list.innerHTML += `
-                    <div class="list-item">
-                        <span>${c.name}</span>
-                        <button class="btn btn-delete btn-sm" onclick="groupManager.deleteConfig('clusters', '${c.id}')"><i class="fas fa-trash"></i></button>
-                    </div>`;
+        board.appendChild(this.createColumnHTML('unassigned', unassignedTitle, unassignedGroups, true));
+
+        // 5.2 渲染 Clusters (如果啟用)
+        if (useClusters) {
+            clusters.forEach(c => {
+                const clusterGroups = groups.filter(g => g.clusterId === c.id);
+                board.appendChild(this.createColumnHTML(c.id, c.name, clusterGroups, false));
             });
         }
-        if(select && select.type !== 'hidden') {
-            select.innerHTML = '<option value="">(無Cluster)</option>';
-            this.currentUnitData.config.clusters.forEach(c => {
-                select.innerHTML += `<option value="${c.id}">${c.name}</option>`;
-            });
-        }
+
+        // 5.3 初始化 SortableJS
+        this.initSortable();
     },
 
-    renderGroups: function() {
-        const list = document.getElementById('groupList');
-        if(!list) return;
-        list.innerHTML = '';
-        
-        const showClusterTag = this.currentUnitData.config.settings.useClusters;
+    createColumnHTML: function(clusterId, clusterName, groupList, isUnassigned) {
+        const colDiv = document.createElement('div');
+        colDiv.className = `cluster-column ${isUnassigned ? 'unassigned' : 'assigned'}`;
+        colDiv.dataset.clusterId = clusterId;
 
-        this.currentUnitData.config.groups.forEach(g => {
-            let clusterBadge = '';
-            // 只有在上方管理卡片顯示 Cluster 標籤，方便管理者知道歸屬
-            if (showClusterTag) {
-                const cluster = this.currentUnitData.config.clusters.find(c => c.id === g.clusterId);
-                const clusterName = cluster ? cluster.name : '未指定';
-                clusterBadge = `<span class="cluster-tag ${cluster ? '' : 'none'}">${clusterName}</span>`;
-            }
+        // 標題區
+        const titleHtml = isUnassigned ? 
+            `<span class="cluster-title">${clusterName}</span>` : 
+            `<span class="cluster-title" onclick="groupManager.editName(this, 'cluster', '${clusterId}')" title="雙擊改名">${clusterName}</span>
+             <button class="btn-icon" onclick="groupManager.deleteCluster('${clusterId}')"><i class="fas fa-trash-alt"></i></button>`;
 
-            list.innerHTML += `
-                <div class="list-item">
-                    <div><strong>${g.name}</strong>${clusterBadge}</div>
-                    <button class="btn btn-delete btn-sm" onclick="groupManager.deleteConfig('groups', '${g.id}')"><i class="fas fa-trash"></i></button>
+        // 卡片區
+        let cardsHtml = '';
+        groupList.forEach(g => {
+            cardsHtml += `
+                <div class="group-card" data-id="${g.id}">
+                    <span class="group-name" onclick="groupManager.editName(this, 'group', '${g.id}')" title="雙擊改名">${g.name}</span>
+                    <button class="btn-icon" onclick="groupManager.deleteGroup('${g.id}')"><i class="fas fa-times"></i></button>
                 </div>`;
+        });
+
+        // 底部新增按鈕
+        const addBtnHtml = `
+            <button class="add-card-btn" onclick="groupManager.quickAddGroup('${clusterId}')">
+                <i class="fas fa-plus"></i> 新增功能組...
+            </button>`;
+
+        colDiv.innerHTML = `
+            <div class="cluster-header">${titleHtml}</div>
+            <div class="group-list-area" id="list-${clusterId}">
+                ${cardsHtml}
+            </div>
+            ${addBtnHtml}
+        `;
+        return colDiv;
+    },
+
+    // --- 6. 拖拉初始化 ---
+    initSortable: function() {
+        const containers = document.querySelectorAll('.group-list-area');
+        containers.forEach(container => {
+            new Sortable(container, {
+                group: 'shared-groups', // 允許跨欄拖曳
+                animation: 150,
+                ghostClass: 'bg-light',
+                onEnd: async (evt) => {
+                    const itemEl = evt.item;
+                    const newClusterId = evt.to.parentElement.dataset.clusterId;
+                    const oldClusterId = evt.from.parentElement.dataset.clusterId;
+                    const groupId = itemEl.dataset.id;
+
+                    if (newClusterId !== oldClusterId) {
+                        await this.moveGroupToCluster(groupId, newClusterId);
+                    }
+                }
+            });
         });
     },
 
+    // --- 7. Tier 渲染 ---
     renderTiers: function() {
         const list = document.getElementById('tierList');
         if(!list) return;
         list.innerHTML = '';
         this.currentUnitData.config.tiers.forEach(t => {
-            list.innerHTML += `
-                <div class="list-item">
-                    <span>${t}</span>
-                    <button class="btn btn-delete btn-sm" onclick="groupManager.deleteConfig('tiers', '${t}')"><i class="fas fa-trash"></i></button>
-                </div>`;
+            const tag = document.createElement('span');
+            tag.className = 'tier-tag';
+            tag.innerHTML = `
+                <span onclick="groupManager.editName(this, 'tier', '${t}')" style="cursor:pointer;" title="雙擊改名">${t}</span>
+                <i class="fas fa-times btn-icon" onclick="groupManager.deleteTier('${t}')"></i>
+            `;
+            list.appendChild(tag);
         });
     },
 
-    // --- 資料操作 ---
+    // --- 8. 人員列表渲染 ---
+    renderStaffList: function() {
+        const tbody = document.getElementById('staffListBody');
+        if(!tbody) return;
+        tbody.innerHTML = '';
+
+        const settings = this.currentUnitData.config.settings;
+        const groups = this.currentUnitData.config.groups || [];
+        const tiers = this.currentUnitData.config.tiers || [];
+
+        const sorted = [...this.staffList].sort((a,b) => (a.employeeId || '').localeCompare(b.employeeId || ''));
+
+        sorted.forEach(staff => {
+            const tr = document.createElement('tr');
+            let html = `
+                <td>${staff.employeeId || '-'}</td>
+                <td>${staff.displayName || '-'}</td>
+                <td>${staff.level || '-'}</td>
+            `;
+
+            if (settings.useGroups) {
+                const options = groups.map(g => 
+                    `<option value="${g.id}" ${staff.groupId === g.id ? 'selected' : ''}>${g.name}</option>`
+                ).join('');
+                html += `<td><select class="staff-select" onchange="groupManager.updateStaffField('${staff.uid}', 'groupId', this.value)"><option value="">(未指定)</option>${options}</select></td>`;
+            }
+
+            if (settings.useTiers) {
+                const options = tiers.map(t => 
+                    `<option value="${t}" ${staff.tier === t ? 'selected' : ''}>${t}</option>`
+                ).join('');
+                html += `<td><select class="staff-select" onchange="groupManager.updateStaffField('${staff.uid}', 'tier', this.value)"><option value="">(未指定)</option>${options}</select></td>`;
+            }
+
+            tr.innerHTML = html;
+            tbody.appendChild(tr);
+        });
+    },
+
+    // --- 9. 動作邏輯 (Actions) ---
+
+    toggleSetting: async function(key, checked) {
+        this.currentUnitData.config.settings[key] = checked;
+        await this.saveConfig();
+        this.renderMainInterface();
+    },
+
+    moveGroupToCluster: async function(groupId, targetClusterId) {
+        const group = this.currentUnitData.config.groups.find(g => g.id === groupId);
+        if (group) {
+            group.clusterId = (targetClusterId === 'unassigned') ? '' : targetClusterId;
+            console.log(`Moved ${group.name} to ${targetClusterId}`);
+            await this.saveConfig(false); // 靜默儲存
+        }
+    },
+
+    editName: function(el, type, id) {
+        const currentText = el.innerText;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = currentText;
+        input.className = 'edit-input';
+        
+        el.replaceWith(input);
+        input.focus();
+
+        const save = async () => {
+            const newName = input.value.trim();
+            if (newName && newName !== currentText) {
+                if (type === 'cluster') {
+                    const t = this.currentUnitData.config.clusters.find(c => c.id === id);
+                    if(t) t.name = newName;
+                } else if (type === 'group') {
+                    const t = this.currentUnitData.config.groups.find(g => g.id === id);
+                    if(t) t.name = newName;
+                } else if (type === 'tier') {
+                    const idx = this.currentUnitData.config.tiers.indexOf(id);
+                    if(idx !== -1) this.currentUnitData.config.tiers[idx] = newName;
+                }
+                await this.saveConfig();
+            }
+            // 無論是否修改，重繪恢復文字
+            if (type === 'tier') this.renderTiers(); 
+            else this.renderKanban(); 
+            
+            // 如果是改 Group 或 Tier 名稱，也要刷新人員列表的下拉選單
+            if (type !== 'cluster') this.renderStaffList();
+        };
+
+        input.onblur = save;
+        input.onkeydown = (e) => { if(e.key === 'Enter') save(); };
+    },
+
     addCluster: async function() {
-        const name = document.getElementById('newClusterName').value.trim();
-        if(!name) return;
+        const name = prompt("請輸入 Cluster 名稱:");
+        if (!name) return;
         const newId = 'c_' + Date.now();
         this.currentUnitData.config.clusters.push({ id: newId, name: name });
         await this.saveConfig();
-        this.renderConfigArea();
+        this.renderKanban();
     },
 
-    addGroup: async function() {
-        const name = document.getElementById('newGroupName').value.trim();
-        if(!name) return;
-        const clusterSelect = document.getElementById('newGroupCluster');
-        const clusterId = clusterSelect ? clusterSelect.value : '';
+    quickAddGroup: async function(clusterId) {
+        const name = prompt("請輸入 Group 名稱:");
+        if (!name) return;
+        if (this.currentUnitData.config.groups.find(g => g.name === name)) { alert("名稱重複"); return; }
 
-        if (this.currentUnitData.config.groups.find(g => g.name === name)) {
-            alert('名稱重複'); return;
-        }
-
-        this.currentUnitData.config.groups.push({ id: name, name: name, clusterId: clusterId });
+        const realClusterId = (clusterId === 'unassigned') ? '' : clusterId;
+        this.currentUnitData.config.groups.push({ id: name, name: name, clusterId: realClusterId });
         await this.saveConfig();
-        this.renderConfigArea();
+        this.renderKanban();
+        this.renderStaffList();
     },
 
     addTier: async function() {
-        const name = document.getElementById('newTierName').value.trim();
-        if(!name) return;
-        if (this.currentUnitData.config.tiers.includes(name)) return;
-        this.currentUnitData.config.tiers.push(name);
+        const input = document.getElementById('newTierInput');
+        const val = input.value.trim();
+        if(!val) return;
+        if(this.currentUnitData.config.tiers.includes(val)) return;
+        
+        this.currentUnitData.config.tiers.push(val);
         await this.saveConfig();
-        this.renderConfigArea();
+        this.renderTiers();
+        this.renderStaffList();
+        input.value = '';
     },
 
-    deleteConfig: async function(type, id) {
-        if(!confirm('確定刪除？')) return;
-        if(type === 'clusters') {
-            this.currentUnitData.config.clusters = this.currentUnitData.config.clusters.filter(c => c.id !== id);
-            // 清除 Group 裡的關聯
-            this.currentUnitData.config.groups.forEach(g => { if(g.clusterId === id) g.clusterId = ''; });
-        } else if(type === 'groups') {
-            this.currentUnitData.config.groups = this.currentUnitData.config.groups.filter(g => g.id !== id);
-        } else if(type === 'tiers') {
-            this.currentUnitData.config.tiers = this.currentUnitData.config.tiers.filter(t => t !== id);
-        }
+    deleteCluster: async function(id) {
+        if(!confirm("刪除此 Cluster？底下的 Group 會變為未分類。")) return;
+        this.currentUnitData.config.clusters = this.currentUnitData.config.clusters.filter(c => c.id !== id);
+        this.currentUnitData.config.groups.forEach(g => { if(g.clusterId === id) g.clusterId = ''; });
         await this.saveConfig();
-        this.renderConfigArea();
-        this.loadStaffList();
+        this.renderKanban();
     },
 
-    saveConfig: async function() {
+    deleteGroup: async function(id) {
+        if(!confirm("刪除此 Group？")) return;
+        this.currentUnitData.config.groups = this.currentUnitData.config.groups.filter(g => g.id !== id);
+        await this.saveConfig();
+        this.renderKanban();
+        this.renderStaffList();
+    },
+
+    deleteTier: async function(val) {
+        if(!confirm("刪除此 Tier？")) return;
+        this.currentUnitData.config.tiers = this.currentUnitData.config.tiers.filter(t => t !== val);
+        await this.saveConfig();
+        this.renderTiers();
+        this.renderStaffList();
+    },
+
+    // --- 資料庫儲存 ---
+    saveConfig: async function(showLoading = true) {
         try {
+            if(showLoading) this.isLoading = true;
             await db.collection('units').doc(this.currentUnitId).update({
                 config: this.currentUnitData.config,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-        } catch(e) { console.error(e); alert("儲存失敗"); }
+        } catch(e) {
+            console.error(e);
+            alert("儲存失敗");
+        } finally {
+            this.isLoading = false;
+        }
     },
 
+    // --- 載入與更新人員 ---
     loadStaffList: async function() {
         if(this.isLoading) return;
         this.isLoading = true;
@@ -362,63 +536,6 @@ const groupManager = {
         finally { this.isLoading = false; }
     },
 
-    // --- 渲染人員列表 (無 Cluster 欄位版) ---
-    renderStaffList: function() {
-        const tbody = document.getElementById('staffListBody');
-        if(!tbody) return;
-        tbody.innerHTML = '';
-
-        const settings = this.currentUnitData.config.settings;
-        const groups = this.currentUnitData.config.groups || [];
-        const tiers = this.currentUnitData.config.tiers || [];
-
-        // 排序
-        const sorted = [...this.staffList].sort((a,b) => (a.employeeId || '').localeCompare(b.employeeId || ''));
-
-        sorted.forEach(staff => {
-            const tr = document.createElement('tr');
-            
-            // 基礎資訊
-            let html = `
-                <td>${staff.employeeId || '-'}</td>
-                <td>${staff.displayName || '-'}</td>
-                <td>${staff.level || '-'}</td>
-            `;
-
-            // 動態欄位: Group (可選)
-            if (settings.useGroups) {
-                const options = groups.map(g => 
-                    `<option value="${g.id}" ${staff.groupId === g.id ? 'selected' : ''}>${g.name}</option>`
-                ).join('');
-                html += `
-                    <td>
-                        <select class="staff-select" onchange="groupManager.updateStaffField('${staff.uid}', 'groupId', this.value)">
-                            <option value="">(未指定)</option>
-                            ${options}
-                        </select>
-                    </td>`;
-            }
-
-            // 動態欄位: Tier (可選)
-            if (settings.useTiers) {
-                const options = tiers.map(t => 
-                    `<option value="${t}" ${staff.tier === t ? 'selected' : ''}>${t}</option>`
-                ).join('');
-                html += `
-                    <td>
-                        <select class="staff-select" onchange="groupManager.updateStaffField('${staff.uid}', 'tier', this.value)">
-                            <option value="">(未指定)</option>
-                            ${options}
-                        </select>
-                    </td>`;
-            }
-
-            tr.innerHTML = html;
-            tbody.appendChild(tr);
-        });
-    },
-
-    // --- 更新人員欄位 ---
     updateStaffField: async function(uid, field, value) {
         try {
             const updateData = {};
@@ -426,11 +543,8 @@ const groupManager = {
             updateData.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
             await db.collection('users').doc(uid).update(updateData);
             
-            // 更新本地資料
             const staff = this.staffList.find(s => s.uid === uid);
             if(staff) staff[field] = value;
-
-            // 因為 Cluster 欄位已移除，這裡不需要再呼叫 renderStaffList 刷新畫面
             console.log(`Updated ${uid}: ${field} = ${value}`);
         } catch (e) { console.error(e); }
     }
