@@ -13,14 +13,14 @@ const groupManager = {
             useGroups: true,    // 預設開啟 Group
             useTiers: true      // 預設開啟 Tier
         },
-        clusters: [],
-        groups: [],
-        tiers: []
+        clusters: [], // { id, name, swapRule: 'any'|'same_tier' }
+        groups: [],   // { id, name, clusterId }
+        tiers: []     // string[]
     },
 
     // --- 初始化 ---
     init: async function() {
-        console.log("Group Manager Loaded (Kanban + Toggles).");
+        console.log("Group Manager Loaded (Kanban + Swap Rules).");
         
         // 權限檢查
         const activeRole = app.impersonatedRole || app.userRole;
@@ -48,20 +48,28 @@ const groupManager = {
 
             /* 看板欄位 (Cluster) */
             .cluster-column {
-                background: #f4f5f7; border-radius: 8px; width: 280px; min-width: 280px;
+                background: #f4f5f7; border-radius: 8px; width: 300px; min-width: 300px;
                 display: flex; flex-direction: column; max-height: 75vh;
                 border: 1px solid #dfe1e6;
             }
             .cluster-column.unassigned { border-top: 3px solid #6c757d; }
             .cluster-column.assigned { border-top: 3px solid #007bff; }
 
-            /* 欄位標題 */
+            /* 欄位標題區 */
             .cluster-header {
                 padding: 10px 12px; font-weight: bold; color: #172b4d;
                 display: flex; justify-content: space-between; align-items: center;
                 border-bottom: 1px solid #ddd; cursor: default;
             }
-            .cluster-title { cursor: pointer; flex-grow: 1; } /* 雙擊改名區 */
+            .cluster-title { cursor: pointer; flex-grow: 1; margin-right: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } 
+            
+            /* 標題右側動作區 (下拉選單 + 刪除鈕) */
+            .cluster-actions { display: flex; align-items: center; gap: 5px; }
+            .cluster-rule-select {
+                font-size: 0.8em; padding: 2px 4px; border: 1px solid #ced4da;
+                border-radius: 4px; background-color: #fff; color: #495057;
+                cursor: pointer; max-width: 100px;
+            }
 
             /* 卡片列表區 (可拖放) */
             .group-list-area { padding: 8px; flex-grow: 1; min-height: 50px; overflow-y: auto; }
@@ -155,18 +163,21 @@ const groupManager = {
 
             const data = doc.data();
             
-            // 合併預設值
+            // 合併預設值 (確保 swapRule 存在)
             this.currentUnitData = {
                 ...data,
                 config: {
                     settings: { ...this.defaultConfig.settings, ...(data.config?.settings || {}) },
-                    clusters: data.config?.clusters || [],
+                    clusters: (data.config?.clusters || []).map(c => ({
+                        ...c,
+                        swapRule: c.swapRule || 'any' // 舊資料預設為無限制
+                    })),
                     groups: data.config?.groups || [],
                     tiers: data.config?.tiers || []
                 }
             };
 
-            // 舊資料相容
+            // 舊資料相容 (如果 groups 是字串陣列)
             if (Array.isArray(data.groups) && this.currentUnitData.config.groups.length === 0) {
                 this.currentUnitData.config.groups = data.groups.map(g => ({ id: g, name: g, clusterId: '' }));
             }
@@ -178,7 +189,7 @@ const groupManager = {
         }
     },
 
-    // --- 4. 渲染主介面 ---
+    // --- 4. 渲染主介面框架 ---
     renderMainInterface: function() {
         const mainArea = document.getElementById('groupMainArea');
         const settings = this.currentUnitData.config.settings;
@@ -249,7 +260,7 @@ const groupManager = {
         this.renderStaffList();
     },
 
-    // --- 5. 渲染看板 (Kanban) ---
+    // --- 5. 渲染看板核心 (Kanban) ---
     renderKanban: function() {
         const board = document.querySelector('.kanban-board');
         if(!board) return;
@@ -260,39 +271,59 @@ const groupManager = {
         const clusters = config.clusters || [];
         const useClusters = config.settings.useClusters;
 
-        // 5.1 渲染 "未分類" 或 "所有組別" (當 Cluster 關閉時)
+        // 5.1 未分類區 (或所有組別區)
         const unassignedGroups = useClusters 
             ? groups.filter(g => !g.clusterId || !clusters.find(c => c.id === g.clusterId))
-            : groups; // 如果沒開 Cluster，全部顯示在這裡
+            : groups;
 
-        const unassignedTitle = useClusters ? '未分類 (No Cluster)' : '所有功能組 (Groups)';
+        const unassignedTitle = useClusters ? '未分類 (No Cluster)' : '所有功能組';
         
-        board.appendChild(this.createColumnHTML('unassigned', unassignedTitle, unassignedGroups, true));
+        // 未分類區不傳入規則 (null)
+        board.appendChild(this.createColumnHTML('unassigned', unassignedTitle, unassignedGroups, true, null));
 
-        // 5.2 渲染 Clusters (如果啟用)
+        // 5.2 渲染 Cluster 區
         if (useClusters) {
             clusters.forEach(c => {
                 const clusterGroups = groups.filter(g => g.clusterId === c.id);
-                board.appendChild(this.createColumnHTML(c.id, c.name, clusterGroups, false));
+                // 傳入 Cluster 的互換規則
+                board.appendChild(this.createColumnHTML(c.id, c.name, clusterGroups, false, c.swapRule));
             });
         }
 
-        // 5.3 初始化 SortableJS
+        // 5.3 啟用 SortableJS
         this.initSortable();
     },
 
-    createColumnHTML: function(clusterId, clusterName, groupList, isUnassigned) {
+    // 建立單一欄位 HTML (含下拉選單)
+    createColumnHTML: function(clusterId, clusterName, groupList, isUnassigned, swapRule) {
         const colDiv = document.createElement('div');
         colDiv.className = `cluster-column ${isUnassigned ? 'unassigned' : 'assigned'}`;
         colDiv.dataset.clusterId = clusterId;
 
-        // 標題區
-        const titleHtml = isUnassigned ? 
-            `<span class="cluster-title">${clusterName}</span>` : 
-            `<span class="cluster-title" onclick="groupManager.editName(this, 'cluster', '${clusterId}')" title="雙擊改名">${clusterName}</span>
-             <button class="btn-icon" onclick="groupManager.deleteCluster('${clusterId}')"><i class="fas fa-trash-alt"></i></button>`;
+        // --- 建立標題右側動作區 ---
+        let actionsHtml = '';
+        if (!isUnassigned) {
+            // 如果是 Cluster，顯示「規則下拉選單」與「刪除按鈕」
+            actionsHtml = `
+                <div class="cluster-actions">
+                    <select class="cluster-rule-select" 
+                            onchange="groupManager.updateClusterRule('${clusterId}', this.value)"
+                            title="設定換班限制"
+                            onclick="event.stopPropagation()"> <option value="any" ${swapRule === 'any' ? 'selected' : ''}>無限制</option>
+                        <option value="same_tier" ${swapRule === 'same_tier' ? 'selected' : ''}>限同階級</option>
+                    </select>
+                    <button class="btn-icon" onclick="groupManager.deleteCluster('${clusterId}')"><i class="fas fa-trash-alt"></i></button>
+                </div>
+            `;
+        }
 
-        // 卡片區
+        // --- 標題區 (雙擊改名) ---
+        // 注意：標題本身只有文字部分可以點擊改名
+        const titleHtml = isUnassigned ? 
+            `<span class="cluster-title" style="cursor:default;">${clusterName}</span>` : 
+            `<span class="cluster-title" onclick="groupManager.editName(this, 'cluster', '${clusterId}')" title="雙擊改名">${clusterName}</span>`;
+
+        // --- 卡片區 ---
         let cardsHtml = '';
         groupList.forEach(g => {
             cardsHtml += `
@@ -302,14 +333,17 @@ const groupManager = {
                 </div>`;
         });
 
-        // 底部新增按鈕
+        // --- 底部新增按鈕 ---
         const addBtnHtml = `
             <button class="add-card-btn" onclick="groupManager.quickAddGroup('${clusterId}')">
                 <i class="fas fa-plus"></i> 新增功能組...
             </button>`;
 
         colDiv.innerHTML = `
-            <div class="cluster-header">${titleHtml}</div>
+            <div class="cluster-header">
+                ${titleHtml}
+                ${actionsHtml}
+            </div>
             <div class="group-list-area" id="list-${clusterId}">
                 ${cardsHtml}
             </div>
@@ -318,7 +352,7 @@ const groupManager = {
         return colDiv;
     },
 
-    // --- 6. 拖拉初始化 ---
+    // --- 6. 拖拉功能初始化 ---
     initSortable: function() {
         const containers = document.querySelectorAll('.group-list-area');
         containers.forEach(container => {
@@ -397,21 +431,34 @@ const groupManager = {
 
     // --- 9. 動作邏輯 (Actions) ---
 
+    // 開關切換
     toggleSetting: async function(key, checked) {
         this.currentUnitData.config.settings[key] = checked;
         await this.saveConfig();
         this.renderMainInterface();
     },
 
+    // 更新 Cluster 規則 (下拉選單觸發)
+    updateClusterRule: async function(clusterId, newRule) {
+        const cluster = this.currentUnitData.config.clusters.find(c => c.id === clusterId);
+        if (cluster) {
+            cluster.swapRule = newRule;
+            console.log(`Cluster ${cluster.name} rule updated to: ${newRule}`);
+            await this.saveConfig(false); // 靜默儲存，不需重刷介面
+        }
+    },
+
+    // 拖拉移動 Group
     moveGroupToCluster: async function(groupId, targetClusterId) {
         const group = this.currentUnitData.config.groups.find(g => g.id === groupId);
         if (group) {
             group.clusterId = (targetClusterId === 'unassigned') ? '' : targetClusterId;
             console.log(`Moved ${group.name} to ${targetClusterId}`);
-            await this.saveConfig(false); // 靜默儲存
+            await this.saveConfig(false);
         }
     },
 
+    // 通用改名 (雙擊)
     editName: function(el, type, id) {
         const currentText = el.innerText;
         const input = document.createElement('input');
@@ -419,6 +466,7 @@ const groupManager = {
         input.value = currentText;
         input.className = 'edit-input';
         
+        // 暫時替換成 Input
         el.replaceWith(input);
         input.focus();
 
@@ -437,11 +485,12 @@ const groupManager = {
                 }
                 await this.saveConfig();
             }
-            // 無論是否修改，重繪恢復文字
+            
+            // 重繪介面恢復文字
             if (type === 'tier') this.renderTiers(); 
             else this.renderKanban(); 
             
-            // 如果是改 Group 或 Tier 名稱，也要刷新人員列表的下拉選單
+            // 改名可能影響下方表格選項，刷新之
             if (type !== 'cluster') this.renderStaffList();
         };
 
@@ -449,15 +498,21 @@ const groupManager = {
         input.onkeydown = (e) => { if(e.key === 'Enter') save(); };
     },
 
+    // 新增 Cluster (預設無限制)
     addCluster: async function() {
         const name = prompt("請輸入 Cluster 名稱:");
         if (!name) return;
         const newId = 'c_' + Date.now();
-        this.currentUnitData.config.clusters.push({ id: newId, name: name });
+        this.currentUnitData.config.clusters.push({ 
+            id: newId, 
+            name: name, 
+            swapRule: 'any' // 預設: 無限制
+        });
         await this.saveConfig();
         this.renderKanban();
     },
 
+    // 快速新增 Group
     quickAddGroup: async function(clusterId) {
         const name = prompt("請輸入 Group 名稱:");
         if (!name) return;
@@ -470,6 +525,7 @@ const groupManager = {
         this.renderStaffList();
     },
 
+    // 新增 Tier
     addTier: async function() {
         const input = document.getElementById('newTierInput');
         const val = input.value.trim();
@@ -483,6 +539,7 @@ const groupManager = {
         input.value = '';
     },
 
+    // 刪除 Cluster
     deleteCluster: async function(id) {
         if(!confirm("刪除此 Cluster？底下的 Group 會變為未分類。")) return;
         this.currentUnitData.config.clusters = this.currentUnitData.config.clusters.filter(c => c.id !== id);
@@ -523,7 +580,7 @@ const groupManager = {
         }
     },
 
-    // --- 載入與更新人員 ---
+    // --- 人員資料載入與更新 ---
     loadStaffList: async function() {
         if(this.isLoading) return;
         this.isLoading = true;
