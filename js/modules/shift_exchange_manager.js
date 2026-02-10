@@ -22,101 +22,102 @@ const shiftExchangeManager = {
         });
     },
 
-    loadData: async function() {
-        const tbody = document.getElementById('exchangeTableBody');
-        if (!tbody) return;
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;"><i class="fas fa-spinner fa-spin"></i> 載入中...</td></tr>';
+loadData: async function() {
+    const tbody = document.getElementById('exchangeTableBody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;"><i class="fas fa-spinner fa-spin"></i> 載入中...</td></tr>';
 
-        try {
-            let snapshot;
-            const type = this.currentTab;
+    try {
+        let snapshot;
+        const type = this.currentTab;
 
-            const activeUid = app.getUid();
-            const activeRole = app.impersonatedRole || app.userRole;
-            const activeUnitId = app.getUnitId();
+        const activeUid = app.getUid();
+        const activeRole = app.impersonatedRole || app.userRole;
+        const activeUnitId = app.getUnitId();
 
-            if (type === 'my_requests') {
-                // ✅ 我發出的申請（全部狀態）
-                snapshot = await db.collection('shift_requests')
-                    .where('requesterUid', '==', activeUid)
-                    .orderBy('createdAt', 'desc')
-                    .get();
-            } 
-            else if (type === 'to_me') {
-                // ✅ 與我相關的申請（我是對象，全部狀態）
-                snapshot = await db.collection('shift_requests')
-                    .where('targetUid', '==', activeUid)
-                    .orderBy('createdAt', 'desc')
-                    .get();
-            } 
-            else if (type === 'manager') {
-                // ✅ 等待護理長審核
-                let query = db.collection('shift_requests')
-                    .where('status', '==', 'pending_manager')
-                    .orderBy('createdAt', 'desc');
-                
-                // 如果是單位護理長，只顯示該單位的申請
-                if (activeRole === 'unit_manager' && activeUnitId) {
-                    query = query.where('unitId', '==', activeUnitId);
-                }
-                
-                snapshot = await query.get();
+        if (type === 'my_requests') {
+            // ✅ 我發出的申請（全部狀態）
+            snapshot = await db.collection('shift_requests')
+                .where('requesterUid', '==', activeUid)
+                .orderBy('createdAt', 'desc')
+                .get();
+        } 
+        else if (type === 'to_me') {
+            // ✅ 待我同意的申請（只顯示 pending_target 狀態）
+            snapshot = await db.collection('shift_requests')
+                .where('targetUid', '==', activeUid)
+                .where('status', '==', 'pending_target')
+                .orderBy('createdAt', 'desc')
+                .get();
+        } 
+        else if (type === 'manager') {
+            // ✅ 等待護理長審核
+            let query = db.collection('shift_requests')
+                .where('status', '==', 'pending_manager')
+                .orderBy('createdAt', 'desc');
+            
+            // 如果是單位護理長，只顯示該單位的申請
+            if (activeRole === 'unit_manager' && activeUnitId) {
+                query = query.where('unitId', '==', activeUnitId);
             }
-            else if (type === 'all') {
-                // ✅ 全部申請（系統管理員或單位護理長可見）
-                let query = db.collection('shift_requests')
-                    .orderBy('createdAt', 'desc')
-                    .limit(100); // 限制筆數避免過多
-                
-                // 單位護理長只看自己單位
-                if (activeRole === 'unit_manager' && activeUnitId) {
-                    query = query.where('unitId', '==', activeUnitId);
-                }
-                
-                snapshot = await query.get();
-            }
-
-            if (snapshot.empty) {
-                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:20px; color:#999;">目前沒有資料</td></tr>';
-                return;
-            }
-
-            tbody.innerHTML = '';
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                const id = doc.id;
-                const row = document.createElement('tr');
-                
-                // ✅ 根據狀態和角色決定可執行的操作
-                const actions = this.getActionsHTML(id, data);
-                
-                // ✅ 根據狀態設定列的樣式
-                const rowStyle = this.getRowStyle(data.status);
-                row.style.cssText = rowStyle;
-                
-                // ✅ 格式化時間
-                const createdTime = data.createdAt ? this.formatTimestamp(data.createdAt) : '-';
-
-                row.innerHTML = `
-                    <td>${data.date}</td>
-                    <td>${data.requesterName}</td>
-                    <td style="font-weight:bold; color:#2c3e50;">${data.requesterShift}</td>
-                    <td><i class="fas fa-exchange-alt" style="color:#95a5a6;"></i></td>
-                    <td>${data.targetName}</td>
-                    <td style="font-weight:bold; color:#2c3e50;">${data.targetShift}</td>
-                    <td><span class="status-badge ${this.getStatusClass(data.status)}">${this.translateStatus(data.status)}</span></td>
-                    <td>${data.reason || '-'}</td>
-                    <td style="font-size:0.85rem; color:#7f8c8d;">${createdTime}</td>
-                    <td style="white-space:nowrap;">${actions}</td>
-                `;
-                tbody.appendChild(row);
-            });
-
-        } catch (e) {
-            console.error("Load Exchange Data Error:", e);
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:red;">載入失敗: ' + e.message + '</td></tr>';
+            
+            snapshot = await query.get();
         }
-    },
+        else if (type === 'all') {
+            // ✅ 全部申請（系統管理員或單位護理長可見）
+            let query = db.collection('shift_requests')
+                .orderBy('createdAt', 'desc')
+                .limit(100); // 限制筆數避免過多
+            
+            // 單位護理長只看自己單位
+            if (activeRole === 'unit_manager' && activeUnitId) {
+                query = query.where('unitId', '==', activeUnitId);
+            }
+            
+            snapshot = await query.get();
+        }
+
+        if (snapshot.empty) {
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:20px; color:#999;">目前沒有資料</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = '';
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            const id = doc.id;
+            const row = document.createElement('tr');
+            
+            // ✅ 根據狀態和角色決定可執行的操作
+            const actions = this.getActionsHTML(id, data);
+            
+            // ✅ 根據狀態設定列的樣式
+            const rowStyle = this.getRowStyle(data.status);
+            row.style.cssText = rowStyle;
+            
+            // ✅ 格式化時間
+            const createdTime = data.createdAt ? this.formatTimestamp(data.createdAt) : '-';
+
+            row.innerHTML = `
+                <td>${data.date}</td>
+                <td>${data.requesterName}</td>
+                <td style="font-weight:bold; color:#2c3e50;">${data.requesterShift}</td>
+                <td><i class="fas fa-exchange-alt" style="color:#95a5a6;"></i></td>
+                <td>${data.targetName}</td>
+                <td style="font-weight:bold; color:#2c3e50;">${data.targetShift}</td>
+                <td><span class="status-badge ${this.getStatusClass(data.status)}">${this.translateStatus(data.status)}</span></td>
+                <td>${data.reason || '-'}</td>
+                <td style="font-size:0.85rem; color:#7f8c8d;">${createdTime}</td>
+                <td style="white-space:nowrap;">${actions}</td>
+            `;
+            tbody.appendChild(row);
+        });
+
+    } catch (e) {
+        console.error("Load Exchange Data Error:", e);
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:red;">載入失敗: ' + e.message + '</td></tr>';
+    }
+},
 
     /**
      * ✅ 根據狀態和角色決定可執行的操作
