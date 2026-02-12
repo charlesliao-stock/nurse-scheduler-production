@@ -353,10 +353,11 @@ const scheduleRuleManager = {
             select.appendChild(opt);
         });
         
-        if (select.options.length === 0) {
+        if (select.options.length === 0 && this.activeShifts.length > 0) {
+            const firstShift = this.activeShifts[0];
             const opt = document.createElement('option'); 
-            opt.value = 'D'; 
-            opt.textContent = 'D';
+            opt.value = firstShift.code; 
+            opt.textContent = firstShift.code;
             select.appendChild(opt);
         }
         
@@ -416,7 +417,11 @@ const scheduleRuleManager = {
 
     getRotationOrderFromDOM: function() {
         const container = document.getElementById('rotationSortableList');
-        if(!container) return 'OFF,N,E,D';
+        if(!container) {
+            // 如果找不到容器，動態生成一個預設順序
+            const codes = ['OFF', ...this.activeShifts.map(s => s.code)];
+            return codes.join(',');
+        }
         return Array.from(container.querySelectorAll('.sortable-item'))
             .map(item => item.dataset.code)
             .join(',');

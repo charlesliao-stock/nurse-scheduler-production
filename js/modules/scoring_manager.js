@@ -133,7 +133,11 @@ const scoringManager = {
             if(subResults) subResults.hoursDiff = s;
         }
         if (enables.nightDiff) {
-            const counts = staffList.map(s => this.countShifts(scheduleData[s.uid], ['N', 'EN', 'AN']));
+            // 動態取得所有夜班代號
+            const shifts = scheduleData.shifts || [];
+            const nightShiftCodes = shifts.filter(s => shiftUtils.isNightShift(s)).map(s => s.code);
+            
+            const counts = staffList.map(s => this.countShifts(scheduleData[s.uid], nightShiftCodes));
             const diff = Math.max(...counts) - Math.min(...counts);
             const s = this.getScoreByTier(diff, tiers.nightDiff, directions.nightDiff || 'lower_is_better');
             scores.push(s); 

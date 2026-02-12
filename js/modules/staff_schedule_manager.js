@@ -554,31 +554,41 @@ const staffScheduleManager = {
         const daysInMonth = new Date(this.currentYear, this.currentMonth, 0).getDate();
         
         let totalShifts = 0, totalOff = 0, holidayOff = 0;
-        let countD = 0, countE = 0, countN = 0;
+        let countDay = 0, countEvening = 0, countNight = 0;
         
+        // 取得單位班別資訊以進行分類
+        const shifts = this.scheduleData.shifts || [];
+        const shiftMap = {};
+        shifts.forEach(s => { shiftMap[s.code] = s; });
+
         for (let d = 1; d <= daysInMonth; d++) {
-            const shift = assignments[`current_${d}`] || 'OFF';
+            const shiftCode = assignments[`current_${d}`] || 'OFF';
             const date = new Date(this.currentYear, this.currentMonth - 1, d);
             const dayOfWeek = date.getDay();
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
             
-            if (shift === 'OFF' || shift === 'REQ_OFF') {
+            if (shiftCode === 'OFF' || shiftCode === 'REQ_OFF') {
                 totalOff++;
                 if (isWeekend) holidayOff++;
             } else {
                 totalShifts++;
-                if (shift === 'D') countD++;
-                else if (shift === 'E') countE++;
-                else if (shift === 'N') countN++;
+                const shiftObj = shiftMap[shiftCode];
+                if (shiftObj) {
+                    if (shiftUtils.isNightShift(shiftObj)) countNight++;
+                    else if (shiftUtils.isEveningShift(shiftObj)) countEvening++;
+                    else if (shiftUtils.isDayShift(shiftObj)) countDay++;
+                }
             }
         }
         
         document.getElementById('statTotalShifts').textContent = totalShifts;
         document.getElementById('statTotalOff').textContent = totalOff;
         document.getElementById('statHolidayOff').textContent = holidayOff;
-        document.getElementById('statDay').textContent = countD;
-        document.getElementById('statEvening').textContent = countE;
-        document.getElementById('statNight').textContent = countN;
+        
+        // 更新 UI 上的班別統計（相容舊有 ID）
+        if (document.getElementById('statDay')) document.getElementById('statDay').textContent = countDay;
+        if (document.getElementById('statEvening')) document.getElementById('statEvening').textContent = countEvening;
+        if (document.getElementById('statNight')) document.getElementById('statNight').textContent = countNight;
     },
 
     toggleViewMode: function() {
