@@ -358,8 +358,8 @@ const scheduleEditorManager = {
     },
     
     loadUsers: async function() { 
-        // DataLoader.loadAllUsers() 回傳的是一個物件 (Map)，不是陣列
-        const usersMap = await DataLoader.loadAllUsers();
+        // 改為按單位載入使用者，提升效能
+        const usersMap = await DataLoader.loadUsersMap(this.data.unitId);
         this.usersMap = usersMap || {};
     },
     

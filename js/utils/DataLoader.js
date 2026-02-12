@@ -193,8 +193,14 @@ const DataLoader = {
      * @param {boolean} forceReload - 是否強制重新載入
      * @returns {Promise<Object>} UID → 使用者資料的 Map
      */
-    loadAllUsers: async function(forceReload = false) {
-        const cacheKey = 'all_users_map';
+    /**
+     * 載入指定單位的使用者資料（建立 UID → 使用者資料的對照表）
+     * @param {string} unitId - 單位 ID (選填，若不填則載入所有使用者，⚠️ 慎用)
+     * @param {boolean} forceReload - 是否強制重新載入
+     * @returns {Promise<Object>} UID → 使用者資料的 Map
+     */
+    loadUsersMap: async function(unitId = null, forceReload = false) {
+        const cacheKey = unitId ? `users_map_${unitId}` : 'all_users_map';
         
         // 檢查快取
         if (!forceReload) {
@@ -202,18 +208,30 @@ const DataLoader = {
             if (cached) return cached;
         }
         
-        console.log('📥 從資料庫載入所有使用者資料...');
-        console.warn('⚠️ 此操作會讀取所有使用者，請確保有必要！');
+        if (unitId) {
+            console.log(`📥 從資料庫載入單位使用者: ${unitId}`);
+        } else {
+            console.log('📥 從資料庫載入所有使用者資料...');
+            console.warn('⚠️ 此操作會讀取所有使用者，請確保有必要！');
+        }
         
         try {
-            const snapshot = await db.collection('users').get();
+            let query = db.collection('users');
+            if (unitId) {
+                query = query.where('unitId', '==', unitId);
+            }
+            
+            const snapshot = await query.get();
             const usersMap = {};
             
             snapshot.forEach(doc => {
-                usersMap[doc.id] = doc.data();
+                usersMap[doc.id] = {
+                    uid: doc.id,
+                    ...doc.data()
+                };
             });
             
-            // 儲存到快取（較短的 TTL）
+            // 儲存到快取
             CacheManager.set(cacheKey, usersMap, 'staff');
             
             console.log(`✅ 已載入 ${Object.keys(usersMap).length} 位使用者`);
@@ -223,6 +241,14 @@ const DataLoader = {
             console.error('❌ 載入使用者資料失敗:', error);
             throw error;
         }
+    },
+
+    /**
+     * 舊版相容方法：載入所有使用者
+     * @deprecated 請改用 loadUsersMap(unitId)
+     */
+    loadAllUsers: async function(forceReload = false) {
+        return this.loadUsersMap(null, forceReload);
     },
     
     /**

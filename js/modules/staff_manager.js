@@ -185,28 +185,26 @@ const staffManager = {
         this.isLoading = true;
 
         try {
-            const usersMap = await DataLoader.loadAllUsers();
+            const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
             
-            // 將 Map 轉換為陣列，並確保包含 uid
+            // 優化：按單位載入使用者，而非載入所有使用者再過濾
+            let usersMap;
+            if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && activeUnitId) {
+                usersMap = await DataLoader.loadUsersMap(activeUnitId);
+            } else {
+                usersMap = await DataLoader.loadAllUsers();
+            }
+            
+            // 將 Map 轉換為陣列
             let users = [];
             if (usersMap && typeof usersMap === 'object' && !Array.isArray(usersMap)) {
-                users = Object.entries(usersMap).map(([uid, data]) => ({
-                    uid: uid,
-                    ...data
-                }));
+                users = Object.values(usersMap);
             } else if (Array.isArray(usersMap)) {
                 users = usersMap;
             }
             
-            const activeRole = app.impersonatedRole || app.userRole;
-            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
-            
-            if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && activeUnitId) {
-                this.allData = users.filter(u => u.unitId === activeUnitId);
-            } else {
-                this.allData = users;
-            }
-            
+            this.allData = users;
             this.renderTable();
         } catch (error) {
             console.error("Fetch Data Error:", error);

@@ -294,8 +294,10 @@ const matrixManager = {
     },
     
     loadUsers: async function() { 
-        const usersMap = await DataLoader.loadAllUsers();
-        this.usersMap = usersMap; // DataLoader.loadAllUsers 現在回傳的是 Map
+        // 優化：按單位載入使用者
+        const unitId = this.data?.unitId;
+        const usersMap = await DataLoader.loadUsersMap(unitId);
+        this.usersMap = usersMap;
     },
     
     loadScheduleData: async function() {
