@@ -1,11 +1,9 @@
 // js/modules/schedule_list_manager.js
-// 🚀 最終修正版 v2：加強權限控制 + 幽靈人口清洗機制
 
 const scheduleListManager = {
     currentUnitId: null,
 
     init: async function() {
-        // ✅ 權限檢查
         const activeRole = app.impersonatedRole || app.userRole;
         if (activeRole === 'user') {
             document.getElementById('content-area').innerHTML = `
@@ -26,32 +24,30 @@ const scheduleListManager = {
         select.innerHTML = '<option value="">載入中...</option>';
         
         try {
-            let query = db.collection('units');
+            const units = await DataLoader.loadUnits();
             
-            // ✅ 權限過濾：使用 impersonatedRole 或 userRole
             const activeRole = app.impersonatedRole || app.userRole;
             const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+            
+            let filteredUnits = units;
             if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                 if(activeUnitId) {
-                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
+                    filteredUnits = units.filter(u => u.id === activeUnitId);
                 }
             }
             
-            const snapshot = await query.get();
             select.innerHTML = '<option value="">請選擇單位</option>';
             
-            snapshot.forEach(doc => {
+            filteredUnits.forEach(u => {
                 const option = document.createElement('option');
-                option.value = doc.id;
-                option.textContent = doc.data().name;
+                option.value = u.id;
+                option.textContent = u.name;
                 select.appendChild(option);
             });
             
-            // ✅ 如果只有一個單位，自動選取並隱藏選單
-            if(snapshot.size === 1) { 
+            if(filteredUnits.length === 1) { 
                 select.selectedIndex = 1;
                 
-                // 單位護理長不需要看到選單
                 if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                     select.disabled = true;
                     select.style.backgroundColor = '#f5f5f5';
@@ -81,18 +77,16 @@ const scheduleListManager = {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">載入中...</td></tr>';
         
         try {
-            // 1. 讀取該單位的「已結束」預班表 (準備要排班的)
             const preSnaps = await db.collection('pre_schedules')
                 .where('unitId', '==', unitId)
                 .orderBy('year', 'desc').orderBy('month', 'desc')
                 .get();
 
-            // 2. 讀取該單位「已建立」的正式班表
             const schSnaps = await db.collection('schedules')
                 .where('unitId', '==', unitId)
                 .get();
             
-            const schMap = {}; // Key: sourceId (預班ID), Value: Schedule Doc
+            const schMap = {};
             schSnaps.forEach(doc => {
                 const d = doc.data();
                 if(d.sourceId) schMap[d.sourceId] = { id: doc.id, ...d };
@@ -148,53 +142,45 @@ const scheduleListManager = {
         }
     },
 
-    // 🔥 核心修正：建立排班時進行「人員清洗」
     createSchedule: async function(preId) {
         if(!confirm("確定要將此預班表轉為正式排班草稿嗎？\n(系統將自動過濾已離職人員)")) return;
         
         try {
-            // 1. 讀取預班資料
             const preDoc = await db.collection('pre_schedules').doc(preId).get();
             if(!preDoc.exists) throw new Error("預班資料不存在");
             const preData = preDoc.data();
 
-            // 2. 讀取該單位「目前有效」的人員名單 (Source of Truth)
-            const usersSnap = await db.collection('users')
-                .where('unitId', '==', preData.unitId)
-                .where('isActive', '==', true)
-                .get();
+            const staff = await DataLoader.loadStaff(preData.unitId);
 
             const validUids = new Set();
             const validStaffMap = {};
 
-            usersSnap.forEach(doc => {
-                validUids.add(doc.id);
-                validStaffMap[doc.id] = doc.data();
+            staff.forEach(s => {
+                validUids.add(s.uid);
+                validStaffMap[s.uid] = s;
             });
 
             console.log(`🧹 開始清洗資料... 預班人數: ${preData.staffList.length}, 目前在職人數: ${validUids.size}`);
 
-            // 3. 清洗 StaffList
             const cleanStaffList = [];
             let ghostCount = 0;
 
-            preData.staffList.forEach(staff => {
-                if (!staff.uid) return;
-                const uid = staff.uid.trim();
+            preData.staffList.forEach(s => {
+                if (!s.uid) return;
+                const uid = s.uid.trim();
                 if (validUids.has(uid)) {
                     const liveData = validStaffMap[uid];
                     cleanStaffList.push({
-                        ...staff,
-                        name: liveData.displayName || staff.name,
-                        level: liveData.level || staff.level
+                        ...s,
+                        name: liveData.displayName || s.name,
+                        level: liveData.level || s.level
                     });
                 } else {
                     ghostCount++;
-                    console.warn(`👻 剔除幽靈人員: ${staff.name} (${uid})`);
+                    console.warn(`👻 剔除幽靈人員: ${s.name} (${uid})`);
                 }
             });
 
-            // 4. 清洗 Assignments
             const cleanAssignments = {};
             const initialAssignments = preData.assignments || {};
             
@@ -209,7 +195,6 @@ const scheduleListManager = {
                 console.log(`✅ 清洗完成，共移除 ${ghostCount} 位已離職或無效人員。`);
             }
 
-            // 5. 建立新排班物件
             const newSch = {
                 unitId: preData.unitId,
                 year: preData.year, 
