@@ -74,36 +74,62 @@ const BacktrackSolver = {
             return { success: false, reason: '達到最大深度' };
         }
         
-        const candidates = this.findCandidates(gap, assignments, staff, rules, dailyCount, daysInMonth, shiftTimeMap);
+        // 1. 嘗試直接填補 (找當天休假且能上班的人)
+        const directCandidates = this.findCandidates(gap, assignments, staff, rules, dailyCount, daysInMonth, shiftTimeMap);
         
-        if (candidates.length === 0) {
-            return { success: false, reason: '找不到候選人' };
-        }
-        
-        for (let candidate of candidates) {
-            const adjustments = [
-                { uid: candidate.uid, day: gap.day, shift: gap.shift }
-            ];
-            
-            if (candidate.needsSwap) {
-                adjustments.push({
-                    uid: candidate.uid,
-                    day: candidate.swapDay,
-                    shift: 'OFF'
-                });
-            }
-            
+        for (let candidate of directCandidates) {
+            const adjustments = [{ uid: candidate.uid, day: gap.day, shift: gap.shift }];
             const testAssignments = this.simulateAdjustments(assignments, adjustments);
             
             if (this.isValidSolution(testAssignments, staff, rules, daysInMonth, shiftTimeMap)) {
-                return {
-                    success: true,
-                    adjustments: adjustments
-                };
+                return { success: true, adjustments: adjustments };
+            }
+        }
+
+        // 2. 嘗試「換班」填補 (如果直接填補失敗)
+        // 邏輯：找一個當天「已經在上班」的人 A，如果 A 換到另一天 B 上班，而原本在 B 上班的人 C 可以換到當天來...
+        // 簡化版：找一個當天「已經在上班」的人 A，看他能不能改排 gap.shift，或者找一個當天休假但因為規則不能排的人，嘗試調整他的前後天。
+        // 這裡實作一個「二階換班」：找一個當天休假的人 A，雖然他今天不能排，但如果我們改掉他昨天的班，他今天就能排了。
+        
+        if (currentDepth < maxDepth) {
+            for (let person of staff) {
+                const uid = person.uid || person.id;
+                const currentShift = assignments[uid]?.[`current_${gap.day}`];
+                
+                // 只針對當天休假但被硬性規則擋住的人
+                if (currentShift === 'OFF' || currentShift === 'REQ_OFF') {
+                    // 嘗試調整前一天的班別
+                    if (gap.day > 1) {
+                        const prevDay = gap.day - 1;
+                        const originalPrevShift = assignments[uid][`current_${prevDay}`];
+                        
+                        // 如果前一天有上班，嘗試讓他前一天休假，看今天能不能上班
+                        if (originalPrevShift && originalPrevShift !== 'OFF' && originalPrevShift !== 'REQ_OFF') {
+                            const adjustments = [
+                                { uid: uid, day: prevDay, shift: 'OFF' },
+                                { uid: uid, day: gap.day, shift: gap.shift }
+                            ];
+                            const testAssignments = this.simulateAdjustments(assignments, adjustments);
+                            if (this.isValidSolution(testAssignments, staff, rules, daysInMonth, shiftTimeMap)) {
+                                // 注意：這會造成 prevDay 產生新的缺額，所以需要遞迴解決
+                                const newGap = { day: prevDay, date: this.getDateKey(prevDay, rules.year, rules.month), shift: originalPrevShift };
+                                const subResult = this.solveGap(newGap, testAssignments, staff, rules, dailyCount, daysInMonth, shiftTimeMap, maxDepth, currentDepth + 1);
+                                
+                                if (subResult.success) {
+                                    return { success: true, adjustments: [...adjustments, ...subResult.adjustments] };
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         
-        return { success: false, reason: '所有候選人都不可行' };
+        return { success: false, reason: '所有路徑都不可行' };
+    },
+
+    getDateKey: function(day, year, month) {
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     },
     
     findCandidates: function(gap, assignments, staff, rules, dailyCount, daysInMonth, shiftTimeMap) {

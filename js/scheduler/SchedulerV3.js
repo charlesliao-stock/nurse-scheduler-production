@@ -197,30 +197,62 @@ class SchedulerV3 extends BaseScheduler {
     
     calculateCandidateScore(staff, day, shiftCode) {
         const uid = staff.uid || staff.id;
-        // 計算該員工目前為止已排的 OFF 總數
-        const offCount = this.countOffDays(this.assignments, uid, day - 1);
         
-        // 【核心邏輯修正】
-        // 為了平衡總 OFF 數，我們應該優先讓「目前 OFF 數較多」的人去上班。
-        // 這樣可以把「不排班（即 OFF）」的機會留給那些「目前 OFF 數較少」的人。
-        // 權重設定：OFF 數每多一天，排班優先級增加 10 分（大幅領先志願班別）。
-        let score = offCount * 10; 
+        // 1. 計算該員工「剩餘應上班天數」
+        // 總天數 - 預排休 - 應有休假 = 應上班天數
+        // 這裡我們用一個更動態的方式：計算「目前已排班數」與「目標班數」的差距
+        
+        const totalDays = this.daysInMonth;
+        const offCount = this.countOffDays(this.assignments, uid, day - 1);
+        const workCount = (day - 1) - offCount;
+        
+        // 估算每人平均應上班天數 (假設平均休 9 天)
+        const targetOff = this.rules.policy?.targetOffDays || 9;
+        const targetWork = totalDays - targetOff;
+        
+        // 剩餘需要補足的工作量
+        const remainingWorkNeeded = targetWork - workCount;
+        
+        // 【核心邏輯重構】
+        // 分數越高越優先上班。
+        // 如果一個人「剩餘需要上班的天數」越多，他的分數就越高。
+        // 這樣可以確保那些「休太多的人」被優先抓回來上班，而「休太少的人」被保護。
+        let score = remainingWorkNeeded * 10;
 
-        // 志願班別僅作為同等 OFF 數時的微調參考
+        // 2. 志願班別 (微調)
         const prefs = staff.preferences || {};
         if (prefs.favShift === shiftCode) {
-            score += 2; 
+            score += 5; 
         } else if (prefs.favShift2 === shiftCode) {
-            score += 1; 
+            score += 2; 
         }
 
-        // 預排班（預排班是必須執行的，給予極高權重）
+        // 3. 預排班 (最高優先級)
         const params = staff.schedulingParams || {};
         if (params[`current_${day}`] === shiftCode) {
-            score += 100; 
+            score += 1000; 
+        }
+        
+        // 4. 懲罰連續上班 (如果快要連六了，降低分數，除非是預排)
+        const consecutiveWork = this.countConsecutiveWork(this.assignments, uid, day - 1);
+        if (consecutiveWork >= 5) {
+            score -= 50;
         }
         
         return score;
+    }
+
+    countConsecutiveWork(assignments, uid, day) {
+        let count = 0;
+        for (let d = day; d >= 1; d--) {
+            const shift = assignments[uid][`current_${d}`];
+            if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
+                count++;
+            } else {
+                break;
+            }
+        }
+        return count;
     }
     
     step3_FillGaps() {

@@ -7,21 +7,41 @@ const WhitelistCalculator = {
         const shifts = rules.shifts || [];
         const allShiftCodes = shifts.map(s => s.code);
         
-        let whitelist = [...allShiftCodes];
+        // --- 第一階段：絕對硬性規則 (不可違反) ---
+        let hardWhitelist = [...allShiftCodes];
         
-        whitelist = this.stage1_PreScheduleLock(whitelist, staff, assignments, day);
+        // 1. 預班鎖定
+        hardWhitelist = this.stage1_PreScheduleLock(hardWhitelist, staff, assignments, day);
         
-        whitelist = this.stage2_HardRules(whitelist, staff, assignments, day, rules, shiftTimeMap, daysInMonth);
+        // 2. 勞基法/硬性規則 (連六、11小時休息等)
+        hardWhitelist = this.stage2_HardRules(hardWhitelist, staff, assignments, day, rules, shiftTimeMap, daysInMonth);
         
-        whitelist = this.stage3_BundleConstraints(whitelist, staff, assignments, day);
+        // 3. 包班約束 (必須嚴格遵守)
+        hardWhitelist = this.stage3_BundleConstraints(hardWhitelist, staff, assignments, day);
         
-        whitelist = this.stage4_SpecialIdentity(whitelist, staff, rules);
+        // 4. 特殊身份 (PGY 保護等)
+        hardWhitelist = this.stage4_SpecialIdentity(hardWhitelist, staff, rules);
         
-        whitelist = this.stage5_Preferences(whitelist, staff, assignments, day, rules);
+        // 5. 志願班別 (若設定為 'must' 則不可違反)
+        hardWhitelist = this.stage5_Preferences(hardWhitelist, staff, assignments, day, rules);
         
-        whitelist = this.stage6_SupplyDemand(whitelist, staff, assignments, day, year, month, rules, dailyCount);
+        // --- 第二階段：供需過濾 (僅作為排班參考，可放寬) ---
+        // 如果是為了檢查「誰可以排這個班」，我們應該回傳 hardWhitelist
+        // 如果是為了「自動選擇班別」，才需要考慮供需
+        if (!dailyCount) {
+            return hardWhitelist;
+        }
+
+        let softWhitelist = this.stage6_SupplyDemand(hardWhitelist, staff, assignments, day, year, month, rules, dailyCount);
         
-        return whitelist;
+        // 如果供需過濾後沒人了，且允許放寬，則回退到硬性白名單
+        if (softWhitelist.length === 0 || (softWhitelist.length === 1 && (softWhitelist[0] === 'OFF' || softWhitelist[0] === 'REQ_OFF'))) {
+            if (rules?.policy?.enableRelaxation) {
+                return hardWhitelist;
+            }
+        }
+        
+        return softWhitelist.length > 0 ? softWhitelist : hardWhitelist;
     },
     
     stage1_PreScheduleLock: function(whitelist, staff, assignments, day) {
