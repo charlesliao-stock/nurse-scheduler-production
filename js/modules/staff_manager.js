@@ -185,7 +185,18 @@ const staffManager = {
         this.isLoading = true;
 
         try {
-            const users = await DataLoader.loadAllUsers();
+            const usersMap = await DataLoader.loadAllUsers();
+            
+            // 將 Map 轉換為陣列，並確保包含 uid
+            let users = [];
+            if (usersMap && typeof usersMap === 'object' && !Array.isArray(usersMap)) {
+                users = Object.entries(usersMap).map(([uid, data]) => ({
+                    uid: uid,
+                    ...data
+                }));
+            } else if (Array.isArray(usersMap)) {
+                users = usersMap;
+            }
             
             const activeRole = app.impersonatedRole || app.userRole;
             const activeUnitId = app.impersonatedUnitId || app.userUnitId;
@@ -226,6 +237,17 @@ const staffManager = {
     renderTable: function() {
         const tbody = document.getElementById('staffTableBody');
         if(!tbody) return;
+        
+        // 🛡️ 防禦性檢查：確保 allData 始終是陣列
+        if (!Array.isArray(this.allData)) {
+            console.warn("⚠️ staffManager.allData 不是陣列，正在嘗試修復...", this.allData);
+            if (this.allData && typeof this.allData === 'object') {
+                this.allData = Object.entries(this.allData).map(([uid, data]) => ({ uid, ...data }));
+            } else {
+                this.allData = [];
+            }
+        }
+
         tbody.innerHTML = '';
 
         document.querySelectorAll('th i[id^="sort_icon_staff_"]').forEach(i => i.className = 'fas fa-sort');
@@ -735,263 +757,76 @@ const staffManager = {
     },
 
     openResetPasswordModal: function(userId) {
-        const user = this.allData.find(u => u.uid === userId);
-        if (!user) return;
-        
-        const modalHtml = `
-            <div id="resetPasswordModal" class="modal" style="display:flex;">
-                <div class="modal-content" style="max-width:500px;">
-                    <h2 style="margin-bottom:20px;">
-                        <i class="fas fa-key" style="color:#3498db;"></i> 重設密碼
-                    </h2>
-                    
-                    <div style="background:#f8f9fa;padding:15px;border-radius:8px;margin-bottom:20px;">
-                        <p style="margin:5px 0;"><strong>員工：</strong> ${user.displayName}</p>
-                        <p style="margin:5px 0;"><strong>Email：</strong> ${user.email}</p>
-                        <p style="margin:5px 0;"><strong>員工編號：</strong> ${user.employeeId}</p>
-                    </div>
-                    
-                    <div style="background:#fff3cd;border:1px solid#ffc107;padding:15px;border-radius:8px;margin-bottom:20px;">
-                        <p style="margin:0;color:#856404;"><i class="fas fa-info-circle"></i> <strong>請輸入以下資訊以確認身份：</strong></p>
-                    </div>
-                    
-                    <div style="margin-bottom:15px;">
-                        <label style="display:block;margin-bottom:5px;font-weight:bold;">員工編號</label>
-                        <input type="text" id="confirmEmployeeId" placeholder="請輸入員工編號" 
-                               style="width:100%;padding:10px;border:2px solid #ddd;border-radius:4px;font-size:1rem;">
-                    </div>
-                    
-                    <div style="margin-bottom:20px;">
-                        <label style="display:block;margin-bottom:5px;font-weight:bold;">Email</label>
-                        <input type="email" id="confirmEmail" placeholder="請輸入 Email" 
-                               style="width:100%;padding:10px;border:2px solid #ddd;border-radius:4px;font-size:1rem;">
-                    </div>
-                    
-                    <div style="background:#e8f5e9;border:1px solid#4caf50;padding:15px;border-radius:8px;margin-bottom:20px;">
-                        <p style="margin:0;color:#2e7d32;">
-                            <i class="fas fa-check-circle"></i> 
-                            重設後，員工可使用 <strong>員工編號</strong> 作為密碼登入
-                        </p>
-                    </div>
-                    
-                    <div style="display:flex;gap:10px;justify-content:flex-end;">
-                        <button class="btn" style="background:#95a5a6;" onclick="staffManager.closeResetPasswordModal()">
-                            取消
-                        </button>
-                        <button class="btn" style="background:#3498db;" onclick="staffManager.confirmResetPassword('${userId}')">
-                            <i class="fas fa-key"></i> 確認重設
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        const oldModal = document.getElementById('resetPasswordModal');
-        if (oldModal) oldModal.remove();
-        
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-        
-        setTimeout(() => {
-            document.getElementById('confirmEmployeeId').focus();
-        }, 100);
+        const modal = document.getElementById('resetPasswordModal');
+        if(modal) {
+            modal.classList.add('show');
+            document.getElementById('resetPasswordUserId').value = userId;
+            document.getElementById('newPasswordInput').value = '';
+        }
     },
 
     closeResetPasswordModal: function() {
         const modal = document.getElementById('resetPasswordModal');
-        if (modal) modal.remove();
+        if(modal) modal.classList.remove('show');
     },
 
-    confirmResetPassword: async function(userId) {
-        const user = this.allData.find(u => u.uid === userId);
-        if (!user) return;
+    confirmResetPassword: async function() {
+        const userId = document.getElementById('resetPasswordUserId').value;
+        const newPassword = document.getElementById('newPasswordInput').value.trim();
         
-        const inputEmployeeId = document.getElementById('confirmEmployeeId').value.trim();
-        const inputEmail = document.getElementById('confirmEmail').value.trim();
-        
-        if (!inputEmployeeId || !inputEmail) {
-            alert('❌ 請填寫所有欄位');
+        if (!newPassword) {
+            alert('請輸入新密碼');
             return;
         }
         
-        if (inputEmployeeId !== user.employeeId) {
-            alert('❌ 員工編號不正確');
-            document.getElementById('confirmEmployeeId').focus();
-            return;
-        }
-        
-        if (inputEmail.toLowerCase() !== user.email.toLowerCase()) {
-            alert('❌ Email 不正確');
-            document.getElementById('confirmEmail').focus();
-            return;
-        }
-        
-        if (user.employeeId.length < 6) {
-            alert(
-                `❌ 員工編號不足 6 個字元\n\n` +
-                `員工編號：${user.employeeId} (${user.employeeId.length} 字元)\n\n` +
-                `Firebase Auth 要求密碼至少 6 個字元。\n` +
-                `請修改員工編號後再試。`
-            );
-            this.closeResetPasswordModal();
+        if (newPassword.length < 6) {
+            alert('密碼長度至少需要 6 個字元');
             return;
         }
         
         try {
-            await db.collection('users').doc(userId).update({
-                passwordResetAt: firebase.firestore.FieldValue.serverTimestamp(),
-                passwordResetBy: auth.currentUser ? auth.currentUser.uid : 'admin',
-                useEmployeeIdAsPassword: true,
-                forcePasswordReset: true,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            const user = this.allData.find(u => u.uid === userId);
+            if (!user) throw new Error('找不到員工資料');
+            
+            await db.collection('password_resets').add({
+                uid: userId,
+                email: user.email,
+                newPassword: newPassword,
+                requestedBy: app.userUid,
+                status: 'pending',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
-            CacheManager.invalidate('users');
-            
+            alert('✅ 密碼重設請求已送出\n\n系統將在員工下次登入時自動更新密碼。');
             this.closeResetPasswordModal();
             
-            alert(
-                `✅ 密碼已重設！\n\n` +
-                `請通知 ${user.displayName}：\n\n` +
-                `登入方式：\n` +
-                `• Email：${user.email}\n` +
-                `• 密碼：${user.employeeId}\n\n` +
-                `首次登入後系統會要求設定新密碼。`
-            );
-            
-            await this.fetchData();
-            
         } catch (error) {
-            console.error('重設失敗:', error);
+            console.error('重設密碼失敗:', error);
             alert(`❌ 重設失敗：${error.message}`);
         }
     },
 
-    batchResetPasswords: async function() {
-        const confirm1 = confirm(
-            `⚠️ 批次重設密碼\n\n` +
-            `此功能將：\n` +
-            `1. 找出所有「啟用中」的員工\n` +
-            `2. 將密碼重設為「員工編號」\n` +
-            `3. 員工下次登入會被要求修改密碼\n\n` +
-            `⚠️ 注意：\n` +
-            `• 員工編號必須至少 6 個字元\n` +
-            `• 需要逐一確認\n\n` +
-            `確定要繼續嗎？`
-        );
-        
-        if (!confirm1) return;
-        
-        try {
-            const snapshot = await db.collection('users')
-                .where('isActive', '==', true)
-                .get();
-            
-            if (snapshot.empty) {
-                alert('✅ 沒有需要重設的帳號');
-                return;
-            }
-            
-            const validUsers = [];
-            const invalidUsers = [];
-            
-            snapshot.docs.forEach(doc => {
-                const user = doc.data();
-                if (user.employeeId && user.employeeId.length >= 6) {
-                    validUsers.push({
-                        id: doc.id,
-                        email: user.email,
-                        employeeId: user.employeeId,
-                        displayName: user.displayName
-                    });
-                } else {
-                    invalidUsers.push({
-                        displayName: user.displayName,
-                        employeeId: user.employeeId || '(無)',
-                        length: (user.employeeId || '').length
-                    });
-                }
-            });
-            
-            let message = `找到 ${snapshot.size} 位員工\n\n`;
-            message += `可重設：${validUsers.length} 位\n`;
-            
-            if (invalidUsers.length > 0) {
-                message += `無法重設：${invalidUsers.length} 位\n`;
-                message += `（員工編號不足 6 字元）\n\n`;
-                
-                if (invalidUsers.length <= 5) {
-                    message += `無法重設的員工：\n`;
-                    invalidUsers.forEach(u => {
-                        message += `• ${u.displayName} (${u.employeeId}, ${u.length}字元)\n`;
-                    });
-                }
-            }
-            
-            message += `\n確定要重設 ${validUsers.length} 位員工的密碼嗎？`;
-            
-            if (!confirm(message)) return;
-            
-            const batch = db.batch();
-            validUsers.forEach(user => {
-                const userRef = db.collection('users').doc(user.id);
-                batch.update(userRef, {
-                    passwordResetAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    passwordResetBy: auth.currentUser ? auth.currentUser.uid : 'admin',
-                    useEmployeeIdAsPassword: true,
-                    forcePasswordReset: true,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            });
-            
-            await batch.commit();
-            
-            CacheManager.invalidate('users');
-            
-            let resultMessage = `✅ 批次重設完成\n\n`;
-            resultMessage += `成功：${validUsers.length} 位\n`;
-            if (invalidUsers.length > 0) {
-                resultMessage += `跳過：${invalidUsers.length} 位（編號不足6字元）\n`;
-            }
-            resultMessage += `\n請通知員工：\n`;
-            resultMessage += `1. 使用 Email + 員工編號登入\n`;
-            resultMessage += `2. 首次登入會要求設定新密碼\n`;
-            resultMessage += `3. 設定一個安全的密碼`;
-            
-            alert(resultMessage);
-            await this.fetchData();
-            
-        } catch (error) {
-            console.error('批次重設失敗:', error);
-            alert(`❌ 操作失敗：${error.message}`);
-        }
+    openImportModal: function() {
+        const modal = document.getElementById('importStaffModal');
+        if(modal) modal.classList.add('show');
     },
 
-    openImportModal: function() {
-        document.getElementById('importModal').classList.add('show');
-        document.getElementById('importResult').innerHTML = '';
-        document.getElementById('csvFileInput').value = ''; 
+    closeImportModal: function() {
+        const modal = document.getElementById('importStaffModal');
+        if(modal) modal.classList.remove('show');
     },
-    
-    closeImportModal: function() { 
-        document.getElementById('importModal').classList.remove('show'); 
-    },
-    
-    downloadTemplate: function() {
-        const content = "\uFEFF單位代碼,員工編號,姓名,Email,進階層級,到職日(YYYY-MM-DD)";
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8;' }));
-        link.download = "人員匯入範例.csv";
-        link.click();
-    },
-    
-    processImport: async function() {
-        const file = document.getElementById('csvFileInput')?.files[0];
+
+    handleImport: async function() {
+        const fileInput = document.getElementById('importStaffFile');
+        const file = fileInput.files[0];
         if (!file) { alert("請選擇 CSV 檔案"); return; }
+
         const reader = new FileReader();
         reader.onload = async (e) => {
+            const text = e.target.result;
+            const rows = text.split('\n');
+            
             try {
-                const rows = e.target.result.split(/\r\n|\n|\r/);
-                
                 const existingStaffMap = {};
                 const snapshot = await db.collection('users').get();
                 snapshot.forEach(doc => {
