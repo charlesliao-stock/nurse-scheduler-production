@@ -167,18 +167,19 @@ const app = {
             const activeUnitId = this.getUnitId();
             let hasPreScheduleShifts = false;
             
+            // 1. 檢查該單位是否有開放預班功能 (使用快取)
             if (activeUnitId) {
                 const shifts = await DataLoader.loadShifts(activeUnitId);
                 hasPreScheduleShifts = shifts.some(s => s.isPreScheduleAvailable === true);
             }
 
-            const snapshot = await db.collection('system_menus').where('isActive', '==', true).orderBy('order').get();
+            // 2. 載入選單資料 (使用持久化快取)
+            const menus = await DataLoader.loadMenus();
+            
             menuList.innerHTML = '';
             const activeRole = this.impersonatedRole || this.userRole;
             
-            snapshot.forEach(doc => {
-                const menu = doc.data();
-                
+            menus.forEach(menu => {
                 const hasRolePermission = (menu.allowedRoles || []).length === 0 || (menu.allowedRoles || []).includes(activeRole);
                 if (!hasRolePermission) return;
 

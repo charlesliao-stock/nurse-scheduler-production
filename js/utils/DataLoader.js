@@ -239,11 +239,11 @@ const DataLoader = {
         
         const cacheKey = `pre_schedules_${unitId}`;
         
-        // 預班資料變動頻繁，不使用快取（或使用很短的 TTL）
-        // if (!forceReload) {
-        //     const cached = CacheManager.get(cacheKey);
-        //     if (cached) return cached;
-        // }
+        // 預班資料變動頻繁，使用較短的快取且不持久化
+        if (!forceReload) {
+            const cached = CacheManager.get(cacheKey);
+            if (cached) return cached;
+        }
         
         console.log(`📥 從資料庫載入預班清單: ${unitId}`);
         
@@ -258,6 +258,9 @@ const DataLoader = {
                 id: doc.id,
                 ...doc.data()
             }));
+            
+            // 儲存到快取 (不持久化，因為變動頻繁)
+            CacheManager.set(cacheKey, preSchedules, 'schedules', false);
             
             console.log(`✅ 已載入 ${preSchedules.length} 個預班表`);
             return preSchedules;
@@ -343,6 +346,42 @@ const DataLoader = {
         } catch (error) {
             console.error('❌ 批次載入失敗:', error);
             throw error;
+        }
+    },
+
+    /**
+     * 載入系統選單
+     * @param {boolean} forceReload - 是否強制重新載入
+     * @returns {Promise<Array>} 選單清單
+     */
+    loadMenus: async function(forceReload = false) {
+        const cacheKey = 'system_menus_active';
+        
+        if (!forceReload) {
+            const cached = CacheManager.get(cacheKey);
+            if (cached) return cached;
+        }
+        
+        console.log('📥 從資料庫載入系統選單...');
+        
+        try {
+            const snapshot = await db.collection('system_menus')
+                .where('isActive', '==', true)
+                .orderBy('order')
+                .get();
+            
+            const menus = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+            
+            // 儲存到快取 (持久化)
+            CacheManager.set(cacheKey, menus, 'menus');
+            
+            return menus;
+        } catch (error) {
+            console.error('❌ 載入選單失敗:', error);
+            return [];
         }
     },
 
