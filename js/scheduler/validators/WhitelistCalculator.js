@@ -2,7 +2,8 @@
 
 const WhitelistCalculator = {
     
-    calculate: function(staff, assignments, day, rules, dailyCount, daysInMonth, shiftTimeMap) {
+    // ✅ 修正：加入 year, month 參數
+    calculate: function(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap) {
         const uid = staff.uid || staff.id;
         const shifts = rules.shifts || [];
         const allShiftCodes = shifts.map(s => s.code);
@@ -19,7 +20,8 @@ const WhitelistCalculator = {
         
         whitelist = this.stage5_Preferences(whitelist, staff, assignments, day, rules);
         
-        whitelist = this.stage6_SupplyDemand(whitelist, staff, assignments, day, rules, dailyCount);
+        // ✅ 修正：傳入 year, month
+        whitelist = this.stage6_SupplyDemand(whitelist, staff, assignments, day, year, month, rules, dailyCount);
         
         return whitelist;
     },
@@ -123,12 +125,13 @@ const WhitelistCalculator = {
         return whitelist;
     },
     
-    stage6_SupplyDemand: function(whitelist, staff, assignments, day, rules, dailyCount) {
+    // ✅ 修正：加入 year, month 參數
+    stage6_SupplyDemand: function(whitelist, staff, assignments, day, year, month, rules, dailyCount) {
         const dailyNeeds = rules.dailyNeeds || {};
         const specificNeeds = rules.specificNeeds || {};
         
-        const dateStr = this.getDateKey(day, rules.year, rules.month);
-        const dayOfWeek = this.getDayOfWeek(day, rules.year, rules.month);
+        const dateStr = this.getDateKey(day, year, month);
+        const dayOfWeek = this.getDayOfWeek(day, year, month);
         
         const result = [];
         
@@ -170,13 +173,14 @@ const WhitelistCalculator = {
         return (jsDay === 0) ? 6 : jsDay - 1;
     },
     
-    getWhitelistSize: function(staff, assignments, day, rules, dailyCount, daysInMonth, shiftTimeMap) {
-        const whitelist = this.calculate(staff, assignments, day, rules, dailyCount, daysInMonth, shiftTimeMap);
+    // ✅ 修正：更新所有呼叫
+    getWhitelistSize: function(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap) {
+        const whitelist = this.calculate(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap);
         return whitelist.length;
     },
     
-    hasValidShift: function(staff, assignments, day, rules, dailyCount, daysInMonth, shiftTimeMap) {
-        const whitelist = this.calculate(staff, assignments, day, rules, dailyCount, daysInMonth, shiftTimeMap);
+    hasValidShift: function(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap) {
+        const whitelist = this.calculate(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap);
         return whitelist.length > 0;
     }
 };
