@@ -1,5 +1,4 @@
 // js/modules/schedule_editor_manager.js
-// 🎯 視覺強化 + AI功能修復完整版
 
 const scheduleEditorManager = {
     scheduleId: null, 
@@ -353,25 +352,22 @@ const scheduleEditorManager = {
     },
 
     loadShifts: async function() { 
-        const snap = await db.collection('shifts')
-            .where('unitId', '==', this.data.unitId)
-            .orderBy('startTime')
-            .get(); 
-        
-        this.shifts = snap.docs.map(d => d.data())
-            .filter(s => s.isScheduleAvailable !== false);
-        
+        const shifts = await DataLoader.loadShifts(this.data.unitId);
+        this.shifts = shifts.filter(s => s.isScheduleAvailable !== false);
         console.log(`✅ 排班編輯器載入 ${this.shifts.length} 個可用班別:`, this.shifts.map(s => s.code));
     },
     
     loadUsers: async function() { 
-        const snap = await db.collection('users').get(); 
-        snap.forEach(d => this.usersMap[d.id] = d.data()); 
+        const users = await DataLoader.loadAllUsers();
+        this.usersMap = {};
+        users.forEach(u => {
+            this.usersMap[u.uid] = u;
+        });
     },
     
     loadUnitRules: async function() { 
-        const doc = await db.collection('units').doc(this.data.unitId).get(); 
-        this.unitRules = doc.data()?.schedulingRules || {}; 
+        const rules = await DataLoader.loadSchedulingRules(this.data.unitId);
+        this.unitRules = rules || {}; 
     },
     
     getStaffStatusBadges: function(uid) { 
@@ -573,43 +569,42 @@ const scheduleEditorManager = {
                 specificNeeds: this.data.specificNeeds || {}
             };
             
-            const scheduler = SchedulerFactory.create('V2', staffListWithId, this.data.year, this.data.month, this.lastMonthData, rules);
+            const scheduler = SchedulerFactory.create('V3', staffListWithId, this.data.year, this.data.month, this.lastMonthData, rules);
             const result = scheduler.run();
             
             console.log("🤖 AI 排班結果樣本:", result[Object.keys(result)[0]]);
             
-const newAssignments = {};
-this.data.staffList.forEach(s => {
-    const uid = s.uid.trim();
-    const oldAssign = this.assignments[uid] || {};
-    newAssignments[uid] = { preferences: (oldAssign.preferences || {}) };
-    
-    for(let d=1; d<=new Date(this.data.year, this.data.month, 0).getDate(); d++) {
-        const key = `current_${d}`;
-        const oldValue = oldAssign[key];
-        
-        // ✅ 保留預休 (REQ_OFF)
-        if (oldValue === 'REQ_OFF') {
-            newAssignments[uid][key] = 'REQ_OFF';
-            console.log(`  🔒 保留預休: ${s.name} 第${d}日 = REQ_OFF`);
-            continue;
-        }
-        
-        const ds = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        let shift = 'OFF';
-        
-        if (result[ds]) {
-            for(let code in result[ds]) {
-                if(result[ds][code].includes(uid)) { 
-                    shift = code; 
-                    break; 
+            const newAssignments = {};
+            this.data.staffList.forEach(s => {
+                const uid = s.uid.trim();
+                const oldAssign = this.assignments[uid] || {};
+                newAssignments[uid] = { preferences: (oldAssign.preferences || {}) };
+                
+                for(let d=1; d<=new Date(this.data.year, this.data.month, 0).getDate(); d++) {
+                    const key = `current_${d}`;
+                    const oldValue = oldAssign[key];
+                    
+                    if (oldValue === 'REQ_OFF') {
+                        newAssignments[uid][key] = 'REQ_OFF';
+                        console.log(`  🔒 保留預休: ${s.name} 第${d}日 = REQ_OFF`);
+                        continue;
+                    }
+                    
+                    const ds = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                    let shift = 'OFF';
+                    
+                    if (result[ds]) {
+                        for(let code in result[ds]) {
+                            if(result[ds][code].includes(uid)) { 
+                                shift = code; 
+                                break; 
+                            }
+                        }
+                    }
+                    
+                    newAssignments[uid][key] = shift;
                 }
-            }
-        }
-        
-        newAssignments[uid][key] = shift;
-    }
-});
+            });
             
             console.log("📊 轉換後的 assignments 樣本:", Object.keys(newAssignments)[0], newAssignments[Object.keys(newAssignments)[0]]);
             
