@@ -2,7 +2,6 @@
 
 const WhitelistCalculator = {
     
-    // ✅ 修正：加入 year, month 參數
     calculate: function(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap) {
         const uid = staff.uid || staff.id;
         const shifts = rules.shifts || [];
@@ -20,7 +19,6 @@ const WhitelistCalculator = {
         
         whitelist = this.stage5_Preferences(whitelist, staff, assignments, day, rules);
         
-        // ✅ 修正：傳入 year, month
         whitelist = this.stage6_SupplyDemand(whitelist, staff, assignments, day, year, month, rules, dailyCount);
         
         return whitelist;
@@ -125,7 +123,6 @@ const WhitelistCalculator = {
         return whitelist;
     },
     
-    // ✅ 修正：加入 year, month 參數
     stage6_SupplyDemand: function(whitelist, staff, assignments, day, year, month, rules, dailyCount) {
         const dailyNeeds = rules.dailyNeeds || {};
         const specificNeeds = rules.specificNeeds || {};
@@ -173,7 +170,6 @@ const WhitelistCalculator = {
         return (jsDay === 0) ? 6 : jsDay - 1;
     },
     
-    // ✅ 修正：更新所有呼叫
     getWhitelistSize: function(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap) {
         const whitelist = this.calculate(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap);
         return whitelist.length;
