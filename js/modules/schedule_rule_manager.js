@@ -1,6 +1,4 @@
 // js/modules/schedule_rule_manager.js
-// 🔧 最終完美版 v3 - 加強權限控制 + 過濾排班不可用班別
-// 🆕 包含：週日(0)修復、缺額處理優先順序設定、PGY保護、排班可用過濾
 
 const scheduleRuleManager = {
     currentUnitId: null,
@@ -9,7 +7,6 @@ const scheduleRuleManager = {
     init: async function() {
         console.log("Scheduling Rules Manager Loaded.");
         
-        // ✅ 權限檢查
         const activeRole = app.impersonatedRole || app.userRole;
         if (activeRole === 'user') {
             document.getElementById('content-area').innerHTML = `
@@ -45,23 +42,23 @@ const scheduleRuleManager = {
 
         select.innerHTML = '<option value="">載入中...</option>';
         try {
-            let query = db.collection('units');
+            const units = await DataLoader.loadUnits();
             
-            // ✅ 權限過濾：使用 impersonatedRole 或 userRole
             const activeRole = app.impersonatedRole || app.userRole;
             const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+            
+            let filteredUnits = units;
             if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                 if(activeUnitId) {
-                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
+                    filteredUnits = units.filter(u => u.id === activeUnitId);
                 }
             }
 
-            const snapshot = await query.get();
             select.innerHTML = '<option value="">請選擇單位</option>';
-            snapshot.forEach(doc => {
+            filteredUnits.forEach(u => {
                 const option = document.createElement('option');
-                option.value = doc.id;
-                option.textContent = doc.data().name;
+                option.value = u.id;
+                option.textContent = u.name;
                 select.appendChild(option);
             });
             
@@ -75,11 +72,9 @@ const scheduleRuleManager = {
                 }
             };
 
-            // ✅ 如果只有一個單位，自動選取並限制選單
-            if (snapshot.size === 1) {
+            if (filteredUnits.length === 1) {
                 select.selectedIndex = 1;
                 
-                // 單位護理長不需要看到選單
                 if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                     select.disabled = true;
                     select.style.backgroundColor = '#f5f5f5';
@@ -88,7 +83,6 @@ const scheduleRuleManager = {
                 select.dispatchEvent(new Event('change'));
             }
 
-            // ✅ 新增：排班偏好比例勾選連動
             const enablePrefRatio = document.getElementById('rule_enablePrefRatio');
             if (enablePrefRatio) {
                 enablePrefRatio.onchange = () => {
@@ -106,20 +100,13 @@ const scheduleRuleManager = {
     loadDataToForm: async function() {
         if(!this.currentUnitId) return;
         try {
-            const shiftSnap = await db.collection('shifts')
-                .where('unitId','==',this.currentUnitId)
-                .get();
-            
-            // ✅ 修正：過濾掉排班不可用的班別
-            this.activeShifts = shiftSnap.docs.map(d => d.data())
-                .filter(s => s.isScheduleAvailable !== false);
+            const shifts = await DataLoader.loadShifts(this.currentUnitId);
+            this.activeShifts = shifts.filter(s => s.isScheduleAvailable !== false);
             
             console.log(`✅ 排班規則載入 ${this.activeShifts.length} 個可用班別:`, this.activeShifts.map(s => s.code));
 
-            const doc = await db.collection('units').doc(this.currentUnitId).get();
-            if(!doc.exists) return;
-            const data = doc.data();
-            const r = data.schedulingRules || {};
+            const rules = await DataLoader.loadSchedulingRules(this.currentUnitId);
+            const r = rules || {};
 
             const setCheck = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val; };
             
@@ -130,7 +117,6 @@ const scheduleRuleManager = {
                 }
             };
 
-            // Hard Rules
             setCheck('rule_minGap11', r.hard?.minGap11 !== false);
             setCheck('rule_maxDiversity3', r.hard?.maxDiversity3 !== false);
             setCheck('rule_protectPregnant', r.hard?.protectPregnant !== false);
@@ -139,7 +125,6 @@ const scheduleRuleManager = {
             setVal('rule_offGapMax', r.hard?.offGapMax ?? 12);
             setVal('rule_weekStartDay', r.hard?.weekStartDay ?? 1); 
 
-            // Policy Rules
             setCheck('rule_limitConsecutive', r.policy?.limitConsecutive !== false);
             setVal('rule_maxConsDays', r.policy?.maxConsDays || 6);
             setVal('rule_longVacationDays', r.policy?.longVacationDays || 7);
@@ -167,7 +152,6 @@ const scheduleRuleManager = {
             const shortagePriority = r.policy?.shortageHandling?.priorityOrder || [];
             this.renderShortagePriorityList(shortagePriority);
 
-            // Pattern Rules
             setCheck('rule_consecutivePref', r.pattern?.consecutivePref !== false);
             setVal('rule_minConsecutive', r.pattern?.minConsecutive || 2);
             setCheck('rule_avoidLonelyOff', r.pattern?.avoidLonelyOff !== false);
@@ -175,14 +159,12 @@ const scheduleRuleManager = {
             this.renderStartShiftSelect(r.pattern?.dayStartShift || 'D');
             this.renderRotationSortableList(r.pattern?.rotationOrder || 'OFF,N,E,D');
 
-            // Fairness Rules
             setCheck('rule_fairOff', r.fairness?.fairOff !== false);
             setVal('rule_fairOffVar', r.fairness?.fairOffVar || 2);
             setCheck('rule_fairNight', r.fairness?.fairNight !== false);
             setVal('rule_fairNightVar', r.fairness?.fairNightVar || 2);
             setVal('rule_fairBalanceRounds', r.fairness?.balanceRounds || 100);
             
-            // AI Params
             setVal('ai_backtrack_depth', r.aiParams?.backtrack_depth || 3);
             setVal('ai_max_attempts', r.aiParams?.max_attempts || 20);
             setVal('ai_balancing_segments', r.aiParams?.balancingSegments || 1); 
@@ -269,6 +251,9 @@ const scheduleRuleManager = {
                 schedulingRules: rules,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
+            
+            CacheManager.invalidate('rules', this.currentUnitId);
+            
             alert("排班規則已儲存");
         } catch(e) { 
             console.error(e); 
@@ -284,11 +269,9 @@ const scheduleRuleManager = {
         
         let order = savedOrder && savedOrder.length > 0 ? [...savedOrder] : [];
         
-        // ✅ 過濾掉已經不存在於 activeShifts 的班別（包含排班不可用的）
         const activeCodes = this.activeShifts.map(s => s.code);
         order = order.filter(code => activeCodes.includes(code));
 
-        // ✅ 補充遺漏的可用班別
         if (this.activeShifts.length > 0) {
             this.activeShifts.forEach(shift => {
                 if (!order.includes(shift.code)) {
@@ -297,7 +280,6 @@ const scheduleRuleManager = {
             });
         }
         
-        // ✅ 如果沒有任何順序，自動建立預設順序（夜班優先）
         if (order.length === 0) {
             const nightShifts = [];
             const dayShifts = [];
@@ -364,7 +346,6 @@ const scheduleRuleManager = {
         if(!select) return;
         select.innerHTML = '';
         
-        // ✅ 只渲染排班可用的班別
         this.activeShifts.forEach(s => {
             const opt = document.createElement('option');
             opt.value = s.code;
@@ -391,14 +372,11 @@ const scheduleRuleManager = {
         if(!container) return;
         container.innerHTML = '';
         
-        // ✅ 只包含排班可用的班別
         const availableCodes = ['OFF', ...this.activeShifts.map(s => s.code)];
         let orderArray = savedOrderStr ? savedOrderStr.split(',').map(s => s.trim()) : [];
         
-        // ✅ 過濾掉不可用的班別
         const finalOrder = orderArray.filter(code => availableCodes.includes(code));
         
-        // ✅ 補充遺漏的可用班別
         availableCodes.forEach(code => { 
             if (!finalOrder.includes(code)) finalOrder.push(code); 
         });
@@ -454,7 +432,6 @@ const scheduleRuleManager = {
 
         let hasOptions = false;
         
-        // ✅ 只渲染排班可用的班別
         this.activeShifts.forEach(s => {
             const sStart = this.parseTime(s.startTime);
             let isNight = (nStart > nEnd) ? (sStart >= nStart || sStart <= nEnd) : (sStart >= nStart && sStart <= nEnd);
@@ -497,7 +474,6 @@ const scheduleRuleManager = {
             return;
         }
 
-        // ✅ 只渲染排班可用的班別
         this.activeShifts.forEach(s => {
             const isChecked = checkedCodes.includes(s.code);
             const div = document.createElement('div');
