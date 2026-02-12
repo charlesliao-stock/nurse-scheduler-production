@@ -358,11 +358,9 @@ const scheduleEditorManager = {
     },
     
     loadUsers: async function() { 
-        const users = await DataLoader.loadAllUsers();
-        this.usersMap = {};
-        users.forEach(u => {
-            this.usersMap[u.uid] = u;
-        });
+        // DataLoader.loadAllUsers() 回傳的是一個物件 (Map)，不是陣列
+        const usersMap = await DataLoader.loadAllUsers();
+        this.usersMap = usersMap || {};
     },
     
     loadUnitRules: async function() { 

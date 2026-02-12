@@ -378,11 +378,12 @@ const staffManager = {
             roleInput.disabled = (u.role === 'system_admin');
             document.getElementById('inputUnit').value = u.unitId || '';
 
+            const params = u.schedulingParams || {};
+            
             // ✅ 修正：改用 async/await 確保單位變更與教師名單載入完成
             (async () => {
                 await this.onUnitChange();
                 
-                const params = u.schedulingParams || {};
                 const groupInput = document.getElementById('inputGroup');
                 if (groupInput) groupInput.value = u.groupId || '';
                 
@@ -390,10 +391,9 @@ const staffManager = {
                 if (teacherSelect && params.clinicalTeacherId) {
                     teacherSelect.value = params.clinicalTeacherId;
                 }
+                // 再次確保狀態正確
                 this.updateIndependenceFieldState();
             })();
-
-            const params = u.schedulingParams || {};
             document.getElementById('checkPregnant').checked = params.isPregnant || false;
             document.getElementById('datePregnant').value = params.pregnantExpiry || '';
             
