@@ -1,9 +1,5 @@
 // js/modules/pre_schedule_manager.js
 
-/**
- * Pre-Schedule Manager
- * Updated: 2026-02-04 (Fix: Progress Denominator Real-time Sync)
- */
 const preScheduleManager = {
     currentUnitId: null,
     currentUnitGroups: [],
@@ -13,7 +9,7 @@ const preScheduleManager = {
     isLoading: false,
     tempSpecificNeeds: {},
     unitCache: {}, 
-    searchCache: [], // 新增搜尋快取以避免在 HTML 中傳遞複雜 JSON
+    searchCache: [],
 
     init: async function() {
         console.log("Pre-Schedule Manager Loaded.");
@@ -33,10 +29,10 @@ const preScheduleManager = {
 
     preloadUnits: async function() {
         try {
-            const snapshot = await db.collection('units').get();
+            const units = await DataLoader.loadUnits();
             this.unitCache = {};
-            snapshot.forEach(doc => {
-                this.unitCache[doc.id] = doc.data().name;
+            units.forEach(u => {
+                this.unitCache[u.id] = u.name;
             });
         } catch (e) { console.error("Preload Units Error:", e); }
     },
@@ -47,21 +43,27 @@ const preScheduleManager = {
         select.innerHTML = '<option value="">載入中...</option>';
         
         try {
-            let query = db.collection('units');
+            const units = await DataLoader.loadUnits();
+            
             const activeRole = app.impersonatedRole || app.userRole;
             const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+            
+            let filteredUnits = units;
             if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
-                if(activeUnitId) query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
+                if(activeUnitId) {
+                    filteredUnits = units.filter(u => u.id === activeUnitId);
+                }
             }
-            const snapshot = await query.get();
+            
             select.innerHTML = '<option value="">請選擇單位</option>';
-            snapshot.forEach(doc => {
+            filteredUnits.forEach(u => {
                 const option = document.createElement('option');
-                option.value = doc.id;
-                option.textContent = doc.data().name;
+                option.value = u.id;
+                option.textContent = u.name;
                 select.appendChild(option);
             });
-            if(snapshot.size === 1) {
+            
+            if(filteredUnits.length === 1) {
                 select.selectedIndex = 1;
                 if (activeRole !== 'system_admin') select.disabled = true;
                 this.loadData();
@@ -88,19 +90,16 @@ const preScheduleManager = {
                 return;
             }
 
-            const shiftsSnap = await db.collection('shifts').where('unitId', '==', this.currentUnitId).get();
-            const shifts = shiftsSnap.docs.map(d => d.data()).filter(s => s.isPreScheduleAvailable);
+            const shifts = await DataLoader.loadShifts(this.currentUnitId);
+            const preShifts = shifts.filter(s => s.isPreScheduleAvailable);
 
             snapshot.forEach(doc => {
                 const d = doc.data();
                 const statusInfo = app.getPreScheduleStatus(d);
                 
-                // 修正：進度分母應優先參考人員名單長度，以確保顯示一致
-                // 🟢 強制即時計算進度 (分母 = staffList 實際人數)
                 const staffList = d.staffList || [];
                 const staffCount = staffList.length;
                 
-                // 分子（已提交人數）直接計算 assignments
                 const assignments = d.assignments || {};
                 const submittedCount = staffList.filter(s => {
                     const req = assignments[s.uid];
@@ -108,7 +107,7 @@ const preScheduleManager = {
                 }).length;
                 
                 const progressText = `<span style="font-weight:bold; color:#2c3e50;">${submittedCount}</span> / <span style="color:#27ae60; font-weight:bold;">${staffCount}</span>`;
-                const avgOff = this.calculateAvgOff(d, shifts);
+                const avgOff = this.calculateAvgOff(d, preShifts);
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
@@ -120,7 +119,7 @@ const preScheduleManager = {
                         ${(statusInfo.code === 'expired' || statusInfo.code === 'closed') ? 
                             `<br><a href="javascript:void(0)" onclick="preScheduleManager.reOpen('${doc.id}')" style="font-size:0.75rem; color:#3498db; text-decoration:underline;">[再開放]</a>` : ''}
                     </td>
-                    <td class="progress-cell" data-total="${staffCount}">${progressText}</td><!-- Force Render -->
+                    <td class="progress-cell" data-total="${staffCount}">${progressText}</td>
                     <td style="font-weight:bold; color:#27ae60;">${avgOff} 天</td>
                     <td>
                         <button class="btn btn-edit" onclick="preScheduleManager.openModal('${doc.id}')" style="margin-right:5px;">
@@ -168,7 +167,6 @@ const preScheduleManager = {
                 });
             }
 
-            // 修正公式：不再扣除每日保留名額
             const available = Math.max(0, staffCount - dailyNeedCount);
             totalAvailableOff += available;
         }
@@ -259,10 +257,8 @@ const preScheduleManager = {
 
         try {
             if (docId) {
-                // 直接更新文件，loadData 會根據最新的 staffList 計算進度
                 await db.collection('pre_schedules').doc(docId).update(doc);
             } else {
-                // 新增文件時初始化 assignments
                 await db.collection('pre_schedules').add({ 
                     ...doc, 
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(), 
@@ -428,20 +424,19 @@ const preScheduleManager = {
         resultsDiv.innerHTML = '<div style="background:white; padding:10px; border:1px solid #ddd; box-shadow:0 2px 10px rgba(0,0,0,0.1);"><small>搜尋中...</small></div>';
         
         try {
-            const snap = await db.collection('users').where('isActive', '==', true).get();
+            const users = await DataLoader.loadAllUsers();
             const results = [];
             const searchTerm = keyword.toLowerCase();
             
-            snap.forEach(doc => {
-                const u = doc.data();
+            users.forEach(u => {
                 const empId = (u.employeeId || '').toLowerCase();
                 const name = (u.displayName || '').toLowerCase();
                 if (empId.includes(searchTerm) || name.includes(searchTerm)) {
-                    results.push({ uid: doc.id, ...u });
+                    results.push({ uid: u.uid, ...u });
                 }
             });
             
-            this.searchCache = results; // 存入快取
+            this.searchCache = results;
 
             if (results.length === 0) {
                 resultsDiv.innerHTML = '<div style="background:white; padding:10px; border:1px solid #ddd; box-shadow:0 2px 10px rgba(0,0,0,0.1);"><small style="color:red;">找不到人員</small></div>';
@@ -477,7 +472,6 @@ const preScheduleManager = {
         const u = this.searchCache[index];
         if (!u) return;
 
-        // 修正：檢查是否已在名單中，應排除空值並確保欄位名稱正確
         if (this.staffListSnapshot.some(s => (s.uid && s.uid === u.uid) || (s.empId && s.empId === u.employeeId))) {
             alert("此人員已在名單中");
             return;
@@ -489,7 +483,6 @@ const preScheduleManager = {
             empId: u.employeeId,
             level: u.level || 'N0',
             group: '',
-            // 修正：只有當明確知道 unitId 且與當前單位不同時才標記為支援
             isSupport: (u.unitId && this.currentUnitId) ? (u.unitId !== this.currentUnitId) : false
         });
         
@@ -502,13 +495,26 @@ const preScheduleManager = {
     removeStaff: function(idx) { if(confirm('確定要移除此人員嗎？')) { this.staffListSnapshot.splice(idx, 1); this.renderStaffList(); } },
     closeModal: function() { document.getElementById('preScheduleModal').classList.remove('show'); },
     switchTab: function(tab) { document.querySelectorAll('.tab-btn, .tab-content').forEach(el=>el.classList.remove('active')); document.getElementById(`tab-${tab}`).classList.add('active'); },
+    
     loadUnitDataForModal: async function() { 
-        const sSnap = await db.collection('shifts').where('unitId','==',this.currentUnitId).orderBy('startTime').get(); 
-        this.activeShifts = sSnap.docs.map(d=>d.data()).filter(s => s.isPreScheduleAvailable); 
+        const shifts = await DataLoader.loadShifts(this.currentUnitId);
+        this.activeShifts = shifts.filter(s => s.isPreScheduleAvailable); 
         const uDoc = await db.collection('units').doc(this.currentUnitId).get(); 
         this.currentUnitGroups = uDoc.data().groups || []; 
     },
-    loadCurrentUnitStaff: async function() { const snap = await db.collection('users').where('unitId','==',this.currentUnitId).where('isActive','==',true).get(); this.staffListSnapshot = snap.docs.map(d=>({uid:d.id, name:d.data().displayName, empId:d.data().employeeId, level:d.data().level, group:'', isSupport:false})); },
+    
+    loadCurrentUnitStaff: async function() { 
+        const staff = await DataLoader.loadStaff(this.currentUnitId);
+        this.staffListSnapshot = staff.map(s => ({
+            uid: s.uid, 
+            name: s.displayName, 
+            empId: s.employeeId, 
+            level: s.level, 
+            group: '', 
+            isSupport: false
+        }));
+    },
+    
     fillForm: function(data) { 
         if(data.year) document.getElementById('inputPreYearMonth').value = `${data.year}-${String(data.month).padStart(2,'0')}`; 
         const s = data.settings || {}; 
@@ -522,6 +528,7 @@ const preScheduleManager = {
         if(document.getElementById('checkAllowThree')) document.getElementById('checkAllowThree').checked = s.allowThreeShifts || false;
         this.toggleThreeShiftOption(); 
     },
+    
     toggleThreeShiftOption: function() { const mode = document.getElementById('inputShiftMode')?.value; const container = document.getElementById('threeShiftOption'); if(container) container.style.display = (mode === "2") ? 'block' : 'none'; },
     manage: function(docId) { window.location.hash = `/admin/pre_schedule_matrix?id=${docId}`; },
     deleteSchedule: async function(docId) { if(confirm("確定刪除？")) { await db.collection('pre_schedules').doc(docId).delete(); this.loadData(); } },
@@ -557,16 +564,8 @@ const preScheduleManager = {
             }
             
             this.toggleThreeShiftOption();
-            // 修正：帶入上月資料時，應重新檢查是否為支援人員
             const list = lastData.staffList || [];
-            this.staffListSnapshot = list.map(s => {
-                // 如果原本就有 isSupport 標記，則保留（除非是本單位人員被誤標）
-                // 這裡我們強制根據當前單位 ID 重新判定，以修正歷史錯誤資料
-                // 假設 staff 資料中有記錄原始 unitId，但目前的 snapshot 結構可能沒有
-                // 為了保險，如果 uid 存在且不屬於當前單位，則視為支援
-                // 但因為 snapshot 中通常不含 unitId，我們維持現狀，但確保邏輯一致
-                return s;
-            });
+            this.staffListSnapshot = list.map(s => s);
             this.renderStaffList();
             
             alert("已成功帶入上月設定資料");
