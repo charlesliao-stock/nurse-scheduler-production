@@ -64,7 +64,8 @@ const matrixManager = {
                 this.loadScheduleData()
             ]);
             
-            await this.checkStaffAndStatusChanges();
+            // ✅ 執行人員狀態變更檢查 (僅針對現有名單)
+            await this.checkStaffStatusChanges();
             
             this.restoreTableStructure(); 
             this.updateTitle();
@@ -102,92 +103,45 @@ const matrixManager = {
         document.head.appendChild(styleElement);
     },
 
-    checkStaffAndStatusChanges: async function() {
-        if (!this.data || !this.data.unitId) return;
-        
-        const oldStaffMap = {};
-        (this.data.staffList || []).forEach(staff => {
-            oldStaffMap[staff.uid] = staff;
-        });
-
-        const staff = await DataLoader.loadStaff(this.data.unitId);
-        
-        const currentUsers = {};
-        staff.forEach(user => {
-            currentUsers[user.uid] = {
-                uid: user.uid,
-                empId: user.employeeId,
-                name: user.displayName,
-                level: user.level,
-                groupId: user.groupId,
-                schedulingParams: user.schedulingParams || {},
-                isSupport: false
-            };
-        });
-        
-        (this.data.staffList || []).forEach(staff => {
-            if (!currentUsers[staff.uid]) {
-                currentUsers[staff.uid] = {
-                    uid: staff.uid,
-                    empId: staff.empId,
-                    name: staff.name,
-                    level: staff.level,
-                    groupId: staff.groupId,
-                    schedulingParams: staff.schedulingParams || {},
-                    isSupport: staff.isSupport || false
-                };
-            }
-        });
+    /**
+     * ✅ 優化：僅檢查現有人員名單的狀態變更 (孕/哺/PGY/獨立性)
+     * 不再從資料庫抓取單位所有人名單進行增刪比對
+     */
+    checkStaffStatusChanges: async function() {
+        if (!this.data || !this.data.staffList || this.data.staffList.length === 0) return;
         
         const changes = {
-            added: [],
-            removed: [],
             statusChanged: []
         };
         
-        Object.keys(currentUsers).forEach(uid => {
-            if (!oldStaffMap[uid]) {
-                changes.added.push({
-                    uid: uid,
-                    name: currentUsers[uid].name,
-                    empId: currentUsers[uid].empId,
-                    isSupport: currentUsers[uid].isSupport
-                });
-            }
-        });
+        const currentStaffList = this.data.staffList;
         
-        Object.keys(oldStaffMap).forEach(uid => {
-            if (!currentUsers[uid]) {
-                changes.removed.push({
-                    uid: uid,
-                    name: oldStaffMap[uid].name,
-                    empId: oldStaffMap[uid].empId
-                });
-            }
-        });
-        
-        Object.keys(currentUsers).forEach(uid => {
-            if (oldStaffMap[uid]) {
-                const oldParams = oldStaffMap[uid].schedulingParams || {};
-                const newParams = currentUsers[uid].schedulingParams || {};
+        currentStaffList.forEach(staff => {
+            const uid = staff.uid;
+            const latestUser = this.usersMap[uid];
+            
+            if (latestUser) {
+                const oldParams = staff.schedulingParams || {};
+                const newParams = latestUser.schedulingParams || {};
                 
                 const statusChanges = this.compareSchedulingParams(oldParams, newParams);
                 if (statusChanges.length > 0) {
                     changes.statusChanged.push({
                         uid: uid,
-                        name: currentUsers[uid].name,
-                        empId: currentUsers[uid].empId,
-                        changes: statusChanges
+                        name: staff.name,
+                        empId: staff.empId,
+                        changes: statusChanges,
+                        newParams: newParams // 暫存新參數以便更新
                     });
                 }
             }
         });
         
-        if (changes.added.length > 0 || changes.removed.length > 0 || changes.statusChanged.length > 0) {
-            const shouldUpdate = await this.showStaffChangesModal(changes);
+        if (changes.statusChanged.length > 0) {
+            const shouldUpdate = await this.showStatusChangesModal(changes);
             
             if (shouldUpdate) {
-                await this.updateStaffList(currentUsers);
+                await this.updateStaffStatus(changes.statusChanged);
             }
         }
     },
@@ -196,30 +150,30 @@ const matrixManager = {
         const changes = [];
         const today = new Date();
         
+        // 檢查孕狀態
         const oldPregnant = oldParams.isPregnant && oldParams.pregnantExpiry && new Date(oldParams.pregnantExpiry) >= today;
         const newPregnant = newParams.isPregnant && newParams.pregnantExpiry && new Date(newParams.pregnantExpiry) >= today;
-        
         if (oldPregnant !== newPregnant) {
             changes.push(newPregnant ? '新增「孕」狀態' : '移除「孕」狀態');
         }
         
+        // 檢查哺狀態
         const oldBreastfeeding = oldParams.isBreastfeeding && oldParams.breastfeedingExpiry && new Date(oldParams.breastfeedingExpiry) >= today;
         const newBreastfeeding = newParams.isBreastfeeding && newParams.breastfeedingExpiry && new Date(newParams.breastfeedingExpiry) >= today;
-        
         if (oldBreastfeeding !== newBreastfeeding) {
             changes.push(newBreastfeeding ? '新增「哺」狀態' : '移除「哺」狀態');
         }
         
+        // 檢查 PGY 狀態
         const oldPGY = oldParams.isPGY && oldParams.pgyExpiry && new Date(oldParams.pgyExpiry) >= today;
         const newPGY = newParams.isPGY && newParams.pgyExpiry && new Date(newParams.pgyExpiry) >= today;
-        
         if (oldPGY !== newPGY) {
             changes.push(newPGY ? '新增「PGY」狀態' : '移除「PGY」狀態');
         }
         
+        // 檢查獨立性
         const oldDependent = oldParams.independence === 'dependent';
         const newDependent = newParams.independence === 'dependent';
-        
         if (oldDependent !== newDependent) {
             changes.push(newDependent ? '變更為「未獨立」' : '變更為「獨立」');
         }
@@ -227,44 +181,21 @@ const matrixManager = {
         return changes;
     },
 
-    showStaffChangesModal: function(changes) {
+    showStatusChangesModal: function(changes) {
         return new Promise((resolve) => {
             const modalHtml = `
-            <div id="staffChangesModal" style="display:flex; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
-                <div style="background:white; padding:30px; border-radius:12px; width:700px; max-height:85vh; overflow-y:auto; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+            <div id="statusChangesModal" style="display:flex; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
+                <div style="background:white; padding:30px; border-radius:12px; width:600px; max-height:80vh; overflow-y:auto; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
                     <h3 style="margin:0 0 10px 0; color:#2c3e50;">
-                        <i class="fas fa-sync-alt" style="color:#3498db;"></i> 人員與狀態變更通知
+                        <i class="fas fa-user-edit" style="color:#f39c12;"></i> 人員狀態變更通知
                     </h3>
                     <p style="color:#666; margin-bottom:25px; font-size:0.95rem;">
-                        偵測到人員名單或狀態有變更，是否要同步更新預班表？
+                        偵測到現有人員的排班狀態（孕/哺/PGY/獨立性）有變更，是否要同步更新？
                     </p>
                     
-                    ${changes.added.length > 0 ? `
-                    <div style="border:2px solid #27ae60; border-radius:8px; padding:15px; margin-bottom:15px;">
-                        <h4 style="margin:0 0 10px 0; color:#27ae60;">
-                            <i class="fas fa-user-plus"></i> 新增人員 (${changes.added.length} 位)
-                        </h4>
-                        <ul style="margin:0; padding-left:20px; line-height:1.8;">
-                            ${changes.added.map(p => `<li><strong>${p.empId}</strong> - ${p.name} ${p.isSupport ? '<span style="color:#27ae60; font-size:0.8rem;">(支援)</span>' : ''}</li>`).join('')}
-                        </ul>
-                    </div>
-                    ` : ''}
-                    
-                    ${changes.removed.length > 0 ? `
-                    <div style="border:2px solid #e74c3c; border-radius:8px; padding:15px; margin-bottom:15px;">
-                        <h4 style="margin:0 0 10px 0; color:#e74c3c;">
-                            <i class="fas fa-user-minus"></i> 移除人員 (${changes.removed.length} 位)
-                        </h4>
-                        <ul style="margin:0; padding-left:20px; line-height:1.8;">
-                            ${changes.removed.map(p => `<li><strong>${p.empId}</strong> - ${p.name}</li>`).join('')}
-                        </ul>
-                    </div>
-                    ` : ''}
-                    
-                    ${changes.statusChanged.length > 0 ? `
-                    <div style="border:2px solid #f39c12; border-radius:8px; padding:15px; margin-bottom:15px;">
+                    <div style="border:2px solid #f39c12; border-radius:8px; padding:15px; margin-bottom:20px;">
                         <h4 style="margin:0 0 10px 0; color:#f39c12;">
-                            <i class="fas fa-user-edit"></i> 狀態變更 (${changes.statusChanged.length} 位)
+                            <i class="fas fa-sync-alt"></i> 狀態變更 (${changes.statusChanged.length} 位)
                         </h4>
                         <ul style="margin:0; padding-left:20px; line-height:1.8;">
                             ${changes.statusChanged.map(p => `
@@ -277,13 +208,12 @@ const matrixManager = {
                             `).join('')}
                         </ul>
                     </div>
-                    ` : ''}
                     
                     <div style="display:flex; gap:15px; justify-content:flex-end;">
-                        <button id="btnCancelSync" style="padding:10px 20px; border:1px solid #95a5a6; background:#fff; border-radius:4px; cursor:pointer; font-size:1rem;">
+                        <button id="btnCancelStatusSync" style="padding:10px 20px; border:1px solid #95a5a6; background:#fff; border-radius:4px; cursor:pointer; font-size:1rem;">
                             <i class="fas fa-times"></i> 暫不更新
                         </button>
-                        <button id="btnConfirmSync" style="padding:10px 20px; border:none; background:#3498db; color:white; border-radius:4px; cursor:pointer; font-size:1rem; font-weight:bold;">
+                        <button id="btnConfirmStatusSync" style="padding:10px 20px; border:none; background:#3498db; color:white; border-radius:4px; cursor:pointer; font-size:1rem; font-weight:bold;">
                             <i class="fas fa-sync-alt"></i> 同步更新
                         </button>
                     </div>
@@ -292,47 +222,40 @@ const matrixManager = {
             
             document.body.insertAdjacentHTML('beforeend', modalHtml);
             
-            document.getElementById('btnConfirmSync').onclick = () => {
-                document.getElementById('staffChangesModal').remove();
+            document.getElementById('btnConfirmStatusSync').onclick = () => {
+                document.getElementById('statusChangesModal').remove();
                 resolve(true);
             };
             
-            document.getElementById('btnCancelSync').onclick = () => {
-                document.getElementById('staffChangesModal').remove();
+            document.getElementById('btnCancelStatusSync').onclick = () => {
+                document.getElementById('statusChangesModal').remove();
                 resolve(false);
             };
         });
     },
 
-    updateStaffList: async function(currentUsers) {
+    updateStaffStatus: async function(statusChanges) {
         try {
-            const newStaffList = [];
-            Object.keys(currentUsers).forEach(uid => {
-                const user = currentUsers[uid];
-                const existingStaff = (this.data.staffList || []).find(s => s.uid === uid);
-                
-                newStaffList.push({
-                    uid: uid,
-                    empId: user.empId,
-                    name: user.name,
-                    level: user.level || 'N',
-                    group: existingStaff ? (existingStaff.group || '') : (user.groupId || ''),
-                    schedulingParams: user.schedulingParams,
-                    isSupport: user.isSupport || false
-                });
+            const updatedStaffList = [...this.data.staffList];
+            
+            statusChanges.forEach(change => {
+                const staffIdx = updatedStaffList.findIndex(s => s.uid === change.uid);
+                if (staffIdx !== -1) {
+                    updatedStaffList[staffIdx].schedulingParams = change.newParams;
+                }
             });
             
             await db.collection('pre_schedules').doc(this.docId).update({
-                staffList: newStaffList,
-                lastSyncAt: firebase.firestore.FieldValue.serverTimestamp(),
+                staffList: updatedStaffList,
+                lastStatusSyncAt: firebase.firestore.FieldValue.serverTimestamp(),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
-            this.data.staffList = newStaffList;
-            console.log('✅ 人員清單已同步更新');
+            this.data.staffList = updatedStaffList;
+            console.log('✅ 人員狀態已同步更新');
             
         } catch (error) {
-            console.error('❌ 更新人員清單失敗:', error);
+            console.error('❌ 更新人員狀態失敗:', error);
             alert('更新失敗: ' + error.message);
         }
     },
@@ -371,11 +294,8 @@ const matrixManager = {
     },
     
     loadUsers: async function() { 
-        const users = await DataLoader.loadAllUsers();
-        this.usersMap = {};
-        users.forEach(u => {
-            this.usersMap[u.uid] = u;
-        });
+        const usersMap = await DataLoader.loadAllUsers();
+        this.usersMap = usersMap; // DataLoader.loadAllUsers 現在回傳的是 Map
     },
     
     loadScheduleData: async function() {
@@ -498,306 +418,132 @@ const matrixManager = {
         
         const lastMonthDays = this.lastMonthDays || 31;
         for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
-            h2 += `<th class="cell-narrow" style="background:#f5f5f5; font-size:0.7rem; color:#666; border:1px solid #bbb;">${d}</th>`;
+            h2 += `<th class="cell-narrow" style="background:#eee; font-size:0.7rem; border:1px solid #bbb;">${d}</th>`;
         }
-
+        
         for(let d=1; d<=daysInMonth; d++) {
             const date = new Date(year, month-1, d);
-            const w = weeks[date.getDay()];
-            const color = (date.getDay()===0 || date.getDay()===6) ? 'color:red;' : '';
-            h2 += `<th class="cell-narrow" style="font-size:0.8rem; ${color}; border:1px solid #bbb;">${w}</th>`;
+            const w = date.getDay();
+            const color = (w===0||w===6) ? 'color:red;' : '';
+            h2 += `<th class="cell-narrow" style="${color}; font-size:0.7rem; border:1px solid #bbb;">${weeks[w]}</th>`;
         }
-        h2 += `<th style="width:40px; background:#f0f7ff; font-size:0.75rem; border:1px solid #bbb;">總OFF</th>
-               <th style="width:40px; background:#f0f7ff; font-size:0.75rem; border:1px solid #bbb;">假OFF</th>
-               <th style="width:40px; background:#f0f7ff; font-size:0.75rem; border:1px solid #bbb;">小夜</th>
-               <th style="width:40px; background:#f0f7ff; font-size:0.75rem; border:1px solid #bbb;">大夜</th></tr>`;
+        h2 += `<th class="cell-narrow" style="font-size:0.7rem; border:1px solid #bbb;">休</th><th class="cell-narrow" style="font-size:0.7rem; border:1px solid #bbb;">假</th><th class="cell-narrow" style="font-size:0.7rem; border:1px solid #bbb;">其</th><th class="cell-narrow" style="font-size:0.7rem; border:1px solid #bbb;">總</th></tr>`;
+        
         thead.innerHTML = h1 + h2;
 
-        let bodyHtml = '';
-        this.data.staffList.forEach(staff => {
+        const staffList = this.data.staffList || [];
+        staffList.forEach(staff => {
             const uid = staff.uid;
-            const assign = this.localAssignments[uid] || {};
-            const empId = this.usersMap[uid]?.employeeId || staff.empId;
-
-            const prefs = assign.preferences || {};
-            let prefDisplay = '';
-            if (prefs.bundleShift) prefDisplay += `<div style="font-weight:bold; font-size:0.85rem;">包${prefs.bundleShift}</div>`;
+            const tr = document.createElement('tr');
             
-            let favs = [];
-            if (prefs.favShift) favs.push(prefs.favShift);
-            if (prefs.favShift2) favs.push(prefs.favShift2);
-            if (prefs.favShift3) favs.push(prefs.favShift3);
-            if (favs.length > 0) prefDisplay += `<div style="font-size:0.75rem; color:#666;">${favs.join('->')}</div>`;
-
-            const statusBadges = this.getStaffStatusBadges(uid);
-
-            bodyHtml += `<tr data-uid="${uid}">
-                <td style="position:sticky; left:0; background:#fff; z-index:10; border:1px solid #bbb;">${empId}</td>
-                <td style="position:sticky; left:60px; background:#fff; z-index:10; border:1px solid #bbb;">
-                    ${staff.name}
-                    ${staff.isSupport ? '<br><span style="color:#27ae60; font-size:0.7rem; font-weight:bold;">(支援)</span>' : ''}
+            let rowHtml = `
+                <td style="position:sticky; left:0; z-index:100; background:#fff; border:1px solid #bbb;">${staff.empId}</td>
+                <td style="position:sticky; left:60px; z-index:100; background:#fff; border:1px solid #bbb; font-weight:bold;">${staff.name}</td>
+                <td style="position:sticky; left:140px; z-index:100; background:#fff; border:1px solid #bbb; text-align:center;">${this.getStaffStatusBadges(uid)}</td>
+                <td style="text-align:center; border:1px solid #bbb;">
+                    <button class="btn btn-sm" onclick="matrixManager.openPrefModal('${uid}', '${staff.name}')" style="padding:2px 5px; font-size:0.75rem; background:#f39c12; color:white; border:none; border-radius:3px;">
+                        <i class="fas fa-heart"></i>
+                    </button>
                 </td>
-                <td style="position:sticky; left:140px; background:#fff; z-index:10; text-align:center; line-height:1.2; border:1px solid #bbb;">
-                    ${statusBadges || '<span style="color:#ccc;">-</span>'}
-                </td>
-                <td style="cursor:pointer; text-align:center; line-height:1.3; padding:4px 2px; border:1px solid #bbb;" onclick="matrixManager.openPrefModal('${uid}','${staff.name}')">
-                    ${prefDisplay || '<i class="fas fa-cog" style="color:#ccc;"></i>'}
-                </td>`;
-            
-            const lastAssign = this.lastMonthAssignments[uid] || {};
+            `;
+
             for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
-                const historyKey = `last_${d}`;
-                const originalVal = lastAssign[`current_${d}`] || lastAssign[d] || '';
-                const correctedVal = this.historyCorrections[uid]?.[historyKey];
-                
-                const displayVal = (correctedVal !== undefined) ? correctedVal : originalVal;
-                
-                const bgStyle = (correctedVal !== undefined) 
-                    ? 'background:#fff3cd; color:#333; font-weight:bold;' 
-                    : 'background:#fafafa; color:#999;';
-
-                bodyHtml += `<td class="cell-clickable prev-month-cell" 
-                                 data-uid="${uid}" 
-                                 data-day="${d}" 
-                                 data-type="history"
-                                 style="${bgStyle} font-size:0.85rem; text-align:center; cursor:pointer; border:1px solid #bbb;">
-                                 ${displayVal === 'OFF' ? 'FF' : displayVal}
-                             </td>`;
+                const key = `last_${d}`;
+                const val = this.historyCorrections[uid]?.[key] || this.lastMonthAssignments[uid]?.[`current_${d}`] || this.lastMonthAssignments[uid]?.[d] || 'OFF';
+                rowHtml += `<td class="cell-history" onclick="matrixManager.showHistoryMenu(this, '${uid}', ${d})" style="background:#f9f9f9; color:#777; border:1px solid #bbb;">${val}</td>`;
             }
 
-            let totalOff = 0;
-            let holidayOff = 0;
-            let eveningCount = 0;
-            let nightCount = 0;
-
+            const assign = this.localAssignments[uid] || {};
             for(let d=1; d<=daysInMonth; d++) {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
-                
-                const cellClass = (val === 'REQ_OFF') ? 'cell-clickable cell-req-off' : 'cell-clickable';
-                
-                bodyHtml += `<td class="${cellClass}" data-uid="${uid}" data-day="${d}" data-type="current" style="border:1px solid #bbb;">
-                                ${this.renderCellContent(val)}
-                             </td>`;
-                
-                if (val === 'REQ_OFF') {
-                    totalOff++;
-                    const date = new Date(year, month-1, d);
-                    const w = date.getDay();
-                    if (w === 0 || w === 6) holidayOff++;
-                } else if (val === 'E') eveningCount++;
-                else if (val === 'N') nightCount++;
+                const isReqOff = (val === 'OFF');
+                const cellClass = isReqOff ? 'cell-req-off' : 'cell-off';
+                rowHtml += `<td class="${cellClass}" onclick="matrixManager.showShiftMenu(this, '${uid}', '${key}')" style="border:1px solid #bbb;">${val}</td>`;
             }
 
-            bodyHtml += `<td style="background:#f9f9f9; font-weight:bold; text-align:center; border:1px solid #bbb;">${totalOff}</td>
-                         <td style="background:#f9f9f9; color:red; text-align:center; border:1px solid #bbb;">${holidayOff}</td>
-                         <td style="background:#f9f9f9; text-align:center; border:1px solid #bbb;">${eveningCount}</td>
-                         <td style="background:#f9f9f9; text-align:center; border:1px solid #bbb;">${nightCount}</td>`;
-            
-            bodyHtml += `</tr>`;
+            rowHtml += `
+                <td id="stat-off-${uid}" style="font-weight:bold; color:#27ae60; border:1px solid #bbb;">0</td>
+                <td id="stat-holiday-${uid}" style="color:#e67e22; border:1px solid #bbb;">0</td>
+                <td id="stat-other-${uid}" style="color:#95a5a6; border:1px solid #bbb;">0</td>
+                <td id="stat-total-${uid}" style="font-weight:bold; border:1px solid #bbb;">0</td>
+            `;
+            tr.innerHTML = rowHtml;
+            tbody.appendChild(tr);
         });
-        tbody.innerHTML = bodyHtml;
-
-        let footHtml = '';
-        this.shifts.forEach((s, idx) => {
-            footHtml += `<tr>`;
-            if(idx === 0) footHtml += `<td colspan="10" rowspan="${this.shifts.length}" style="text-align:right; font-weight:bold; vertical-align:middle; border:1px solid #bbb;">每日人力<br>監控 (點擊調整)</td>`;
-            
-            for(let d=1; d<=daysInMonth; d++) {
-                const dateStr = this.getDateStr(d);
-                const jsDay = new Date(year, month-1, d).getDay(); 
-                const dayIdx = (jsDay === 0) ? 6 : jsDay - 1; 
-                
-                let need = 0;
-                let isTemp = false;
-                
-                if (this.data.specificNeeds[dateStr] && this.data.specificNeeds[dateStr][s.code] !== undefined) {
-                    need = this.data.specificNeeds[dateStr][s.code];
-                    isTemp = true;
-                } else {
-                    need = this.data.dailyNeeds[`${s.code}_${dayIdx}`] || 0;
-                }
-
-                const style = isTemp ? 'background:#fff3cd; border:2px solid #f39c12;' : 'border:1px solid #bbb;';
-                footHtml += `<td id="stat_cell_${s.code}_${d}" style="cursor:pointer; ${style}" 
-                                onclick="matrixManager.handleNeedClick('${dateStr}', '${s.code}', ${need})">
-                                <span class="stat-actual">-</span> / <span class="stat-need" style="font-weight:bold;">${need}</span>
-                             </td>`;
-            }
-            footHtml += `<td colspan="4" style="background:#f0f0f0; border:1px solid #bbb;"></td>`;
-            footHtml += `</tr>`;
-        });
-        tfoot.innerHTML = footHtml;
-        
-        setTimeout(() => this.updateStats(), 0);
-        this.bindCellEvents();
-    },
-
-    renderCellContent: function(val) {
-        if(!val) return '';
-        if(val === 'OFF') return 'FF';
-        if(val === 'REQ_OFF') return 'FF';
-        
-        const shift = this.shifts.find(s => s.code === val);
-        if (shift && shift.color) {
-            return `<span style="color:${shift.color}; font-weight:bold;">${val}</span>`;
-        }
-        
-        if(typeof val === 'string' && val.startsWith('!')) return `<span style="color:red; font-size:0.8rem;">!${val.replace('!','')}</span>`;
-        return val;
-    },
-
-    handleNeedClick: async function(dateStr, shiftCode, currentNeed) {
-        const newNeed = prompt(`調整 ${dateStr} [${shiftCode}] 需求人數：`, currentNeed);
-        if (newNeed === null) return;
-        const val = parseInt(newNeed);
-        if (isNaN(val) || val < 0) return;
-
-        if (!this.data.specificNeeds[dateStr]) this.data.specificNeeds[dateStr] = {};
-        this.data.specificNeeds[dateStr][shiftCode] = val;
-        
-        this.pendingSave = true;
-        this.updateUnsavedIndicator(true);
-        
-        this.renderMatrix();
     },
 
     updateStats: function() {
-        const counts = {}; 
-        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
-        for(let d=1; d<=daysInMonth; d++) {
-            counts[d] = {};
-            this.shifts.forEach(s => counts[d][s.code] = 0);
-        }
-        Object.values(this.localAssignments).forEach(assign => {
+        const staffList = this.data.staffList || [];
+        const year = this.data.year;
+        const month = this.data.month;
+        const daysInMonth = new Date(year, month, 0).getDate();
+
+        staffList.forEach(staff => {
+            const uid = staff.uid;
+            const assign = this.localAssignments[uid] || {};
+            let offCount = 0;
+            let holidayCount = 0;
+            let otherCount = 0;
+
             for(let d=1; d<=daysInMonth; d++) {
                 const val = assign[`current_${d}`];
-                if(val && val !== 'OFF' && val !== 'REQ_OFF' && !val.startsWith('!')) {
-                    if(counts[d][val] !== undefined) counts[d][val]++;
+                if (val === 'OFF') offCount++;
+                else if (val && val !== '') {
+                    const shift = this.shifts.find(s => s.code === val);
+                    if (shift && shift.type === 'holiday') holidayCount++;
+                    else if (shift) otherCount++;
                 }
             }
+
+            const elOff = document.getElementById(`stat-off-${uid}`);
+            const elHoliday = document.getElementById(`stat-holiday-${uid}`);
+            const elOther = document.getElementById(`stat-other-${uid}`);
+            const elTotal = document.getElementById(`stat-total-${uid}`);
+
+            if(elOff) elOff.textContent = offCount;
+            if(elHoliday) elHoliday.textContent = holidayCount;
+            if(elOther) elOther.textContent = otherCount;
+            if(elTotal) elTotal.textContent = offCount + holidayCount + otherCount;
         });
-        for(let d=1; d<=daysInMonth; d++) {
-            this.shifts.forEach(s => {
-                const cell = document.getElementById(`stat_cell_${s.code}_${d}`);
-                if(cell) {
-                    const actualSpan = cell.querySelector('.stat-actual');
-                    const needSpan = cell.querySelector('.stat-need');
-                    const actual = counts[d][s.code];
-                    const need = parseInt(needSpan.innerText);
-                    if(actualSpan) actualSpan.innerText = actual;
-                    if(actual < need) cell.classList.add('text-danger');
-                    else cell.classList.remove('text-danger');
-                }
-            });
-        }
     },
 
-    getDateStr: function(d) { 
-        return `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`; 
-    },
-    
-    bindCellEvents: function() {
-        const cells = document.querySelectorAll('.cell-clickable');
-        cells.forEach(cell => {
-            cell.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                this.handleRightClick(e, cell.dataset.uid, cell.dataset.day, cell.dataset.type);
-            });
-
-            cell.addEventListener('click', (e) => {
-                e.preventDefault();
-                const uid = cell.dataset.uid;
-                const day = cell.dataset.day;
-                const type = cell.dataset.type;
-
-                if (type === 'history') {
-                    const currentVal = this.historyCorrections[uid]?.[`last_${day}`];
-                    const newVal = (currentVal === 'OFF') ? null : 'OFF';
-                    this.setHistoryShift(uid, day, newVal);
-                } else {
-                    const key = `current_${day}`;
-                    const currentVal = this.localAssignments[uid]?.[key];
-                    const newVal = (currentVal === 'REQ_OFF') ? null : 'REQ_OFF';
-                    this.setShift(uid, key, newVal);
-                }
-            });
-        });
-
-        document.addEventListener('click', () => {
-            const menu = document.getElementById('customContextMenu');
-            if (menu) menu.style.display = 'none';
-        }, { once: false });
-    },
-
-    handleRightClick: function(e, uid, day, type) {
+    showShiftMenu: function(cell, uid, key) {
         const menu = document.getElementById('customContextMenu');
-        const options = document.getElementById('contextMenuOptions');
+        let html = `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', null)">清除</div>`;
+        html += `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', 'OFF')" style="color:#e67e22; font-weight:bold;">OFF (預休)</div>`;
         
-        const isHistory = (type === 'history');
-        const funcName = isHistory ? 'matrixManager.setHistoryShift' : 'matrixManager.setShift';
-        const dateDisplay = isHistory ? `(上月) ${day}日` : `${this.data.month}月${day}日`;
-        const targetKey = isHistory ? day : `current_${day}`; 
-
-        let html = `
-            <div class="menu-header" style="padding:8px 12px; font-weight:bold; background:#f0f0f0; border-bottom:1px solid #ddd;">
-                ${dateDisplay}
-            </div>
-            <ul style="list-style:none; padding:0; margin:0;">
-                <li onclick="${funcName}('${uid}','${targetKey}','${isHistory ? 'OFF' : 'REQ_OFF'}')" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee;">
-                    <i class="fas fa-bed" style="width:20px; color:#27ae60;"></i> ${isHistory ? 'FF (休)' : '排休 (FF)'}
-                </li>
-        `;
-        
-        html += `<li style="padding:5px 12px; font-size:0.8rem; color:#999; background:#fafafa;">指定班別</li>`;
         this.shifts.forEach(s => {
-            const shiftColor = s.color || '#333';
-            html += `
-                <li onclick="${funcName}('${uid}','${targetKey}','${s.code}')" style="padding:8px 12px; cursor:pointer;">
-                    <span style="font-weight:bold; color:${shiftColor};">${s.code}</span> - ${s.name}
-                </li>`;
+            html += `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', '${s.code}')">${s.code} - ${s.name}</div>`;
         });
-
-        if (!isHistory) {
-            html += `<li style="padding:5px 12px; font-size:0.8rem; color:#999; background:#fafafa;">希望避開</li>`;
-            this.shifts.forEach(s => {
-                html += `
-                    <li onclick="${funcName}('${uid}','${targetKey}','!${s.code}')" style="padding:8px 12px; cursor:pointer; color:#c0392b;">
-                        <i class="fas fa-ban" style="width:20px;"></i> 勿排 ${s.code}
-                    </li>`;
-            });
-        }
-
-        html += `
-            <li style="border-top:1px solid #eee;"></li>
-            <li onclick="${funcName}('${uid}','${targetKey}',null)" style="padding:8px 12px; cursor:pointer; color:#7f8c8d;">
-                <i class="fas fa-eraser" style="width:20px;"></i> 清除設定
-            </li>
-        </ul>`;
         
-        options.innerHTML = html;
+        menu.innerHTML = html;
+        this.positionMenu(cell, menu);
+    },
+
+    showHistoryMenu: function(cell, uid, day) {
+        const menu = document.getElementById('customContextMenu');
+        let html = `<div style="padding:5px 10px; background:#eee; font-size:0.7rem; color:#666;">修正上月紀錄</div>`;
+        html += `<div class="menu-item" onclick="matrixManager.setHistoryShift('${uid}', ${day}, 'OFF')">OFF</div>`;
+        this.shifts.forEach(s => {
+            if (s.code !== 'OFF') {
+                html += `<div class="menu-item" onclick="matrixManager.setHistoryShift('${uid}', ${day}, '${s.code}')">${s.code}</div>`;
+            }
+        });
+        
+        menu.innerHTML = html;
+        this.positionMenu(cell, menu);
+    },
+
+    positionMenu: function(cell, menu) {
+        const rect = cell.getBoundingClientRect();
+        let left = rect.left;
+        let top = rect.bottom;
         
         menu.style.display = 'block';
-        menu.style.visibility = 'hidden';
-        menu.offsetHeight;
+        if (left + 150 > window.innerWidth) left = window.innerWidth - 160;
+        if (top + 300 > window.innerHeight) top = rect.top - menu.offsetHeight;
         
-        const menuWidth = menu.offsetWidth || 200;
-        const menuHeight = menu.offsetHeight;
-        const viewportWidth = window.innerWidth;
-        const viewportHeight = window.innerHeight;
-        
-        let left = e.clientX + 5;
-        let top = e.clientY + 5;
-        
-        if (left + menuWidth > viewportWidth) {
-            left = viewportWidth - menuWidth - 5;
-        }
-        
-        if (top + menuHeight > viewportHeight) {
-            top = viewportHeight - menuHeight - 5;
-        }
-
         menu.style.position = 'fixed';
         menu.style.left = left + 'px';
         menu.style.top = top + 'px';
@@ -1161,7 +907,8 @@ const matrixManager = {
     },
 
     cleanup: function() { 
-        document.getElementById('customContextMenu').style.display='none';
+        const menu = document.getElementById('customContextMenu');
+        if (menu) menu.style.display='none';
         window.removeEventListener('beforeunload', null);
     }
 };
