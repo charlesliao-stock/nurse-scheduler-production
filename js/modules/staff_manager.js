@@ -1,4 +1,4 @@
-// js/modules/staff_manager.js (完整修正版)
+// js/modules/staff_manager.js
 
 const staffManager = {
     allData: [],
@@ -6,7 +6,6 @@ const staffManager = {
     sortState: { field: 'employeeId', order: 'asc' },
     isLoading: false, 
 
-    // --- 模組初始化 ---
     init: async function() {
         console.log("Staff Manager Module Loaded.");
         const searchInput = document.getElementById('searchStaffInput');
@@ -25,7 +24,6 @@ const staffManager = {
         };
     },
 
-    // --- 1. 載入單位下拉選單 ---
     loadUnitDropdown: async function() {
         const selectFilter = document.getElementById('filterUnitSelect');
         const selectInput = document.getElementById('inputUnit');
@@ -35,23 +33,25 @@ const staffManager = {
         selectInput.innerHTML = '<option value="">請選擇單位</option>';
         this.unitCache = {}; 
 
-        let query = db.collection('units');
-        const activeRole = app.impersonatedRole || app.userRole;
-        const activeUnitId = app.impersonatedUnitId || app.userUnitId;
-        if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && activeUnitId) {
-            query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
-        }
-
         try {
-            const snapshot = await query.get();
+            const units = await DataLoader.loadUnits();
+            
+            const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+            
+            let filteredUnits = units;
+            if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && activeUnitId) {
+                filteredUnits = units.filter(u => u.id === activeUnitId);
+            }
+
             selectFilter.innerHTML = '<option value="all">所有單位</option>';
-            snapshot.forEach(doc => {
-                const unit = doc.data();
-                this.unitCache[doc.id] = { name: unit.name, groups: unit.groups || [] };
-                const option = `<option value="${doc.id}">${unit.name}</option>`;
+            filteredUnits.forEach(u => {
+                this.unitCache[u.id] = { name: u.name, groups: u.groups || [] };
+                const option = `<option value="${u.id}">${u.name}</option>`;
                 selectFilter.innerHTML += option;
                 selectInput.innerHTML += option;
             });
+            
             selectFilter.onchange = () => this.renderTable();
         } catch (e) {
             console.error("載入單位失敗:", e);
@@ -89,7 +89,6 @@ const staffManager = {
         this.loadClinicalTeachers();
     },
 
-    // --- 載入臨床教師下拉選單 ---
     loadClinicalTeachers: async function() {
         const unitId = document.getElementById('inputUnit').value;
         const teacherSelect = document.getElementById('selectClinicalTeacher');
@@ -101,20 +100,16 @@ const staffManager = {
         const currentValue = teacherSelect.value;
 
         try {
-            const snapshot = await db.collection('users')
-                .where('unitId', '==', unitId)
-                .where('isActive', '==', true)
-                .get();
+            const staff = await DataLoader.loadStaff(unitId);
             
             teacherSelect.innerHTML = '<option value="">(請選擇臨床教師)</option>';
             const currentUserId = document.getElementById('staffDocId').value;
             
-            snapshot.forEach(doc => {
-                const user = doc.data();
-                if (doc.id !== currentUserId) {
+            staff.forEach(s => {
+                if (s.uid !== currentUserId) {
                     const option = document.createElement('option');
-                    option.value = doc.id;
-                    option.textContent = `${user.displayName} (${user.employeeId})`;
+                    option.value = s.uid;
+                    option.textContent = `${s.displayName} (${s.employeeId})`;
                     teacherSelect.appendChild(option);
                 }
             });
@@ -129,7 +124,6 @@ const staffManager = {
         }
     },
 
-    // --- 更新日期欄位狀態 ---
     updateDateFieldState: function() {
         const datePregnant = document.getElementById('datePregnant');
         const dateBreastfeeding = document.getElementById('dateBreastfeeding');
@@ -154,7 +148,6 @@ const staffManager = {
         }
     },
 
-    // --- ✅ 修正：更新獨立性欄位狀態 ---
     updateIndependenceFieldState: function() {
         const radioDependent = document.getElementById('radioDependent');
         const selectClinicalTeacher = document.getElementById('selectClinicalTeacher');
@@ -168,12 +161,10 @@ const staffManager = {
         if (!isDependentSelected) {
             selectClinicalTeacher.value = '';
         } else {
-            // ✅ 修正：選擇「未獨立」時自動載入臨床教師列表
             this.loadClinicalTeachers();
         }
     },
 
-    // --- 驗證並儲存資料 ---
     validateAndSave: function() {
         const radioDependent = document.getElementById('radioDependent');
         const selectClinicalTeacher = document.getElementById('selectClinicalTeacher');
@@ -187,7 +178,6 @@ const staffManager = {
         this.saveData();
     },
 
-    // --- 3. 讀取人員資料（包含已停用的人員） ---
     fetchData: async function() {
         if(this.isLoading) return;
         const tbody = document.getElementById('staffTableBody');
@@ -196,16 +186,18 @@ const staffManager = {
         tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;"><i class="fas fa-spinner fa-spin"></i> 資料載入中...</td></tr>';
         this.isLoading = true;
 
-        let query = db.collection('users');
-        const activeRole = app.impersonatedRole || app.userRole;
-        const activeUnitId = app.impersonatedUnitId || app.userUnitId;
-        if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && activeUnitId) {
-            query = query.where('unitId', '==', activeUnitId);
-        }
-
         try {
-            const snapshot = await query.get();
-            this.allData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const users = await DataLoader.loadAllUsers();
+            
+            const activeRole = app.impersonatedRole || app.userRole;
+            const activeUnitId = app.impersonatedUnitId || app.userUnitId;
+            
+            if((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && activeUnitId) {
+                this.allData = users.filter(u => u.unitId === activeUnitId);
+            } else {
+                this.allData = users;
+            }
+            
             this.renderTable();
         } catch (error) {
             console.error("Fetch Data Error:", error);
@@ -295,11 +287,11 @@ const staffManager = {
             if (!u.isActive) {
                 actionButtons = `
                     <button class="btn" style="background:#28a745;color:white;padding:5px 10px;margin-right:5px;" 
-                            onclick="staffManager.activateUser('${u.id}')" title="啟用">
+                            onclick="staffManager.activateUser('${u.uid}')" title="啟用">
                         <i class="fas fa-check-circle"></i> 啟用
                     </button>
                     <button class="btn" style="background:#3498db;color:white;padding:5px 10px;margin-right:5px;" 
-                            onclick="staffManager.resetPassword('${u.id}')" 
+                            onclick="staffManager.resetPassword('${u.uid}')" 
                             title="重設密碼">
                         <i class="fas fa-key"></i>
                     </button>
@@ -308,7 +300,7 @@ const staffManager = {
                 if (isSystemAdmin) {
                     actionButtons += `
                         <button class="btn" style="background:#dc3545;color:white;padding:5px 10px;" 
-                                onclick="staffManager.deleteUser('${u.id}', '${(u.displayName || '').replace(/'/g, "\\'")}', '${u.employeeId}')" 
+                                onclick="staffManager.deleteUser('${u.uid}', '${(u.displayName || '').replace(/'/g, "\\'")}', '${u.employeeId}')" 
                                 title="永久刪除">
                             <i class="fas fa-trash-alt"></i> 刪除
                         </button>
@@ -320,16 +312,16 @@ const staffManager = {
                         <i class="fas fa-ban"></i> 停用
                       </button>`
                     : `<button class="btn" style="background:#e67e22;color:white;padding:5px 10px;" 
-                              onclick="staffManager.deactivateUser('${u.id}')" title="停用">
+                              onclick="staffManager.deactivateUser('${u.uid}')" title="停用">
                         <i class="fas fa-ban"></i> 停用
                       </button>`;
                 
                 actionButtons = `
-                    <button class="btn btn-edit" onclick="staffManager.openModal('${u.id}')" title="編輯">
+                    <button class="btn btn-edit" onclick="staffManager.openModal('${u.uid}')" title="編輯">
                         <i class="fas fa-edit"></i>
                     </button>
                     <button class="btn" style="background:#3498db;color:white;padding:5px 10px;margin:0 5px;" 
-                            onclick="staffManager.resetPassword('${u.id}')" 
+                            onclick="staffManager.resetPassword('${u.uid}')" 
                             title="重設密碼">
                         <i class="fas fa-key"></i>
                     </button>
@@ -368,15 +360,14 @@ const staffManager = {
         return colors[role] || '#95a5a6';
     },
 
-    // --- 6. Modal 操作 ---
-    openModal: function(docId = null) {
+    openModal: async function(docId = null) {
         const modal = document.getElementById('staffModal');
         if(!modal) return;
         modal.classList.add('show');
         document.getElementById('staffDocId').value = docId || '';
         
         if(docId) {
-            const u = this.allData.find(d => d.id === docId);
+            const u = this.allData.find(d => d.uid === docId);
             if(!u) { alert("找不到該人員資料"); this.closeModal(); return; }
             
             document.getElementById('inputEmpId').value = u.employeeId || '';
@@ -443,7 +434,6 @@ const staffManager = {
         document.getElementById('staffModal').classList.remove('show');
     },
 
-    // --- 7. 儲存資料（含雙向同步） ---
     saveData: async function() {
         const docId = document.getElementById('staffDocId').value;
         const empId = document.getElementById('inputEmpId').value.trim();
@@ -606,7 +596,6 @@ const staffManager = {
             
             const targetUid = docId || userRef.id;
             
-            // ✅ 雙向同步：更新 units 集合的 managers/schedulers
             if (selectedRole !== 'system_admin') {
                 const unitRef = db.collection('units').doc(selectedUnitId);
                 const unitDoc = await unitRef.get();
@@ -633,6 +622,9 @@ const staffManager = {
             
             await batch.commit();
             
+            CacheManager.invalidate('staff', selectedUnitId);
+            CacheManager.invalidate('users');
+            
             if (!docId && !emailCheck.empty) {
                 alert("✅ 員工重新啟用成功！");
             } else if (!docId) {
@@ -657,9 +649,8 @@ const staffManager = {
         }
     },
 
-    // --- 8. 停用員工 ---
     deactivateUser: async function(id) {
-        const u = this.allData.find(d => d.id === id);
+        const u = this.allData.find(d => d.uid === id);
         if (u && u.role === 'system_admin') { 
             alert("無法停用超級管理員！"); 
             return; 
@@ -681,6 +672,9 @@ const staffManager = {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
+            CacheManager.invalidate('staff', u.unitId);
+            CacheManager.invalidate('users');
+            
             await this.fetchData();
             alert("✅ 已停用\n\n員工資料已保留，如需重新啟用請點擊「啟用」按鈕");
             
@@ -689,9 +683,8 @@ const staffManager = {
         }
     },
 
-    // --- 9. 啟用員工 ---
     activateUser: async function(id) {
-        const u = this.allData.find(d => d.id === id);
+        const u = this.allData.find(d => d.uid === id);
         if (!u) return;
         
         const confirmMsg = `確定要啟用 ${u.displayName}？\n\n` +
@@ -709,6 +702,9 @@ const staffManager = {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
+            CacheManager.invalidate('staff', u.unitId);
+            CacheManager.invalidate('users');
+            
             await this.fetchData();
             alert("✅ 員工已啟用");
             
@@ -717,9 +713,8 @@ const staffManager = {
         }
     },
 
-    // --- 10. 重設密碼 ---
     resetPassword: function(userId) {
-        const user = this.allData.find(u => u.id === userId);
+        const user = this.allData.find(u => u.uid === userId);
         if (!user) {
             alert('❌ 找不到員工資料');
             return;
@@ -741,7 +736,7 @@ const staffManager = {
     },
 
     openResetPasswordModal: function(userId) {
-        const user = this.allData.find(u => u.id === userId);
+        const user = this.allData.find(u => u.uid === userId);
         if (!user) return;
         
         const modalHtml = `
@@ -808,7 +803,7 @@ const staffManager = {
     },
 
     confirmResetPassword: async function(userId) {
-        const user = this.allData.find(u => u.id === userId);
+        const user = this.allData.find(u => u.uid === userId);
         if (!user) return;
         
         const inputEmployeeId = document.getElementById('confirmEmployeeId').value.trim();
@@ -850,6 +845,8 @@ const staffManager = {
                 forcePasswordReset: true,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
+            
+            CacheManager.invalidate('users');
             
             this.closeResetPasswordModal();
             
@@ -948,6 +945,8 @@ const staffManager = {
             });
             
             await batch.commit();
+            
+            CacheManager.invalidate('users');
             
             let resultMessage = `✅ 批次重設完成\n\n`;
             resultMessage += `成功：${validUsers.length} 位\n`;
@@ -1063,6 +1062,8 @@ const staffManager = {
                 if (count > 0) {
                     await batch.commit();
                 }
+                
+                CacheManager.clear();
 
                 alert(`匯入完成！\n總計處理：${totalProcessed} 筆\n新增：${newCount} 筆\n更新：${updateCount} 筆`);
                 this.closeImportModal(); 
@@ -1122,6 +1123,8 @@ const staffManager = {
         
         try {
             await db.collection('users').doc(userId).delete();
+            
+            CacheManager.invalidate('users');
             
             alert(
                 `✅ 刪除成功\n\n` +
