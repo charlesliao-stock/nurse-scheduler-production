@@ -120,18 +120,22 @@ const BacktrackSolver = {
             const lastDay = gap.day - 1;
             const lastShift = lastDay >= 1 ? assignments[uid]?.[`current_${lastDay}`] : null;
             
-            const validation = HardRuleValidator.validateAll(
+            // 使用 WhitelistCalculator 檢查候選人是否可以排入此班別
+            const whitelist = WhitelistCalculator.calculate(
                 person,
                 assignments,
                 gap.day,
-                gap.shift,
-                lastShift,
+                rules.year, // 假設 rules 中包含 year
+                rules.month, // 假設 rules 中包含 month
                 rules,
-                shiftTimeMap,
-                daysInMonth
+                dailyCount[gap.day], // 傳遞當天的 dailyCount
+                daysInMonth,
+                shiftTimeMap
             );
             
-            if (!validation.valid) continue;
+            if (!whitelist.includes(gap.shift)) {
+                continue;
+            }
             
             const score = this.calculateCandidateScore(person, gap, assignments);
             
@@ -200,21 +204,20 @@ const BacktrackSolver = {
                 const shift = assignments[uid]?.[`current_${day}`];
                 if (!shift || shift === 'OFF' || shift === 'REQ_OFF') continue;
                 
-                const lastDay = day - 1;
-                const lastShift = lastDay >= 1 ? assignments[uid]?.[`current_${lastDay}`] : null;
-                
-                const validation = HardRuleValidator.validateAll(
+                // 使用 WhitelistCalculator 檢查此班別是否合法
+                const whitelist = WhitelistCalculator.calculate(
                     person,
                     assignments,
                     day,
-                    shift,
-                    lastShift,
+                    rules.year, // 假設 rules 中包含 year
+                    rules.month, // 假設 rules 中包含 month
                     rules,
-                    shiftTimeMap,
-                    daysInMonth
+                    {}, // 在 isValidSolution 中，我們只檢查個人排班的合法性，不考慮當日需求，因此 dailyCount 傳空對象
+                    daysInMonth,
+                    shiftTimeMap
                 );
                 
-                if (!validation.valid) {
+                if (!whitelist.includes(shift)) {
                     return false;
                 }
             }

@@ -101,6 +101,17 @@ class BaseScheduler {
             }
         }
         return count;
+    },
+
+    countOffDays: function(assignments, uid, upToDay) {
+        let count = 0;
+        for (let d = 1; d <= upToDay; d++) {
+            const val = assignments[uid]?.[`current_${d}`];
+            if (!val || val === 'OFF' || val === 'REQ_OFF') {
+                count++;
+            }
+        }
+        return count;
     }
 }
 
