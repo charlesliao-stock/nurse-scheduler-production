@@ -100,8 +100,21 @@
     <script src="js/modules/staff_pre_schedule_manager.js"></script>
     <script src="js/modules/staff_pre_schedule_list_manager.js"></script>
 
-    <!-- 排班引擎 -->
+    <!-- 排班引擎區塊 -->
     <script src="js/scheduler/BaseScheduler.js"></script>
+    
+    <!-- ✅ V3 驗證層（第 2 週） -->
+    <script src="js/scheduler/validators/HardRuleValidator.js"></script>
+    <script src="js/scheduler/validators/WhitelistCalculator.js"></script>
+    
+    <!-- ✅ V3 演算法層（第 3 週） -->
+    <script src="js/scheduler/algorithms/BacktrackSolver.js"></script>
+    <script src="js/scheduler/algorithms/BalanceAdjuster.js"></script>
+    
+    <!-- ✅ V3 排班引擎（第 4-5 週） -->
+    <script src="js/scheduler/SchedulerV3.js"></script>
+    
+    <!-- 舊版引擎（暫時保留，將於測試完成後移除） -->
     <script src="js/scheduler/SchedulerV2.js"></script>
     <script src="js/scheduler/SchedulerFactory.js"></script>
     <script src="js/scheduler/ScheduleBatchRunner.js"></script>
