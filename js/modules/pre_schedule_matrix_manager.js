@@ -457,9 +457,18 @@ const matrixManager = {
             for(let d=1; d<=daysInMonth; d++) {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
-                const isReqOff = (val === 'OFF');
-                const cellClass = isReqOff ? 'cell-req-off' : 'cell-off';
-                rowHtml += `<td class="${cellClass}" onclick="matrixManager.showShiftMenu(this, '${uid}', '${key}')" style="border:1px solid #bbb;">${val}</td>`;
+                let cellClass = 'cell-off';
+                let displayVal = val;
+                
+                if (val === 'REQ_OFF') {
+                    cellClass = 'cell-req-off';
+                    displayVal = 'FF';
+                } else if (val === 'OFF') {
+                    cellClass = 'cell-off';
+                    displayVal = 'FF';
+                }
+                
+                rowHtml += `<td class="${cellClass}" onclick="matrixManager.showShiftMenu(this, '${uid}', '${key}')" style="border:1px solid #bbb;">${displayVal}</td>`;
             }
 
             rowHtml += `
@@ -488,7 +497,7 @@ const matrixManager = {
 
             for(let d=1; d<=daysInMonth; d++) {
                 const val = assign[`current_${d}`];
-                if (val === 'OFF') offCount++;
+                if (val === 'OFF' || val === 'REQ_OFF') offCount++;
                 else if (val && val !== '') {
                     const shift = this.shifts.find(s => s.code === val);
                     if (shift && shift.type === 'holiday') holidayCount++;
@@ -511,7 +520,8 @@ const matrixManager = {
     showShiftMenu: function(cell, uid, key) {
         const menu = document.getElementById('customContextMenu');
         let html = `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', null)">清除</div>`;
-        html += `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', 'OFF')" style="color:#e67e22; font-weight:bold;">OFF (預休)</div>`;
+        html += `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', 'REQ_OFF')" style="color:#f39c12; font-weight:bold;"><i class="fas fa-user-clock"></i> 預排休假 (REQ_OFF)</div>`;
+        html += `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', 'OFF')" style="color:#27ae60; font-weight:bold;"><i class="fas fa-bed"></i> 系統排休 (OFF)</div>`;
         
         this.shifts.forEach(s => {
             html += `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', '${s.code}')">${s.code} - ${s.name}</div>`;
