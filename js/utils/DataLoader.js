@@ -344,6 +344,32 @@ const DataLoader = {
             console.error('❌ 批次載入失敗:', error);
             throw error;
         }
+    },
+
+    /**
+     * 載入單一使用者資料
+     * @param {string} uid - 使用者 UID
+     * @returns {Promise<Object|null>} 使用者資料
+     */
+    loadUser: async function(uid) {
+        if (!uid) return null;
+        
+        const cacheKey = `user_${uid}`;
+        const cached = CacheManager.get(cacheKey);
+        if (cached) return cached;
+
+        try {
+            const doc = await db.collection('users').doc(uid).get();
+            if (doc.exists) {
+                const userData = doc.data();
+                CacheManager.set(cacheKey, userData, 'staff');
+                return userData;
+            }
+            return null;
+        } catch (error) {
+            console.error('❌ 載入使用者失敗:', error);
+            return null;
+        }
     }
 };
 

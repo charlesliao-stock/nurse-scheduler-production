@@ -116,8 +116,16 @@ const app = {
         this.originalUid = uid;
         
         try {
+            // 確保 DataLoader 已載入且 loadUser 存在
+            if (typeof DataLoader === 'undefined' || typeof DataLoader.loadUser !== 'function') {
+                throw new Error("DataLoader.loadUser is not available");
+            }
+
             const userDoc = await DataLoader.loadUser(uid);
-            if(!userDoc) return;
+            if(!userDoc) {
+                console.warn("User document not found for UID:", uid);
+                return;
+            }
 
             const data = userDoc;
             this.userRole = data.role || 'user';
@@ -146,6 +154,9 @@ const app = {
             }
         } catch(e) {
             console.error("Load User Context Error:", e);
+            // 即使載入失敗，也嘗試渲染基本選單
+            this.userRole = this.userRole || 'user';
+            await this.renderMenu();
         }
     },
 

@@ -11,20 +11,28 @@ const AdminTools = {
     },
 
     // 檢查管理員權限
-checkAdminPermission: async function() {
-    const user = firebase.auth().currentUser;
-    if (!user) {
-        console.warn('未登入');  // 只在 console 顯示
-        return false;
-    }
+    checkAdminPermission: async function() {
+        // 優先使用 app 模組中的角色資訊
+        const activeRole = (typeof app !== 'undefined') ? (app.impersonatedRole || app.userRole) : null;
+        
+        if (activeRole === 'system_admin') return true;
+
+        const user = firebase.auth().currentUser;
+        if (!user) {
+            console.warn('未登入');
+            return false;
+        }
 
         try {
             const userDoc = await db.collection('users').doc(user.uid).get();
+            if (!userDoc.exists) return false;
             const userData = userDoc.data();
             
-            if (userData.role !== 'admin' && userData.role !== 'supervisor') {
+            // 支援多種管理員角色名稱
+            const isAdmin = userData.role === 'system_admin' || userData.role === 'admin' || userData.role === 'supervisor';
+            
+            if (!isAdmin) {
                 alert('您沒有系統管理權限');
-                window.location.href = '/';
                 return false;
             }
             
