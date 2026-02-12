@@ -1,5 +1,4 @@
 // js/modules/pre_schedule_matrix_manager.js
-// 🎯 視覺強化 + 記憶體優化完整版
 
 const matrixManager = {
     docId: null, 
@@ -11,8 +10,6 @@ const matrixManager = {
     historyCorrections: {},
     lastMonthAssignments: {},
     lastMonthDays: 31,
-    
-    // ✅ 未儲存變更追蹤
     pendingSave: false,
 
     init: async function(id) { 
@@ -38,7 +35,6 @@ const matrixManager = {
         try {
             this.showLoading();
             
-            // ✅ 一次性載入所有資料
             const preDoc = await db.collection('pre_schedules').doc(id).get();
             if (!preDoc.exists) {
                 alert("找不到此預班表");
@@ -47,7 +43,6 @@ const matrixManager = {
             
             const preData = preDoc.data();
             
-            // 權限檢查
             const activeRole = app.impersonatedRole || app.userRole;
             const activeUnitId = app.impersonatedUnitId || app.userUnitId;
             if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
@@ -115,44 +110,32 @@ const matrixManager = {
             oldStaffMap[staff.uid] = staff;
         });
 
-        const snapshot = await db.collection('users')
-            .where('isActive', '==', true)
-            .get();
+        const staff = await DataLoader.loadStaff(this.data.unitId);
         
         const currentUsers = {};
-        snapshot.forEach(doc => {
-            const user = doc.data();
-            const isFormalMember = user.unitId === this.data.unitId;
-            const isSupportMember = Array.isArray(user.supportUnits) && user.supportUnits.includes(this.data.unitId);
-            
-            if (isFormalMember || isSupportMember) {
-                currentUsers[doc.id] = {
-                    uid: doc.id,
-                    empId: user.employeeId,
-                    name: user.displayName,
-                    level: user.level,
-                    groupId: user.groupId,
-                    schedulingParams: user.schedulingParams || {},
-                    isSupport: isSupportMember && !isFormalMember
-                };
-            }
+        staff.forEach(user => {
+            currentUsers[user.uid] = {
+                uid: user.uid,
+                empId: user.employeeId,
+                name: user.displayName,
+                level: user.level,
+                groupId: user.groupId,
+                schedulingParams: user.schedulingParams || {},
+                isSupport: false
+            };
         });
         
         (this.data.staffList || []).forEach(staff => {
             if (!currentUsers[staff.uid]) {
-                const userDoc = snapshot.docs.find(d => d.id === staff.uid);
-                if (userDoc) {
-                    const user = userDoc.data();
-                    currentUsers[staff.uid] = {
-                        uid: staff.uid,
-                        empId: user.employeeId || staff.empId,
-                        name: user.displayName || staff.name,
-                        level: user.level || staff.level,
-                        groupId: user.groupId || staff.groupId,
-                        schedulingParams: user.schedulingParams || staff.schedulingParams || {},
-                        isSupport: staff.isSupport || false
-                    };
-                }
+                currentUsers[staff.uid] = {
+                    uid: staff.uid,
+                    empId: staff.empId,
+                    name: staff.name,
+                    level: staff.level,
+                    groupId: staff.groupId,
+                    schedulingParams: staff.schedulingParams || {},
+                    isSupport: staff.isSupport || false
+                };
             }
         });
         
@@ -178,7 +161,7 @@ const matrixManager = {
                 changes.removed.push({
                     uid: uid,
                     name: oldStaffMap[uid].name,
-                    empId: oldStaffMap[uid].empId || this.usersMap[uid]?.employeeId
+                    empId: oldStaffMap[uid].empId
                 });
             }
         });
@@ -382,17 +365,17 @@ const matrixManager = {
         const doc = await db.collection('pre_schedules').doc(this.docId).get();
         if(doc.exists) {
             const uid = doc.data().unitId;
-            const snap = await db.collection('shifts')
-                .where('unitId','==',uid)
-                .orderBy('startTime')
-                .get();
-            this.shifts = snap.docs.map(d => d.data()).filter(s => s.isPreScheduleAvailable);
+            const shifts = await DataLoader.loadShifts(uid);
+            this.shifts = shifts.filter(s => s.isPreScheduleAvailable);
         }
     },
     
     loadUsers: async function() { 
-        const snap = await db.collection('users').get(); 
-        snap.forEach(d => this.usersMap[d.id] = d.data()); 
+        const users = await DataLoader.loadAllUsers();
+        this.usersMap = {};
+        users.forEach(u => {
+            this.usersMap[u.uid] = u;
+        });
     },
     
     loadScheduleData: async function() {
