@@ -59,34 +59,32 @@ const staffManager = {
         }
     },
 
-    onUnitChange: function() {
+    onUnitChange: async function() {
         const unitId = document.getElementById('inputUnit').value;
         const groupSelect = document.getElementById('inputGroup');
-        if(!groupSelect) return;
-
-        const currentGroup = groupSelect.value;
-
-        groupSelect.innerHTML = '<option value="">(無)</option>';
-        if (!unitId || !this.unitCache[unitId]) {
-            this.loadClinicalTeachers();
-            return;
-        }
-
-        const groups = this.unitCache[unitId].groups;
-        if (groups && groups.length > 0) {
-            groupSelect.innerHTML = '<option value="">請選擇組別</option>';
-            groups.forEach(g => {
-                groupSelect.innerHTML += `<option value="${g}">${g}</option>`;
-            });
+        
+        if (groupSelect) {
+            const currentGroup = groupSelect.value;
+            groupSelect.innerHTML = '<option value="">(無)</option>';
             
-            if (currentGroup) {
-                groupSelect.value = currentGroup;
+            if (unitId && this.unitCache[unitId]) {
+                const groups = this.unitCache[unitId].groups;
+                if (groups && groups.length > 0) {
+                    groupSelect.innerHTML = '<option value="">請選擇組別</option>';
+                    groups.forEach(g => {
+                        groupSelect.innerHTML += `<option value="${g}">${g}</option>`;
+                    });
+                    if (currentGroup) groupSelect.value = currentGroup;
+                } else {
+                    groupSelect.innerHTML = '<option value="">(此單位未設定組別)</option>';
+                }
             }
-        } else {
-            groupSelect.innerHTML = '<option value="">(此單位未設定組別)</option>';
         }
 
-        this.loadClinicalTeachers();
+        // ✅ 確保教師名單載入完成
+        await this.loadClinicalTeachers();
+        // ✅ 載入後更新選單啟用狀態
+        this.updateIndependenceFieldState();
     },
 
     loadClinicalTeachers: async function() {
@@ -380,12 +378,20 @@ const staffManager = {
             roleInput.disabled = (u.role === 'system_admin');
             document.getElementById('inputUnit').value = u.unitId || '';
 
-            this.onUnitChange();
-
-            setTimeout(() => {
+            // ✅ 修正：改用 async/await 確保單位變更與教師名單載入完成
+            (async () => {
+                await this.onUnitChange();
+                
+                const params = u.schedulingParams || {};
                 const groupInput = document.getElementById('inputGroup');
                 if (groupInput) groupInput.value = u.groupId || '';
-            }, 100);
+                
+                const teacherSelect = document.getElementById('selectClinicalTeacher');
+                if (teacherSelect && params.clinicalTeacherId) {
+                    teacherSelect.value = params.clinicalTeacherId;
+                }
+                this.updateIndependenceFieldState();
+            })();
 
             const params = u.schedulingParams || {};
             document.getElementById('checkPregnant').checked = params.isPregnant || false;
@@ -406,13 +412,6 @@ const staffManager = {
                 document.getElementById('radioDependent').checked = true;
             }
 
-            setTimeout(() => {
-                const teacherSelect = document.getElementById('selectClinicalTeacher');
-                if (teacherSelect && params.clinicalTeacherId) {
-                    teacherSelect.value = params.clinicalTeacherId;
-                }
-            }, 200);
-            
             this.updateDateFieldState();
             this.updateIndependenceFieldState();
             
