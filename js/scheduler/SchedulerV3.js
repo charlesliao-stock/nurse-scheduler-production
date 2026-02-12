@@ -198,31 +198,27 @@ class SchedulerV3 extends BaseScheduler {
     calculateCandidateScore(staff, day, shiftCode) {
         const uid = staff.uid || staff.id;
         // 計算該員工目前為止已排的 OFF 總數
-        const offCount = this.countOffDays(this.assignments, uid, this.daysInMonth);
+        const offCount = this.countOffDays(this.assignments, uid, day - 1);
         
-        // 優先選擇 OFF 數較多的人去上班，將 OFF 機會留給 OFF 數較少的人
-        // 因此，OFF 數越多，分數越高，排班優先級越高。
-        let score = offCount; 
+        // 【核心邏輯修正】
+        // 為了平衡總 OFF 數，我們應該優先讓「目前 OFF 數較多」的人去上班。
+        // 這樣可以把「不排班（即 OFF）」的機會留給那些「目前 OFF 數較少」的人。
+        // 權重設定：OFF 數每多一天，排班優先級增加 10 分（大幅領先志願班別）。
+        let score = offCount * 10; 
 
-        // 考慮志願班別，但權重降低，僅作為微調
+        // 志願班別僅作為同等 OFF 數時的微調參考
         const prefs = staff.preferences || {};
         if (prefs.favShift === shiftCode) {
-            score += 2; // 第一志願微幅加分
+            score += 2; 
         } else if (prefs.favShift2 === shiftCode) {
-            score += 1; // 第二志願微幅加分
+            score += 1; 
         }
 
-        // 預排班的優先級
+        // 預排班（預排班是必須執行的，給予極高權重）
         const params = staff.schedulingParams || {};
         if (params[`current_${day}`] === shiftCode) {
-            score += 5; // 預排班加分
+            score += 100; 
         }
-
-        // 避免連續工作過長，但這部分 HardRuleValidator 已經處理，這裡僅作為排序參考
-        // const consecutiveWorkDays = this.countConsecutiveWork(this.assignments, uid, day - 1);
-        // if (consecutiveWorkDays >= (this.rules.policy?.maxConsDays || 6) - 1) {
-        //     score -= 10; // 接近連續工作上限的人，降低其排班分數
-        // }
         
         return score;
     }
@@ -321,10 +317,16 @@ class SchedulerV3 extends BaseScheduler {
     step6_BalanceAdjustment() {
         console.log('\n⚖️ 步驟 6: 平衡調整');
         
+        const rulesWithContext = {
+            ...this.rules,
+            year: this.year,
+            month: this.month
+        };
+
         const result = BalanceAdjuster.adjust(
             this.assignments,
             this.allStaff,
-            this.rules,
+            rulesWithContext,
             this.daysInMonth,
             this.shiftTimeMap
         );

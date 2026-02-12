@@ -273,37 +273,41 @@ const BalanceAdjuster = {
         const richUid = richPerson.uid || richPerson.id;
         const poorUid = poorPerson.uid || poorPerson.id;
         
-        const richLastDay = day - 1;
-        const richLastShift = richLastDay >= 1 ? assignments[richUid]?.[`current_${richLastDay}`] : null;
-        
-        const richValidation = HardRuleValidator.validateAll(
+        // 【核心修正】平衡調整必須同時滿足：
+        // 1. HardRuleValidator (勞基法/硬性規則)
+        // 2. WhitelistCalculator (包班/志願/白名單)
+
+        // 檢查 richPerson 是否可以從 OFF 改為排 shift 班
+        const richWhitelist = WhitelistCalculator.calculate(
             richPerson,
             assignments,
             day,
-            shift,
-            richLastShift,
+            rules.year,
+            rules.month,
             rules,
-            shiftTimeMap,
-            daysInMonth
+            {}, // dailyCount 在此階段僅作參考，傳空物件
+            daysInMonth,
+            shiftTimeMap
         );
         
-        if (!richValidation.valid) return false;
-        
-        const poorLastDay = day - 1;
-        const poorLastShift = poorLastDay >= 1 ? assignments[poorUid]?.[`current_${poorLastDay}`] : null;
-        
-        const poorValidation = HardRuleValidator.validateAll(
+        if (!richWhitelist.includes(shift)) return false;
+
+        // 檢查 poorPerson 是否可以從 shift 改為排 OFF
+        const poorWhitelist = WhitelistCalculator.calculate(
             poorPerson,
             assignments,
             day,
-            'OFF',
-            poorLastShift,
+            rules.year,
+            rules.month,
             rules,
-            shiftTimeMap,
-            daysInMonth
+            {}, 
+            daysInMonth,
+            shiftTimeMap
         );
         
-        return poorValidation.valid;
+        if (!poorWhitelist.includes('OFF') && !poorWhitelist.includes('REQ_OFF')) return false;
+        
+        return true;
     }
 };
 
