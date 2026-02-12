@@ -297,16 +297,37 @@ class SchedulerV3 extends BaseScheduler {
         
         let systemOffCount = 0;
         
-        for (let staff of this.allStaff) {
-            const uid = staff.uid || staff.id;
+        // 逐日處理，以便每一天都能根據最新的 OFF 統計進行公平分配
+        for (let day = 1; day <= this.daysInMonth; day++) {
+            const key = `current_${day}`;
             
-            for (let day = 1; day <= this.daysInMonth; day++) {
-                const key = `current_${day}`;
+            // 找出當天還沒排班的人
+            const availableStaff = this.allStaff.filter(staff => {
+                const uid = staff.uid || staff.id;
+                return !this.assignments[uid][key];
+            });
+
+            if (availableStaff.length === 0) continue;
+
+            // 根據「目前總 OFF 數」排序，OFF 數最少的排在前面（優先獲得 OFF）
+            // 如果 OFF 數相同，則使用隨機數排序
+            availableStaff.sort((a, b) => {
+                const uidA = a.uid || a.id;
+                const uidB = b.uid || b.id;
+                const offA = this.countOffDays(this.assignments, uidA, day - 1);
+                const offB = this.countOffDays(this.assignments, uidB, day - 1);
                 
-                if (!this.assignments[uid][key]) {
-                    this.assignments[uid][key] = 'OFF';
-                    systemOffCount++;
+                if (offA !== offB) {
+                    return offA - offB; // OFF 少的優先
                 }
+                return Math.random() - 0.5; // 隨機挑選
+            });
+
+            // 將這些人排為 OFF
+            for (let staff of availableStaff) {
+                const uid = staff.uid || staff.id;
+                this.assignments[uid][key] = 'OFF';
+                systemOffCount++;
             }
         }
         
