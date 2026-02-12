@@ -1,13 +1,4 @@
 // js/modules/shift_manager.js
-/**
- * 班別管理模組
- * Updated: 2026-02-08
- * 新增功能：
- * - 預班可用 (isPreScheduleAvailable)
- * - 排班可用 (isScheduleAvailable)
- * - 包班可用 (isBundleAvailable) - 原名「包班」
- * - 排班志願可用 (isPreferenceAvailable) - 原名「排班志願」
- */
 
 const shiftManager = {
     allShifts: [],
@@ -18,7 +9,6 @@ const shiftManager = {
     init: async function() {
         console.log("Shift Manager Loaded.");
         
-        // ✅ 權限檢查 - 使用當前有效角色
         const activeRole = app.impersonatedRole || app.userRole;
         
         if (activeRole === 'user') {
@@ -54,35 +44,30 @@ const shiftManager = {
         this.unitList = [];
 
         try {
-            let query = db.collection('units');
+            const units = await DataLoader.loadUnits();
             
-            // ✅ 權限過濾 - 使用當前有效角色和單位
             const activeRole = app.impersonatedRole || app.userRole;
             const activeUnitId = app.impersonatedUnitId || app.userUnitId;
             
+            let filteredUnits = units;
             if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                 if(activeUnitId) {
-                    query = query.where(firebase.firestore.FieldPath.documentId(), '==', activeUnitId);
+                    filteredUnits = units.filter(u => u.id === activeUnitId);
                 }
             }
             
-            const snapshot = await query.get();
-            
-            snapshot.forEach(doc => {
-                const u = doc.data();
-                this.unitList.push({ id: doc.id, name: u.name });
-                const option = `<option value="${doc.id}">${u.name}</option>`;
+            filteredUnits.forEach(u => {
+                this.unitList.push({ id: u.id, name: u.name });
+                const option = `<option value="${u.id}">${u.name}</option>`;
                 filterSelect.innerHTML += option;
                 modalSelect.innerHTML += option;
             });
 
-            // ✅ 如果只有一個單位，自動選取並限制
             if (this.unitList.length === 1) {
                 filterSelect.value = this.unitList[0].id;
                 modalSelect.value = this.unitList[0].id;
                 modalSelect.disabled = true;
                 
-                // 單位護理長不需要看到篩選器
                 if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                     filterSelect.disabled = true;
                     filterSelect.style.backgroundColor = '#f5f5f5';
@@ -107,19 +92,23 @@ const shiftManager = {
         this.isLoading = true;
 
         try {
-            // ✅ 加入權限過濾 - 使用當前有效角色和單位
-            let query = db.collection('shifts');
             const activeRole = app.impersonatedRole || app.userRole;
             const activeUnitId = app.impersonatedUnitId || app.userUnitId;
             
+            let allShifts = [];
+            
             if (activeRole === 'unit_manager' || activeRole === 'unit_scheduler') {
                 if(activeUnitId) {
-                    query = query.where('unitId', '==', activeUnitId);
+                    allShifts = await DataLoader.loadShifts(activeUnitId);
+                }
+            } else {
+                for (const unit of this.unitList) {
+                    const shifts = await DataLoader.loadShifts(unit.id);
+                    allShifts = allShifts.concat(shifts);
                 }
             }
             
-            const snapshot = await query.get();
-            this.allShifts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            this.allShifts = allShifts;
             this.renderTable();
         } catch (e) {
             console.error(e);
@@ -178,22 +167,18 @@ const shiftManager = {
                 <td style="color:#7f8c8d; font-size:0.9rem;">${s.startTime} - ${s.endTime}</td>
                 <td style="text-align:center; color:#7f8c8d;">${s.hours || 0}h</td>
                 
-                <!-- ✅ 預班可用 -->
                 <td style="text-align:center;">
                     ${this.renderToggle(s.id, 'isPreScheduleAvailable', s.isPreScheduleAvailable)}
                 </td>
                 
-                <!-- ✅ 排班可用 -->
                 <td style="text-align:center;">
                     ${this.renderToggle(s.id, 'isScheduleAvailable', s.isScheduleAvailable !== false)}
                 </td>
                 
-                <!-- ✅ 包班可用 -->
                 <td style="text-align:center;">
                     ${this.renderToggle(s.id, 'isBundleAvailable', s.isBundleAvailable)}
                 </td>
                 
-                <!-- ✅ 排班志願可用 -->
                 <td style="text-align:center;">
                     ${this.renderToggle(s.id, 'isPreferenceAvailable', s.isPreferenceAvailable !== false)}
                 </td>
@@ -211,9 +196,6 @@ const shiftManager = {
         });
     },
 
-    /**
-     * ✅ 新增：渲染切換開關
-     */
     renderToggle: function(shiftId, field, value) {
         const isChecked = value === true;
         const toggleId = `toggle_${shiftId}_${field}`;
@@ -232,9 +214,6 @@ const shiftManager = {
         `;
     },
 
-    /**
-     * ✅ 新增：切換欄位狀態
-     */
     toggleField: async function(shiftId, field, value) {
         try {
             await db.collection('shifts').doc(shiftId).update({
@@ -242,13 +221,11 @@ const shiftManager = {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
-            // 更新本地資料
             const shift = this.allShifts.find(s => s.id === shiftId);
             if (shift) {
                 shift[field] = value;
             }
             
-            // 更新切換器外觀
             const toggle = document.getElementById(`toggle_${shiftId}_${field}`);
             if (toggle && toggle.nextElementSibling) {
                 const slider = toggle.nextElementSibling;
@@ -266,7 +243,8 @@ const shiftManager = {
             
             console.log(`✅ ${shift.code} - ${fieldNames[field]} 已更新為: ${value ? '啟用' : '停用'}`);
             
-            // ✅ 重新渲染選單，以更新功能的顯示狀態
+            CacheManager.invalidate('shifts', shift.unitId);
+            
             if (typeof app !== 'undefined' && app.renderMenu) {
                 app.renderMenu();
             }
@@ -274,7 +252,7 @@ const shiftManager = {
         } catch (error) {
             console.error('更新失敗:', error);
             alert('更新失敗: ' + error.message);
-            this.fetchData(); // 重新載入以還原狀態
+            this.fetchData();
         }
     },
 
@@ -283,7 +261,6 @@ const shiftManager = {
         const modalUnitSelect = document.getElementById('inputShiftUnit');
         const currentUnitId = document.getElementById('filterShiftUnit').value;
         
-        // ✅ 使用當前有效角色
         const activeRole = app.impersonatedRole || app.userRole;
 
         if (!currentUnitId && !shiftId && activeRole !== 'system_admin') {
@@ -308,7 +285,6 @@ const shiftManager = {
             document.getElementById('inputShiftColor').value = s.color || '#3498db';
             document.getElementById('colorHexCode').textContent = s.color || '#3498db';
             
-            // ✅ 設定四個可用性欄位
             document.getElementById('checkIsPreSchedule').checked = s.isPreScheduleAvailable === true;
             document.getElementById('checkIsSchedule').checked = s.isScheduleAvailable !== false;
             document.getElementById('checkIsBundle').checked = s.isBundleAvailable === true;
@@ -327,7 +303,6 @@ const shiftManager = {
             document.getElementById('inputShiftColor').value = '#3498db';
             document.getElementById('colorHexCode').textContent = '#3498db';
             
-            // ✅ 預設值：排班可用和志願可用預設啟用
             document.getElementById('checkIsPreSchedule').checked = false;
             document.getElementById('checkIsSchedule').checked = true;
             document.getElementById('checkIsBundle').checked = false;
@@ -360,7 +335,6 @@ const shiftManager = {
         const hours = document.getElementById('inputWorkHours').value;
         const color = document.getElementById('inputShiftColor').value;
         
-        // ✅ 讀取四個可用性欄位
         const isPreSchedule = document.getElementById('checkIsPreSchedule').checked;
         const isSchedule = document.getElementById('checkIsSchedule').checked;
         const isBundle = document.getElementById('checkIsBundle').checked;
@@ -371,7 +345,6 @@ const shiftManager = {
             return; 
         }
         
-        // ✅ 權限檢查：確保只能操作自己單位的資料 - 使用當前有效角色和單位
         const activeRole = app.impersonatedRole || app.userRole;
         const activeUnitId = app.impersonatedUnitId || app.userUnitId;
         
@@ -399,7 +372,6 @@ const shiftManager = {
             hours: parseFloat(hours) || 0, 
             color,
             
-            // ✅ 儲存四個可用性欄位
             isPreScheduleAvailable: isPreSchedule,
             isScheduleAvailable: isSchedule,
             isBundleAvailable: isBundle,
@@ -415,13 +387,15 @@ const shiftManager = {
                 data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
                 await db.collection('shifts').add(data);
             }
+            
+            CacheManager.invalidate('shifts', unitId);
+            
             alert("儲存成功");
             this.closeModal();
             await this.fetchData();
             document.getElementById('filterShiftUnit').value = unitId;
             this.renderTable();
             
-            // ✅ 重新渲染選單，以更新功能的顯示狀態
             if (typeof app !== 'undefined' && app.renderMenu) {
                 app.renderMenu();
             }
@@ -431,7 +405,6 @@ const shiftManager = {
     },
 
     deleteShift: async function(id) {
-        // ✅ 權限檢查：確保只能刪除自己單位的班別 - 使用當前有效角色和單位
         const shift = this.allShifts.find(s => s.id === id);
         if (!shift) return;
         
@@ -448,9 +421,11 @@ const shiftManager = {
         if(confirm(`確定要刪除班別「${shift.code} - ${shift.name}」嗎？\n\n此操作無法復原。`)) {
             try {
                 await db.collection('shifts').doc(id).delete();
+                
+                CacheManager.invalidate('shifts', shift.unitId);
+                
                 await this.fetchData();
                 
-                // ✅ 重新渲染選單，以更新功能的顯示狀態
                 if (typeof app !== 'undefined' && app.renderMenu) {
                     app.renderMenu();
                 }
