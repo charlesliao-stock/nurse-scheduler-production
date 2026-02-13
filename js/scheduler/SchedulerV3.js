@@ -100,7 +100,21 @@ class SchedulerV3 extends BaseScheduler {
                             this.rules, this.dailyCount[day], this.daysInMonth,
                             this.shiftTimeMap, this.lastMonthData
                         );
-                        return whitelist.includes(shiftCode);
+                        if (!whitelist.includes(shiftCode)) return false;
+
+                        // 額外檢查：確保不違反隔天已存在的預班限制
+                        const nextDayKey = `current_${day + 1}`;
+                        const nextDayShift = this.assignments[uid][nextDayKey];
+                        if (nextDayShift && nextDayShift !== 'OFF' && nextDayShift !== 'REQ_OFF') {
+                            const currEnd = WhitelistCalculator.parseTime(this.shiftTimeMap[shiftCode]?.endTime);
+                            const nextStart = WhitelistCalculator.parseTime(this.shiftTimeMap[nextDayShift]?.startTime);
+                            if (currEnd !== null && nextStart !== null) {
+                                let gap = nextStart - currEnd;
+                                if (gap < 0) gap += 24;
+                                if (gap < 11) return false;
+                            }
+                        }
+                        return true;
                     } else {
                         // 強制模式：排除包班人員，其餘人只要符合「硬規則」即可
                         if (prefs.bundleShift) return false;
@@ -109,9 +123,24 @@ class SchedulerV3 extends BaseScheduler {
                         const consecutiveDays = WhitelistCalculator.countConsecutiveWorkDays(staff, this.assignments, day, this.lastMonthData);
                         if (consecutiveDays >= (this.rules?.policy?.maxConsDays || 6)) return false;
                         
-                        // 檢查 11 小時休期間隔
+                        // 檢查 11 小時休期間隔 (必須同時檢查前一天與後一天，但在逐日排班中，後一天尚未排定，故主要檢查前一天)
                         const whitelistWithHardRules = WhitelistCalculator.filterByMinGap11([shiftCode], staff, this.assignments, day, this.shiftTimeMap, this.lastMonthData);
-                        return whitelistWithHardRules.includes(shiftCode);
+                        if (!whitelistWithHardRules.includes(shiftCode)) return false;
+
+                        // 額外檢查：如果這是一個強制填補，我們還要確保它不會違反「未來」已存在的預班限制 (如果有預班在隔天)
+                        const nextDayKey = `current_${day + 1}`;
+                        const nextDayShift = this.assignments[uid][nextDayKey];
+                        if (nextDayShift && nextDayShift !== 'OFF' && nextDayShift !== 'REQ_OFF') {
+                            const currEnd = WhitelistCalculator.parseTime(this.shiftTimeMap[shiftCode]?.endTime);
+                            const nextStart = WhitelistCalculator.parseTime(this.shiftTimeMap[nextDayShift]?.startTime);
+                            if (currEnd !== null && nextStart !== null) {
+                                let gap = nextStart - currEnd;
+                                if (gap < 0) gap += 24;
+                                if (gap < 11) return false;
+                            }
+                        }
+                        
+                        return true;
                     }
                 });
 
