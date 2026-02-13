@@ -984,8 +984,7 @@ executeSchedule: async function() {
     finally { 
         this.isLoading = false; 
     }
-}
-    },
+},
     
     setupEvents: function() {
         window.addEventListener('beforeunload', (e) => {
