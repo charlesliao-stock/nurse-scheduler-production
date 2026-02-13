@@ -3,69 +3,45 @@
 class SchedulerV3 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
         super(allStaff, year, month, lastMonthData, rules);
-        
-        console.log('🚀 SchedulerV3 初始化');
+        console.log('🚀 SchedulerV3 初始化 (絕對限制與平衡優化版)');
         this.assignments = {};
         this.dailyCount = {};
         this.initializeAssignments();
         this.initializeDailyCount();
-        this.calculateAvgOff();
     }
     
     initializeAssignments() {
         for (let staff of this.allStaff) {
             const uid = staff.uid || staff.id;
-            this.assignments[uid] = {
-                preferences: staff.preferences || {}
-            };
+            this.assignments[uid] = { preferences: staff.preferences || {} };
         }
     }
     
     initializeDailyCount() {
         for (let day = 1; day <= this.daysInMonth; day++) {
             this.dailyCount[day] = {};
-            for (let shift of this.shifts) {
-                this.dailyCount[day][shift.code] = 0;
-            }
+            for (let shift of this.shifts) this.dailyCount[day][shift.code] = 0;
         }
-    }
-    
-    calculateAvgOff() {
-        const staffCount = this.allStaff.length;
-        if (staffCount === 0) {
-            this.rules.avgOff = 0;
-            return;
-        }
-        
-        let totalAvailableOff = 0;
-        for (let day = 1; day <= this.daysInMonth; day++) {
-            const dateStr = this.getDateKey(day);
-            const dayOfWeek = this.getDayOfWeek(day);
-            let dailyNeedCount = 0;
-            
-            if (this.specificNeeds[dateStr]) {
-                Object.values(this.specificNeeds[dateStr]).forEach(count => {
-                    dailyNeedCount += (parseInt(count) || 0);
-                });
-            } else {
-                this.shifts.forEach(s => {
-                    const key = `${s.code}_${dayOfWeek}`;
-                    dailyNeedCount += (this.dailyNeeds[key] || 0);
-                });
-            }
-            totalAvailableOff += Math.max(0, staffCount - dailyNeedCount);
-        }
-        
-        this.rules.avgOff = totalAvailableOff / staffCount;
-        console.log(`   ℹ️ 平均休假天數: ${this.rules.avgOff.toFixed(1)}`);
     }
     
     run() {
         console.log('🤖 SchedulerV3 排班開始');
         try {
+            // 1. 套用預班
             this.step1_ApplyPreSchedule();
-            this.step2_GlobalScheduling();
-            this.step3_BalanceAdjustment();
+            
+            // 2. 核心排班：逐日進行，但每一天都嚴格遵守優先級
+            this.step2_PriorityBasedScheduling();
+            
+            // 2.5 強制填補：針對還有缺額的班次，尋找符合硬規則的人填補 (不限志願，但包班人員除外)
+            this.step2_5_ForceFillShortages();
+            
+            // 3. 填補剩餘 OFF
+            this.step3_FillRemainingOff();
+            
+            // 4. 平衡調整 (僅在不違反包班/志願的前提下進行微調)
+            this.step4_BalanceAdjustment();
+            
             return this.convertToDateFormat();
         } catch (error) {
             console.error('❌ SchedulerV3 排班失敗:', error);
@@ -79,39 +55,26 @@ class SchedulerV3 extends BaseScheduler {
             const params = staff.schedulingParams || {};
             for (let day = 1; day <= this.daysInMonth; day++) {
                 const key = `current_${day}`;
-                const preScheduled = params[key];
-                if (preScheduled && preScheduled !== 'OFF') {
-                    this.assignments[uid][key] = preScheduled;
-                    this.dailyCount[day][preScheduled] = (this.dailyCount[day][preScheduled] || 0) + 1;
+                const pre = params[key];
+                if (pre && pre !== 'OFF') {
+                    this.assignments[uid][key] = pre;
+                    this.dailyCount[day][pre] = (this.dailyCount[day][pre] || 0) + 1;
                 }
             }
         }
     }
     
-    step2_GlobalScheduling() {
-        console.log('\n🎯 步驟 2: 全局需求導向排班');
-        
-        // 第一輪：排所有人的包班 (包班人員必須排滿，除非違反硬規則)
-        this.fillShiftsByPriority('bundle');
-        
-        // 第二輪：排志願班 (優先滿足志願)
-        this.fillShiftsByPriority('preference');
-        
-        // 第三輪：強制填補 (確保沒有紅字)
-        this.fillShiftsByPriority('force');
-        
-        // 填補當天剩餘的人為 OFF
-        for (let day = 1; day <= this.daysInMonth; day++) {
-            for (let staff of this.allStaff) {
-                const uid = staff.uid || staff.id;
-                if (!this.assignments[uid][`current_${day}`]) {
-                    this.assignments[uid][`current_${day}`] = 'OFF';
-                }
-            }
-        }
+    step2_PriorityBasedScheduling() {
+        console.log('\n🎯 步驟 2: 優先級導向排班 (需求優先 + 嚴格限制)');
+        this.fillShiftsByLogic('priority');
     }
 
-    fillShiftsByPriority(type) {
+    step2_5_ForceFillShortages() {
+        console.log('\n⚡ 步驟 2.5: 強制填補缺額 (不限志願，但守硬規則)');
+        this.fillShiftsByLogic('force');
+    }
+
+    fillShiftsByLogic(mode) {
         for (let day = 1; day <= this.daysInMonth; day++) {
             const dateStr = this.getDateKey(day);
             const dayOfWeek = this.getDayOfWeek(day);
@@ -129,47 +92,42 @@ class SchedulerV3 extends BaseScheduler {
                     if (this.assignments[uid][`current_${day}`]) return false;
                     
                     const prefs = staff.preferences || {};
-                    if (type === 'bundle') {
-                        return prefs.bundleShift === shiftCode;
-                    } else if (type === 'preference') {
-                        // 志願班：排除有包班的人（因為包班已在第一輪處理），且必須是其志願之一
-                        if (prefs.bundleShift) return false;
-                        return prefs.favShift === shiftCode || prefs.favShift2 === shiftCode || prefs.favShift3 === shiftCode;
+                    
+                    if (mode === 'priority') {
+                        // 優先級模式：必須符合 WhitelistCalculator 的絕對限制 (包班或志願)
+                        const whitelist = WhitelistCalculator.calculate(
+                            staff, this.assignments, day, this.year, this.month,
+                            this.rules, this.dailyCount[day], this.daysInMonth,
+                            this.shiftTimeMap, this.lastMonthData
+                        );
+                        return whitelist.includes(shiftCode);
                     } else {
-                        // 強制填補：排除有包班的人，其餘人只要符合硬規則就可排（即使不是其志願）
-                        return !prefs.bundleShift;
+                        // 強制模式：排除包班人員，其餘人只要符合「硬規則」即可
+                        if (prefs.bundleShift) return false;
+                        
+                        // 這裡我們手動檢查硬規則，不使用 WhitelistCalculator 的志願過濾
+                        const consecutiveDays = WhitelistCalculator.countConsecutiveWorkDays(staff, this.assignments, day, this.lastMonthData);
+                        if (consecutiveDays >= (this.rules?.policy?.maxConsDays || 6)) return false;
+                        
+                        // 檢查 11 小時休期間隔
+                        const whitelistWithHardRules = WhitelistCalculator.filterByMinGap11([shiftCode], staff, this.assignments, day, this.shiftTimeMap, this.lastMonthData);
+                        return whitelistWithHardRules.includes(shiftCode);
                     }
                 });
 
-                // 檢查硬規則
-                candidates = candidates.filter(staff => {
-                    const whitelist = WhitelistCalculator.calculate(
-                        staff, this.assignments, day, this.year, this.month,
-                        this.rules, this.dailyCount[day], this.daysInMonth,
-                        this.shiftTimeMap, this.lastMonthData
-                    );
-                    return whitelist.includes(shiftCode);
-                });
-
-                // 排序：
+                // 排序：上班天數少的人優先
                 candidates.sort((a, b) => {
-                    // 1. 優先滿足包班人員的班次 (在 bundle 階段)
-                    // 2. 對於志願和強制階段，優先選「目前上班天數最少」的人，以達成平衡
+                    if (mode === 'priority') {
+                        const prefA = a.preferences || {};
+                        const prefB = b.preferences || {};
+                        const isBundleA = prefA.bundleShift === shiftCode ? 0 : 1;
+                        const isBundleB = prefB.bundleShift === shiftCode ? 0 : 1;
+                        if (isBundleA !== isBundleB) return isBundleA - isBundleB;
+                    }
+                    
                     const workA = this.countWorkDays(this.assignments, a.uid || a.id, day - 1);
                     const workB = this.countWorkDays(this.assignments, b.uid || b.id, day - 1);
-                    if (workA !== workB) return workA - workB;
-                    
-                    if (type === 'preference') {
-                        const getScore = (s) => {
-                            const p = s.preferences || {};
-                            if (p.favShift === shiftCode) return 1;
-                            if (p.favShift2 === shiftCode) return 2;
-                            if (p.favShift3 === shiftCode) return 3;
-                            return 4;
-                        };
-                        return getScore(a) - getScore(b);
-                    }
-                    return 0;
+                    return workA - workB;
                 });
 
                 const toAssign = candidates.slice(0, need - current);
@@ -182,8 +140,19 @@ class SchedulerV3 extends BaseScheduler {
         }
     }
 
-    step3_BalanceAdjustment() {
-        console.log('\n⚖️ 步驟 3: 全局平衡調整');
+    step3_FillRemainingOff() {
+        for (let day = 1; day <= this.daysInMonth; day++) {
+            for (let staff of this.allStaff) {
+                const uid = staff.uid || staff.id;
+                if (!this.assignments[uid][`current_${day}`]) {
+                    this.assignments[uid][`current_${day}`] = 'OFF';
+                }
+            }
+        }
+    }
+
+    step4_BalanceAdjustment() {
+        console.log('\n⚖️ 步驟 4: 平衡調整');
         const rulesWithContext = { ...this.rules, year: this.year, month: this.month, lastMonthData: this.lastMonthData };
         BalanceAdjuster.adjust(this.assignments, this.allStaff, rulesWithContext, this.daysInMonth, this.shiftTimeMap);
     }
@@ -233,4 +202,4 @@ class SchedulerV3 extends BaseScheduler {
     }
 }
 
-console.log('✅ SchedulerV3 已載入 (全局優化版)');
+console.log('✅ SchedulerV3 已載入 (絕對限制與平衡優化版)');
