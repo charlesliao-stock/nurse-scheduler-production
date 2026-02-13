@@ -269,9 +269,6 @@ const BalanceAdjuster = {
         return false;
     },
     
-    /**
-     * 🔥 修改：傳入 lastMonthData
-     */
     canSwap: function(richPerson, poorPerson, day, shift, assignments, rules, daysInMonth, shiftTimeMap) {
         const richUid = richPerson.uid || richPerson.id;
         const poorUid = poorPerson.uid || poorPerson.id;
