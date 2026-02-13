@@ -177,11 +177,18 @@ const WhitelistCalculator = {
             return whitelist.filter(shift => shift === 'OFF' || shift === 'REQ_OFF');
         }
         
-        return whitelist.filter(shift => {
+        const bundleWhitelist = whitelist.filter(shift => {
             if (shift === 'OFF' || shift === 'REQ_OFF') return true;
             if (shift === currentBundleShift) return true;
             return false;
         });
+
+        // 如果包班限制導致沒有可排的班次（除了 OFF），則暫時放寬限制，允許排其他班次
+        if (bundleWhitelist.length <= 2) { // 只有 OFF 和 REQ_OFF
+            return whitelist;
+        }
+
+        return bundleWhitelist;
     },
     
     getCurrentBundleShift: function(staff, assignments, day, lastMonthData) {

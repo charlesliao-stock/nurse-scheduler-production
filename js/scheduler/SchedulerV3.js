@@ -161,8 +161,8 @@ class SchedulerV3 extends BaseScheduler {
                     candidates.sort((a, b) => {
                         const uidA = a.uid || a.id;
                         const uidB = b.uid || b.id;
-                        const offA = this.countOffDays(this.assignments, uidA, day);
-                        const offB = this.countOffDays(this.assignments, uidB, day);
+                        const offA = this.countOffDays(this.assignments, uidA, day - 1);
+                        const offB = this.countOffDays(this.assignments, uidB, day - 1);
                         
                         if (offA !== offB) {
                             return offA - offB;
