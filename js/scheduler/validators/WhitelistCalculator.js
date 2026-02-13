@@ -2,39 +2,32 @@
 
 const WhitelistCalculator = {
     
-    calculate: function(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap) {
+    /**
+     * 🔥 修改：新增 lastMonthData 參數
+     */
+    calculate: function(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap, lastMonthData) {
         const uid = staff.uid || staff.id;
         const shifts = rules.shifts || [];
         const allShiftCodes = shifts.map(s => s.code);
         
-        // --- 第一階段：絕對硬性規則 (不可違反) ---
         let hardWhitelist = [...allShiftCodes];
         
-        // 1. 預班鎖定
         hardWhitelist = this.stage1_PreScheduleLock(hardWhitelist, staff, assignments, day);
         
-        // 2. 勞基法/硬性規則 (連六、11小時休息等)
         hardWhitelist = this.stage2_HardRules(hardWhitelist, staff, assignments, day, rules, shiftTimeMap, daysInMonth);
         
-        // 3. 包班約束 (必須嚴格遵守)
-        hardWhitelist = this.stage3_BundleConstraints(hardWhitelist, staff, assignments, day);
+        hardWhitelist = this.stage3_BundleConstraints(hardWhitelist, staff, assignments, day, lastMonthData, rules);
         
-        // 4. 特殊身份 (PGY 保護等)
         hardWhitelist = this.stage4_SpecialIdentity(hardWhitelist, staff, rules);
         
-        // 5. 志願班別 (若設定為 'must' 則不可違反)
         hardWhitelist = this.stage5_Preferences(hardWhitelist, staff, assignments, day, rules);
         
-        // --- 第二階段：供需過濾 (僅作為排班參考，可放寬) ---
-        // 如果是為了檢查「誰可以排這個班」，我們應該回傳 hardWhitelist
-        // 如果是為了「自動選擇班別」，才需要考慮供需
         if (!dailyCount) {
             return hardWhitelist;
         }
 
         let softWhitelist = this.stage6_SupplyDemand(hardWhitelist, staff, assignments, day, year, month, rules, dailyCount);
         
-        // 如果供需過濾後沒人了，且允許放寬，則回退到硬性白名單
         if (softWhitelist.length === 0 || (softWhitelist.length === 1 && (softWhitelist[0] === 'OFF' || softWhitelist[0] === 'REQ_OFF'))) {
             if (rules?.policy?.enableRelaxation) {
                 return hardWhitelist;
@@ -76,16 +69,112 @@ const WhitelistCalculator = {
         });
     },
     
-    stage3_BundleConstraints: function(whitelist, staff, assignments, day) {
+    /**
+     * 🔥 修改：包班切換邏輯
+     */
+    stage3_BundleConstraints: function(whitelist, staff, assignments, day, lastMonthData, rules) {
+        const uid = staff.uid || staff.id;
         const prefs = staff.preferences || {};
-        const bundleShift = prefs.bundleShift;
         
-        if (!bundleShift) return whitelist;
+        if (!prefs.bundleShift) return whitelist;
+        
+        const currentBundleShift = this.getCurrentBundleShift(staff, assignments, day, lastMonthData);
+        
+        if (!currentBundleShift) return whitelist;
+        
+        const consecutiveDays = this.countConsecutiveWorkDays(staff, assignments, day, lastMonthData);
+        const maxConsDays = rules?.policy?.maxConsDays || 6;
+        
+        if (consecutiveDays >= maxConsDays) {
+            return whitelist.filter(shift => shift === 'OFF' || shift === 'REQ_OFF');
+        }
+        
+        const favoriteShifts = [];
+        if (prefs.favShift) favoriteShifts.push(prefs.favShift);
+        if (prefs.favShift2) favoriteShifts.push(prefs.favShift2);
+        if (prefs.favShift3) favoriteShifts.push(prefs.favShift3);
         
         return whitelist.filter(shift => {
             if (shift === 'OFF' || shift === 'REQ_OFF') return true;
-            return shift === bundleShift;
+            if (shift === currentBundleShift) return true;
+            if (favoriteShifts.includes(shift)) return true;
+            return false;
         });
+    },
+    
+    /**
+     * 🔥 新增：判斷當前有效包班
+     */
+    getCurrentBundleShift: function(staff, assignments, day, lastMonthData) {
+        const uid = staff.uid || staff.id;
+        const prefs = staff.preferences || {};
+        const newBundleShift = prefs.bundleShift;
+        
+        if (!newBundleShift) return null;
+        
+        const lastShift = lastMonthData?.[uid]?.lastShift || 'OFF';
+        
+        if (lastShift === 'OFF' || lastShift === 'REQ_OFF') {
+            return newBundleShift;
+        }
+        
+        if (lastShift === newBundleShift) {
+            return newBundleShift;
+        }
+        
+        const hasEncounteredOff = this.checkIfEncounteredOff(assignments, uid, day);
+        
+        if (hasEncounteredOff) {
+            return newBundleShift;
+        } else {
+            return lastShift;
+        }
+    },
+    
+    /**
+     * 🔥 新增：檢查是否遇到 OFF
+     */
+    checkIfEncounteredOff: function(assignments, uid, currentDay) {
+        for (let d = 1; d < currentDay; d++) {
+            const shift = assignments[uid]?.[`current_${d}`];
+            if (shift === 'OFF' || shift === 'REQ_OFF') {
+                return true;
+            }
+        }
+        return false;
+    },
+    
+    /**
+     * 🔥 新增：計算連續上班天數（含上月）
+     */
+    countConsecutiveWorkDays: function(staff, assignments, day, lastMonthData) {
+        const uid = staff.uid || staff.id;
+        let count = 0;
+        
+        for (let d = day - 1; d >= 1; d--) {
+            const shift = assignments[uid]?.[`current_${d}`];
+            if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
+                count++;
+            } else {
+                return count;
+            }
+        }
+        
+        const lastMonthSchedule = lastMonthData?.[uid];
+        if (!lastMonthSchedule) return count;
+        
+        for (let d = 31; d >= 26; d--) {
+            const key = `last_${d}`;
+            const shift = lastMonthSchedule[key];
+            
+            if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
+                count++;
+            } else {
+                break;
+            }
+        }
+        
+        return count;
     },
     
     stage4_SpecialIdentity: function(whitelist, staff, rules) {
@@ -190,13 +279,13 @@ const WhitelistCalculator = {
         return (jsDay === 0) ? 6 : jsDay - 1;
     },
     
-    getWhitelistSize: function(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap) {
-        const whitelist = this.calculate(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap);
+    getWhitelistSize: function(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap, lastMonthData) {
+        const whitelist = this.calculate(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap, lastMonthData);
         return whitelist.length;
     },
     
-    hasValidShift: function(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap) {
-        const whitelist = this.calculate(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap);
+    hasValidShift: function(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap, lastMonthData) {
+        const whitelist = this.calculate(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap, lastMonthData);
         return whitelist.length > 0;
     }
 };
