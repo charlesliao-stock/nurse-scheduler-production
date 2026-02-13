@@ -160,11 +160,12 @@ class SchedulerV3 extends BaseScheduler {
     },
     
     /**
-     * 🔥 修改：改用分層過濾 + 總OFF數排序
+     * 🔥 修正：分層過濾 + OFF多的優先上班
      */
     findCandidatesForShift(day, shiftCode) {
         const candidates = [];
         
+        // 1. 找出所有符合白名單的人
         for (let staff of this.allStaff) {
             const uid = staff.uid || staff.id;
             
@@ -190,6 +191,7 @@ class SchedulerV3 extends BaseScheduler {
             }
         }
         
+        // 2. 分層：志願1 → 志願2 → 志願3 → 其他
         const tier1 = [];
         const tier2 = [];
         const tier3 = [];
@@ -209,13 +211,16 @@ class SchedulerV3 extends BaseScheduler {
             }
         }
         
+        // 3. 每層內按總OFF數排序（OFF多的排前面 = 優先上班）
         const sortByOffCount = (list) => {
             return list.sort((a, b) => {
                 const uidA = a.uid || a.id;
                 const uidB = b.uid || b.id;
                 const offA = this.countOffDays(this.assignments, uidA, day - 1);
                 const offB = this.countOffDays(this.assignments, uidB, day - 1);
-                return offA - offB;
+                
+                // 🔥 OFF多的排前面（優先上班，因為休太多了）
+                return offB - offA;
             });
         };
         
@@ -224,6 +229,7 @@ class SchedulerV3 extends BaseScheduler {
         sortByOffCount(tier3);
         sortByOffCount(tierOther);
         
+        // 4. 合併（志願優先）
         return [...tier1, ...tier2, ...tier3, ...tierOther];
     },
     
@@ -264,6 +270,9 @@ class SchedulerV3 extends BaseScheduler {
         }
     }
     
+    /**
+     * 🔥 修正：OFF少的優先獲得休假
+     */
     step4_ManageSystemOff() {
         console.log('\n💤 步驟 4: 管理系統 OFF');
         
@@ -272,6 +281,7 @@ class SchedulerV3 extends BaseScheduler {
         for (let day = 1; day <= this.daysInMonth; day++) {
             const key = `current_${day}`;
             
+            // 找出當天還沒排班的人
             const availableStaff = this.allStaff.filter(staff => {
                 const uid = staff.uid || staff.id;
                 return !this.assignments[uid][key];
@@ -279,6 +289,7 @@ class SchedulerV3 extends BaseScheduler {
 
             if (availableStaff.length === 0) continue;
 
+            // 🔥 OFF少的排前面（優先獲得 OFF，因為上太多班了）
             availableStaff.sort((a, b) => {
                 const uidA = a.uid || a.id;
                 const uidB = b.uid || b.id;
@@ -286,11 +297,12 @@ class SchedulerV3 extends BaseScheduler {
                 const offB = this.countOffDays(this.assignments, uidB, day - 1);
                 
                 if (offA !== offB) {
-                    return offA - offB;
+                    return offA - offB; // OFF少的排前面（優先休假）
                 }
                 return Math.random() - 0.5;
             });
 
+            // 將這些人排為 OFF
             for (let staff of availableStaff) {
                 const uid = staff.uid || staff.id;
                 this.assignments[uid][key] = 'OFF';
