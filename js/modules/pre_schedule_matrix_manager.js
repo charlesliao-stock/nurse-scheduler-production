@@ -828,9 +828,9 @@ calculateAvgOff: function() {
     }
     
     return totalAvailableOff / staffCount;
-}
+},
     
-    closePrefModal: function() { 
+closePrefModal: function() { 
         document.getElementById('prefModal').classList.remove('show'); 
     },
 
