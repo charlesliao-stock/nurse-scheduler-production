@@ -157,8 +157,11 @@ class SchedulerV3 extends BaseScheduler {
         }
         
         return needsList;
-    }
+    },
     
+    /**
+     * 🔥 修改：改用分層過濾 + 總OFF數排序
+     */
     findCandidatesForShift(day, shiftCode) {
         const candidates = [];
         
@@ -178,82 +181,51 @@ class SchedulerV3 extends BaseScheduler {
                 this.rules,
                 this.dailyCount[day],
                 this.daysInMonth,
-                this.shiftTimeMap
+                this.shiftTimeMap,
+                this.lastMonthData
             );
             
             if (whitelist.includes(shiftCode)) {
-                const score = this.calculateCandidateScore(staff, day, shiftCode);
-                candidates.push({
-                    ...staff,
-                    score: score
-                });
+                candidates.push(staff);
             }
         }
         
-        candidates.sort((a, b) => b.score - a.score);
+        const tier1 = [];
+        const tier2 = [];
+        const tier3 = [];
+        const tierOther = [];
         
-        return candidates;
-    }
-    
-    calculateCandidateScore(staff, day, shiftCode) {
-        const uid = staff.uid || staff.id;
-        
-        // 1. 計算該員工「剩餘應上班天數」
-        // 總天數 - 預排休 - 應有休假 = 應上班天數
-        // 這裡我們用一個更動態的方式：計算「目前已排班數」與「目標班數」的差距
-        
-        const totalDays = this.daysInMonth;
-        const offCount = this.countOffDays(this.assignments, uid, day - 1);
-        const workCount = (day - 1) - offCount;
-        
-        // 估算每人平均應上班天數 (假設平均休 9 天)
-        const targetOff = this.rules.policy?.targetOffDays || 9;
-        const targetWork = totalDays - targetOff;
-        
-        // 剩餘需要補足的工作量
-        const remainingWorkNeeded = targetWork - workCount;
-        
-        // 【核心邏輯重構】
-        // 分數越高越優先上班。
-        // 如果一個人「剩餘需要上班的天數」越多，他的分數就越高。
-        // 這樣可以確保那些「休太多的人」被優先抓回來上班，而「休太少的人」被保護。
-        let score = remainingWorkNeeded * 10;
-
-        // 2. 志願班別 (微調)
-        const prefs = staff.preferences || {};
-        if (prefs.favShift === shiftCode) {
-            score += 5; 
-        } else if (prefs.favShift2 === shiftCode) {
-            score += 2; 
-        }
-
-        // 3. 預排班 (最高優先級)
-        const params = staff.schedulingParams || {};
-        if (params[`current_${day}`] === shiftCode) {
-            score += 1000; 
-        }
-        
-        // 4. 懲罰連續上班 (如果快要連六了，降低分數，除非是預排)
-        const consecutiveWork = this.countConsecutiveWork(this.assignments, uid, day - 1);
-        if (consecutiveWork >= 5) {
-            score -= 50;
-        }
-        
-        return score;
-    }
-
-    countConsecutiveWork(assignments, uid, day) {
-        let count = 0;
-        for (let d = day; d >= 1; d--) {
-            const shift = assignments[uid][`current_${d}`];
-            if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
-                count++;
+        for (let staff of candidates) {
+            const prefs = staff.preferences || {};
+            
+            if (prefs.favShift === shiftCode) {
+                tier1.push(staff);
+            } else if (prefs.favShift2 === shiftCode) {
+                tier2.push(staff);
+            } else if (prefs.favShift3 === shiftCode) {
+                tier3.push(staff);
             } else {
-                break;
+                tierOther.push(staff);
             }
         }
-        return count;
-    }
+        
+        const sortByOffCount = (list) => {
+            return list.sort((a, b) => {
+                const uidA = a.uid || a.id;
+                const uidB = b.uid || b.id;
+                const offA = this.countOffDays(this.assignments, uidA, day - 1);
+                const offB = this.countOffDays(this.assignments, uidB, day - 1);
+                return offA - offB;
+            });
+        };
+        
+        sortByOffCount(tier1);
+        sortByOffCount(tier2);
+        sortByOffCount(tier3);
+        sortByOffCount(tierOther);
+        
+        return [...tier1, ...tier2, ...tier3, ...tierOther];
+    },
     
     step3_FillGaps() {
         console.log('\n🔍 步驟 3: 檢查缺額');
@@ -297,11 +269,9 @@ class SchedulerV3 extends BaseScheduler {
         
         let systemOffCount = 0;
         
-        // 逐日處理，以便每一天都能根據最新的 OFF 統計進行公平分配
         for (let day = 1; day <= this.daysInMonth; day++) {
             const key = `current_${day}`;
             
-            // 找出當天還沒排班的人
             const availableStaff = this.allStaff.filter(staff => {
                 const uid = staff.uid || staff.id;
                 return !this.assignments[uid][key];
@@ -309,8 +279,6 @@ class SchedulerV3 extends BaseScheduler {
 
             if (availableStaff.length === 0) continue;
 
-            // 根據「目前總 OFF 數」排序，OFF 數最少的排在前面（優先獲得 OFF）
-            // 如果 OFF 數相同，則使用隨機數排序
             availableStaff.sort((a, b) => {
                 const uidA = a.uid || a.id;
                 const uidB = b.uid || b.id;
@@ -318,12 +286,11 @@ class SchedulerV3 extends BaseScheduler {
                 const offB = this.countOffDays(this.assignments, uidB, day - 1);
                 
                 if (offA !== offB) {
-                    return offA - offB; // OFF 少的優先
+                    return offA - offB;
                 }
-                return Math.random() - 0.5; // 隨機挑選
+                return Math.random() - 0.5;
             });
 
-            // 將這些人排為 OFF
             for (let staff of availableStaff) {
                 const uid = staff.uid || staff.id;
                 this.assignments[uid][key] = 'OFF';
@@ -342,16 +309,18 @@ class SchedulerV3 extends BaseScheduler {
             return;
         }
         
-                const rulesWithContext = {
+        const rulesWithContext = {
             ...this.rules,
             year: this.year,
-            month: this.month
+            month: this.month,
+            lastMonthData: this.lastMonthData
         };
+        
         const result = BacktrackSolver.solve(
             this.assignments,
             this.gapList,
             this.allStaff,
-            rulesWithContext, // 傳遞包含年月資訊的 rules
+            rulesWithContext,
             this.dailyCount,
             this.daysInMonth,
             this.shiftTimeMap
@@ -373,7 +342,8 @@ class SchedulerV3 extends BaseScheduler {
         const rulesWithContext = {
             ...this.rules,
             year: this.year,
-            month: this.month
+            month: this.month,
+            lastMonthData: this.lastMonthData
         };
 
         const result = BalanceAdjuster.adjust(
