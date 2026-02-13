@@ -15,6 +15,7 @@ class SchedulerV3 extends BaseScheduler {
         
         this.initializeAssignments();
         this.initializeDailyCount();
+        this.calculateAvgOff();
     }
     
     initializeAssignments() {
@@ -33,6 +34,39 @@ class SchedulerV3 extends BaseScheduler {
                 this.dailyCount[day][shift.code] = 0;
             }
         }
+    }
+    
+    calculateAvgOff() {
+        const staffCount = this.allStaff.length;
+        if (staffCount === 0) {
+            this.rules.avgOff = 0;
+            return;
+        }
+        
+        let totalAvailableOff = 0;
+        
+        for (let day = 1; day <= this.daysInMonth; day++) {
+            const dateStr = this.getDateKey(day);
+            const dayOfWeek = this.getDayOfWeek(day);
+            
+            let dailyNeedCount = 0;
+            
+            if (this.specificNeeds[dateStr]) {
+                Object.values(this.specificNeeds[dateStr]).forEach(count => {
+                    dailyNeedCount += (parseInt(count) || 0);
+                });
+            } else {
+                this.shifts.forEach(s => {
+                    const key = `${s.code}_${dayOfWeek}`;
+                    dailyNeedCount += (this.dailyNeeds[key] || 0);
+                });
+            }
+            
+            totalAvailableOff += Math.max(0, staffCount - dailyNeedCount);
+        }
+        
+        this.rules.avgOff = totalAvailableOff / staffCount;
+        console.log(`   ℹ️ 平均休假天數: ${this.rules.avgOff.toFixed(1)}`);
     }
     
     run() {
@@ -115,19 +149,47 @@ class SchedulerV3 extends BaseScheduler {
                 
                 const candidates = this.findCandidatesForShift(day, shiftCode);
                 
-                const assigned = Math.min(candidates.length, shortage);
-                
-                for (let i = 0; i < assigned; i++) {
-                    const candidate = candidates[i];
+                for (let candidate of candidates) {
                     const uid = candidate.uid || candidate.id;
-                    
                     this.assignments[uid][`current_${day}`] = shiftCode;
                     this.dailyCount[day][shiftCode]++;
-                    totalAssigned++;
                 }
                 
-                if (assigned < shortage) {
-                    totalSkipped += (shortage - assigned);
+                if (candidates.length > shortage) {
+                    const toRemove = candidates.length - shortage;
+                    
+                    candidates.sort((a, b) => {
+                        const uidA = a.uid || a.id;
+                        const uidB = b.uid || b.id;
+                        const offA = this.countOffDays(this.assignments, uidA, day);
+                        const offB = this.countOffDays(this.assignments, uidB, day);
+                        
+                        if (offA !== offB) {
+                            return offA - offB;
+                        }
+                        
+                        const consA = this.countConsecutiveWork(this.assignments, uidA, day - 1);
+                        const consB = this.countConsecutiveWork(this.assignments, uidB, day - 1);
+                        
+                        if (consA !== consB) {
+                            return consA - consB;
+                        }
+                        
+                        return Math.random() - 0.5;
+                    });
+                    
+                    for (let i = 0; i < toRemove; i++) {
+                        const uid = candidates[i].uid || candidates[i].id;
+                        this.assignments[uid][`current_${day}`] = 'OFF';
+                        this.dailyCount[day][shiftCode]--;
+                    }
+                    
+                    totalAssigned += shortage;
+                } else {
+                    totalAssigned += candidates.length;
+                    if (candidates.length < shortage) {
+                        totalSkipped += (shortage - candidates.length);
+                    }
                 }
             }
         }
@@ -212,7 +274,19 @@ class SchedulerV3 extends BaseScheduler {
                 const uidB = b.uid || b.id;
                 const offA = this.countOffDays(this.assignments, uidA, day - 1);
                 const offB = this.countOffDays(this.assignments, uidB, day - 1);
-                return offB - offA;
+                
+                if (offA !== offB) {
+                    return offB - offA;
+                }
+                
+                const consA = this.countConsecutiveWork(this.assignments, uidA, day - 1);
+                const consB = this.countConsecutiveWork(this.assignments, uidB, day - 1);
+                
+                if (consA !== consB) {
+                    return consA - consB;
+                }
+                
+                return Math.random() - 0.5;
             });
         };
         
@@ -222,6 +296,18 @@ class SchedulerV3 extends BaseScheduler {
         sortByOffCount(tierOther);
         
         return [...tier1, ...tier2, ...tier3, ...tierOther];
+    }
+    
+    countConsecutiveWork(assignments, uid, upToDay) {
+        let count = 0;
+        for (let d = upToDay; d >= 1; d--) {
+            const shift = assignments[uid]?.[`current_${d}`];
+            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') {
+                break;
+            }
+            count++;
+        }
+        return count;
     }
     
     step3_FillGaps() {
