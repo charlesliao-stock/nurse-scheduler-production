@@ -64,7 +64,6 @@ const matrixManager = {
                 this.loadScheduleData()
             ]);
             
-            // ✅ 執行人員狀態變更檢查 (僅針對現有名單)
             await this.checkStaffStatusChanges();
             
             this.restoreTableStructure(); 
@@ -103,10 +102,6 @@ const matrixManager = {
         document.head.appendChild(styleElement);
     },
 
-    /**
-     * ✅ 優化：僅檢查現有人員名單的狀態變更 (孕/哺/PGY/獨立性)
-     * 不再從資料庫抓取單位所有人名單進行增刪比對
-     */
     checkStaffStatusChanges: async function() {
         if (!this.data || !this.data.staffList || this.data.staffList.length === 0) return;
         
@@ -131,7 +126,7 @@ const matrixManager = {
                         name: staff.name,
                         empId: staff.empId,
                         changes: statusChanges,
-                        newParams: newParams // 暫存新參數以便更新
+                        newParams: newParams
                     });
                 }
             }
@@ -150,28 +145,24 @@ const matrixManager = {
         const changes = [];
         const today = new Date();
         
-        // 檢查孕狀態
         const oldPregnant = oldParams.isPregnant && oldParams.pregnantExpiry && new Date(oldParams.pregnantExpiry) >= today;
         const newPregnant = newParams.isPregnant && newParams.pregnantExpiry && new Date(newParams.pregnantExpiry) >= today;
         if (oldPregnant !== newPregnant) {
             changes.push(newPregnant ? '新增「孕」狀態' : '移除「孕」狀態');
         }
         
-        // 檢查哺狀態
         const oldBreastfeeding = oldParams.isBreastfeeding && oldParams.breastfeedingExpiry && new Date(oldParams.breastfeedingExpiry) >= today;
         const newBreastfeeding = newParams.isBreastfeeding && newParams.breastfeedingExpiry && new Date(newParams.breastfeedingExpiry) >= today;
         if (oldBreastfeeding !== newBreastfeeding) {
             changes.push(newBreastfeeding ? '新增「哺」狀態' : '移除「哺」狀態');
         }
         
-        // 檢查 PGY 狀態
         const oldPGY = oldParams.isPGY && oldParams.pgyExpiry && new Date(oldParams.pgyExpiry) >= today;
         const newPGY = newParams.isPGY && newParams.pgyExpiry && new Date(newParams.pgyExpiry) >= today;
         if (oldPGY !== newPGY) {
             changes.push(newPGY ? '新增「PGY」狀態' : '移除「PGY」狀態');
         }
         
-        // 檢查獨立性
         const oldDependent = oldParams.independence === 'dependent';
         const newDependent = newParams.independence === 'dependent';
         if (oldDependent !== newDependent) {
@@ -294,7 +285,6 @@ const matrixManager = {
     },
     
     loadUsers: async function() { 
-        // 優化：按單位載入使用者
         const unitId = this.data?.unitId;
         const usersMap = await DataLoader.loadUsersMap(unitId);
         this.usersMap = usersMap;
@@ -316,8 +306,11 @@ const matrixManager = {
         await this.loadLastMonthSchedule();
     },
 
+    /**
+     * 🔥 修改：支援人力的上月班表查詢（用員工編號全域查詢）
+     */
     loadLastMonthSchedule: async function() {
-        const { unitId, year, month } = this.data;
+        const { unitId, year, month, staffList } = this.data;
         let lastYear = year;
         let lastMonth = month - 1;
         
@@ -326,7 +319,11 @@ const matrixManager = {
             lastYear--;
         }
 
-        const snap = await db.collection('schedules')
+        this.lastMonthAssignments = {};
+        this.lastMonthDays = new Date(lastYear, lastMonth, 0).getDate();
+        
+        // ❶ 先從本單位載入
+        const unitSnap = await db.collection('schedules')
             .where('unitId', '==', unitId)
             .where('year', '==', lastYear)
             .where('month', '==', lastMonth)
@@ -334,15 +331,49 @@ const matrixManager = {
             .limit(1)
             .get();
 
-        this.lastMonthAssignments = {};
-        this.lastMonthDays = new Date(lastYear, lastMonth, 0).getDate();
-        
-        if (!snap.empty) {
-            const lastData = snap.docs[0].data();
+        if (!unitSnap.empty) {
+            const lastData = unitSnap.docs[0].data();
             this.lastMonthAssignments = lastData.assignments || {};
-            console.log(`✅ 已載入上個月 (${lastYear}-${lastMonth}) 已發布班表`);
-        } else {
-            console.warn(`⚠️ 找不到上個月 (${lastYear}-${lastMonth}) 的已發布班表`);
+            console.log(`✅ 已載入本單位上個月 (${lastYear}-${lastMonth}) 已發布班表`);
+        }
+        
+        // ❷ 針對支援人力，用員工編號全域查詢
+        const supportStaff = (staffList || []).filter(s => s.isSupport);
+        
+        if (supportStaff.length > 0) {
+            console.log(`🔍 偵測到 ${supportStaff.length} 位支援人力，用員工編號查詢上月班表...`);
+            
+            for (let staff of supportStaff) {
+                const uid = staff.uid;
+                const empId = staff.empId;
+                
+                // 如果本單位已經有這個人的班表，跳過
+                if (this.lastMonthAssignments[uid]) continue;
+                
+                // 用員工編號全域查詢
+                const allSchedulesSnap = await db.collection('schedules')
+                    .where('year', '==', lastYear)
+                    .where('month', '==', lastMonth)
+                    .where('status', '==', 'published')
+                    .get();
+                
+                let found = false;
+                for (let doc of allSchedulesSnap.docs) {
+                    const scheduleData = doc.data();
+                    const staffInSchedule = (scheduleData.staffList || []).find(s => s.empId === empId);
+                    
+                    if (staffInSchedule && scheduleData.assignments && scheduleData.assignments[uid]) {
+                        this.lastMonthAssignments[uid] = scheduleData.assignments[uid];
+                        console.log(`  ✅ ${staff.name} (${empId}) 找到上月班表於單位: ${scheduleData.unitId}`);
+                        found = true;
+                        break;
+                    }
+                }
+                
+                if (!found) {
+                    console.warn(`  ⚠️ ${staff.name} (${empId}) 找不到上月班表`);
+                }
+            }
         }
     },
 
@@ -795,6 +826,9 @@ const matrixManager = {
         this.showTempMessage('偏好設定已更新，請記得點擊「儲存草稿」');
     },
 
+    /**
+     * 🔥 修改：優化 lastMonthData 組裝邏輯
+     */
     executeSchedule: async function() {
         if(!confirm("確定執行排班? 將鎖定預班並建立正式草稿。")) return;
         this.isLoading = true; 
@@ -808,6 +842,7 @@ const matrixManager = {
                 });
             }
 
+            // 🔥 組裝 lastMonthData
             const lastMonthData = {};
             const allUids = new Set([
                 ...Object.keys(this.localAssignments), 
@@ -819,13 +854,16 @@ const matrixManager = {
                 const userAssign = this.lastMonthAssignments[uid] || {};
                 const lastDay = this.lastMonthDays || 31;
                 
+                // 取得上月最後一天的班別（優先使用手動修正）
                 const lastDayCorrected = this.historyCorrections[uid]?.[`last_${lastDay}`];
                 const lastDayOriginal = userAssign[`current_${lastDay}`] || userAssign[lastDay] || 'OFF';
+                const finalLastShift = (lastDayCorrected !== undefined) ? lastDayCorrected : lastDayOriginal;
 
                 lastMonthData[uid] = {
-                    lastShift: (lastDayCorrected !== undefined) ? lastDayCorrected : lastDayOriginal
+                    lastShift: finalLastShift
                 };
                 
+                // 儲存最後 6 天（用於計算連續上班天數）
                 for (let i = 0; i < 6; i++) {
                     const d = lastDay - i;
                     const originalVal = userAssign[`current_${d}`] || userAssign[d] || 'OFF';
@@ -860,6 +898,7 @@ const matrixManager = {
             });
 
             console.log('📋 準備轉入排班編輯器的人員清單:', staffListForSchedule);
+            console.log('📅 lastMonthData:', lastMonthData);
 
             const scheduleData = {
                 unitId: this.data.unitId, 
