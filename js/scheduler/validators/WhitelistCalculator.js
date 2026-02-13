@@ -12,7 +12,7 @@ const WhitelistCalculator = {
         
         whitelist = this.stage1_PreScheduledDays(whitelist, staff, assignments, day);
         whitelist = this.stage2_HardRules(whitelist, staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap, lastMonthData);
-        whitelist = this.stage3_BundleConstraints(whitelist, staff, assignments, day, lastMonthData, rules, daysInMonth);
+        whitelist = this.stage3_BundleAndPreferenceConstraints(whitelist, staff, assignments, day, lastMonthData, rules, daysInMonth);
         whitelist = this.stage4_PreferenceRatioLimits(whitelist, staff, assignments, day, rules, daysInMonth);
         
         return whitelist;
@@ -155,69 +155,28 @@ const WhitelistCalculator = {
         return whitelist;
     },
     
-    stage3_BundleConstraints: function(whitelist, staff, assignments, day, lastMonthData, rules, daysInMonth) {
+    stage3_BundleAndPreferenceConstraints: function(whitelist, staff, assignments, day, lastMonthData, rules, daysInMonth) {
         const uid = staff.uid || staff.id;
         const prefs = staff.preferences || {};
         
-        if (!prefs.bundleShift) return whitelist;
-        
-        const currentBundleShift = this.getCurrentBundleShift(staff, assignments, day, lastMonthData);
-        
-        if (!currentBundleShift) return whitelist;
-        
+        // 1. 處理連續上班天數限制 (硬規則)
         const consecutiveDays = this.countConsecutiveWorkDays(staff, assignments, day, lastMonthData);
         const maxConsDays = rules?.policy?.maxConsDays || 6;
-        
         const hasLongVacation = this.checkLongVacation(staff, assignments, day, rules);
-        const effectiveMaxConsDays = hasLongVacation 
-            ? (rules?.policy?.longVacationWorkLimit || 7)
-            : maxConsDays;
+        const effectiveMaxConsDays = hasLongVacation ? (rules?.policy?.longVacationWorkLimit || 7) : maxConsDays;
         
         if (consecutiveDays >= effectiveMaxConsDays) {
             return whitelist.filter(shift => shift === 'OFF' || shift === 'REQ_OFF');
         }
-        
-        return whitelist.filter(shift => {
-            if (shift === 'OFF' || shift === 'REQ_OFF') return true;
-            if (shift === currentBundleShift) return true;
-            return false;
-        });
-    },
-    
-    getCurrentBundleShift: function(staff, assignments, day, lastMonthData) {
-        const uid = staff.uid || staff.id;
-        const prefs = staff.preferences || {};
-        const newBundleShift = prefs.bundleShift;
-        
-        if (!newBundleShift) return null;
-        
-        const lastShift = lastMonthData?.[uid]?.lastShift;
-        
-        if (!lastShift || lastShift === 'OFF' || lastShift === 'REQ_OFF') {
-            return newBundleShift;
+
+        // 2. 嚴格限制：包班人員只能排包班
+        if (prefs.bundleShift) {
+            const allowedShifts = new Set(['OFF', 'REQ_OFF', prefs.bundleShift]);
+            return whitelist.filter(shift => allowedShifts.has(shift));
         }
-        
-        if (lastShift === newBundleShift) {
-            return newBundleShift;
-        }
-        
-        const hasEncounteredOff = this.checkIfEncounteredOff(assignments, uid, day);
-        
-        if (hasEncounteredOff) {
-            return newBundleShift;
-        } else {
-            return lastShift;
-        }
-    },
-    
-    checkIfEncounteredOff: function(assignments, uid, currentDay) {
-        for (let d = 1; d < currentDay; d++) {
-            const shift = assignments[uid]?.[`current_${d}`];
-            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') {
-                return true;
-            }
-        }
-        return false;
+
+        // 非包班人員：在 Whitelist 階段不限制志願，讓 Scheduler 根據優先級（志願 > 強制）來決定
+        return whitelist;
     },
     
     countConsecutiveWorkDays: function(staff, assignments, day, lastMonthData) {
