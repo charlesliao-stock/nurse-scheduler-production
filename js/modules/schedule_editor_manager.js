@@ -560,12 +560,16 @@ const scheduleEditorManager = {
                 console.log('包含預班資料的天數:', preScheduleDays.length, preScheduleDays.slice(0, 5));
             }
             
-            const rules = { 
-                ...this.unitRules, 
-                shifts: this.shifts,
-                dailyNeeds: this.data.dailyNeeds || {},
-                specificNeeds: this.data.specificNeeds || {}
-            };
+const rules = { 
+    ...this.unitRules, 
+    shifts: this.shifts,
+    dailyNeeds: this.data.dailyNeeds || {},
+    specificNeeds: this.data.specificNeeds || {},
+    avgOff: this.data.schedulingParams?.avgOff || 9,  // 🔥 加入 avgOff
+    daysInMonth: new Date(this.data.year, this.data.month, 0).getDate()  // 🔥 加入天數
+};
+
+console.log(`   📊 使用 avgOff: ${rules.avgOff.toFixed(1)} 天`);
             
             const scheduler = SchedulerFactory.create('V3', staffListWithId, this.data.year, this.data.month, this.lastMonthData, rules);
             const result = scheduler.run();
