@@ -798,6 +798,38 @@ const matrixManager = {
         document.getElementById('prefModal').classList.add('show');
     },
 
+calculateAvgOff: function() {
+    const staffCount = this.staffList.length;
+    if (staffCount === 0) return 0;
+    
+    const daysInMonth = this.daysInMonth;
+    let totalAvailableOff = 0;
+    
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${this.year}-${String(this.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dateObj = new Date(this.year, this.month - 1, day);
+        const jsDay = dateObj.getDay();
+        const dayOfWeek = (jsDay === 0) ? 6 : jsDay - 1;
+        
+        let dailyNeedCount = 0;
+        
+        if (this.specificNeeds[dateStr]) {
+            Object.values(this.specificNeeds[dateStr]).forEach(count => {
+                dailyNeedCount += (parseInt(count) || 0);
+            });
+        } else {
+            this.activeShifts.forEach(s => {
+                const key = `${s.code}_${dayOfWeek}`;
+                dailyNeedCount += (this.dailyNeeds[key] || 0);
+            });
+        }
+        
+        totalAvailableOff += Math.max(0, staffCount - dailyNeedCount);
+    }
+    
+    return totalAvailableOff / staffCount;
+}
+    
     closePrefModal: function() { 
         document.getElementById('prefModal').classList.remove('show'); 
     },
