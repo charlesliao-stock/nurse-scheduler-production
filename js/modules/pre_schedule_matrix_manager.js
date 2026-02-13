@@ -861,123 +861,130 @@ calculateAvgOff: function() {
     /**
      * 🔥 修改：優化 lastMonthData 組裝邏輯
      */
-    executeSchedule: async function() {
-        if(!confirm("確定執行排班? 將鎖定預班並建立正式草稿。")) return;
-        this.isLoading = true; 
-        this.showLoading();
+executeSchedule: async function() {
+    if(!confirm("確定執行排班? 將鎖定預班並建立正式草稿。")) return;
+    this.isLoading = true; 
+    this.showLoading();
+    
+    try {
+        // 🔥 計算平均 OFF
+        const avgOff = this.calculateAvgOff();
+        console.log(`   📊 計算平均休假天數: ${avgOff.toFixed(1)} 天`);
         
-        try {
-            const initialAssignments = {};
-            if (this.localAssignments) {
-                Object.keys(this.localAssignments).forEach(uid => {
-                    initialAssignments[uid] = JSON.parse(JSON.stringify(this.localAssignments[uid]));
-                });
-            }
-
-            // 🔥 組裝 lastMonthData
-            const lastMonthData = {};
-            const allUids = new Set([
-                ...Object.keys(this.localAssignments), 
-                ...Object.keys(this.lastMonthAssignments || {}),
-                ...Object.keys(this.historyCorrections || {})
-            ]);
-
-            allUids.forEach(uid => {
-                const userAssign = this.lastMonthAssignments[uid] || {};
-                const lastDay = this.lastMonthDays || 31;
-                
-                // 取得上月最後一天的班別（優先使用手動修正）
-                const lastDayCorrected = this.historyCorrections[uid]?.[`last_${lastDay}`];
-                const lastDayOriginal = userAssign[`current_${lastDay}`] || userAssign[lastDay] || 'OFF';
-                const finalLastShift = (lastDayCorrected !== undefined) ? lastDayCorrected : lastDayOriginal;
-
-                lastMonthData[uid] = {
-                    lastShift: finalLastShift
-                };
-                
-                // 儲存最後 6 天（用於計算連續上班天數）
-                for (let i = 0; i < 6; i++) {
-                    const d = lastDay - i;
-                    const originalVal = userAssign[`current_${d}`] || userAssign[d] || 'OFF';
-                    const correctedVal = this.historyCorrections[uid]?.[`last_${d}`];
-                    lastMonthData[uid][`last_${d}`] = (correctedVal !== undefined) ? correctedVal : originalVal;
-                }
+        const initialAssignments = {};
+        if (this.localAssignments) {
+            Object.keys(this.localAssignments).forEach(uid => {
+                initialAssignments[uid] = JSON.parse(JSON.stringify(this.localAssignments[uid]));
             });
-
-            const staffListForSchedule = (this.data.staffList || []).map(staff => {
-                const uid = staff.uid || staff.id;
-                const userAssign = this.localAssignments[uid] || {};
-                const userPrefs = userAssign.preferences || {};
-                
-                const latestUser = this.usersMap[uid] || {};
-                const latestParams = latestUser.schedulingParams || staff.schedulingParams || {};
-                
-                return {
-                    uid: uid,
-                    empId: staff.empId,
-                    name: staff.name,
-                    level: staff.level || 'N',
-                    group: staff.group || '',
-                    isSupport: staff.isSupport || false,
-                    schedulingParams: latestParams,
-                    preferences: {
-                        bundleShift: userPrefs.bundleShift || '',
-                        favShift: userPrefs.favShift || '',
-                        favShift2: userPrefs.favShift2 || '',
-                        favShift3: userPrefs.favShift3 || ''
-                    }
-                };
-            });
-
-            console.log('📋 準備轉入排班編輯器的人員清單:', staffListForSchedule);
-            console.log('📅 lastMonthData:', lastMonthData);
-
-            const scheduleData = {
-                unitId: this.data.unitId, 
-                year: this.data.year, 
-                month: this.data.month,
-                sourceId: this.docId, 
-                status: 'draft',
-                staffList: staffListForSchedule,
-                assignments: initialAssignments,
-                lastMonthData: lastMonthData,
-                dailyNeeds: this.data.dailyNeeds || {},
-                specificNeeds: this.data.specificNeeds || {}, 
-                groupLimits: this.data.groupLimits || {},
-                bundleLimits: this.data.bundleLimits || {},
-                settings: this.data.settings || {},
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            };
-
-            const batch = db.batch();
-            batch.update(
-                db.collection('pre_schedules').doc(this.docId), 
-                { 
-                    status: 'closed', 
-                    assignments: this.localAssignments,
-                    historyCorrections: this.historyCorrections,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                }
-            );
-            
-            const newSchRef = db.collection('schedules').doc();
-            batch.set(newSchRef, scheduleData);
-
-            await batch.commit();
-            
-            console.log('✅ 排班文件已建立，ID:', newSchRef.id);
-            alert("執行成功! 轉跳中...");
-            window.location.hash = `/admin/schedule_editor?id=${newSchRef.id}`;
-            
-        } catch(e) { 
-            console.error('❌ 執行排班失敗:', e); 
-            alert("失敗: " + e.message); 
-            this.renderMatrix(); 
-        } 
-        finally { 
-            this.isLoading = false; 
         }
+
+        const lastMonthData = {};
+        const allUids = new Set([
+            ...Object.keys(this.localAssignments), 
+            ...Object.keys(this.lastMonthAssignments || {}),
+            ...Object.keys(this.historyCorrections || {})
+        ]);
+
+        allUids.forEach(uid => {
+            const userAssign = this.lastMonthAssignments[uid] || {};
+            const lastDay = this.lastMonthDays || 31;
+            
+            const lastDayCorrected = this.historyCorrections[uid]?.[`last_${lastDay}`];
+            const lastDayOriginal = userAssign[`current_${lastDay}`] || userAssign[lastDay] || 'OFF';
+            const finalLastShift = (lastDayCorrected !== undefined) ? lastDayCorrected : lastDayOriginal;
+
+            lastMonthData[uid] = {
+                lastShift: finalLastShift
+            };
+            
+            for (let i = 0; i < 6; i++) {
+                const d = lastDay - i;
+                const originalVal = userAssign[`current_${d}`] || userAssign[d] || 'OFF';
+                const correctedVal = this.historyCorrections[uid]?.[`last_${d}`];
+                lastMonthData[uid][`last_${d}`] = (correctedVal !== undefined) ? correctedVal : originalVal;
+            }
+        });
+
+        const staffListForSchedule = (this.data.staffList || []).map(staff => {
+            const uid = staff.uid || staff.id;
+            const userAssign = this.localAssignments[uid] || {};
+            const userPrefs = userAssign.preferences || {};
+            
+            const latestUser = this.usersMap[uid] || {};
+            const latestParams = latestUser.schedulingParams || staff.schedulingParams || {};
+            
+            return {
+                uid: uid,
+                empId: staff.empId,
+                name: staff.name,
+                level: staff.level || 'N',
+                group: staff.group || '',
+                isSupport: staff.isSupport || false,
+                schedulingParams: latestParams,
+                preferences: {
+                    bundleShift: userPrefs.bundleShift || '',
+                    favShift: userPrefs.favShift || '',
+                    favShift2: userPrefs.favShift2 || '',
+                    favShift3: userPrefs.favShift3 || ''
+                }
+            };
+        });
+
+        console.log('📋 準備轉入排班編輯器的人員清單:', staffListForSchedule);
+        console.log('📅 lastMonthData:', lastMonthData);
+        console.log(`📊 avgOff: ${avgOff.toFixed(1)} 天`);
+
+        // 🔥 加入 avgOff 到 scheduleData
+        const scheduleData = {
+            unitId: this.data.unitId, 
+            year: this.data.year, 
+            month: this.data.month,
+            sourceId: this.docId, 
+            status: 'draft',
+            staffList: staffListForSchedule,
+            assignments: initialAssignments,
+            lastMonthData: lastMonthData,
+            dailyNeeds: this.data.dailyNeeds || {},
+            specificNeeds: this.data.specificNeeds || {}, 
+            groupLimits: this.data.groupLimits || {},
+            bundleLimits: this.data.bundleLimits || {},
+            settings: this.data.settings || {},
+            schedulingParams: {
+                avgOff: avgOff
+            },
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        const batch = db.batch();
+        batch.update(
+            db.collection('pre_schedules').doc(this.docId), 
+            { 
+                status: 'closed', 
+                assignments: this.localAssignments,
+                historyCorrections: this.historyCorrections,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }
+        );
+        
+        const newSchRef = db.collection('schedules').doc();
+        batch.set(newSchRef, scheduleData);
+
+        await batch.commit();
+        
+        console.log('✅ 排班文件已建立，ID:', newSchRef.id);
+        alert("執行成功! 轉跳中...");
+        window.location.hash = `/admin/schedule_editor?id=${newSchRef.id}`;
+        
+    } catch(e) { 
+        console.error('❌ 執行排班失敗:', e); 
+        alert("失敗: " + e.message); 
+        this.renderMatrix(); 
+    } 
+    finally { 
+        this.isLoading = false; 
+    }
+}
     },
     
     setupEvents: function() {
