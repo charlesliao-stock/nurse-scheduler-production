@@ -2,77 +2,160 @@
 
 const WhitelistCalculator = {
     
-    /**
-     * 🔥 修改：新增 lastMonthData 參數
-     */
     calculate: function(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap, lastMonthData) {
         const uid = staff.uid || staff.id;
-        const shifts = rules.shifts || [];
-        const allShiftCodes = shifts.map(s => s.code);
+        let whitelist = ['OFF', 'REQ_OFF'];
         
-        let hardWhitelist = [...allShiftCodes];
-        
-        hardWhitelist = this.stage1_PreScheduleLock(hardWhitelist, staff, assignments, day);
-        
-        hardWhitelist = this.stage2_HardRules(hardWhitelist, staff, assignments, day, rules, shiftTimeMap, daysInMonth);
-        
-        hardWhitelist = this.stage3_BundleConstraints(hardWhitelist, staff, assignments, day, lastMonthData, rules);
-        
-        hardWhitelist = this.stage4_SpecialIdentity(hardWhitelist, staff, rules);
-        
-        hardWhitelist = this.stage5_Preferences(hardWhitelist, staff, assignments, day, rules);
-        
-        if (!dailyCount) {
-            return hardWhitelist;
-        }
-
-        let softWhitelist = this.stage6_SupplyDemand(hardWhitelist, staff, assignments, day, year, month, rules, dailyCount);
-        
-        if (softWhitelist.length === 0 || (softWhitelist.length === 1 && (softWhitelist[0] === 'OFF' || softWhitelist[0] === 'REQ_OFF'))) {
-            if (rules?.policy?.enableRelaxation) {
-                return hardWhitelist;
-            }
+        for (let shift of Object.keys(shiftTimeMap)) {
+            whitelist.push(shift);
         }
         
-        return softWhitelist.length > 0 ? softWhitelist : hardWhitelist;
+        whitelist = this.stage1_PreScheduledDays(whitelist, staff, assignments, day);
+        whitelist = this.stage2_HardRules(whitelist, staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap, lastMonthData);
+        whitelist = this.stage3_BundleConstraints(whitelist, staff, assignments, day, lastMonthData, rules, daysInMonth);
+        whitelist = this.stage4_PreferenceRatioLimits(whitelist, staff, assignments, day, rules, daysInMonth);
+        
+        return whitelist;
     },
     
-    stage1_PreScheduleLock: function(whitelist, staff, assignments, day) {
+    stage1_PreScheduledDays: function(whitelist, staff, assignments, day) {
         const uid = staff.uid || staff.id;
-        const params = staff.schedulingParams || {};
-        const preScheduled = params[`current_${day}`];
+        const key = `current_${day}`;
+        const preScheduled = assignments[uid]?.[key];
         
-        if (preScheduled && preScheduled !== 'OFF') {
+        if (preScheduled) {
             return [preScheduled];
         }
         
         return whitelist;
     },
     
-    stage2_HardRules: function(whitelist, staff, assignments, day, rules, shiftTimeMap, daysInMonth) {
+    stage2_HardRules: function(whitelist, staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap, lastMonthData) {
         const uid = staff.uid || staff.id;
-        const lastDay = day - 1;
-        const lastShift = lastDay >= 1 ? assignments[uid]?.[`current_${lastDay}`] : null;
+        
+        if (rules.hard?.minGap11 !== false) {
+            whitelist = this.filterByMinGap11(whitelist, staff, assignments, day, shiftTimeMap, lastMonthData);
+        }
+        
+        if (rules.hard?.maxDiversity3 !== false) {
+            whitelist = this.filterByMaxDiversity3(whitelist, staff, assignments, day, year, month, rules);
+        }
+        
+        if (rules.hard?.protectPregnant !== false) {
+            whitelist = this.filterProtectPregnant(whitelist, staff, shiftTimeMap, rules);
+        }
+        
+        if (rules.hard?.twoOffPerFortnight !== false) {
+            whitelist = this.filterByTwoOffPerFortnight(whitelist, staff, assignments, day, daysInMonth);
+        }
+        
+        return whitelist;
+    },
+    
+    filterByMinGap11: function(whitelist, staff, assignments, day, shiftTimeMap, lastMonthData) {
+        const uid = staff.uid || staff.id;
+        
+        let prevShift = null;
+        if (day === 1) {
+            prevShift = lastMonthData?.[uid]?.lastShift;
+        } else {
+            prevShift = assignments[uid]?.[`current_${day - 1}`];
+        }
+        
+        if (!prevShift || prevShift === 'OFF' || prevShift === 'REQ_OFF') {
+            return whitelist;
+        }
+        
+        const prevEnd = this.parseTime(shiftTimeMap[prevShift]?.endTime);
+        if (prevEnd === null) return whitelist;
         
         return whitelist.filter(shift => {
-            const result = HardRuleValidator.validateAll(
-                staff, 
-                assignments, 
-                day, 
-                shift, 
-                lastShift, 
-                rules, 
-                shiftTimeMap, 
-                daysInMonth
-            );
-            return result.valid;
+            if (shift === 'OFF' || shift === 'REQ_OFF') return true;
+            
+            const currStart = this.parseTime(shiftTimeMap[shift]?.startTime);
+            if (currStart === null) return true;
+            
+            let gap = currStart - prevEnd;
+            if (gap < 0) gap += 24;
+            
+            return gap >= 11;
         });
     },
     
-    /**
-     * 🔥 修改：包班切換邏輯
-     */
-    stage3_BundleConstraints: function(whitelist, staff, assignments, day, lastMonthData, rules) {
+    filterByMaxDiversity3: function(whitelist, staff, assignments, day, year, month, rules) {
+        const uid = staff.uid || staff.id;
+        const weekStartDay = rules.hard?.weekStartDay || 1;
+        
+        const weekRange = this.getWeekRange(day, year, month, weekStartDay);
+        const shiftsThisWeek = new Set();
+        
+        for (let d = weekRange.start; d <= Math.min(weekRange.end, day - 1); d++) {
+            const shift = assignments[uid]?.[`current_${d}`];
+            if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
+                shiftsThisWeek.add(shift);
+            }
+        }
+        
+        if (shiftsThisWeek.size < 3) {
+            return whitelist;
+        }
+        
+        return whitelist.filter(shift => {
+            if (shift === 'OFF' || shift === 'REQ_OFF') return true;
+            return shiftsThisWeek.has(shift);
+        });
+    },
+    
+    filterProtectPregnant: function(whitelist, staff, shiftTimeMap, rules) {
+        if (!staff.isPregnant && !staff.isBreastfeeding) {
+            return whitelist;
+        }
+        
+        const nightStart = this.parseTime(rules.policy?.nightStart || '22:00');
+        const nightEnd = this.parseTime(rules.policy?.nightEnd || '06:00');
+        
+        return whitelist.filter(shift => {
+            if (shift === 'OFF' || shift === 'REQ_OFF') return true;
+            
+            const shiftStart = this.parseTime(shiftTimeMap[shift]?.startTime);
+            if (shiftStart === null) return true;
+            
+            const isNightShift = (nightStart > nightEnd) 
+                ? (shiftStart >= nightStart || shiftStart <= nightEnd)
+                : (shiftStart >= nightStart && shiftStart <= nightEnd);
+            
+            return !isNightShift;
+        });
+    },
+    
+    filterByTwoOffPerFortnight: function(whitelist, staff, assignments, day, daysInMonth) {
+        const uid = staff.uid || staff.id;
+        
+        const fortnightStart = Math.max(1, day - 13);
+        let offCount = 0;
+        
+        for (let d = fortnightStart; d < day; d++) {
+            const shift = assignments[uid]?.[`current_${d}`];
+            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') {
+                offCount++;
+            }
+        }
+        
+        if (offCount >= 2) {
+            return whitelist;
+        }
+        
+        const remainingDays = Math.min(14, day + 13) - day + 1;
+        const neededOffs = 2 - offCount;
+        
+        if (remainingDays <= neededOffs) {
+            return whitelist.filter(shift => shift === 'OFF' || shift === 'REQ_OFF');
+        }
+        
+        return whitelist;
+    },
+    
+    stage3_BundleConstraints: function(whitelist, staff, assignments, day, lastMonthData, rules, daysInMonth) {
         const uid = staff.uid || staff.id;
         const prefs = staff.preferences || {};
         
@@ -85,26 +168,22 @@ const WhitelistCalculator = {
         const consecutiveDays = this.countConsecutiveWorkDays(staff, assignments, day, lastMonthData);
         const maxConsDays = rules?.policy?.maxConsDays || 6;
         
-        if (consecutiveDays >= maxConsDays) {
+        const hasLongVacation = this.checkLongVacation(staff, assignments, day, rules);
+        const effectiveMaxConsDays = hasLongVacation 
+            ? (rules?.policy?.longVacationWorkLimit || 7)
+            : maxConsDays;
+        
+        if (consecutiveDays >= effectiveMaxConsDays) {
             return whitelist.filter(shift => shift === 'OFF' || shift === 'REQ_OFF');
         }
-        
-        const favoriteShifts = [];
-        if (prefs.favShift) favoriteShifts.push(prefs.favShift);
-        if (prefs.favShift2) favoriteShifts.push(prefs.favShift2);
-        if (prefs.favShift3) favoriteShifts.push(prefs.favShift3);
         
         return whitelist.filter(shift => {
             if (shift === 'OFF' || shift === 'REQ_OFF') return true;
             if (shift === currentBundleShift) return true;
-            if (favoriteShifts.includes(shift)) return true;
             return false;
         });
     },
     
-    /**
-     * 🔥 新增：判斷當前有效包班
-     */
     getCurrentBundleShift: function(staff, assignments, day, lastMonthData) {
         const uid = staff.uid || staff.id;
         const prefs = staff.preferences || {};
@@ -112,9 +191,9 @@ const WhitelistCalculator = {
         
         if (!newBundleShift) return null;
         
-        const lastShift = lastMonthData?.[uid]?.lastShift || 'OFF';
+        const lastShift = lastMonthData?.[uid]?.lastShift;
         
-        if (lastShift === 'OFF' || lastShift === 'REQ_OFF') {
+        if (!lastShift || lastShift === 'OFF' || lastShift === 'REQ_OFF') {
             return newBundleShift;
         }
         
@@ -131,162 +210,125 @@ const WhitelistCalculator = {
         }
     },
     
-    /**
-     * 🔥 新增：檢查是否遇到 OFF
-     */
     checkIfEncounteredOff: function(assignments, uid, currentDay) {
         for (let d = 1; d < currentDay; d++) {
             const shift = assignments[uid]?.[`current_${d}`];
-            if (shift === 'OFF' || shift === 'REQ_OFF') {
+            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') {
                 return true;
             }
         }
         return false;
     },
     
-    /**
-     * 🔥 新增：計算連續上班天數（含上月）
-     */
     countConsecutiveWorkDays: function(staff, assignments, day, lastMonthData) {
         const uid = staff.uid || staff.id;
         let count = 0;
         
         for (let d = day - 1; d >= 1; d--) {
             const shift = assignments[uid]?.[`current_${d}`];
-            if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
-                count++;
-            } else {
+            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') {
                 return count;
             }
+            count++;
         }
         
-        const lastMonthSchedule = lastMonthData?.[uid];
-        if (!lastMonthSchedule) return count;
-        
-        for (let d = 31; d >= 26; d--) {
-            const key = `last_${d}`;
-            const shift = lastMonthSchedule[key];
+        if (count === day - 1 && lastMonthData?.[uid]) {
+            const lastMonthDays = ['last_31', 'last_30', 'last_29', 'last_28', 'last_27', 'last_26'];
             
-            if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
+            for (let key of lastMonthDays) {
+                const shift = lastMonthData[uid][key];
+                if (!shift || shift === 'OFF' || shift === 'REQ_OFF') {
+                    return count;
+                }
                 count++;
-            } else {
-                break;
             }
         }
         
         return count;
     },
     
-    stage4_SpecialIdentity: function(whitelist, staff, rules) {
-        const params = staff.schedulingParams || {};
-        const today = new Date();
+    checkLongVacation: function(staff, assignments, day, rules) {
+        const uid = staff.uid || staff.id;
+        const longVacationDays = rules?.policy?.longVacationDays || 7;
         
-        const isPGY = params.isPGY && 
-                     params.pgyExpiry && 
-                     new Date(params.pgyExpiry) >= today;
+        let maxConsecutiveOff = 0;
+        let currentConsecutiveOff = 0;
         
-        if (!isPGY) return whitelist;
-        
-        if (!rules?.policy?.protectPGY) return whitelist;
-        
-        const pgyList = rules.policy.protectPGY_List || [];
-        if (pgyList.length === 0) return whitelist;
-        
-        return whitelist.filter(shift => {
-            if (shift === 'OFF' || shift === 'REQ_OFF') return true;
-            return !pgyList.includes(shift);
-        });
-    },
-    
-    stage5_Preferences: function(whitelist, staff, assignments, day, rules) {
-        const prefs = staff.preferences || {};
-        
-        const favShift = prefs.favShift;
-        const favShift2 = prefs.favShift2;
-        const favShift3 = prefs.favShift3;
-        
-        const avoidList = [];
-        for (let d = 1; d <= 31; d++) {
-            const key = `current_${d}`;
-            const val = prefs[key];
-            if (val && val.startsWith && val.startsWith('!')) {
-                avoidList.push(val.substring(1));
-            }
-        }
-        
-        let preferred = [];
-        if (favShift && whitelist.includes(favShift)) preferred.push(favShift);
-        if (favShift2 && whitelist.includes(favShift2)) preferred.push(favShift2);
-        if (favShift3 && whitelist.includes(favShift3)) preferred.push(favShift3);
-        
-        if (preferred.length > 0 && rules?.policy?.prioritizePref === 'must') {
-            return preferred;
-        }
-        
-        const filtered = whitelist.filter(shift => !avoidList.includes(shift));
-        
-        if (filtered.length > 0 && rules?.policy?.prioritizeAvoid === 'must') {
-            return filtered;
-        }
-        
-        return whitelist;
-    },
-    
-    stage6_SupplyDemand: function(whitelist, staff, assignments, day, year, month, rules, dailyCount) {
-        const dailyNeeds = rules.dailyNeeds || {};
-        const specificNeeds = rules.specificNeeds || {};
-        
-        const dateStr = this.getDateKey(day, year, month);
-        const dayOfWeek = this.getDayOfWeek(day, year, month);
-        
-        const result = [];
-        
-        for (let shift of whitelist) {
-            if (shift === 'OFF' || shift === 'REQ_OFF') {
-                result.push(shift);
-                continue;
-            }
-            
-            let need = 0;
-            if (specificNeeds[dateStr] && specificNeeds[dateStr][shift] !== undefined) {
-                need = specificNeeds[dateStr][shift];
+        for (let d = 1; d < day; d++) {
+            const shift = assignments[uid]?.[`current_${d}`];
+            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') {
+                currentConsecutiveOff++;
+                maxConsecutiveOff = Math.max(maxConsecutiveOff, currentConsecutiveOff);
             } else {
-                const key = `${shift}_${dayOfWeek}`;
-                need = dailyNeeds[key] || 0;
-            }
-            
-            const current = dailyCount[shift] || 0;
-            
-            if (current < need) {
-                result.push(shift);
+                currentConsecutiveOff = 0;
             }
         }
         
-        if (result.length === 0 && rules?.policy?.enableRelaxation) {
+        return maxConsecutiveOff >= longVacationDays;
+    },
+    
+    stage4_PreferenceRatioLimits: function(whitelist, staff, assignments, day, rules, daysInMonth) {
+        if (!rules.policy?.enablePrefRatio) {
             return whitelist;
         }
         
-        return result.length > 0 ? result : whitelist;
+        const uid = staff.uid || staff.id;
+        const prefs = staff.preferences || {};
+        
+        const avgOff = rules.avgOff || 9;
+        const workableDays = daysInMonth - avgOff;
+        
+        const pref1Limit = Math.floor(workableDays * (rules.policy.prefRatio1 || 50) / 100);
+        const pref2Limit = Math.floor(workableDays * (rules.policy.prefRatio2 || 30) / 100);
+        const pref3Limit = Math.floor(workableDays * (rules.policy.prefRatio3 || 20) / 100);
+        
+        const pref1Count = this.countShiftDays(assignments, uid, prefs.favShift, day);
+        const pref2Count = this.countShiftDays(assignments, uid, prefs.favShift2, day);
+        const pref3Count = this.countShiftDays(assignments, uid, prefs.favShift3, day);
+        
+        return whitelist.filter(shift => {
+            if (shift === 'OFF' || shift === 'REQ_OFF') return true;
+            if (shift === prefs.favShift && pref1Count >= pref1Limit) return false;
+            if (shift === prefs.favShift2 && pref2Count >= pref2Limit) return false;
+            if (shift === prefs.favShift3 && pref3Count >= pref3Limit) return false;
+            return true;
+        });
     },
     
-    getDateKey: function(day, year, month) {
-        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    countShiftDays: function(assignments, uid, shiftCode, upToDay) {
+        if (!shiftCode) return 0;
+        
+        let count = 0;
+        for (let d = 1; d < upToDay; d++) {
+            const key = `current_${d}`;
+            if (assignments[uid]?.[key] === shiftCode) {
+                count++;
+            }
+        }
+        return count;
     },
     
-    getDayOfWeek: function(day, year, month) {
+    getWeekRange: function(day, year, month, weekStartDay) {
         const date = new Date(year, month - 1, day);
-        const jsDay = date.getDay();
-        return (jsDay === 0) ? 6 : jsDay - 1;
+        const dayOfWeek = date.getDay();
+        const adjustedDay = (dayOfWeek === 0) ? 6 : dayOfWeek - 1;
+        const adjustedStart = (weekStartDay === 0) ? 6 : weekStartDay - 1;
+        
+        let daysFromWeekStart = (adjustedDay - adjustedStart + 7) % 7;
+        const weekStart = day - daysFromWeekStart;
+        const weekEnd = weekStart + 6;
+        
+        return { start: Math.max(1, weekStart), end: weekEnd };
     },
     
-    getWhitelistSize: function(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap, lastMonthData) {
-        const whitelist = this.calculate(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap, lastMonthData);
-        return whitelist.length;
-    },
-    
-    hasValidShift: function(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap, lastMonthData) {
-        const whitelist = this.calculate(staff, assignments, day, year, month, rules, dailyCount, daysInMonth, shiftTimeMap, lastMonthData);
-        return whitelist.length > 0;
+    parseTime: function(timeStr) {
+        if (!timeStr) return null;
+        const parts = timeStr.split(':');
+        if (parts.length < 2) return null;
+        const h = parseInt(parts[0]);
+        const m = parseInt(parts[1]);
+        if (isNaN(h) || isNaN(m)) return null;
+        return h + m / 60;
     }
 };
 
