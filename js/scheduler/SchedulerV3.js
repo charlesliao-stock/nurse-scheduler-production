@@ -81,6 +81,8 @@ class SchedulerV3 extends BaseScheduler {
             
             this.step2_WhitelistScheduling();
             
+            this.step2_5_ForceFillNeeds();
+            
             this.step3_FillGaps();
             
             this.step4_ManageSystemOff();
@@ -128,15 +130,13 @@ class SchedulerV3 extends BaseScheduler {
     }
     
     step2_WhitelistScheduling() {
-        console.log('\n🎯 步驟 2: 白名單排班');
+        console.log('\n🎯 步驟 2: 白名單排班 (優先包班與志願班)');
         
         let totalAssigned = 0;
-        let totalSkipped = 0;
         
         for (let day = 1; day <= this.daysInMonth; day++) {
             const dateStr = this.getDateKey(day);
             const dayOfWeek = this.getDayOfWeek(day);
-            
             const needsList = this.calculateDailyNeeds(day, dateStr, dayOfWeek);
             
             for (let needItem of needsList) {
@@ -147,56 +147,76 @@ class SchedulerV3 extends BaseScheduler {
                 
                 if (shortage <= 0) continue;
                 
+                // 這裡的 candidates 已經按 優先級(包班>志願1>2>3) 排序
                 const candidates = this.findCandidatesForShift(day, shiftCode);
                 
-                for (let candidate of candidates) {
+                // 只取需要的數量
+                const toAssign = candidates.slice(0, shortage);
+                
+                for (let candidate of toAssign) {
                     const uid = candidate.uid || candidate.id;
                     this.assignments[uid][`current_${day}`] = shiftCode;
                     this.dailyCount[day][shiftCode]++;
-                }
-                
-                if (candidates.length > shortage) {
-                    const toRemove = candidates.length - shortage;
-                    
-                    candidates.sort((a, b) => {
-                        const uidA = a.uid || a.id;
-                        const uidB = b.uid || b.id;
-                        const offA = this.countOffDays(this.assignments, uidA, day - 1);
-                        const offB = this.countOffDays(this.assignments, uidB, day - 1);
-                        
-                        if (offA !== offB) {
-                            return offA - offB;
-                        }
-                        
-                        const consA = this.countConsecutiveWork(this.assignments, uidA, day - 1);
-                        const consB = this.countConsecutiveWork(this.assignments, uidB, day - 1);
-                        
-                        if (consA !== consB) {
-                            return consA - consB;
-                        }
-                        
-                        return Math.random() - 0.5;
-                    });
-                    
-                    for (let i = 0; i < toRemove; i++) {
-                        const uid = candidates[i].uid || candidates[i].id;
-                        this.assignments[uid][`current_${day}`] = 'OFF';
-                        this.dailyCount[day][shiftCode]--;
-                    }
-                    
-                    totalAssigned += shortage;
-                } else {
-                    totalAssigned += candidates.length;
-                    if (candidates.length < shortage) {
-                        totalSkipped += (shortage - candidates.length);
-                    }
+                    totalAssigned++;
                 }
             }
         }
         
         console.log(`   ✅ 已分配 ${totalAssigned} 個班次`);
-        if (totalSkipped > 0) {
-            console.log(`   ⚠️ 暫時跳過 ${totalSkipped} 個缺額（待後續處理）`);
+    }
+
+    step2_5_ForceFillNeeds() {
+        console.log('\n⚡ 步驟 2.5: 強制填補人力缺口 (不限志願，但守規則)');
+        
+        let forceAssigned = 0;
+        
+        for (let day = 1; day <= this.daysInMonth; day++) {
+            const dateStr = this.getDateKey(day);
+            const dayOfWeek = this.getDayOfWeek(day);
+            const needsList = this.calculateDailyNeeds(day, dateStr, dayOfWeek);
+            
+            for (let needItem of needsList) {
+                const shiftCode = needItem.shift;
+                const need = needItem.need;
+                let current = this.dailyCount[day][shiftCode] || 0;
+                
+                while (current < need) {
+                    // 尋找任何符合硬規則的人（不論其志願）
+                    const potentialStaff = this.allStaff.filter(staff => {
+                        const uid = staff.uid || staff.id;
+                        if (this.assignments[uid][`current_${day}`]) return false;
+                        
+                        const whitelist = WhitelistCalculator.calculate(
+                            staff, this.assignments, day, this.year, this.month,
+                            this.rules, this.dailyCount[day], this.daysInMonth,
+                            this.shiftTimeMap, this.lastMonthData
+                        );
+                        return whitelist.includes(shiftCode);
+                    });
+                    
+                    if (potentialStaff.length === 0) break;
+                    
+                    // 優先選休假多的人來填補
+                    potentialStaff.sort((a, b) => {
+                        const offA = this.countOffDays(this.assignments, a.uid || a.id, day - 1);
+                        const offB = this.countOffDays(this.assignments, b.uid || b.id, day - 1);
+                        return offB - offA;
+                    });
+                    
+                    const chosen = potentialStaff[0];
+                    const uid = chosen.uid || chosen.id;
+                    this.assignments[uid][`current_${day}`] = shiftCode;
+                    this.dailyCount[day][shiftCode]++;
+                    current++;
+                    forceAssigned++;
+                }
+            }
+        }
+        
+        if (forceAssigned > 0) {
+            console.log(`   ✅ 強制分配了 ${forceAssigned} 個班次以滿足人力需求`);
+        } else {
+            console.log(`   ✅ 無需強制分配`);
         }
     }
     
@@ -249,15 +269,18 @@ class SchedulerV3 extends BaseScheduler {
             }
         }
         
-        const tier1 = [];
-        const tier2 = [];
-        const tier3 = [];
-        const tierOther = [];
+        const tier0 = []; // 包班人員
+        const tier1 = []; // 第一志願
+        const tier2 = []; // 第二志願
+        const tier3 = []; // 第三志願
+        const tierOther = []; // 其他
         
         for (let staff of candidates) {
             const prefs = staff.preferences || {};
             
-            if (prefs.favShift === shiftCode) {
+            if (prefs.bundleShift === shiftCode) {
+                tier0.push(staff);
+            } else if (prefs.favShift === shiftCode) {
                 tier1.push(staff);
             } else if (prefs.favShift2 === shiftCode) {
                 tier2.push(staff);
@@ -290,12 +313,13 @@ class SchedulerV3 extends BaseScheduler {
             });
         };
         
+        sortByOffCount(tier0);
         sortByOffCount(tier1);
         sortByOffCount(tier2);
         sortByOffCount(tier3);
         sortByOffCount(tierOther);
         
-        return [...tier1, ...tier2, ...tier3, ...tierOther];
+        return [...tier0, ...tier1, ...tier2, ...tier3, ...tierOther];
     }
     
     countConsecutiveWork(assignments, uid, upToDay) {
