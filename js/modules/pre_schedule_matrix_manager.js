@@ -511,10 +511,10 @@ const matrixManager = {
                 let cellClass = '';
                 let displayVal = '';
                 
-                // 🆕 處理預休 (REQ_OFF)
+                // 🆕 處理預休 (REQ_OFF) - 改為顯示 FF
                 if (val === 'REQ_OFF') {
                     cellClass = 'cell-req-off';
-                    displayVal = '預';
+                    displayVal = 'FF';
                 } 
                 // 🆕 處理系統排休 (OFF)
                 else if (val === 'OFF') {
@@ -639,9 +639,10 @@ const matrixManager = {
         let cellClass = '';
         let displayVal = '';
         
+        // 🆕 預休改為顯示 FF
         if (val === 'REQ_OFF') {
             cellClass = 'cell-req-off';
-            displayVal = '預';
+            displayVal = 'FF';
         } else if (val === 'OFF') {
             cellClass = 'cell-off';
             displayVal = 'FF';
