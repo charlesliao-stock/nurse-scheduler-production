@@ -1070,8 +1070,13 @@ const scheduleEditorManager = {
                 const prevEnd = this.parseTime(prevShiftData.endTime);
                 const newStart = this.parseTime(newShiftData.startTime);
                 
+                // 🔥 修正：計算跨日間隔
                 let gap = newStart - prevEnd;
-                if (gap < 0) gap += 24;
+                
+                // 🔥 關鍵修正：如果間隔 <= 0，一定是跨日（隔天）
+                if (gap <= 0) {
+                    gap += 24;
+                }
                 
                 if (gap < 11) {
                     return {
@@ -1094,8 +1099,13 @@ const scheduleEditorManager = {
                     const newEnd = this.parseTime(newShiftData.endTime);
                     const nextStart = this.parseTime(nextShiftData.startTime);
                     
+                    // 🔥 修正：計算跨日間隔
                     let gap = nextStart - newEnd;
-                    if (gap < 0) gap += 24;
+                    
+                    // 🔥 關鍵修正：如果間隔 <= 0，一定是跨日（隔天）
+                    if (gap <= 0) {
+                        gap += 24;
+                    }
                     
                     if (gap < 11) {
                         return {
