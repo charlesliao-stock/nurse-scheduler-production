@@ -32,10 +32,10 @@ const WhitelistCalculator = {
         
         if (shouldContinueLastMonth) {
             // 階段1-1：延續上月班別
-            return this.calculateStage1_1(staff, assignments, day, rules, shiftTimeMap, lastMonthData);
+            return this.calculateStage1_1(staff, assignments, day, rules, shiftTimeMap, lastMonthData, daysInMonth);
         } else {
             // 階段1-2：正常排班邏輯
-            return this.calculateStage1_2(staff, assignments, day, rules, shiftTimeMap, lastMonthData);
+            return this.calculateStage1_2(staff, assignments, day, rules, shiftTimeMap, lastMonthData, daysInMonth);
         }
     },
     
@@ -69,7 +69,7 @@ const WhitelistCalculator = {
      * 階段1-1：延續上月班別
      * 白名單 = [上月班別, OFF]
      */
-    calculateStage1_1: function(staff, assignments, day, rules, shiftTimeMap, lastMonthData) {
+    calculateStage1_1: function(staff, assignments, day, rules, shiftTimeMap, lastMonthData, daysInMonth) {
         const uid = staff.uid || staff.id;
         
         // 1. 檢查連續上班天數
@@ -88,9 +88,14 @@ const WhitelistCalculator = {
         // 3. 白名單 = [上月班別, OFF]
         let whitelist = [lastShift, 'OFF'];
         
-        // 4. 檢查11小時休息（只檢查前一天）
+        // 4. 檢查11小時休息（往前）
         if (rules.hard?.minGap11 !== false) {
-            whitelist = this.filterByMinGap11(whitelist, staff, assignments, day, shiftTimeMap, lastMonthData);
+            whitelist = this.filterByMinGap11Forward(whitelist, staff, assignments, day, shiftTimeMap, lastMonthData);
+        }
+        
+        // 5. 檢查11小時休息（往後）
+        if (rules.hard?.minGap11 !== false && day < daysInMonth) {
+            whitelist = this.filterByMinGap11Backward(whitelist, staff, assignments, day, shiftTimeMap, rules);
         }
         
         return whitelist;
@@ -100,10 +105,11 @@ const WhitelistCalculator = {
      * 階段1-2：正常排班邏輯
      * 初始白名單 = [所有單位可排的班別, OFF]
      * → 排除孕/哺禁班
-     * → 排除11小時不足的班
+     * → 排除11小時不足的班（往前）
+     * → 排除11小時不足的班（往後，must模式）
      * → 保留包班或志願班
      */
-    calculateStage1_2: function(staff, assignments, day, rules, shiftTimeMap, lastMonthData) {
+    calculateStage1_2: function(staff, assignments, day, rules, shiftTimeMap, lastMonthData, daysInMonth) {
         const uid = staff.uid || staff.id;
         const prefs = staff.preferences || {};
         
@@ -127,12 +133,17 @@ const WhitelistCalculator = {
             whitelist = this.filterProtectPregnant(whitelist, shiftTimeMap, rules);
         }
         
-        // === Step 2.4.2: 排除11小時休息不足的班 ===
+        // === Step 2.4.2: 排除11小時休息不足的班（往前檢查）===
         if (rules.hard?.minGap11 !== false) {
-            whitelist = this.filterByMinGap11(whitelist, staff, assignments, day, shiftTimeMap, lastMonthData);
+            whitelist = this.filterByMinGap11Forward(whitelist, staff, assignments, day, shiftTimeMap, lastMonthData);
         }
         
-        // === Step 2.4.3: 保留包班或志願班 ===
+        // === Step 2.4.3: 排除11小時休息不足的班（往後檢查，must模式）===
+        if (rules.hard?.minGap11 !== false && day < daysInMonth) {
+            whitelist = this.filterByMinGap11Backward(whitelist, staff, assignments, day, shiftTimeMap, rules);
+        }
+        
+        // === Step 2.4.4: 保留包班或志願班 ===
         if (prefs.bundleShift) {
             // 有包班：只保留包班 + OFF
             whitelist = whitelist.filter(s => s === prefs.bundleShift || s === 'OFF' || s === 'REQ_OFF');
@@ -154,9 +165,9 @@ const WhitelistCalculator = {
     },
     
     /**
-     * 過濾：11小時休息間隔
+     * 過濾：11小時休息間隔（往前檢查：Day-1 → Day）
      */
-    filterByMinGap11: function(whitelist, staff, assignments, day, shiftTimeMap, lastMonthData) {
+    filterByMinGap11Forward: function(whitelist, staff, assignments, day, shiftTimeMap, lastMonthData) {
         const uid = staff.uid || staff.id;
         let prevShift = (day === 1) ? lastMonthData?.[uid]?.lastShift : assignments[uid]?.[`current_${day - 1}`];
         
@@ -170,6 +181,39 @@ const WhitelistCalculator = {
             const currStart = this.parseTime(shiftTimeMap[shift]?.startTime);
             if (currStart === null) return true;
             let gap = currStart - prevEnd;
+            if (gap < 0) gap += 24;
+            return gap >= 11;
+        });
+    },
+    
+    /**
+     * 過濾：11小時休息間隔（往後檢查：Day → Day+1）
+     * 只在 must 模式下排除班別
+     */
+    filterByMinGap11Backward: function(whitelist, staff, assignments, day, shiftTimeMap, rules) {
+        const uid = staff.uid || staff.id;
+        const nextShift = assignments[uid]?.[`current_${day + 1}`];
+        
+        // 如果隔天沒有班或是OFF，不需要檢查
+        if (!nextShift || nextShift === 'OFF' || nextShift === 'REQ_OFF') return whitelist;
+        
+        // 檢查承諾等級
+        const commitmentLevel = rules?.policy?.prioritizePreReq || 'must';
+        
+        // 只在 must 模式下排除
+        if (commitmentLevel !== 'must') {
+            return whitelist; // 非must模式：保留所有班別，以當日需求為主
+        }
+        
+        // must 模式：排除會違反隔天預班的班別
+        const nextStart = this.parseTime(shiftTimeMap[nextShift]?.startTime);
+        if (nextStart === null) return whitelist;
+        
+        return whitelist.filter(shift => {
+            if (shift === 'OFF' || shift === 'REQ_OFF') return true;
+            const currEnd = this.parseTime(shiftTimeMap[shift]?.endTime);
+            if (currEnd === null) return true;
+            let gap = nextStart - currEnd;
             if (gap < 0) gap += 24;
             return gap >= 11;
         });
@@ -227,4 +271,4 @@ const WhitelistCalculator = {
     }
 };
 
-console.log('✅ WhitelistCalculator 已載入 (階段1-1 + 階段1-2)');
+console.log('✅ WhitelistCalculator 已載入 (階段1-1 + 階段1-2 + 雙向11小時檢查)');
