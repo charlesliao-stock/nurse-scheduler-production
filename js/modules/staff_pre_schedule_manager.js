@@ -341,6 +341,7 @@ const staffPreScheduleManager = {
         // 🆕 新增：指定班別顯示
         const elSpecificCount = document.getElementById('statSpecificCount');
         const elMaxSpecific = document.getElementById('limitMaxSpecific');
+        const specificStatGroup = document.getElementById('specificShiftStatGroup');
 
         if (elOffCount) {
             elOffCount.innerText = offCount;
@@ -354,12 +355,19 @@ const staffPreScheduleManager = {
         }
         if (elMaxHoliday) elMaxHoliday.innerText = this.rules.maxHoliday;
         
-        // 🆕 新增：更新指定班別統計
-        if (elSpecificCount) {
-            elSpecificCount.innerText = specificCount;
-            elSpecificCount.style.color = specificCount > this.rules.maxSpecificShifts ? '#e74c3c' : 'inherit';
+        // 🆕 控制指定班別統計區塊的顯示/隱藏
+        if (specificStatGroup) {
+            if (this.rules.allowSpecificShifts) {
+                specificStatGroup.style.display = 'block';
+                if (elSpecificCount) {
+                    elSpecificCount.innerText = specificCount;
+                    elSpecificCount.style.color = specificCount > this.rules.maxSpecificShifts ? '#e74c3c' : 'inherit';
+                }
+                if (elMaxSpecific) elMaxSpecific.innerText = this.rules.maxSpecificShifts;
+            } else {
+                specificStatGroup.style.display = 'none';
+            }
         }
-        if (elMaxSpecific) elMaxSpecific.innerText = this.rules.maxSpecificShifts;
 
         const specialArea = document.getElementById('specialStatusArea');
         if (specialArea) {
