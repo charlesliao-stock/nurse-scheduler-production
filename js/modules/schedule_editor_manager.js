@@ -16,6 +16,16 @@ const scheduleEditorManager = {
     
     lastAIRunTime: 0,
     aiRunCooldown: 3000,
+    
+    // 拖曳相關
+    dragSource: null,
+    dragTarget: null,
+    isDragging: false,
+    
+    // 檢查相關
+    needsCheck: false,
+    lastCheckResult: null,
+    violationCells: new Set(),
 
     init: async function(id) { 
         console.log("Schedule Editor Init:", id);
@@ -83,6 +93,7 @@ const scheduleEditorManager = {
             this.bindEvents();
             this.initContextMenu();
             this.addCellStyles();
+            this.initDragAndDrop();
         } catch (e) { 
             console.error("❌ 初始化失敗:", e); 
         } finally { 
@@ -105,6 +116,25 @@ const scheduleEditorManager = {
             }
             .cell-off {
                 background: #fff !important;
+            }
+            .cell-dragging {
+                opacity: 0.5;
+                cursor: grabbing;
+            }
+            .cell-drop-target {
+                background: #e3f2fd !important;
+                border: 2px dashed #2196f3 !important;
+            }
+            .cell-violation {
+                border: 2px solid #e74c3c !important;
+                box-shadow: 0 0 5px rgba(231, 76, 60, 0.5);
+            }
+            .cell-draggable {
+                cursor: grab;
+            }
+            .cell-not-draggable {
+                cursor: not-allowed;
+                opacity: 0.8;
             }
         `;
         document.head.appendChild(styleElement);
@@ -208,7 +238,9 @@ const scheduleEditorManager = {
         
         right.innerHTML = !isPublished 
             ? `<button class="btn btn-primary" onclick="scheduleEditorManager.runAI()"><i class="fas fa-magic"></i> AI 自動排班</button>
+               <button class="btn" style="background:#3498db; color:white;" onclick="scheduleEditorManager.checkAllRules()"><i class="fas fa-check-circle"></i> 排班規則檢查</button>
                <button class="btn" style="background:#95a5a6;" onclick="scheduleEditorManager.resetSchedule()"><i class="fas fa-undo"></i> 重置</button>
+               <button class="btn" style="background:#27ae60; color:white;" onclick="scheduleEditorManager.saveSchedule()"><i class="fas fa-save"></i> 儲存</button>
                <button class="btn btn-success" onclick="scheduleEditorManager.publishSchedule()"><i class="fas fa-check"></i> 確認發布</button>`
             : `<button class="btn" style="background:#e67e22;" onclick="scheduleEditorManager.unpublishSchedule()"><i class="fas fa-times"></i> 取消發布</button>`;
     },
@@ -282,19 +314,21 @@ const scheduleEditorManager = {
                 const v = ua[`current_${d}`];
                 let txt = v || '', cls = 'cell-clickable';
                 let cellStyle = 'border:1px solid #bbb;';
+                const cellId = `cell_${uid}_${d}`;
 
                 if(v === 'OFF') { 
                     off++; 
                     txt = 'FF'; 
-                    cls += ' cell-off';
+                    cls += ' cell-off cell-draggable';
                     cellStyle += 'background:#fff;';
                 } else if(v === 'REQ_OFF') { 
                     off++; 
                     req++; 
                     txt = 'FF'; 
-                    cls += ' cell-req-off';
+                    cls += ' cell-req-off cell-not-draggable';
                     cellStyle += 'background:#fff3cd; color:#856404; font-weight:bold;';
                 } else {
+                    cls += ' cell-draggable';
                     const shift = this.shifts.find(sh => sh.code === v);
                     if(shift && shift.color) {
                         cellStyle += `color: ${shift.color}; font-weight: bold;`;
@@ -303,7 +337,13 @@ const scheduleEditorManager = {
                     else if(v === 'N') n++;
                 }
                 
-                bHtml += `<td class="${cls}" style="${cellStyle}" oncontextmenu="scheduleEditorManager.showContextMenu(event,'${uid}',${d}); return false;">${txt}</td>`;
+                if (this.violationCells.has(cellId)) {
+                    cls += ' cell-violation';
+                }
+                
+                bHtml += `<td id="${cellId}" class="${cls}" style="${cellStyle}" 
+                    data-uid="${uid}" data-day="${d}" data-shift="${v||''}"
+                    oncontextmenu="scheduleEditorManager.showContextMenu(event,'${uid}',${d}); return false;">${txt}</td>`;
             }
             
             bHtml += `<td style="text-align:center; border:1px solid #bbb;">${off}</td>
@@ -358,7 +398,6 @@ const scheduleEditorManager = {
     },
     
     loadUsers: async function() { 
-        // 改為按單位載入使用者，提升效能
         const usersMap = await DataLoader.loadUsersMap(this.data.unitId);
         this.usersMap = usersMap || {};
     },
@@ -374,7 +413,7 @@ const scheduleEditorManager = {
         if (p.isPregnant) b.push('<span class="status-badge" style="background:#ff9800;">孕</span>'); 
         if (p.isBreastfeeding) b.push('<span class="status-badge" style="background:#4caf50;">哺</span>'); 
         if (p.isPGY) b.push('<span class="status-badge" style="background:#2196f3;">P</span>'); 
-        if (p.independence === 'dependent') b.push('<span class="status-badge" style="background:#9c27b0;">D</span>'); 
+        if (p.independence === 'dependent') b.push('<span class="status-badge" style="background:#9c27b0;">協</span>'); 
         return b.join(''); 
     },
     
@@ -455,7 +494,32 @@ const scheduleEditorManager = {
     },
 
     publishSchedule: async function() {
+        // 發布前強制檢查
+        const checkResult = this.performFullCheck();
+        const hardViolations = checkResult.violations.filter(v => v.type === 'hard');
+        const softViolations = checkResult.violations.filter(v => v.type === 'soft');
+        
+        if (hardViolations.length > 0) {
+            // 有硬規則違規，禁止發布
+            this.showCheckReportModal(checkResult, true);
+            alert("❌ 無法發布：班表存在硬規則違規（1-5項）\n\n請修正後再發布。");
+            return;
+        }
+        
+        if (softViolations.length > 0) {
+            // 有軟規則違規，警告後允許發布
+            const confirmMsg = `⚠️ 班表存在軟規則違規（${softViolations.length}項）\n\n` +
+                softViolations.map(v => `• ${v.person}: ${v.rule}`).join('\n') +
+                `\n\n這些違規可以警告後發布，是否繼續？`;
+            
+            if (!confirm(confirmMsg)) {
+                return;
+            }
+        }
+        
+        // 確認發布
         if(!confirm("確定要發布此班表嗎？發布後員工將可查看。")) return;
+        
         try {
             await db.collection('schedules').doc(this.scheduleId).update({ 
                 status: 'published', 
@@ -463,9 +527,9 @@ const scheduleEditorManager = {
             });
             this.data.status = 'published';
             this.renderToolbar();
-            alert("發布成功！");
+            alert("✅ 發布成功！");
         } catch(e) { 
-            alert("發布失敗: " + e.message); 
+            alert("❌ 發布失敗: " + e.message); 
         }
     },
 
@@ -489,6 +553,9 @@ const scheduleEditorManager = {
         this.showLoading();
         try {
             await this.importFromPreSchedule();
+            this.violationCells.clear();
+            this.needsCheck = false;
+            this.lastCheckResult = null;
             this.renderMatrix();
             this.updateScheduleScore();
             alert("班表已重置。");
@@ -497,6 +564,50 @@ const scheduleEditorManager = {
         } finally { 
             const l = document.getElementById('globalLoader'); 
             if(l) l.remove(); 
+        }
+    },
+
+    saveSchedule: async function() {
+        // 如果已經檢查過
+        if (this.needsCheck && this.lastCheckResult) {
+            const hardViolations = this.lastCheckResult.violations.filter(v => v.type === 'hard');
+            
+            if (hardViolations.length > 0) {
+                const confirmMsg = `⚠️ 班表仍有硬規則違規（${hardViolations.length}項）\n\n確定要儲存嗎？`;
+                if (!confirm(confirmMsg)) {
+                    return;
+                }
+            }
+            
+            // 直接儲存
+            await this.performSave();
+        } else {
+            // 未檢查，先檢查再儲存
+            const checkResult = this.performFullCheck();
+            
+            if (checkResult.violations.length === 0) {
+                // 無違規，直接儲存
+                await this.performSave();
+            } else {
+                // 有違規，顯示報告並詢問
+                this.showCheckReportModal(checkResult, false);
+                const confirmMsg = `檢測到 ${checkResult.violations.length} 項違規\n\n是否仍要儲存？`;
+                if (confirm(confirmMsg)) {
+                    await this.performSave();
+                }
+            }
+        }
+    },
+
+    performSave: async function() {
+        try {
+            await db.collection('schedules').doc(this.scheduleId).update({
+                assignments: this.assignments,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            alert("✅ 儲存成功！");
+        } catch (e) {
+            alert("❌ 儲存失敗: " + e.message);
         }
     },
 
@@ -560,16 +671,16 @@ const scheduleEditorManager = {
                 console.log('包含預班資料的天數:', preScheduleDays.length, preScheduleDays.slice(0, 5));
             }
             
-const rules = { 
-    ...this.unitRules, 
-    shifts: this.shifts,
-    dailyNeeds: this.data.dailyNeeds || {},
-    specificNeeds: this.data.specificNeeds || {},
-    avgOff: this.data.schedulingParams?.avgOff || 9,  // 🔥 加入 avgOff
-    daysInMonth: new Date(this.data.year, this.data.month, 0).getDate()  // 🔥 加入天數
-};
+            const rules = { 
+                ...this.unitRules, 
+                shifts: this.shifts,
+                dailyNeeds: this.data.dailyNeeds || {},
+                specificNeeds: this.data.specificNeeds || {},
+                avgOff: this.data.schedulingParams?.avgOff || 9,
+                daysInMonth: new Date(this.data.year, this.data.month, 0).getDate()
+            };
 
-console.log(`   📊 使用 avgOff: ${rules.avgOff.toFixed(1)} 天`);
+            console.log(`   📊 使用 avgOff: ${rules.avgOff.toFixed(1)} 天`);
             
             const scheduler = SchedulerFactory.create('V3', staffListWithId, this.data.year, this.data.month, this.lastMonthData, rules);
             const result = scheduler.run();
@@ -619,9 +730,13 @@ console.log(`   📊 使用 avgOff: ${rules.avgOff.toFixed(1)} 天`);
             
             console.log('✅ AI 排班完成，僅寫入 Firebase 1 次');
             
+            this.violationCells.clear();
+            this.needsCheck = false;
+            this.lastCheckResult = null;
+            
             this.renderMatrix();
             this.updateScheduleScore();
-            alert("AI 排班完成！");
+            alert("✅ AI 排班完成！");
             
         } catch(e) { 
             console.error("❌ AI 排班錯誤:", e);
@@ -639,5 +754,787 @@ console.log(`   📊 使用 avgOff: ${rules.avgOff.toFixed(1)} 天`);
             const m = document.getElementById('schContextMenu'); 
             if(m) m.style.display='none'; 
         }); 
+    },
+
+    // ==================== 拖曳交換功能 ====================
+    
+    initDragAndDrop: function() {
+        const tbody = document.getElementById('schBody');
+        if (!tbody) return;
+        
+        tbody.addEventListener('mousedown', (e) => this.handleDragStart(e));
+        tbody.addEventListener('mousemove', (e) => this.handleDragMove(e));
+        tbody.addEventListener('mouseup', (e) => this.handleDragEnd(e));
+        document.addEventListener('mouseup', (e) => this.handleDragCancel(e));
+    },
+
+    handleDragStart: function(e) {
+        const cell = e.target.closest('td[data-uid]');
+        if (!cell) return;
+        
+        const shift = cell.dataset.shift;
+        
+        // REQ_OFF 不能拖曳
+        if (shift === 'REQ_OFF') {
+            alert("⚠️ 預班休假（REQ_OFF）無法交換");
+            return;
+        }
+        
+        // 只有 cell-draggable 可以拖曳
+        if (!cell.classList.contains('cell-draggable')) {
+            return;
+        }
+        
+        e.preventDefault();
+        this.isDragging = true;
+        this.dragSource = {
+            uid: cell.dataset.uid,
+            day: parseInt(cell.dataset.day),
+            shift: shift,
+            element: cell
+        };
+        
+        cell.classList.add('cell-dragging');
+    },
+
+    handleDragMove: function(e) {
+        if (!this.isDragging || !this.dragSource) return;
+        
+        const cell = e.target.closest('td[data-uid]');
+        if (!cell || !cell.classList.contains('cell-draggable')) {
+            // 清除舊的 drop-target
+            document.querySelectorAll('.cell-drop-target').forEach(c => {
+                c.classList.remove('cell-drop-target');
+            });
+            return;
+        }
+        
+        // 清除舊的 drop-target
+        document.querySelectorAll('.cell-drop-target').forEach(c => {
+            c.classList.remove('cell-drop-target');
+        });
+        
+        // 標記新的 drop-target
+        if (cell !== this.dragSource.element) {
+            cell.classList.add('cell-drop-target');
+        }
+    },
+
+    handleDragEnd: function(e) {
+        if (!this.isDragging || !this.dragSource) return;
+        
+        const cell = e.target.closest('td[data-uid]');
+        if (!cell || !cell.classList.contains('cell-draggable')) {
+            this.handleDragCancel();
+            return;
+        }
+        
+        const target = {
+            uid: cell.dataset.uid,
+            day: parseInt(cell.dataset.day),
+            shift: cell.dataset.shift
+        };
+        
+        // 清除樣式
+        this.dragSource.element.classList.remove('cell-dragging');
+        document.querySelectorAll('.cell-drop-target').forEach(c => {
+            c.classList.remove('cell-drop-target');
+        });
+        
+        // 檢查是否同一格
+        if (this.dragSource.uid === target.uid && this.dragSource.day === target.day) {
+            this.isDragging = false;
+            this.dragSource = null;
+            return;
+        }
+        
+        // 檢查是否同一天
+        if (this.dragSource.day !== target.day) {
+            alert("⚠️ 只能在同一天交換班別");
+            this.isDragging = false;
+            this.dragSource = null;
+            return;
+        }
+        
+        // 檢查是否包含 REQ_OFF
+        if (target.shift === 'REQ_OFF') {
+            alert("⚠️ 預班休假（REQ_OFF）無法交換");
+            this.isDragging = false;
+            this.dragSource = null;
+            return;
+        }
+        
+        // 執行交換檢查
+        this.performSwapCheck(this.dragSource, target);
+        
+        this.isDragging = false;
+        this.dragSource = null;
+    },
+
+    handleDragCancel: function() {
+        if (!this.isDragging) return;
+        
+        if (this.dragSource && this.dragSource.element) {
+            this.dragSource.element.classList.remove('cell-dragging');
+        }
+        
+        document.querySelectorAll('.cell-drop-target').forEach(c => {
+            c.classList.remove('cell-drop-target');
+        });
+        
+        this.isDragging = false;
+        this.dragSource = null;
+    },
+
+    performSwapCheck: function(source, target) {
+        const day = source.day;
+        const uid1 = source.uid;
+        const uid2 = target.uid;
+        const newShift1 = target.shift || 'OFF';
+        const newShift2 = source.shift || 'OFF';
+        
+        console.log(`🔄 交換檢查: ${uid1} Day${day} (${source.shift}) ↔ ${uid2} Day${day} (${target.shift})`);
+        
+        // 執行7項檢查
+        const violations = [];
+        
+        // 檢查 uid1
+        const v1 = this.check7Rules(uid1, day, newShift1);
+        violations.push(...v1);
+        
+        // 檢查 uid2
+        const v2 = this.check7Rules(uid2, day, newShift2);
+        violations.push(...v2);
+        
+        if (violations.length === 0) {
+            // 無違規，直接交換
+            this.executeSwap(source, target);
+            alert("✅ 交換成功！");
+        } else {
+            // 有違規，顯示警告
+            this.showSwapWarningModal(source, target, violations);
+        }
+    },
+
+    executeSwap: function(source, target) {
+        const uid1 = source.uid;
+        const uid2 = target.uid;
+        const day = source.day;
+        const key = `current_${day}`;
+        
+        const shift1 = target.shift || 'OFF';
+        const shift2 = source.shift || 'OFF';
+        
+        this.assignments[uid1][key] = shift1;
+        this.assignments[uid2][key] = shift2;
+        
+        console.log(`✅ 執行交換: ${uid1} Day${day} = ${shift1}, ${uid2} Day${day} = ${shift2}`);
+        
+        this.renderMatrix();
+        this.updateRealTimeStats();
+        this.updateScheduleScore();
+    },
+
+    showSwapWarningModal: function(source, target, violations) {
+        const hardViolations = violations.filter(v => v.type === 'hard');
+        const softViolations = violations.filter(v => v.type === 'soft');
+        
+        let modalHtml = `
+        <div id="swapWarningModal" style="display:flex; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
+            <div style="background:white; padding:30px; border-radius:12px; width:600px; max-height:80vh; overflow-y:auto; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+                <h3 style="margin:0 0 20px 0; color:#2c3e50;">
+                    ⚠️ 交換班別將產生以下問題
+                </h3>`;
+        
+        if (hardViolations.length > 0) {
+            modalHtml += `
+                <div style="border:2px solid #e74c3c; border-radius:8px; padding:15px; margin-bottom:15px;">
+                    <h4 style="margin:0 0 10px 0; color:#e74c3c;">
+                        ❌ 硬規則違規（發布前必須修正）
+                    </h4>
+                    <ul style="margin:0; padding-left:20px; line-height:1.8;">
+                        ${hardViolations.map(v => `<li>${v.person}: ${v.rule}${v.detail ? '<br><small style="color:#666;">' + v.detail + '</small>' : ''}</li>`).join('')}
+                    </ul>
+                </div>`;
+        }
+        
+        if (softViolations.length > 0) {
+            modalHtml += `
+                <div style="border:2px solid #f39c12; border-radius:8px; padding:15px; margin-bottom:15px;">
+                    <h4 style="margin:0 0 10px 0; color:#f39c12;">
+                        ⚠️ 軟規則違規（可警告後允許）
+                    </h4>
+                    <ul style="margin:0; padding-left:20px; line-height:1.8;">
+                        ${softViolations.map(v => `<li>${v.person}: ${v.rule}${v.detail ? '<br><small style="color:#666;">' + v.detail + '</small>' : ''}</li>`).join('')}
+                    </ul>
+                </div>`;
+        }
+        
+        modalHtml += `
+                <p style="color:#666; margin-bottom:20px;">
+                    是否仍要交換？<br>
+                    <small>（調整過程中允許暫時違規）</small>
+                </p>
+                <div style="display:flex; gap:15px; justify-content:flex-end;">
+                    <button id="btnCancelSwap" style="padding:10px 20px; border:1px solid #95a5a6; background:#fff; border-radius:4px; cursor:pointer;">
+                        取消交換
+                    </button>
+                    <button id="btnConfirmSwap" style="padding:10px 20px; border:none; background:#3498db; color:white; border-radius:4px; cursor:pointer; font-weight:bold;">
+                        確認交換
+                    </button>
+                </div>
+            </div>
+        </div>`;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        document.getElementById('btnConfirmSwap').onclick = () => {
+            this.executeSwap(source, target);
+            this.needsCheck = true;
+            
+            // 標記違規格子
+            violations.forEach(v => {
+                const cellId = `cell_${v.uid}_${v.day}`;
+                this.violationCells.add(cellId);
+            });
+            
+            this.renderMatrix();
+            this.updateRealTimeStats();
+            this.updateScheduleScore();
+            
+            document.getElementById('swapWarningModal').remove();
+            alert("✅ 交換完成（已標記違規）");
+        };
+        
+        document.getElementById('btnCancelSwap').onclick = () => {
+            document.getElementById('swapWarningModal').remove();
+        };
+    },
+
+    // ==================== 7項規則檢查 ====================
+    
+    check7Rules: function(uid, day, newShift) {
+        const violations = [];
+        const staff = this.staffMap[uid];
+        const staffName = staff?.name || uid;
+        
+        // 1. 11小時休息檢查
+        const v1 = this.check11HourRest(uid, day, newShift);
+        if (v1) violations.push({ type: 'hard', uid, day, person: staffName, rule: v1.rule, detail: v1.detail });
+        
+        // 2. 週內班別多樣性
+        const v2 = this.checkWeeklyDiversity(uid, day, newShift);
+        if (v2) violations.push({ type: 'hard', uid, day, person: staffName, rule: v2.rule, detail: v2.detail });
+        
+        // 3. 特殊身分保護
+        const v3 = this.checkSpecialStatus(uid, newShift);
+        if (v3) violations.push({ type: 'hard', uid, day, person: staffName, rule: v3.rule, detail: v3.detail });
+        
+        // 4. 兩週內OFF數量
+        const v4 = this.checkTwoWeekOffs(uid, day, newShift);
+        if (v4) violations.push({ type: 'hard', uid, day, person: staffName, rule: v4.rule, detail: v4.detail });
+        
+        // 5. OFF間隔
+        const v5 = this.checkOffGap(uid, day, newShift);
+        if (v5) violations.push({ type: 'hard', uid, day, person: staffName, rule: v5.rule, detail: v5.detail });
+        
+        // 6. 包班/志願匹配
+        const v6 = this.checkPreference(uid, newShift);
+        if (v6) violations.push({ type: 'soft', uid, day, person: staffName, rule: v6.rule, detail: v6.detail });
+        
+        // 7. 連續上班天數
+        const v7 = this.checkConsecutiveWorkDays(uid, day, newShift);
+        if (v7) violations.push({ type: 'soft', uid, day, person: staffName, rule: v7.rule, detail: v7.detail });
+        
+        return violations;
+    },
+
+    check11HourRest: function(uid, day, newShift) {
+        if (!newShift || newShift === 'OFF' || newShift === 'REQ_OFF') return null;
+        
+        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+        
+        // 檢查前一天
+        let prevShift = null;
+        if (day === 1) {
+            prevShift = this.lastMonthData[uid]?.lastShift;
+        } else {
+            prevShift = this.assignments[uid]?.[`current_${day - 1}`];
+        }
+        
+        if (prevShift && prevShift !== 'OFF' && prevShift !== 'REQ_OFF') {
+            const prevShiftData = this.shifts.find(s => s.code === prevShift);
+            const newShiftData = this.shifts.find(s => s.code === newShift);
+            
+            if (prevShiftData && newShiftData) {
+                const prevEnd = this.parseTime(prevShiftData.endTime);
+                const newStart = this.parseTime(newShiftData.startTime);
+                
+                let gap = newStart - prevEnd;
+                if (gap < 0) gap += 24;
+                
+                if (gap < 11) {
+                    return {
+                        rule: '11小時休息不足',
+                        detail: `Day ${day-1} ${prevShift}班下班${prevShiftData.endTime} → Day ${day} ${newShift}班上班${newShiftData.startTime}（間隔${gap.toFixed(1)}小時）`
+                    };
+                }
+            }
+        }
+        
+        // 檢查隔天
+        if (day < daysInMonth) {
+            const nextShift = this.assignments[uid]?.[`current_${day + 1}`];
+            
+            if (nextShift && nextShift !== 'OFF' && nextShift !== 'REQ_OFF') {
+                const newShiftData = this.shifts.find(s => s.code === newShift);
+                const nextShiftData = this.shifts.find(s => s.code === nextShift);
+                
+                if (newShiftData && nextShiftData) {
+                    const newEnd = this.parseTime(newShiftData.endTime);
+                    const nextStart = this.parseTime(nextShiftData.startTime);
+                    
+                    let gap = nextStart - newEnd;
+                    if (gap < 0) gap += 24;
+                    
+                    if (gap < 11) {
+                        return {
+                            rule: '11小時休息不足',
+                            detail: `Day ${day} ${newShift}班下班${newShiftData.endTime} → Day ${day+1} ${nextShift}班上班${nextShiftData.startTime}（間隔${gap.toFixed(1)}小時）`
+                        };
+                    }
+                }
+            }
+        }
+        
+        return null;
+    },
+
+    checkWeeklyDiversity: function(uid, day, newShift) {
+        if (!newShift || newShift === 'OFF' || newShift === 'REQ_OFF') return null;
+        
+        const weekStartDay = this.unitRules?.hard?.weekStartDay || 1;
+        const weekStart = this.calculateWeekStart(day, weekStartDay);
+        const weekEnd = Math.min(weekStart + 6, new Date(this.data.year, this.data.month, 0).getDate());
+        
+        const shifts = new Set();
+        for (let d = weekStart; d <= weekEnd; d++) {
+            let shift;
+            if (d === day) {
+                shift = newShift;
+            } else {
+                shift = this.assignments[uid]?.[`current_${d}`];
+            }
+            
+            if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
+                shifts.add(shift);
+            }
+        }
+        
+        if (shifts.size > 2) {
+            return {
+                rule: '週內班別超過2種',
+                detail: `Week (Day ${weekStart}-${weekEnd}): ${Array.from(shifts).join(', ')}（${shifts.size}種班別）`
+            };
+        }
+        
+        return null;
+    },
+
+    checkSpecialStatus: function(uid, newShift) {
+        if (!newShift || newShift === 'OFF' || newShift === 'REQ_OFF') return null;
+        
+        const user = this.usersMap[uid];
+        if (!user) return null;
+        
+        const params = user.schedulingParams || {};
+        const shiftData = this.shifts.find(s => s.code === newShift);
+        if (!shiftData) return null;
+        
+        // 孕婦/哺乳不能排大夜
+        if (params.isPregnant || params.isBreastfeeding) {
+            const nightStart = this.parseTime(this.unitRules?.policy?.nightStart || '22:00');
+            const nightEnd = this.parseTime(this.unitRules?.policy?.nightEnd || '06:00');
+            const shiftStart = this.parseTime(shiftData.startTime);
+            
+            const isNight = (nightStart > nightEnd) 
+                ? (shiftStart >= nightStart || shiftStart <= nightEnd) 
+                : (shiftStart >= nightStart && shiftStart <= nightEnd);
+            
+            if (isNight) {
+                const status = params.isPregnant ? '孕婦' : '哺乳';
+                return {
+                    rule: '特殊身分違規',
+                    detail: `${status}不可排大夜班（${newShift}班）`
+                };
+            }
+        }
+        
+        // PGY 禁止班別
+        if (params.isPGY) {
+            const pgyList = this.unitRules?.policy?.protectPGY_List || [];
+            if (pgyList.includes(newShift)) {
+                return {
+                    rule: '特殊身分違規',
+                    detail: `PGY不可排${newShift}班`
+                };
+            }
+        }
+        
+        return null;
+    },
+
+    checkTwoWeekOffs: function(uid, day, newShift) {
+        const weekStartDay = this.unitRules?.hard?.weekStartDay || 1;
+        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+        
+        const weekStart = this.calculateWeekStart(day, weekStartDay);
+        const weekEnd = weekStart + 6;
+        
+        // 檢查1：前一週 + 當週
+        const prevWeekStart = weekStart - 7;
+        const prevWeekEnd = weekEnd - 7;
+        
+        if (prevWeekStart >= 1) {
+            const offs1 = this.countOffsInRange(uid, prevWeekStart, weekEnd, day, newShift);
+            if (offs1 < 2) {
+                return {
+                    rule: '兩週內OFF不足',
+                    detail: `前一週+當週 (Day ${prevWeekStart}-${weekEnd}): 只有${offs1}個OFF`
+                };
+            }
+        }
+        
+        // 檢查2：當週 + 下一週
+        const nextWeekStart = weekStart + 7;
+        const nextWeekEnd = weekEnd + 7;
+        
+        if (nextWeekStart <= daysInMonth) {
+            const offs2 = this.countOffsInRange(uid, weekStart, Math.min(nextWeekEnd, daysInMonth), day, newShift);
+            if (offs2 < 2) {
+                return {
+                    rule: '兩週內OFF不足',
+                    detail: `當週+下一週 (Day ${weekStart}-${Math.min(nextWeekEnd, daysInMonth)}): 只有${offs2}個OFF`
+                };
+            }
+        }
+        
+        return null;
+    },
+
+    checkOffGap: function(uid, day, newShift) {
+        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+        const maxGap = this.unitRules?.hard?.offGapMax || 12;
+        
+        // 如果新班別是OFF，不檢查
+        if (newShift === 'OFF' || newShift === 'REQ_OFF') return null;
+        
+        // 找前一個OFF
+        let prevOff = null;
+        for (let d = day - 1; d >= 1; d--) {
+            let shift;
+            if (d === day) {
+                shift = newShift;
+            } else {
+                shift = this.assignments[uid]?.[`current_${d}`];
+            }
+            
+            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') {
+                prevOff = d;
+                break;
+            }
+        }
+        
+        // 找下一個OFF
+        let nextOff = null;
+        for (let d = day + 1; d <= daysInMonth; d++) {
+            let shift;
+            if (d === day) {
+                shift = newShift;
+            } else {
+                shift = this.assignments[uid]?.[`current_${d}`];
+            }
+            
+            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') {
+                nextOff = d;
+                break;
+            }
+        }
+        
+        // 檢查間隔
+        if (prevOff && nextOff) {
+            const gap = nextOff - prevOff - 1;
+            if (gap > maxGap) {
+                return {
+                    rule: 'OFF間隔超過限制',
+                    detail: `Day ${prevOff} OFF → Day ${nextOff} OFF（間隔${gap}天，限制${maxGap}天）`
+                };
+            }
+        }
+        
+        return null;
+    },
+
+    checkPreference: function(uid, newShift) {
+        if (!newShift || newShift === 'OFF' || newShift === 'REQ_OFF') return null;
+        
+        const prefs = this.assignments[uid]?.preferences || {};
+        
+        // 包班檢查
+        if (prefs.bundleShift) {
+            if (newShift !== prefs.bundleShift) {
+                return {
+                    rule: '違反包班設定',
+                    detail: `包${prefs.bundleShift}班，但排${newShift}班`
+                };
+            }
+            return null;
+        }
+        
+        // 志願檢查
+        const favShifts = [];
+        if (prefs.favShift) favShifts.push(prefs.favShift);
+        if (prefs.favShift2) favShifts.push(prefs.favShift2);
+        if (prefs.favShift3) favShifts.push(prefs.favShift3);
+        
+        if (favShifts.length > 0 && !favShifts.includes(newShift)) {
+            return {
+                rule: '違反志願設定',
+                detail: `志願${favShifts.join('/')}，但排${newShift}班`
+            };
+        }
+        
+        return null;
+    },
+
+    checkConsecutiveWorkDays: function(uid, day, newShift) {
+        if (!newShift || newShift === 'OFF' || newShift === 'REQ_OFF') return null;
+        
+        // 計算連續上班天數（包含這一天）
+        let count = 1;
+        
+        // 往前數
+        for (let d = day - 1; d >= 1; d--) {
+            const shift = this.assignments[uid]?.[`current_${d}`];
+            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') break;
+            count++;
+        }
+        
+        // 檢查長假狀態
+        const hasLongVacation = this.checkHasLongVacation(uid);
+        const maxConsDays = hasLongVacation 
+            ? (this.unitRules?.policy?.longVacationWorkLimit || 7)
+            : (this.unitRules?.policy?.maxConsDays || 6);
+        
+        if (count > maxConsDays) {
+            return {
+                rule: '超過連續上班天數',
+                detail: `連續上班${count}天（限制${maxConsDays}天${hasLongVacation ? '，有長假放寬' : ''}）`
+            };
+        }
+        
+        return null;
+    },
+
+    checkHasLongVacation: function(uid) {
+        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+        const longVacationDays = this.unitRules?.policy?.longVacationDays || 7;
+        
+        let maxConsecutiveOffs = 0;
+        let currentConsecutiveOffs = 0;
+        
+        for (let d = 1; d <= daysInMonth; d++) {
+            const shift = this.assignments[uid]?.[`current_${d}`];
+            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') {
+                currentConsecutiveOffs++;
+                maxConsecutiveOffs = Math.max(maxConsecutiveOffs, currentConsecutiveOffs);
+            } else {
+                currentConsecutiveOffs = 0;
+            }
+        }
+        
+        return maxConsecutiveOffs >= longVacationDays;
+    },
+
+    // ==================== 完整檢查功能 ====================
+    
+    checkAllRules: function() {
+        const result = this.performFullCheck();
+        this.showCheckReportModal(result, false);
+        this.needsCheck = false;
+        this.lastCheckResult = result;
+    },
+
+    performFullCheck: function() {
+        console.log('🔍 執行完整班表檢查...');
+        
+        const violations = [];
+        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+        
+        this.data.staffList.forEach(staff => {
+            const uid = staff.uid;
+            
+            for (let day = 1; day <= daysInMonth; day++) {
+                const shift = this.assignments[uid]?.[`current_${day}`];
+                if (!shift) continue;
+                
+                const v = this.check7Rules(uid, day, shift);
+                violations.push(...v);
+            }
+        });
+        
+        // 清除舊的違規標記
+        this.violationCells.clear();
+        
+        // 標記新的違規
+        violations.forEach(v => {
+            const cellId = `cell_${v.uid}_${v.day}`;
+            this.violationCells.add(cellId);
+        });
+        
+        // 重新渲染以顯示紅框
+        this.renderMatrix();
+        
+        return { violations };
+    },
+
+    showCheckReportModal: function(result, isPublish) {
+        const hardViolations = result.violations.filter(v => v.type === 'hard');
+        const softViolations = result.violations.filter(v => v.type === 'soft');
+        
+        // 統計各類違規
+        const hardStats = {};
+        const softStats = {};
+        
+        hardViolations.forEach(v => {
+            const rule = v.rule;
+            if (!hardStats[rule]) hardStats[rule] = [];
+            hardStats[rule].push(v);
+        });
+        
+        softViolations.forEach(v => {
+            const rule = v.rule;
+            if (!softStats[rule]) softStats[rule] = [];
+            softStats[rule].push(v);
+        });
+        
+        let modalHtml = `
+        <div id="checkReportModal" style="display:flex; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
+            <div style="background:white; padding:30px; border-radius:12px; width:700px; max-height:80vh; overflow-y:auto; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+                <h3 style="margin:0 0 10px 0; color:#2c3e50;">
+                    📋 排班規則檢查報告
+                </h3>
+                <p style="color:#666; margin-bottom:20px; font-size:0.9rem;">
+                    檢查時間：${new Date().toLocaleString()}<br>
+                    檢查範圍：${this.data.year}年${this.data.month}月班表（${new Date(this.data.year, this.data.month, 0).getDate()}天）
+                </p>`;
+        
+        if (result.violations.length === 0) {
+            modalHtml += `
+                <div style="border:2px solid #27ae60; border-radius:8px; padding:20px; text-align:center; background:#d4edda;">
+                    <h2 style="margin:0; color:#27ae60;">
+                        ✅ 班表完全符合規則
+                    </h2>
+                    <p style="margin:10px 0 0 0; color:#666;">
+                        所有檢查項目均已通過
+                    </p>
+                </div>`;
+        } else {
+            if (hardViolations.length > 0) {
+                modalHtml += `
+                    <div style="border:2px solid #e74c3c; border-radius:8px; padding:15px; margin-bottom:15px;">
+                        <h4 style="margin:0 0 10px 0; color:#e74c3c;">
+                            ❌ 硬規則違規（${hardViolations.length}項）
+                        </h4>`;
+                
+                Object.keys(hardStats).forEach((rule, idx) => {
+                    const items = hardStats[rule];
+                    modalHtml += `
+                        <div style="margin-bottom:10px;">
+                            <strong>${idx + 1}. ${rule}（${items.length}人）</strong>
+                            <ul style="margin:5px 0 0 0; padding-left:20px; font-size:0.9rem;">
+                                ${items.map(v => `<li>${v.person}${v.detail ? '<br><small style="color:#666;">' + v.detail + '</small>' : ''}</li>`).join('')}
+                            </ul>
+                        </div>`;
+                });
+                
+                modalHtml += `</div>`;
+            }
+            
+            if (softViolations.length > 0) {
+                modalHtml += `
+                    <div style="border:2px solid #f39c12; border-radius:8px; padding:15px; margin-bottom:15px;">
+                        <h4 style="margin:0 0 10px 0; color:#f39c12;">
+                            ⚠️ 軟規則違規（${softViolations.length}項）
+                        </h4>`;
+                
+                Object.keys(softStats).forEach((rule, idx) => {
+                    const items = softStats[rule];
+                    modalHtml += `
+                        <div style="margin-bottom:10px;">
+                            <strong>${idx + 1}. ${rule}（${items.length}人）</strong>
+                            <ul style="margin:5px 0 0 0; padding-left:20px; font-size:0.9rem;">
+                                ${items.map(v => `<li>${v.person}${v.detail ? '<br><small style="color:#666;">' + v.detail + '</small>' : ''}</li>`).join('')}
+                            </ul>
+                        </div>`;
+                });
+                
+                modalHtml += `</div>`;
+            }
+            
+            modalHtml += `
+                <div style="padding:15px; background:#f8f9fa; border-radius:8px;">
+                    <strong>📊 總計：${result.violations.length} 項違規</strong><br>
+                    <span style="color:#e74c3c;">硬規則：${hardViolations.length} 項（必須修正才能發布）</span><br>
+                    <span style="color:#f39c12;">軟規則：${softViolations.length} 項（可警告後發布）</span>
+                </div>`;
+        }
+        
+        modalHtml += `
+                <div style="display:flex; gap:15px; justify-content:flex-end; margin-top:20px;">
+                    <button id="btnCloseCheckReport" style="padding:10px 20px; border:1px solid #95a5a6; background:#fff; border-radius:4px; cursor:pointer;">
+                        關閉
+                    </button>
+                </div>
+            </div>
+        </div>`;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        document.getElementById('btnCloseCheckReport').onclick = () => {
+            document.getElementById('checkReportModal').remove();
+        };
+    },
+
+    // ==================== 輔助函式 ====================
+    
+    calculateWeekStart: function(day, weekStartDay) {
+        const date = new Date(this.data.year, this.data.month - 1, day);
+        const dayOfWeek = date.getDay();
+        let offset = (dayOfWeek - weekStartDay + 7) % 7;
+        return day - offset;
+    },
+
+    countOffsInRange: function(uid, startDay, endDay, changedDay, changedShift) {
+        let count = 0;
+        for (let d = startDay; d <= endDay; d++) {
+            let shift;
+            if (d === changedDay) {
+                shift = changedShift;
+            } else {
+                shift = this.assignments[uid]?.[`current_${d}`];
+            }
+            
+            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') {
+                count++;
+            }
+        }
+        return count;
+    },
+
+    parseTime: function(timeStr) {
+        if (!timeStr) return null;
+        const [h, m] = timeStr.split(':').map(Number);
+        return h + m / 60;
     }
 };
