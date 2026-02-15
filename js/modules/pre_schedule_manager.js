@@ -209,7 +209,17 @@ const preScheduleManager = {
             const nextMonth = new Date(); nextMonth.setMonth(nextMonth.getMonth() + 1);
             data = {
                 year: nextMonth.getFullYear(), month: nextMonth.getMonth() + 1,
-                settings: { maxOffDays: 8, maxHolidayOffs: 2, dailyReserved: 1, shiftTypeMode: "3", showAllNames: true },
+                settings: { 
+                    maxOffDays: 8, 
+                    maxHolidayOffs: 2, 
+                    maxSpecificShifts: 5,
+                    dailyReserved: 1, 
+                    shiftTypeMode: "3", 
+                    showAllNames: true,
+                    allowBundleSelection: true,
+                    allowShiftPreferences: true,
+                    allowSpecificShifts: true
+                },
                 groupLimits: {}, dailyNeeds: {}, specificNeeds: {}
             };
             await this.loadCurrentUnitStaff();
@@ -243,10 +253,14 @@ const preScheduleManager = {
                 openDate, closeDate, 
                 maxOffDays: parseInt(document.getElementById('inputMaxOff')?.value) || 8,
                 maxHolidayOffs: parseInt(document.getElementById('inputMaxHoliday')?.value) || 2,
+                maxSpecificShifts: parseInt(document.getElementById('inputMaxSpecificShifts')?.value) || 5,
                 dailyReserved: parseInt(document.getElementById('inputDailyReserve')?.value) || 1,
                 showAllNames: document.getElementById('checkShowAllNames')?.checked !== false,
                 shiftTypeMode: document.getElementById('inputShiftMode')?.value || "3",
-                allowThreeShifts: document.getElementById('checkAllowThree')?.checked || false
+                allowThreeShifts: document.getElementById('checkAllowThree')?.checked || false,
+                allowBundleSelection: document.getElementById('checkAllowBundle')?.checked !== false,
+                allowShiftPreferences: document.getElementById('checkAllowPreferences')?.checked !== false,
+                allowSpecificShifts: document.getElementById('checkAllowSpecific')?.checked !== false
             },
             dailyNeeds: this.getDailyNeedsFromDOM(),
             specificNeeds: this.getSpecificNeedsFromDOM(),
@@ -522,10 +536,14 @@ const preScheduleManager = {
         document.getElementById('inputCloseDate').value = s.closeDate || ''; 
         document.getElementById('inputMaxOff').value = s.maxOffDays || 8; 
         document.getElementById('inputMaxHoliday').value = s.maxHolidayOffs || 2;
+        document.getElementById('inputMaxSpecificShifts').value = s.maxSpecificShifts || 5;
         document.getElementById('inputDailyReserve').value = s.dailyReserved || 1;
         document.getElementById('inputShiftMode').value = s.shiftTypeMode || "3"; 
         document.getElementById('checkShowAllNames').checked = s.showAllNames !== false;
         if(document.getElementById('checkAllowThree')) document.getElementById('checkAllowThree').checked = s.allowThreeShifts || false;
+        document.getElementById('checkAllowBundle').checked = s.allowBundleSelection !== false;
+        document.getElementById('checkAllowPreferences').checked = s.allowShiftPreferences !== false;
+        document.getElementById('checkAllowSpecific').checked = s.allowSpecificShifts !== false;
         this.toggleThreeShiftOption(); 
     },
     
@@ -556,12 +574,16 @@ const preScheduleManager = {
             const s = lastData.settings || {};
             document.getElementById('inputMaxOff').value = s.maxOffDays || 8;
             document.getElementById('inputMaxHoliday').value = s.maxHolidayOffs || 2;
+            document.getElementById('inputMaxSpecificShifts').value = s.maxSpecificShifts || 5;
             document.getElementById('inputDailyReserve').value = s.dailyReserved || 1;
             document.getElementById('inputShiftMode').value = s.shiftTypeMode || "3";
             document.getElementById('checkShowAllNames').checked = s.showAllNames !== false;
             if (document.getElementById('checkAllowThree')) {
                 document.getElementById('checkAllowThree').checked = s.allowThreeShifts || false;
             }
+            document.getElementById('checkAllowBundle').checked = s.allowBundleSelection !== false;
+            document.getElementById('checkAllowPreferences').checked = s.allowShiftPreferences !== false;
+            document.getElementById('checkAllowSpecific').checked = s.allowSpecificShifts !== false;
             
             this.toggleThreeShiftOption();
             const list = lastData.staffList || [];

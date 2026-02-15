@@ -59,42 +59,99 @@
                     </button>
                 </div>
                 
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>預班月份</label>
-                        <input type="month" id="inputPreYearMonth" class="form-control">
-                    </div>
-                    <div class="form-group">
-                        <label>開放填寫區間</label>
-                        <div style="display:flex; align-items:center; gap:5px;">
-                            <input type="date" id="inputOpenDate" class="form-control">
-                            <span>至</span>
-                            <input type="date" id="inputCloseDate" class="form-control">
+                <!-- 開放時段設定 -->
+                <div style="margin-bottom: 20px;">
+                    <h4 style="color: #2c3e50; margin-bottom: 15px;">
+                        <i class="fas fa-calendar-check"></i> 開放時段設定
+                    </h4>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>預班月份</label>
+                            <input type="month" id="inputPreYearMonth" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label>開放填寫區間</label>
+                            <div style="display:flex; align-items:center; gap:5px;">
+                                <input type="date" id="inputOpenDate" class="form-control">
+                                <span>至</span>
+                                <input type="date" id="inputCloseDate" class="form-control">
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="section-title" style="margin-top:20px; border-bottom:2px solid #3498db; padding-bottom:5px; margin-bottom:15px; color:#2c3e50;">
-                    規則設定
+                <!-- 預班上限設定 -->
+                <div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
+                    <h4 style="color: #2c3e50; margin-bottom: 15px;">
+                        <i class="fas fa-sliders-h"></i> 預班上限設定
+                    </h4>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>每月可預休天數上限 (OFF)</label>
+                            <input type="number" id="inputMaxOff" class="form-control" min="0" value="8">
+                            <small class="form-text text-muted">同仁每月最多可預休的天數</small>
+                        </div>
+                        <div class="form-group">
+                            <label>假日(六日)上限</label>
+                            <input type="number" id="inputMaxHoliday" class="form-control" min="0" value="2">
+                            <small class="form-text text-muted">同仁每月最多可預休的假日天數（0 表示不限制）</small>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>指定班別上限</label>
+                        <input type="number" id="inputMaxSpecificShifts" class="form-control" min="0" value="5">
+                        <small class="form-text text-muted">同仁可指定班別或勿排班別的總次數（不含預休 OFF）</small>
+                    </div>
                 </div>
 
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>每月可預休天數上限 (OFF)</label>
-                        <input type="number" id="inputMaxOff" class="form-control" value="8">
+                <!-- 預班項目設定 -->
+                <div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
+                    <h4 style="color: #2c3e50; margin-bottom: 15px;">
+                        <i class="fas fa-check-square"></i> 預班項目設定
+                    </h4>
+                    <small class="form-text text-muted" style="display: block; margin-bottom: 15px;">
+                        控制同仁在預班表中可以使用的功能項目
+                    </small>
+
+                    <div class="form-check" style="margin-bottom: 10px;">
+                        <input type="checkbox" id="checkAllowBundle" class="form-check-input" checked>
+                        <label class="form-check-label" for="checkAllowBundle" style="cursor: pointer;">
+                            <strong>允許選填包班</strong>
+                            <small style="display: block; color: #7f8c8d;">勾選後，同仁可在「排班偏好」中選擇包班意願</small>
+                        </label>
                     </div>
-                    <div class="form-group">
-                        <label>其中包含假日(六日)上限</label>
-                        <input type="number" id="inputMaxHoliday" class="form-control" value="2">
+
+                    <div class="form-check" style="margin-bottom: 10px;">
+                        <input type="checkbox" id="checkAllowPreferences" class="form-check-input" checked>
+                        <label class="form-check-label" for="checkAllowPreferences" style="cursor: pointer;">
+                            <strong>允許選填排班志願</strong>
+                            <small style="display: block; color: #7f8c8d;">勾選後，同仁可填寫第 1/2/3 班別志願序</small>
+                        </label>
+                    </div>
+
+                    <div class="form-check" style="margin-bottom: 10px;">
+                        <input type="checkbox" id="checkAllowSpecific" class="form-check-input" checked>
+                        <label class="form-check-label" for="checkAllowSpecific" style="cursor: pointer;">
+                            <strong>允許選填指定班別</strong>
+                            <small style="display: block; color: #7f8c8d;">勾選後，同仁可使用右鍵選單指定班別或勿排班別</small>
+                        </label>
                     </div>
                 </div>
 
-                <div class="form-row">
+                <!-- 其他設定 -->
+                <div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
+                    <h4 style="color: #2c3e50; margin-bottom: 15px;">
+                        <i class="fas fa-cog"></i> 其他設定
+                    </h4>
+                    
                     <div class="form-group">
                         <label>每日保留名額 (控床)</label>
-                        <input type="number" id="inputDailyReserve" class="form-control" value="1">
+                        <input type="number" id="inputDailyReserve" class="form-control" min="0" value="1">
                         <small style="color:#666;">每日每個班別保留給管理者排班的名額</small>
                     </div>
+
                     <div class="form-group">
                         <label>顯示設定</label>
                         <div style="margin-top:10px;">
@@ -103,21 +160,21 @@
                             </label>
                         </div>
                     </div>
-                </div>
 
-                <div class="form-group">
-                    <label>班別模式</label>
-                    <select id="inputShiftMode" class="form-control" onchange="preScheduleManager.toggleThreeShiftOption()">
-                        <option value="3">三班制 (D, E, N)</option>
-                        <option value="2">兩班制 (D, N) 或 12小時制</option>
-                        <option value="mixed">混合制</option>
-                    </select>
-                </div>
-                
-                <div class="form-group" id="threeShiftOption" style="display:none; margin-left: 20px;">
-                    <label style="cursor:pointer;">
-                        <input type="checkbox" id="checkAllowThree"> 允許兩班制人員上三班 (支援)
-                    </label>
+                    <div class="form-group">
+                        <label>班別模式</label>
+                        <select id="inputShiftMode" class="form-control" onchange="preScheduleManager.toggleThreeShiftOption()">
+                            <option value="3">三班制 (D, E, N)</option>
+                            <option value="2">兩班制 (D, N) 或 12小時制</option>
+                            <option value="mixed">混合制</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group" id="threeShiftOption" style="display:none; margin-left: 20px;">
+                        <label style="cursor:pointer;">
+                            <input type="checkbox" id="checkAllowThree"> 允許兩班制人員上三班 (支援)
+                        </label>
+                    </div>
                 </div>
             </div>
 
@@ -175,4 +232,8 @@
     
     .limit-input { border: 1px solid #ddd; padding: 4px; border-radius: 4px; text-align: center; }
     .limit-input:focus { border-color: #3498db; outline: none; }
+    
+    .form-check { display: flex; align-items: flex-start; }
+    .form-check-input { margin-top: 3px; margin-right: 10px; cursor: pointer; }
+    .form-check-label { flex: 1; }
 </style>
