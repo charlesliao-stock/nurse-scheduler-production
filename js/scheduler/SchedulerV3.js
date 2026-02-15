@@ -3,10 +3,9 @@
 class SchedulerV3 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
         super(allStaff, year, month, lastMonthData, rules);
-        console.log('🚀 SchedulerV3 初始化 (階段1全部填班 + 階段2調整OFF + 階段3回溯1)');
+        console.log('🚀 SchedulerV3 初始化 (階段1全部填班 + 階段2調整OFF + 階段3回溯1 + 階段4回溯2)');
         this.assignments = {};
         this.dailyCount = {};
-        this.changedToOffToday = {}; // 記錄每天被改成OFF的人
         this.initializeAssignments();
         this.initializeDailyCount();
     }
@@ -21,7 +20,6 @@ class SchedulerV3 extends BaseScheduler {
     initializeDailyCount() {
         for (let day = 1; day <= this.daysInMonth; day++) {
             this.dailyCount[day] = {};
-            this.changedToOffToday[day] = [];
             for (let shift of this.shifts) this.dailyCount[day][shift.code] = 0;
         }
     }
@@ -32,7 +30,7 @@ class SchedulerV3 extends BaseScheduler {
             // 步驟0：套用預班
             this.step0_ApplyPreSchedule();
             
-            // 逐日處理：每天都執行「階段1 + 階段2 + 階段3」
+            // 逐日處理：每天都執行「階段1 + 階段2 + 階段3 + 階段4」
             for (let day = 1; day <= this.daysInMonth; day++) {
                 console.log(`\n📅 處理第 ${day} 天`);
                 
@@ -44,10 +42,13 @@ class SchedulerV3 extends BaseScheduler {
                 
                 // 階段3：回溯1（補足不足）
                 this.stage3_Backtrack1(day);
+                
+                // 階段4：回溯2（深度回溯）
+                this.stage4_Backtrack2(day);
             }
             
-            // 步驟4：平衡調整 (微調，不違反包班/志願)
-            this.step4_BalanceAdjustment();
+            // 步驟5：平衡調整 (微調，不違反包班/志願)
+            this.step5_BalanceAdjustment();
             
             return this.convertToDateFormat();
         } catch (error) {
@@ -151,9 +152,6 @@ class SchedulerV3 extends BaseScheduler {
     stage2_AdjustOff(day) {
         console.log(`  ⚖️ 階段2：調整OFF（第 ${day} 天）`);
         
-        // 清空當日記錄
-        this.changedToOffToday[day] = [];
-        
         // 重新計算每個人的總OFF數（1號到31號）
         const totalOffCounts = this.calculateTotalOffCounts();
         
@@ -243,13 +241,6 @@ class SchedulerV3 extends BaseScheduler {
             console.log(`      → ${staffName} (總OFF=${validCandidates[i].totalOff}) 改為 OFF`);
             this.assignments[uid][key] = 'OFF';
             this.dailyCount[day][shiftCode]--;
-            
-            // 記錄被改成OFF的人
-            this.changedToOffToday[day].push({
-                uid: uid,
-                staff: validCandidates[i].staff,
-                originalShift: shiftCode
-            });
         }
     }
     
@@ -277,9 +268,7 @@ class SchedulerV3 extends BaseScheduler {
             const commitmentLevel = this.rules?.policy?.prioritizePreReq || 'must';
             
             // 檢查隔天是否是預班
-            const params = staff.schedulingParams || {};
-            const nextDayPreReq = params[`current_${day + 1}`];
-            const isNextDayPreReq = nextDayPreReq && nextDayPreReq !== 'OFF';
+            const isNextDayPreReq = nextShift === 'REQ_OFF' || this.isPreScheduled(staff, day + 1);
             
             if (isNextDayPreReq && commitmentLevel === 'must') {
                 return false; // 隔天有預班且must模式，不能改OFF
@@ -290,6 +279,15 @@ class SchedulerV3 extends BaseScheduler {
         }
         
         return true;
+    }
+    
+    /**
+     * 檢查某天是否是預班
+     */
+    isPreScheduled(staff, day) {
+        const params = staff.schedulingParams || {};
+        const preReq = params[`current_${day}`];
+        return preReq && preReq !== 'OFF';
     }
     
     /**
@@ -319,7 +317,7 @@ class SchedulerV3 extends BaseScheduler {
     }
     
     /**
-     * 階段3：回溯1（從被改OFF的人中補足不足班別）
+     * 階段3：回溯1（從排班OFF的人中補足不足班別）
      */
     stage3_Backtrack1(day) {
         console.log(`  🔄 階段3：回溯1（第 ${day} 天）`);
@@ -346,7 +344,7 @@ class SchedulerV3 extends BaseScheduler {
             const shortage = N1 - N2;
             console.log(`    🔍 ${shiftCode} 班不足 ${shortage} 人，嘗試回溯補足`);
             
-            // 從被改OFF的人中找候選人
+            // 從排班OFF的人中找候選人
             const candidates = this.findBacktrack1Candidates(day, shiftCode);
             
             if (candidates.length === 0) {
@@ -374,21 +372,23 @@ class SchedulerV3 extends BaseScheduler {
             // 檢查是否完全補足
             const finalCount = this.dailyCount[day][shiftCode] || 0;
             if (finalCount < N1) {
-                console.log(`    ⚠️ ${shiftCode} 班仍不足 ${N1 - finalCount} 人，需要階段4`);
+                console.log(`    ⚠️ ${shiftCode} 班仍不足 ${N1 - finalCount} 人`);
             }
         }
     }
     
     /**
-     * 找回溯1的候選人（被改OFF + 白名單有需求班）
+     * 找回溯1的候選人（排班OFF + 白名單有需求班）
      */
     findBacktrack1Candidates(day, shiftCode) {
         const candidates = [];
-        const changedList = this.changedToOffToday[day] || [];
         
-        for (let item of changedList) {
-            const uid = item.uid;
-            const staff = item.staff;
+        for (let staff of this.allStaff) {
+            const uid = staff.uid || staff.id;
+            const shift = this.assignments[uid]?.[`current_${day}`];
+            
+            // 只找排班OFF（不包含預班OFF）
+            if (shift !== 'OFF') continue;
             
             // 計算白名單
             const whitelist = WhitelistCalculator.calculate(
@@ -442,6 +442,283 @@ class SchedulerV3 extends BaseScheduler {
     }
     
     /**
+     * 階段4：回溯2（深度回溯，調整前幾天的排班）
+     */
+    stage4_Backtrack2(day) {
+        console.log(`  🔙 階段4：回溯2（第 ${day} 天）`);
+        
+        // 檢查是否有缺額
+        const shortages = this.getShortages(day);
+        if (shortages.length === 0) {
+            console.log(`    ✅ 無缺額，跳過階段4`);
+            return;
+        }
+        
+        // 取得回溯深度
+        const backtrackDepth = this.rules?.aiParams?.backtrack_depth || 3;
+        console.log(`    回溯深度: ${backtrackDepth} 天`);
+        
+        // 按班別優先度逐一處理缺額
+        for (let shortage of shortages) {
+            const shiftCode = shortage.shift;
+            const need = shortage.need;
+            
+            console.log(`    處理 ${shiftCode} 班缺額 ${need} 人`);
+            
+            let resolved = false;
+            
+            // 逐步增加回溯深度
+            for (let depth = 1; depth <= backtrackDepth && !resolved; depth++) {
+                const adjustDay = day - depth;
+                
+                // 檢查是否在當月範圍內
+                if (adjustDay < 1) {
+                    console.log(`      ⚠️ 回溯 ${depth} 天超出當月範圍，跳過`);
+                    continue;
+                }
+                
+                console.log(`      嘗試回溯 ${depth} 天（調整 Day ${adjustDay}）`);
+                
+                // 嘗試調整這一天
+                resolved = this.tryAdjustDay(adjustDay, day, shiftCode);
+                
+                if (resolved) {
+                    console.log(`      ✅ 回溯 ${depth} 天成功`);
+                    break;
+                }
+            }
+            
+            if (!resolved) {
+                console.log(`    ❌ ${shiftCode} 班無法補足，需要管理者調整`);
+            }
+        }
+    }
+    
+    /**
+     * 取得當日缺額列表
+     */
+    getShortages(day) {
+        const dateStr = this.getDateKey(day);
+        const dayOfWeek = this.getDayOfWeek(day);
+        const needsList = this.calculateDailyNeeds(day, dateStr, dayOfWeek);
+        const shiftOrder = this.getShiftOrderByPriority();
+        
+        const shortages = [];
+        for (let shiftCode of shiftOrder) {
+            const needItem = needsList.find(n => n.shift === shiftCode);
+            if (!needItem) continue;
+            
+            const N1 = needItem.need;
+            const N2 = this.dailyCount[day][shiftCode] || 0;
+            
+            if (N1 > N2) {
+                shortages.push({
+                    shift: shiftCode,
+                    need: N1 - N2
+                });
+            }
+        }
+        
+        return shortages;
+    }
+    
+    /**
+     * 嘗試調整某一天來補足當前天的缺額
+     */
+    tryAdjustDay(adjustDay, currentDay, targetShift) {
+        // 找adjustDay上班的人（逐一嘗試）
+        const workingStaff = [];
+        for (let staff of this.allStaff) {
+            const uid = staff.uid || staff.id;
+            const shift = this.assignments[uid]?.[`current_${adjustDay}`];
+            if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
+                workingStaff.push({
+                    uid: uid,
+                    staff: staff,
+                    shift: shift
+                });
+            }
+        }
+        
+        // 逐一嘗試改每個人為OFF
+        for (let item of workingStaff) {
+            const uid = item.uid;
+            const staff = item.staff;
+            const originalShift = item.shift;
+            
+            // 找adjustDay的排班OFF人員（可以頂替）
+            const replacement = this.findReplacement(adjustDay, originalShift);
+            
+            if (!replacement) {
+                continue; // 找不到替補，嘗試下一個人
+            }
+            
+            // 備份
+            const backup = this.backupAssignments(adjustDay, currentDay);
+            
+            // 執行交換
+            this.assignments[uid][`current_${adjustDay}`] = 'OFF';
+            this.assignments[replacement.uid][`current_${adjustDay}`] = originalShift;
+            
+            // 重新執行adjustDay的階段2-3
+            this.rerunStages23(adjustDay);
+            
+            // 檢查adjustDay是否有缺額
+            const adjustDayShortages = this.getShortages(adjustDay);
+            if (adjustDayShortages.length > 0) {
+                // adjustDay產生缺額，失敗
+                this.restoreAssignments(backup);
+                continue;
+            }
+            
+            // 重新執行adjustDay+1到currentDay的階段1-3
+            for (let d = adjustDay + 1; d <= currentDay; d++) {
+                this.rerunStages123(d);
+            }
+            
+            // 檢查targetShift是否補足
+            const dateStr = this.getDateKey(currentDay);
+            const dayOfWeek = this.getDayOfWeek(currentDay);
+            const needsList = this.calculateDailyNeeds(currentDay, dateStr, dayOfWeek);
+            const needItem = needsList.find(n => n.shift === targetShift);
+            
+            if (needItem) {
+                const N1 = needItem.need;
+                const N2 = this.dailyCount[currentDay][targetShift] || 0;
+                
+                if (N2 >= N1) {
+                    // 成功補足
+                    return true;
+                }
+            }
+            
+            // 失敗，恢復
+            this.restoreAssignments(backup);
+        }
+        
+        return false;
+    }
+    
+    /**
+     * 找可以頂替的排班OFF人員
+     */
+    findReplacement(day, targetShift) {
+        for (let staff of this.allStaff) {
+            const uid = staff.uid || staff.id;
+            const shift = this.assignments[uid]?.[`current_${day}`];
+            
+            // 只找排班OFF
+            if (shift !== 'OFF') continue;
+            
+            // 計算白名單
+            const whitelist = WhitelistCalculator.calculate(
+                staff,
+                this.assignments,
+                day,
+                this.year,
+                this.month,
+                this.rules,
+                this.dailyCount[day],
+                this.daysInMonth,
+                this.shiftTimeMap,
+                this.lastMonthData
+            );
+            
+            if (whitelist.includes(targetShift)) {
+                return {
+                    uid: uid,
+                    staff: staff
+                };
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * 備份assignments（從startDay到endDay）
+     */
+    backupAssignments(startDay, endDay) {
+        const backup = {};
+        for (let staff of this.allStaff) {
+            const uid = staff.uid || staff.id;
+            backup[uid] = {};
+            for (let d = startDay; d <= endDay; d++) {
+                const key = `current_${d}`;
+                backup[uid][key] = this.assignments[uid][key];
+            }
+        }
+        return backup;
+    }
+    
+    /**
+     * 恢復assignments
+     */
+    restoreAssignments(backup) {
+        for (let uid in backup) {
+            for (let key in backup[uid]) {
+                this.assignments[uid][key] = backup[uid][key];
+            }
+        }
+        
+        // 重新計算dailyCount
+        this.recalculateDailyCount();
+    }
+    
+    /**
+     * 重新計算dailyCount
+     */
+    recalculateDailyCount() {
+        // 清空
+        for (let day = 1; day <= this.daysInMonth; day++) {
+            for (let shift of this.shifts) {
+                this.dailyCount[day][shift.code] = 0;
+            }
+        }
+        
+        // 重新計算
+        for (let staff of this.allStaff) {
+            const uid = staff.uid || staff.id;
+            for (let day = 1; day <= this.daysInMonth; day++) {
+                const shift = this.assignments[uid]?.[`current_${day}`];
+                if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
+                    this.dailyCount[day][shift] = (this.dailyCount[day][shift] || 0) + 1;
+                }
+            }
+        }
+    }
+    
+    /**
+     * 重新執行階段2-3
+     */
+    rerunStages23(day) {
+        this.stage2_AdjustOff(day);
+        this.stage3_Backtrack1(day);
+    }
+    
+    /**
+     * 重新執行階段1-3
+     */
+    rerunStages123(day) {
+        // 清空當天的排班（保留預班）
+        for (let staff of this.allStaff) {
+            const uid = staff.uid || staff.id;
+            const params = staff.schedulingParams || {};
+            const preReq = params[`current_${day}`];
+            
+            if (!preReq || preReq === 'OFF') {
+                // 沒有預班，清空
+                delete this.assignments[uid][`current_${day}`];
+            }
+        }
+        
+        // 重新執行階段1-3
+        this.stage1_FillAllShifts(day);
+        this.stage2_AdjustOff(day);
+        this.stage3_Backtrack1(day);
+    }
+    
+    /**
      * 計算每個人的總OFF數（1號到31號）
      */
     calculateTotalOffCounts() {
@@ -491,10 +768,10 @@ class SchedulerV3 extends BaseScheduler {
     }
     
     /**
-     * 步驟4：平衡調整（微調，不違反包班/志願）
+     * 步驟5：平衡調整（微調，不違反包班/志願）
      */
-    step4_BalanceAdjustment() {
-        console.log('\n⚖️ 步驟4：平衡調整');
+    step5_BalanceAdjustment() {
+        console.log('\n⚖️ 步驟5：平衡調整');
         const rulesWithContext = { ...this.rules, year: this.year, month: this.month, lastMonthData: this.lastMonthData };
         BalanceAdjuster.adjust(this.assignments, this.allStaff, rulesWithContext, this.daysInMonth, this.shiftTimeMap);
     }
@@ -541,4 +818,4 @@ class SchedulerV3 extends BaseScheduler {
     }
 }
 
-console.log('✅ SchedulerV3 已載入 (階段1全部填班 + 階段2調整OFF + 階段3回溯1)');
+console.log('✅ SchedulerV3 已載入 (階段1-4完整版)');
