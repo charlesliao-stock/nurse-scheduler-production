@@ -90,13 +90,31 @@ const matrixManager = {
         const styleElement = document.createElement('style');
         styleElement.id = 'schedule-cell-styles';
         styleElement.textContent = `
+            /* 預休 (REQ_OFF) - 黃色底 */
             .cell-req-off {
                 background: #fff3cd !important;
                 color: #856404 !important;
                 font-weight: bold;
+                border: 2px solid #f39c12 !important;
             }
+            /* 系統排休 (OFF) - 白底 */
             .cell-off {
                 background: #fff !important;
+                color: #95a5a6 !important;
+            }
+            /* 指定班別 - 藍色底 */
+            .cell-specific-shift {
+                background: #d6eaf8 !important;
+                color: #1565c0 !important;
+                font-weight: bold;
+                border: 2px solid #3498db !important;
+            }
+            /* 希望避開 - 紅色底 */
+            .cell-avoid-shift {
+                background: #fadbd8 !important;
+                color: #c0392b !important;
+                font-weight: bold;
+                border: 2px solid #e74c3c !important;
             }
         `;
         document.head.appendChild(styleElement);
@@ -444,7 +462,7 @@ const matrixManager = {
             const color = (w===0||w===6) ? 'color:red;' : '';
             h1 += `<th class="cell-narrow" style="${color}; border:1px solid #bbb;">${d}</th>`;
         }
-        h1 += `<th colspan="4" style="background:#e8f4fd; font-size:0.8rem; border:1px solid #bbb;">統計</th></tr>`;
+        h1 += `<th colspan="5" style="background:#e8f4fd; font-size:0.8rem; border:1px solid #bbb;">統計</th></tr>`;
 
         let h2 = `<tr>`;
         const weeks = ['日','一','二','三','四','五','六'];
@@ -460,7 +478,7 @@ const matrixManager = {
             const color = (w===0||w===6) ? 'color:red;' : '';
             h2 += `<th class="cell-narrow" style="${color}; font-size:0.7rem; border:1px solid #bbb;">${weeks[w]}</th>`;
         }
-        h2 += `<th class="cell-narrow" style="font-size:0.7rem; border:1px solid #bbb;">休</th><th class="cell-narrow" style="font-size:0.7rem; border:1px solid #bbb;">假</th><th class="cell-narrow" style="font-size:0.7rem; border:1px solid #bbb;">其</th><th class="cell-narrow" style="font-size:0.7rem; border:1px solid #bbb;">總</th></tr>`;
+        h2 += `<th class="cell-narrow" style="font-size:0.7rem; border:1px solid #bbb;">休</th><th class="cell-narrow" style="font-size:0.7rem; border:1px solid #bbb;">假</th><th class="cell-narrow" style="font-size:0.7rem; border:1px solid #bbb;">指定</th><th class="cell-narrow" style="font-size:0.7rem; border:1px solid #bbb;">其他</th><th class="cell-narrow" style="font-size:0.7rem; border:1px solid #bbb;">總</th></tr>`;
         
         thead.innerHTML = h1 + h2;
 
@@ -490,23 +508,43 @@ const matrixManager = {
             for(let d=1; d<=daysInMonth; d++) {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
-                let cellClass = 'cell-off';
-                let displayVal = val;
+                let cellClass = '';
+                let displayVal = '';
                 
+                // 🆕 處理預休 (REQ_OFF)
                 if (val === 'REQ_OFF') {
                     cellClass = 'cell-req-off';
-                    displayVal = 'FF';
-                } else if (val === 'OFF') {
+                    displayVal = '預';
+                } 
+                // 🆕 處理系統排休 (OFF)
+                else if (val === 'OFF') {
                     cellClass = 'cell-off';
                     displayVal = 'FF';
                 }
+                // 🆕 處理希望避開 (!)
+                else if (val && val.startsWith('!')) {
+                    cellClass = 'cell-avoid-shift';
+                    const shiftCode = val.substring(1);
+                    displayVal = `勿${shiftCode}`;
+                }
+                // 🆕 處理指定班別
+                else if (val && val !== '') {
+                    cellClass = 'cell-specific-shift';
+                    displayVal = val;
+                }
+                // 空白格子
+                else {
+                    cellClass = '';
+                    displayVal = '';
+                }
                 
-                rowHtml += `<td class="${cellClass}" onclick="matrixManager.showShiftMenu(this, '${uid}', '${key}')" style="border:1px solid #bbb;">${displayVal}</td>`;
+                rowHtml += `<td class="${cellClass}" onclick="matrixManager.showShiftMenu(this, '${uid}', '${key}')" style="border:1px solid #bbb; cursor:pointer;">${displayVal}</td>`;
             }
 
             rowHtml += `
                 <td id="stat-off-${uid}" style="font-weight:bold; color:#27ae60; border:1px solid #bbb;">0</td>
                 <td id="stat-holiday-${uid}" style="color:#e67e22; border:1px solid #bbb;">0</td>
+                <td id="stat-specific-${uid}" style="color:#3498db; border:1px solid #bbb;">0</td>
                 <td id="stat-other-${uid}" style="color:#95a5a6; border:1px solid #bbb;">0</td>
                 <td id="stat-total-${uid}" style="font-weight:bold; border:1px solid #bbb;">0</td>
             `;
@@ -526,27 +564,48 @@ const matrixManager = {
             const assign = this.localAssignments[uid] || {};
             let offCount = 0;
             let holidayCount = 0;
+            let specificCount = 0;
             let otherCount = 0;
 
             for(let d=1; d<=daysInMonth; d++) {
                 const val = assign[`current_${d}`];
-                if (val === 'OFF' || val === 'REQ_OFF') offCount++;
+                
+                // 🆕 預休 (REQ_OFF) 和系統排休 (OFF)
+                if (val === 'OFF' || val === 'REQ_OFF') {
+                    offCount++;
+                }
+                // 🆕 希望避開 (!)
+                else if (val && val.startsWith('!')) {
+                    specificCount++;
+                }
+                // 🆕 指定班別
                 else if (val && val !== '') {
                     const shift = this.shifts.find(s => s.code === val);
-                    if (shift && shift.type === 'holiday') holidayCount++;
-                    else if (shift) otherCount++;
+                    if (shift) {
+                        if (shift.type === 'holiday') {
+                            holidayCount++;
+                        } else {
+                            // 這是同仁指定的班別
+                            specificCount++;
+                        }
+                    } else {
+                        // 找不到對應班別，計入其他
+                        otherCount++;
+                    }
                 }
             }
 
             const elOff = document.getElementById(`stat-off-${uid}`);
             const elHoliday = document.getElementById(`stat-holiday-${uid}`);
+            const elSpecific = document.getElementById(`stat-specific-${uid}`);
             const elOther = document.getElementById(`stat-other-${uid}`);
             const elTotal = document.getElementById(`stat-total-${uid}`);
 
             if(elOff) elOff.textContent = offCount;
             if(elHoliday) elHoliday.textContent = holidayCount;
+            if(elSpecific) elSpecific.textContent = specificCount;
             if(elOther) elOther.textContent = otherCount;
-            if(elTotal) elTotal.textContent = offCount + holidayCount + otherCount;
+            if(elTotal) elTotal.textContent = offCount + holidayCount + specificCount + otherCount;
         });
     },
 
