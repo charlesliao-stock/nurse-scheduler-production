@@ -501,7 +501,7 @@ const matrixManager = {
             for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
                 const key = `last_${d}`;
                 const val = this.historyCorrections[uid]?.[key] || this.lastMonthAssignments[uid]?.[`current_${d}`] || this.lastMonthAssignments[uid]?.[d] || 'OFF';
-                rowHtml += `<td class="cell-history" onclick="matrixManager.showHistoryMenu(this, '${uid}', ${d})" style="background:#f9f9f9; color:#777; border:1px solid #bbb;">${val}</td>`;
+                rowHtml += `<td class="cell-history" oncontextmenu="matrixManager.showHistoryMenu(event, '${uid}', ${d}); return false;" style="background:#f9f9f9; color:#777; border:1px solid #bbb; cursor:pointer;">${val}</td>`;
             }
 
             const assign = this.localAssignments[uid] || {};
@@ -538,7 +538,8 @@ const matrixManager = {
                     displayVal = '';
                 }
                 
-                rowHtml += `<td class="${cellClass}" onclick="matrixManager.showShiftMenu(this, '${uid}', '${key}')" style="border:1px solid #bbb; cursor:pointer;">${displayVal}</td>`;
+                // 🆕 左鍵直接設 REQ_OFF，右鍵打開功能表
+                rowHtml += `<td class="${cellClass}" onclick="matrixManager.toggleReqOff('${uid}', '${key}')" oncontextmenu="matrixManager.showShiftMenu(event, '${uid}', '${key}'); return false;" style="border:1px solid #bbb; cursor:pointer;">${displayVal}</td>`;
             }
 
             rowHtml += `
@@ -609,27 +610,102 @@ const matrixManager = {
         });
     },
 
-    showShiftMenu: function(cell, uid, key) {
+    /**
+     * 🆕 左鍵點擊：切換預休狀態
+     */
+    toggleReqOff: function(uid, key) {
+        if(!this.localAssignments[uid]) this.localAssignments[uid] = {};
+        
+        const currentVal = this.localAssignments[uid][key];
+        
+        // 如果當前是預休，則清除；否則設為預休
+        if (currentVal === 'REQ_OFF') {
+            delete this.localAssignments[uid][key];
+        } else {
+            this.localAssignments[uid][key] = 'REQ_OFF';
+        }
+        
+        this.pendingSave = true;
+        this.updateUnsavedIndicator(true);
+        this.updateCellOnly(uid, key);
+        this.updateStats();
+    },
+
+    /**
+     * 🆕 只更新單一格子，避免重複渲染整個表格
+     */
+    updateCellOnly: function(uid, key) {
+        const val = this.localAssignments[uid]?.[key] || '';
+        let cellClass = '';
+        let displayVal = '';
+        
+        if (val === 'REQ_OFF') {
+            cellClass = 'cell-req-off';
+            displayVal = '預';
+        } else if (val === 'OFF') {
+            cellClass = 'cell-off';
+            displayVal = 'FF';
+        } else if (val && val.startsWith('!')) {
+            cellClass = 'cell-avoid-shift';
+            const shiftCode = val.substring(1);
+            displayVal = `勿${shiftCode}`;
+        } else if (val && val !== '') {
+            cellClass = 'cell-specific-shift';
+            displayVal = val;
+        }
+        
+        // 找到對應的 td 元素並更新
+        const staffList = this.data.staffList || [];
+        const staffIndex = staffList.findIndex(s => s.uid === uid);
+        if (staffIndex === -1) return;
+        
+        const tbody = document.getElementById('matrixBody');
+        const row = tbody.children[staffIndex];
+        if (!row) return;
+        
+        // 計算格子位置：4 個固定欄位 + 6 個上月欄位 + 當前日期
+        const dayMatch = key.match(/current_(\d+)/);
+        if (!dayMatch) return;
+        const day = parseInt(dayMatch[1]);
+        const cellIndex = 4 + 6 + (day - 1);
+        
+        const cell = row.children[cellIndex];
+        if (cell) {
+            cell.className = cellClass;
+            cell.textContent = displayVal;
+        }
+    },
+
+    /**
+     * 🆕 右鍵點擊：顯示功能表
+     */
+    showShiftMenu: function(event, uid, key) {
+        event.preventDefault();
+        const cell = event.target;
         const menu = document.getElementById('customContextMenu');
-        let html = `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', null)">清除</div>`;
-        html += `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', 'REQ_OFF')" style="color:#f39c12; font-weight:bold;"><i class="fas fa-user-clock"></i> 預排休假 (REQ_OFF)</div>`;
-        html += `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', 'OFF')" style="color:#27ae60; font-weight:bold;"><i class="fas fa-bed"></i> 系統排休 (OFF)</div>`;
+        
+        let html = `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', null); matrixManager.hideMenu();">清除</div>`;
+        html += `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', 'REQ_OFF'); matrixManager.hideMenu();" style="color:#f39c12; font-weight:bold;"><i class="fas fa-user-clock"></i> 預排休假 (REQ_OFF)</div>`;
+        html += `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', 'OFF'); matrixManager.hideMenu();" style="color:#27ae60; font-weight:bold;"><i class="fas fa-bed"></i> 系統排休 (OFF)</div>`;
         
         this.shifts.forEach(s => {
-            html += `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', '${s.code}')">${s.code} - ${s.name}</div>`;
+            html += `<div class="menu-item" onclick="matrixManager.setShift('${uid}', '${key}', '${s.code}'); matrixManager.hideMenu();">${s.code} - ${s.name}</div>`;
         });
         
         menu.innerHTML = html;
         this.positionMenu(cell, menu);
     },
 
-    showHistoryMenu: function(cell, uid, day) {
+    showHistoryMenu: function(event, uid, day) {
+        event.preventDefault();
+        const cell = event.target;
         const menu = document.getElementById('customContextMenu');
+        
         let html = `<div style="padding:5px 10px; background:#eee; font-size:0.7rem; color:#666;">修正上月紀錄</div>`;
-        html += `<div class="menu-item" onclick="matrixManager.setHistoryShift('${uid}', ${day}, 'OFF')">OFF</div>`;
+        html += `<div class="menu-item" onclick="matrixManager.setHistoryShift('${uid}', ${day}, 'OFF'); matrixManager.hideMenu();">OFF</div>`;
         this.shifts.forEach(s => {
             if (s.code !== 'OFF') {
-                html += `<div class="menu-item" onclick="matrixManager.setHistoryShift('${uid}', ${day}, '${s.code}')">${s.code}</div>`;
+                html += `<div class="menu-item" onclick="matrixManager.setHistoryShift('${uid}', ${day}, '${s.code}'); matrixManager.hideMenu();">${s.code}</div>`;
             }
         });
         
@@ -652,6 +728,17 @@ const matrixManager = {
         menu.style.visibility = 'visible';
     },
 
+    /**
+     * 🆕 隱藏功能表
+     */
+    hideMenu: function() {
+        const menu = document.getElementById('customContextMenu');
+        if (menu) {
+            menu.style.display = 'none';
+            menu.style.visibility = 'hidden';
+        }
+    },
+
     setShift: function(uid, key, val) {
         if(!this.localAssignments[uid]) this.localAssignments[uid] = {};
         if(val === null) delete this.localAssignments[uid][key];
@@ -660,7 +747,8 @@ const matrixManager = {
         this.pendingSave = true;
         this.updateUnsavedIndicator(true);
         
-        this.renderMatrix();
+        // 🆕 只更新單一格子，不重新渲染整個表格
+        this.updateCellOnly(uid, key);
         this.updateStats();
     },
 
@@ -673,6 +761,7 @@ const matrixManager = {
         this.pendingSave = true;
         this.updateUnsavedIndicator(true);
         
+        // 🆕 歷史記錄需要重新渲染，因為格子位置不同
         this.renderMatrix();
     },
 
@@ -1046,6 +1135,14 @@ executeSchedule: async function() {
 },
     
     setupEvents: function() {
+        // 🆕 全域點擊關閉功能表
+        document.addEventListener('click', (e) => {
+            const menu = document.getElementById('customContextMenu');
+            if (menu && !menu.contains(e.target)) {
+                this.hideMenu();
+            }
+        });
+        
         window.addEventListener('beforeunload', (e) => {
             if (this.pendingSave) {
                 e.preventDefault();
@@ -1055,8 +1152,7 @@ executeSchedule: async function() {
     },
 
     cleanup: function() { 
-        const menu = document.getElementById('customContextMenu');
-        if (menu) menu.style.display='none';
+        this.hideMenu();
         window.removeEventListener('beforeunload', null);
     }
 };
