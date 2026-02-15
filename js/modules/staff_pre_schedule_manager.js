@@ -14,9 +14,13 @@ const staffPreScheduleManager = {
     rules: {
         maxOff: 8,
         maxHoliday: 8,
+        maxSpecificShifts: 5,
         dailyLimit: 2,
         showNames: true,
-        weekStartDay: 1
+        weekStartDay: 1,
+        allowBundleSelection: true,
+        allowShiftPreferences: true,
+        allowSpecificShifts: true
     },
     
     isReadOnly: false,
@@ -149,8 +153,12 @@ const staffPreScheduleManager = {
         const settings = this.data.settings || {};
         this.rules.maxOff = parseInt(settings.maxOffDays) || 8;
         this.rules.maxHoliday = parseInt(settings.maxHolidayOffs) || 0;
+        this.rules.maxSpecificShifts = parseInt(settings.maxSpecificShifts) || 5;
         this.rules.dailyLimit = parseInt(settings.dailyReserved) || 0;
-        this.rules.showNames = (settings.showAllNames !== false); 
+        this.rules.showNames = (settings.showAllNames !== false);
+        this.rules.allowBundleSelection = (settings.allowBundleSelection !== false);
+        this.rules.allowShiftPreferences = (settings.allowShiftPreferences !== false);
+        this.rules.allowSpecificShifts = (settings.allowSpecificShifts !== false);
     },
 
     // 🔥 修正：正確計算 dayOfWeek 索引
@@ -193,9 +201,40 @@ const staffPreScheduleManager = {
         const bundleSelect = document.getElementById('inputBundleShift');
         const bundleGroup = document.getElementById('bundleGroup');
         const prefContainer = document.getElementById('prefContainer');
+        const prefGroup = document.getElementById('prefGroup');
+        
+        // 🆕 包班選單控制
+        if (bundleSelect) {
+            const canBundle = this.userData?.schedulingParams?.canBundleShifts === true;
+            
+            // 如果設定不允許，或同仁沒有包班權限，就隱藏
+            if (!this.rules.allowBundleSelection || !canBundle) {
+                if(bundleGroup) bundleGroup.style.display = 'none';
+            } else {
+                let options = '<option value="">無 (不包班)</option>';
+                this.shifts.forEach(s => {
+                    if (s.isBundleAvailable) options += `<option value="${s.code}">${s.code} (${s.name})</option>`;
+                });
+                bundleSelect.innerHTML = options;
+                bundleSelect.disabled = this.isReadOnly;
+                if (this.userRequest.preferences?.bundleShift) bundleSelect.value = this.userRequest.preferences.bundleShift;
+                if(bundleGroup) bundleGroup.style.display = 'block';
+                bundleSelect.onchange = () => renderPrefs();
+            }
+        }
+
+        // 🆕 志願序控制
+        if (prefGroup) {
+            if (!this.rules.allowShiftPreferences) {
+                prefGroup.style.display = 'none';
+            } else {
+                prefGroup.style.display = 'block';
+            }
+        }
         
         const renderPrefs = () => {
-            if (!prefContainer) return;
+            if (!prefContainer || !this.rules.allowShiftPreferences) return;
+            
             const preferences = this.userRequest.preferences || {};
             
             // 取得當前包班設定
@@ -214,7 +253,6 @@ const staffPreScheduleManager = {
                 const isBreastfeeding = params.isBreastfeeding && params.breastfeedingExpiry && new Date(params.breastfeedingExpiry) >= today;
                 const isPGY = params.isPGY && params.pgyExpiry && new Date(params.pgyExpiry) >= today;
 
-                // 判斷包班是否為小夜或大夜
                 const isEveningOrNightBundle = currentBundle && bundleShiftData 
                     ? shiftUtils.isEveningOrNightShift(bundleShiftData)
                     : false;
@@ -222,21 +260,11 @@ const staffPreScheduleManager = {
                 return this.shifts.filter(s => {
                     if (s.code === 'OFF') return false;
                     
-                    // 判斷當前班別是否為大夜（僅大夜需要被特殊身分過濾）
                     const isNightShift = shiftUtils.isNightShift(s);
-                    
-                    // 判斷當前班別是否為小夜或大夜（用於包班過濾）
                     const isEveningOrNightShift = shiftUtils.isEveningOrNightShift(s);
                     
-                    // 1. 特殊身份過濾：懷孕、哺乳、PGY 隱藏大夜班 (23:00-02:00)
                     if ((isPregnant || isBreastfeeding || isPGY) && isNightShift) return false;
-
-                    // 2. 包班過濾：如果是小夜或大夜包班，隱藏「其他」的小夜/大夜班別
-                    if (isEveningOrNightBundle && isEveningOrNightShift && s.code !== currentBundle) {
-                        return false;
-                    }
-
-                    // 3. 彼此不重複：排除已被其他志願選取的班別
+                    if (isEveningOrNightBundle && isEveningOrNightShift && s.code !== currentBundle) return false;
                     if (s.code !== '' && otherVals.includes(s.code) && s.code !== currentVal) return false;
 
                     return true;
@@ -279,12 +307,10 @@ const staffPreScheduleManager = {
             
             prefContainer.innerHTML = html;
 
-            // 綁定志願變更事件，以即時更新其他下拉選單
             ['pref_favShift', 'pref_favShift2', 'pref_favShift3'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) {
                     el.onchange = () => {
-                        // 更新 userRequest 中的偏好，以便重新渲染時保持狀態
                         if (!this.userRequest.preferences) this.userRequest.preferences = {};
                         this.userRequest.preferences.favShift = document.getElementById('pref_favShift')?.value || '';
                         this.userRequest.preferences.favShift2 = document.getElementById('pref_favShift2')?.value || '';
@@ -297,23 +323,6 @@ const staffPreScheduleManager = {
             });
         };
 
-        if (bundleSelect) {
-            const canBundle = this.userData?.schedulingParams?.canBundleShifts === true;
-            if (canBundle) {
-                let options = '<option value="">無 (不包班)</option>';
-                this.shifts.forEach(s => {
-                    if (s.isBundleAvailable) options += `<option value="${s.code}">${s.code} (${s.name})</option>`;
-                });
-                bundleSelect.innerHTML = options;
-                bundleSelect.disabled = this.isReadOnly;
-                if (this.userRequest.preferences?.bundleShift) bundleSelect.value = this.userRequest.preferences.bundleShift;
-                if(bundleGroup) bundleGroup.style.display = 'block';
-                bundleSelect.onchange = renderPrefs;
-            } else {
-                if(bundleGroup) bundleGroup.style.display = 'none';
-            }
-        }
-
         renderPrefs();
     },
 
@@ -321,10 +330,17 @@ const staffPreScheduleManager = {
         const offCount = this.countMyOffs();
         const holidayOffCount = this.countMyHolidayOffs();
         
+        // 🆕 新增：指定班別統計
+        const specificCount = this.countMySpecificShifts();
+        
         const elOffCount = document.getElementById('statOffCount');
         const elMaxOff = document.getElementById('limitMaxOff');
         const elHolidayOffCount = document.getElementById('statHolidayOffCount');
         const elMaxHoliday = document.getElementById('limitMaxHoliday');
+        
+        // 🆕 新增：指定班別顯示
+        const elSpecificCount = document.getElementById('statSpecificCount');
+        const elMaxSpecific = document.getElementById('limitMaxSpecific');
 
         if (elOffCount) {
             elOffCount.innerText = offCount;
@@ -337,6 +353,13 @@ const staffPreScheduleManager = {
             elHolidayOffCount.style.color = (this.rules.maxHoliday > 0 && holidayOffCount > this.rules.maxHoliday) ? '#e74c3c' : 'inherit';
         }
         if (elMaxHoliday) elMaxHoliday.innerText = this.rules.maxHoliday;
+        
+        // 🆕 新增：更新指定班別統計
+        if (elSpecificCount) {
+            elSpecificCount.innerText = specificCount;
+            elSpecificCount.style.color = specificCount > this.rules.maxSpecificShifts ? '#e74c3c' : 'inherit';
+        }
+        if (elMaxSpecific) elMaxSpecific.innerText = this.rules.maxSpecificShifts;
 
         const specialArea = document.getElementById('specialStatusArea');
         if (specialArea) {
@@ -361,6 +384,21 @@ const staffPreScheduleManager = {
                 const dateObj = new Date(year, month - 1, day);
                 const isWeekend = (dateObj.getDay() === 0 || dateObj.getDay() === 6);
                 if (isWeekend) count++;
+            }
+        });
+        return count;
+    },
+
+    // 🆕 新增：計算指定班別次數
+    countMySpecificShifts: function() {
+        let count = 0;
+        Object.keys(this.userRequest).forEach(key => {
+            if (key.startsWith('current_')) {
+                const val = this.userRequest[key];
+                // 計算指定班別（非 OFF）和勿排班別（!開頭）
+                if (val && val !== 'REQ_OFF') {
+                    count++;
+                }
             }
         });
         return count;
@@ -517,6 +555,12 @@ const staffPreScheduleManager = {
     handleRightClick: function(e, day) {
         e.preventDefault();
         if(this.isReadOnly) return;
+        
+        // 🆕 檢查是否允許使用右鍵選單
+        if (!this.rules.allowSpecificShifts) {
+            return; // 不顯示右鍵選單
+        }
+        
         this.selectedDay = day;
         const menu = document.getElementById('staffContextMenu');
         
@@ -580,6 +624,7 @@ const staffPreScheduleManager = {
 
     trySetShift: function(day, val) {
         const key = `current_${day}`;
+        
         if (val === 'REQ_OFF') {
             const currentOffs = this.countMyOffs();
             const currentHolidayOffs = this.countMyHolidayOffs();
@@ -600,6 +645,7 @@ const staffPreScheduleManager = {
                     return;
                 }
             }
+            
             const dayCount = this.calculateDailyOffCount(day);
             const myOldVal = this.userRequest[key];
             const willBeCount = (myOldVal === 'REQ_OFF') ? dayCount : dayCount + 1;
@@ -608,9 +654,27 @@ const staffPreScheduleManager = {
             if (limit > 0 && willBeCount > limit) {
                  if(!confirm(`該日預休名額將達 (${willBeCount}/${limit}) 人。確定仍要排休嗎？`)) return;
             }
+        } 
+        // 🆕 新增：指定班別上限檢查
+        else if (val !== null && val !== 'REQ_OFF') {
+            const currentSpecificCount = this.countMySpecificShifts();
+            const oldValue = this.userRequest[key];
+            
+            // 如果舊值不是指定班別，而新值是指定班別，需要檢查上限
+            const isOldSpecific = oldValue && oldValue !== 'REQ_OFF';
+            const isNewSpecific = true; // val 已經確定不是 null 和 REQ_OFF
+            
+            if (!isOldSpecific && isNewSpecific) {
+                if (currentSpecificCount >= this.rules.maxSpecificShifts) {
+                    alert(`無法指定班別：您本月指定班別已達上限 (${this.rules.maxSpecificShifts} 次)\n\n目前已指定：${currentSpecificCount} 次`);
+                    return;
+                }
+            }
         }
+        
         if (val === null) delete this.userRequest[key];
         else this.userRequest[key] = val;
+        
         this.renderCalendar(); 
         this.updateSidebarStats();
     },
