@@ -71,6 +71,24 @@
             </div>
         </div>
 
+        <!-- ✨ 新增：跨單位管理者區塊 -->
+        <div id="crossUnitManagersContainer" style="margin-top:20px; display:none;">
+            <hr style="border:0; border-top:1px solid #eee; margin:15px 0;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <label style="color:#27ae60; font-weight:bold;">
+                    <i class="fas fa-users"></i> 跨單位管理者
+                    <small style="color:#666; font-weight:normal; margin-left:8px;">(來自其他單位的管理者)</small>
+                </label>
+                <button class="btn" style="background:#27ae60; color:white; padding:6px 12px; font-size:0.85rem;"
+                        onclick="unitManager.openCrossUnitManagerModal()">
+                    <i class="fas fa-user-plus"></i> 增加跨單位管理者
+                </button>
+            </div>
+            <div id="crossUnitManagersList" style="border:1px solid #ddd; border-radius:4px; padding:10px; background:#f8f9fa; min-height:60px;">
+                <!-- 跨單位管理者列表將顯示在這裡 -->
+            </div>
+        </div>
+
         <div style="text-align:right; margin-top:25px;">
             <button class="btn btn-close" onclick="unitManager.closeModal()">取消</button>
             <button class="btn btn-add" onclick="unitManager.saveData()">儲存</button>
