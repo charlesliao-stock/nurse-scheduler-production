@@ -39,10 +39,17 @@
 
                 <div class="rule-card">
                     <div class="rule-header">
-                        <label class="switch-label"><input type="checkbox" id="rule_maxDiversity3" checked> <span class="label-text">2. 單週班別種類不超過 3 種</span></label>
+                        <label class="switch-label"><input type="checkbox" id="rule_maxDiversity2" checked> <span class="label-text">2. 單週班別種類不超過 2 種</span></label>
                     </div>
                     <div class="rule-body">
-                        自每週起始日 (如週一) 起算 7 天內，排班種類 (如 D, E, N) 不得超過 3 種，避免作息混亂。
+                        自每週起始日 (如週一) 起算 7 天內，排班種類不得超過 <strong>2 種</strong>，避免作息混亂。
+                        <div style="margin-top:8px; padding:8px; background:#f0f8ff; border-left:3px solid #3498db; font-size:0.9rem;">
+                            <strong>📋 班別分類方式：</strong><br>
+                            • 以<strong>下班時間</strong>區分班別類別（例如：22:00下班 與 24:00下班 視為同一類）<br>
+                            • 只計算實際上班的班別，<strong>不包含 OFF</strong><br>
+                            • 例如：一週內排 D班(08:00下班) 與 E班(16:00下班) = 2種班別 ✅<br>
+                            • 例如：一週內排 D班、E班、N班(24:00下班) = 3種班別 ❌ 違規
+                        </div>
                     </div>
                 </div>
 
