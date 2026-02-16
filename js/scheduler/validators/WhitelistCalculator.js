@@ -32,10 +32,10 @@ const WhitelistCalculator = {
         
         if (shouldContinueLastMonth) {
             // 階段1-1：延續上月班別
-            return this.calculateStage1_1(staff, assignments, day, rules, shiftTimeMap, lastMonthData, daysInMonth);
+            return this.calculateStage1_1(staff, assignments, day, year, month, rules, shiftTimeMap, lastMonthData, daysInMonth);
         } else {
             // 階段1-2：正常排班邏輯
-            return this.calculateStage1_2(staff, assignments, day, rules, shiftTimeMap, lastMonthData, daysInMonth);
+            return this.calculateStage1_2(staff, assignments, day, year, month, rules, shiftTimeMap, lastMonthData, daysInMonth);
         }
     },
     
@@ -69,7 +69,7 @@ const WhitelistCalculator = {
      * 階段1-1：延續上月班別
      * 白名單 = [上月班別, OFF]
      */
-    calculateStage1_1: function(staff, assignments, day, rules, shiftTimeMap, lastMonthData, daysInMonth) {
+    calculateStage1_1: function(staff, assignments, day, year, month, rules, shiftTimeMap, lastMonthData, daysInMonth) {
         const uid = staff.uid || staff.id;
         
         // 1. 檢查連續上班天數
@@ -98,6 +98,11 @@ const WhitelistCalculator = {
             whitelist = this.filterByMinGap11Backward(whitelist, staff, assignments, day, shiftTimeMap, rules);
         }
         
+        // 6. 檢查單週班別種類限制（2種）
+        if (rules.hard?.maxDiversity2 !== false) {
+            whitelist = this.filterByMaxDiversity2(whitelist, staff, assignments, day, year, month, rules, shiftTimeMap);
+        }
+        
         return whitelist;
     },
     
@@ -107,9 +112,10 @@ const WhitelistCalculator = {
      * → 排除孕/哺禁班
      * → 排除11小時不足的班（往前）
      * → 排除11小時不足的班（往後，must模式）
+     * → 排除違反單週班別種類限制的班
      * → 保留包班或志願班
      */
-    calculateStage1_2: function(staff, assignments, day, rules, shiftTimeMap, lastMonthData, daysInMonth) {
+    calculateStage1_2: function(staff, assignments, day, year, month, rules, shiftTimeMap, lastMonthData, daysInMonth) {
         const uid = staff.uid || staff.id;
         const prefs = staff.preferences || {};
         
@@ -143,7 +149,12 @@ const WhitelistCalculator = {
             whitelist = this.filterByMinGap11Backward(whitelist, staff, assignments, day, shiftTimeMap, rules);
         }
         
-        // === Step 2.4.4: 保留包班或志願班 ===
+        // === Step 2.4.4: 排除違反單週班別種類限制的班 ===
+        if (rules.hard?.maxDiversity2 !== false) {
+            whitelist = this.filterByMaxDiversity2(whitelist, staff, assignments, day, year, month, rules, shiftTimeMap);
+        }
+        
+        // === Step 2.4.5: 保留包班或志願班 ===
         if (prefs.bundleShift) {
             // 有包班：只保留包班 + OFF
             whitelist = whitelist.filter(s => s === prefs.bundleShift || s === 'OFF' || s === 'REQ_OFF');
@@ -162,6 +173,105 @@ const WhitelistCalculator = {
         }
         
         return whitelist;
+    },
+    
+    /**
+     * 過濾：單週班別種類不超過2種（以下班時間分類）
+     */
+    filterByMaxDiversity2: function(whitelist, staff, assignments, day, year, month, rules, shiftTimeMap) {
+        const uid = staff.uid || staff.id;
+        
+        // 1. 計算本週的日期範圍
+        const weekStartDay = rules.hard?.weekStartDay || 1; // 1=週一, 0=週日
+        const weekRange = this.getWeekRange(day, year, month, weekStartDay);
+        
+        // 2. 收集本週已排的班別（不包含OFF和當天）
+        const weekShifts = [];
+        for (let d = weekRange.start; d <= weekRange.end; d++) {
+            if (d === day) continue; // 不包含當天
+            const shift = assignments[uid]?.[`current_${d}`];
+            if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
+                weekShifts.push(shift);
+            }
+        }
+        
+        // 3. 如果本週還沒排班，所有班別都可選
+        if (weekShifts.length === 0) {
+            return whitelist;
+        }
+        
+        // 4. 以下班時間分類已排的班別
+        const existingCategories = new Set();
+        for (let shift of weekShifts) {
+            const category = this.getShiftCategory(shift, shiftTimeMap);
+            if (category) {
+                existingCategories.add(category);
+            }
+        }
+        
+        // 5. 如果已有2種分類，只能繼續排這2種或OFF
+        if (existingCategories.size >= 2) {
+            return whitelist.filter(shift => {
+                if (shift === 'OFF' || shift === 'REQ_OFF') return true;
+                const category = this.getShiftCategory(shift, shiftTimeMap);
+                return existingCategories.has(category);
+            });
+        }
+        
+        // 6. 如果只有1種分類，可以再加1種新分類
+        // 所有班別都可選（因為最多2種）
+        return whitelist;
+    },
+    
+    /**
+     * 取得班別分類（以下班時間區分）
+     * 例如：22:00下班和24:00下班視為同一類（22:00類）
+     */
+    getShiftCategory: function(shiftCode, shiftTimeMap) {
+        const shiftInfo = shiftTimeMap[shiftCode];
+        if (!shiftInfo || !shiftInfo.endTime) return null;
+        
+        // 提取下班時間的小時數（忽略分鐘）
+        const endTime = shiftInfo.endTime;
+        const [hour] = endTime.split(':').map(Number);
+        
+        // 返回下班小時作為分類
+        return hour;
+    },
+    
+    /**
+     * 計算週的日期範圍
+     * @param {Number} day - 當前日期（月內第幾天）
+     * @param {Number} year - 年份
+     * @param {Number} month - 月份（1-12）
+     * @param {Number} weekStartDay - 週起始日（0=週日, 1=週一）
+     * @returns {Object} { start, end } 週的起始和結束日期（月內第幾天）
+     */
+    getWeekRange: function(day, year, month, weekStartDay) {
+        // 建立當前日期的 Date 物件
+        const currentDate = new Date(year, month - 1, day);
+        const dayOfWeek = currentDate.getDay(); // 0=週日, 1=週一, ..., 6=週六
+        
+        // 計算距離週起始日的天數差
+        let daysFromWeekStart;
+        if (weekStartDay === 1) {
+            // 週一起算
+            daysFromWeekStart = (dayOfWeek === 0) ? 6 : (dayOfWeek - 1);
+        } else {
+            // 週日起算
+            daysFromWeekStart = dayOfWeek;
+        }
+        
+        // 計算週的起始日和結束日
+        const weekStart = day - daysFromWeekStart;
+        const weekEnd = weekStart + 6;
+        
+        // 限制在當月範圍內
+        const daysInMonth = new Date(year, month, 0).getDate();
+        return {
+            start: Math.max(1, weekStart),
+            end: Math.min(daysInMonth, weekEnd)
+        };
     },
     
     /**
@@ -271,4 +381,4 @@ const WhitelistCalculator = {
     }
 };
 
-console.log('✅ WhitelistCalculator 已載入 (階段1-1 + 階段1-2 + 雙向11小時檢查)');
+console.log('✅ WhitelistCalculator 已載入 (階段1-1 + 階段1-2 + 雙向11小時檢查 + 單週2種班別限制)');
