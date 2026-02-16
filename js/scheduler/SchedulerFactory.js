@@ -9,6 +9,10 @@ const SchedulerFactory = {
             return new SchedulerV3(allStaff, year, month, lastMonthData, rules);
         }
         
+        if (strategyType === 'V4') {
+            return new SchedulerV4(allStaff, year, month, lastMonthData, rules);
+        }
+        
         if (strategyType === 'V2') {
             console.warn('⚠️ V2 排班引擎已停用，自動切換為 V3');
             return new SchedulerV3(allStaff, year, month, lastMonthData, rules);
@@ -18,11 +22,19 @@ const SchedulerFactory = {
     },
     
     getSupportedStrategies: function() {
-        return ['V3'];
+        return ['V3', 'V4'];
     },
     
     getDefaultStrategy: function() {
         return 'V3';
+    },
+    
+    getStrategyDescription: function(strategyType) {
+        const descriptions = {
+            'V3': '🔄 四階段回溯法 - 實用穩定，速度快 (3-5秒)',
+            'V4': '🧬 改良式基因演算法 - 品質最佳，多目標優化 (12-15秒)'
+        };
+        return descriptions[strategyType] || '未知策略';
     },
     
     validateRules: function(rules) {
@@ -78,9 +90,10 @@ const SchedulerFactory = {
         }
         
         console.log('✅ 資料驗證通過');
+        console.log(`🎯 使用策略: ${this.getStrategyDescription(strategyType)}`);
         
         return this.create(strategyType, allStaff, year, month, lastMonthData, rules);
     }
 };
 
-console.log('✅ SchedulerFactory 已載入');
+console.log('✅ SchedulerFactory 已載入 (支援 V3, V4)');
