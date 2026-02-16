@@ -118,7 +118,12 @@ const scheduleRuleManager = {
             };
 
             setCheck('rule_minGap11', r.hard?.minGap11 !== false);
-            setCheck('rule_maxDiversity3', r.hard?.maxDiversity3 !== false);
+            
+            // 相容舊版 maxDiversity3，但優先使用新版 maxDiversity2
+            const maxDiversityValue = (r.hard?.maxDiversity2 !== undefined) ? 
+                r.hard.maxDiversity2 : (r.hard?.maxDiversity3 !== false);
+            setCheck('rule_maxDiversity2', maxDiversityValue !== false);
+            
             setCheck('rule_protectPregnant', r.hard?.protectPregnant !== false);
             setCheck('rule_twoOffPerFortnight', r.hard?.twoOffPerFortnight !== false);
             
@@ -194,7 +199,7 @@ const scheduleRuleManager = {
         const rules = {
             hard: {
                 minGap11: getCheck('rule_minGap11'),
-                maxDiversity3: getCheck('rule_maxDiversity3'),
+                maxDiversity2: getCheck('rule_maxDiversity2'),  // 改為 maxDiversity2
                 protectPregnant: getCheck('rule_protectPregnant'),
                 twoOffPerFortnight: getCheck('rule_twoOffPerFortnight'),
                 offGapMax: getInt('rule_offGapMax', 12),
