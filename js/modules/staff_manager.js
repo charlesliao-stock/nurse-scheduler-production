@@ -46,7 +46,12 @@ const staffManager = {
 
             selectFilter.innerHTML = '<option value="all">所有單位</option>';
             filteredUnits.forEach(u => {
-                this.unitCache[u.id] = { name: u.name, groups: u.groups || [] };
+                // ✨ 新增：儲存 crossUnitManagers 資料
+                this.unitCache[u.id] = { 
+                    name: u.name, 
+                    groups: u.groups || [],
+                    crossUnitManagers: u.crossUnitManagers || []
+                };
                 const option = `<option value="${u.id}">${u.name}</option>`;
                 selectFilter.innerHTML += option;
                 selectInput.innerHTML += option;
@@ -293,6 +298,12 @@ const staffManager = {
             const unitName = (this.unitCache[u.unitId]?.name) || u.unitId || '未知單位';
             const roleName = app.translateRole(u.role);
             
+            // ✨ 新增：檢查是否為跨單位管理者
+            const crossUnits = this.checkCrossUnitManager(u.uid);
+            const crossUnitBadge = crossUnits 
+                ? `<br><small style="color:#27ae60; font-weight:normal;">(跨單位: ${crossUnits.join(', ')})</small>` 
+                : '';
+            
             const rowStyle = u.isActive ? '' : 'opacity:0.5;background:#f8f9fa;';
             const nameDisplay = u.isActive 
                 ? u.displayName || '-'
@@ -365,7 +376,7 @@ const staffManager = {
                 <td style="text-align:center;">${pregStatus || '-'}</td>
                 <td style="text-align:center;">${pgyStatus || '-'}</td>
                 <td style="text-align:center;">${independenceStatus || '-'}</td>
-                <td><span class="role-badge" style="background:${this.getRoleColor(u.role)}">${roleName}</span></td>
+                <td><span class="role-badge" style="background:${this.getRoleColor(u.role)}">${roleName}</span>${crossUnitBadge}</td>
                 <td style="white-space:nowrap;">${actionButtons}</td>
             `;
             fragment.appendChild(tr);
@@ -376,6 +387,19 @@ const staffManager = {
     getRoleColor: function(role) {
         const colors = { 'system_admin': '#2c3e50', 'unit_manager': '#e67e22', 'unit_scheduler': '#27ae60', 'user': '#95a5a6' };
         return colors[role] || '#95a5a6';
+    },
+
+    // ✨ 新增：檢查是否為跨單位管理者
+    checkCrossUnitManager: function(userId) {
+        const managedUnits = [];
+        
+        for (const [unitId, unitData] of Object.entries(this.unitCache)) {
+            if (unitData.crossUnitManagers && unitData.crossUnitManagers.includes(userId)) {
+                managedUnits.push(unitData.name);
+            }
+        }
+        
+        return managedUnits.length > 0 ? managedUnits : null;
     },
 
     openModal: async function(docId = null) {
