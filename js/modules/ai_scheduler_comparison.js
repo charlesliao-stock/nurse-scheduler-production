@@ -1,5 +1,5 @@
 // js/modules/ai_scheduler_comparison.js
-// AI排班多版本比較模組
+// AI排班多版本比較模組 + 評分系統整合
 
 const AISchedulerComparison = {
     
@@ -27,6 +27,16 @@ const AISchedulerComparison = {
                 rules
             );
             
+            // 🔥 為每個結果計算評分
+            if (typeof scoringManager !== 'undefined') {
+                for (let result of results) {
+                    if (result.success && result.schedule) {
+                        result.scoreDetail = this.calculateScheduleScore(result.schedule, allStaff, year, month);
+                        console.log(`📊 ${result.strategy} 評分:`, result.scoreDetail.total);
+                    }
+                }
+            }
+            
             // 顯示結果
             this.showResults(dialog, results, onSelectCallback);
             
@@ -34,6 +44,39 @@ const AISchedulerComparison = {
             console.error('❌ 比較模式失敗:', error);
             this.showError(dialog, error.message);
         }
+    },
+    
+    /**
+     * 🔥 計算排班評分
+     */
+    calculateScheduleScore: function(schedule, staffList, year, month) {
+        // 轉換為 assignments 格式
+        const assignments = {};
+        const daysInMonth = new Date(year, month, 0).getDate();
+        
+        staffList.forEach(staff => {
+            const uid = staff.uid || staff.id;
+            assignments[uid] = {};
+            
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                let shift = 'OFF';
+                
+                if (schedule[dateStr]) {
+                    for (let code in schedule[dateStr]) {
+                        if (schedule[dateStr][code].includes(uid)) {
+                            shift = code;
+                            break;
+                        }
+                    }
+                }
+                
+                assignments[uid][`current_${day}`] = shift;
+            }
+        });
+        
+        // 計算評分
+        return scoringManager.calculate(assignments, staffList, year, month);
     },
     
     /**
@@ -172,11 +215,15 @@ const AISchedulerComparison = {
     showResults: function(dialog, results, onSelectCallback) {
         const content = dialog.querySelector('div');
         
-        // 排序: 由高到低
+        // 排序: 由高到低 (優先使用 scoreDetail.total，再用 metrics.overallScore)
         results.sort((a, b) => {
             if (!a.success) return 1;
             if (!b.success) return -1;
-            return parseFloat(b.metrics.overallScore) - parseFloat(a.metrics.overallScore);
+            
+            const scoreA = a.scoreDetail ? a.scoreDetail.total : (a.metrics ? parseFloat(a.metrics.overallScore) : 0);
+            const scoreB = b.scoreDetail ? b.scoreDetail.total : (b.metrics ? parseFloat(b.metrics.overallScore) : 0);
+            
+            return scoreB - scoreA;
         });
         
         const bestAlgo = results[0];
@@ -222,9 +269,18 @@ const AISchedulerComparison = {
             if (result.success) {
                 const btn = content.querySelector(`#select-${result.strategy}`);
                 btn.addEventListener('click', () => {
-                    onSelectCallback(result.schedule, result.strategy);
+                    onSelectCallback(result.schedule, result.strategy, result.scoreDetail);
                     this.closeDialog(dialog);
                 });
+                
+                // 🔥 綁定評分詳情按鈕
+                const scoreBtn = content.querySelector(`#score-detail-${result.strategy}`);
+                if (scoreBtn && result.scoreDetail) {
+                    scoreBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this.showScoreDetailModal(result.strategy, result.scoreDetail);
+                    });
+                }
             }
         });
         
@@ -252,7 +308,10 @@ const AISchedulerComparison = {
             `;
         }
         
-        const metrics = result.metrics;
+        // 🔥 優先使用 scoreDetail，再用 metrics
+        const score = result.scoreDetail ? result.scoreDetail.total : (result.metrics ? parseFloat(result.metrics.overallScore) : 0);
+        const hasScoreDetail = !!result.scoreDetail;
+        
         const borderColor = isBest ? '#4CAF50' : '#e0e0e0';
         const bgColor = isBest ? '#e8f5e9' : '#ffffff';
         
@@ -276,40 +335,22 @@ const AISchedulerComparison = {
                 
                 <div style="margin-bottom: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <span style="font-size: 14px; color: #666;">綜合評分</span>
-                        <span style="font-size: 24px; font-weight: 700; color: ${this.getScoreColor(parseFloat(metrics.overallScore))};">  ${metrics.overallScore}</span>
+                        <span style="font-size: 14px; color: #666;">📊 排班評分</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 24px; font-weight: 700; color: ${this.getScoreColor(score)};">${Math.round(score)}</span>
+                            ${hasScoreDetail ? `<button id="score-detail-${result.strategy}" style="padding: 4px 8px; background: #3498db; color: white; border: none; border-radius: 4px; font-size: 11px; cursor: pointer;">🔍 細項</button>` : ''}
+                        </div>
                     </div>
                     <div style="width: 100%; height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden;">
-                        <div style="width: ${metrics.overallScore}%; height: 100%; background: ${this.getScoreColor(parseFloat(metrics.overallScore))};"></div>
+                        <div style="width: ${score}%; height: 100%; background: ${this.getScoreColor(score)};"></div>
                     </div>
                 </div>
                 
-                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px;">
-                    <div style="padding: 8px; background: white; border-radius: 8px;">
-                        <div style="font-size: 12px; color: #666; margin-bottom: 4px;">人力達成</div>
-                        <div style="font-size: 16px; font-weight: 600; color: #2196F3;">${metrics.staffingRate}</div>
-                    </div>
-                    <div style="padding: 8px; background: white; border-radius: 8px;">
-                        <div style="font-size: 12px; color: #666; margin-bottom: 4px;">偏好滿足</div>
-                        <div style="font-size: 16px; font-weight: 600; color: #9C27B0;">${metrics.preferenceScore}</div>
-                    </div>
-                    <div style="padding: 8px; background: white; border-radius: 8px;">
-                        <div style="font-size: 12px; color: #666; margin-bottom: 4px;">公平性</div>
-                        <div style="font-size: 16px; font-weight: 600; color: #FF9800;">${metrics.fairnessScore}</div>
-                    </div>
-                    <div style="padding: 8px; background: white; border-radius: 8px;">
-                        <div style="font-size: 12px; color: #666; margin-bottom: 4px;">執行時間</div>
-                        <div style="font-size: 16px; font-weight: 600; color: #607D8B;">${result.executionTime}s</div>
-                    </div>
-                </div>
+                ${result.scoreDetail ? this.renderScoreBreakdown(result.scoreDetail) : this.renderMetrics(result.metrics)}
                 
-                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 16px;">
-                    <div style="padding: 6px; background: ${metrics.hardViolations === 0 ? '#e8f5e9' : '#ffebee'}; border-radius: 6px; font-size: 13px; text-align: center;">
-                        ${metrics.hardViolations === 0 ? '✅' : '⚠️'} 硬限制: ${metrics.hardViolations}
-                    </div>
-                    <div style="padding: 6px; background: ${parseFloat(metrics.softViolations) < 2 ? '#e8f5e9' : '#fff3e0'}; border-radius: 6px; font-size: 13px; text-align: center;">
-                        ${parseFloat(metrics.softViolations) < 2 ? '✅' : '🟡'} 軟限制: ${metrics.softViolations}
-                    </div>
+                <div style="margin-bottom: 16px;">
+                    <div style="font-size: 12px; color: #666; margin-bottom: 4px;">⏱️ 執行時間</div>
+                    <div style="font-size: 16px; font-weight: 600; color: #607D8B;">${result.executionTime}s</div>
                 </div>
                 
                 <button id="select-${result.strategy}" style="
@@ -328,6 +369,188 @@ const AISchedulerComparison = {
                 </button>
             </div>
         `;
+    },
+    
+    /**
+     * 🔥 渲染評分細項 (scoreDetail)
+     */
+    renderScoreBreakdown: function(scoreDetail) {
+        const breakdown = scoreDetail.breakdown || {};
+        const subBreakdown = scoreDetail.subBreakdown || {};
+        
+        return `
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 16px;">
+                <div style="padding: 8px; background: white; border-radius: 8px; border: 1px solid #e0e0e0;">
+                    <div style="font-size: 11px; color: #666; margin-bottom: 4px;">⚖️ 公平性</div>
+                    <div style="font-size: 16px; font-weight: 600; color: #2196F3;">${Math.round(breakdown.fairness || 0)}</div>
+                </div>
+                <div style="padding: 8px; background: white; border-radius: 8px; border: 1px solid #e0e0e0;">
+                    <div style="font-size: 11px; color: #666; margin-bottom: 4px;">💜 滿意度</div>
+                    <div style="font-size: 16px; font-weight: 600; color: #9C27B0;">${Math.round(breakdown.satisfaction || 0)}</div>
+                </div>
+                <div style="padding: 8px; background: white; border-radius: 8px; border: 1px solid #e0e0e0;">
+                    <div style="font-size: 11px; color: #666; margin-bottom: 4px;">😴 疲勞度</div>
+                    <div style="font-size: 16px; font-weight: 600; color: #FF9800;">${Math.round(breakdown.fatigue || 0)}</div>
+                </div>
+                <div style="padding: 8px; background: white; border-radius: 8px; border: 1px solid #e0e0e0;">
+                    <div style="font-size: 11px; color: #666; margin-bottom: 4px;">⚡ 效率</div>
+                    <div style="font-size: 16px; font-weight: 600; color: #4CAF50;">${Math.round(breakdown.efficiency || 0)}</div>
+                </div>
+            </div>
+        `;
+    },
+    
+    /**
+     * 渲染指標 (metrics)
+     */
+    renderMetrics: function(metrics) {
+        if (!metrics) return '';
+        
+        return `
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 16px;">
+                <div style="padding: 8px; background: white; border-radius: 8px; border: 1px solid #e0e0e0;">
+                    <div style="font-size: 11px; color: #666; margin-bottom: 4px;">人力達成</div>
+                    <div style="font-size: 16px; font-weight: 600; color: #2196F3;">${metrics.staffingRate}</div>
+                </div>
+                <div style="padding: 8px; background: white; border-radius: 8px; border: 1px solid #e0e0e0;">
+                    <div style="font-size: 11px; color: #666; margin-bottom: 4px;">偏好滿足</div>
+                    <div style="font-size: 16px; font-weight: 600; color: #9C27B0;">${metrics.preferenceScore}</div>
+                </div>
+                <div style="padding: 8px; background: white; border-radius: 8px; border: 1px solid #e0e0e0;">
+                    <div style="font-size: 11px; color: #666; margin-bottom: 4px;">公平性</div>
+                    <div style="font-size: 16px; font-weight: 600; color: #FF9800;">${metrics.fairnessScore}</div>
+                </div>
+                <div style="padding: 8px; background: white; border-radius: 8px; border: 1px solid #e0e0e0;">
+                    <div style="font-size: 11px; color: #666; margin-bottom: 4px;">硬限制</div>
+                    <div style="font-size: 16px; font-weight: 600; color: ${metrics.hardViolations === 0 ? '#4CAF50' : '#e74c3c'};">${metrics.hardViolations}</div>
+                </div>
+            </div>
+        `;
+    },
+    
+    /**
+     * 🔥 顯示評分詳情對話框
+     */
+    showScoreDetailModal: function(strategy, scoreDetail) {
+        const breakdown = scoreDetail.breakdown || {};
+        const subBreakdown = scoreDetail.subBreakdown || {};
+        const groupWeights = scoreDetail.groupWeights || {};
+        
+        // 定義大項與小項的對應
+        const metricMap = {
+            fairness: {
+                name: '公平性',
+                icon: '⚖️',
+                items: [
+                    { key: 'hoursDiff', name: '工時差異' },
+                    { key: 'nightDiff', name: '大夜差異' },
+                    { key: 'holidayDiff', name: '休假差異' }
+                ]
+            },
+            satisfaction: {
+                name: '滿意度',
+                icon: '💜',
+                items: [
+                    { key: 'prefRate', name: '偏好達成率' },
+                    { key: 'wishRate', name: '志願達成率' }
+                ]
+            },
+            fatigue: {
+                name: '疲勞度',
+                icon: '😴',
+                items: [
+                    { key: 'consWork', name: '連續工作' },
+                    { key: 'nToD', name: '大夜轉白班' },
+                    { key: 'offTargetRate', name: 'OFF目標達成' },
+                    { key: 'weeklyNight', name: '每週大夜' }
+                ]
+            },
+            efficiency: {
+                name: '效率',
+                icon: '⚡',
+                items: [
+                    { key: 'shortageRate', name: '人力短缺率' },
+                    { key: 'seniorDist', name: '資深分布' },
+                    { key: 'juniorDist', name: '新進分布' }
+                ]
+            },
+            cost: {
+                name: '成本',
+                icon: '💰',
+                items: [
+                    { key: 'overtimeRate', name: '加班比率' }
+                ]
+            }
+        };
+        
+        let modalHtml = `
+        <div id="scoreDetailModal" style="display:flex; position:fixed; z-index:10001; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.7); align-items:center; justify-content:center;">
+            <div style="background:white; padding:30px; border-radius:12px; width:700px; max-height:85vh; overflow-y:auto; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+                <h3 style="margin:0 0 20px 0; color:#2c3e50; display:flex; align-items:center; gap:10px;">
+                    ${this.getAlgoIcon(strategy)} ${strategy} 評分詳情
+                </h3>
+                
+                <div style="padding:20px; background:#e8f5e9; border-radius:8px; margin-bottom:20px; text-align:center;">
+                    <div style="font-size:14px; color:#666; margin-bottom:8px;">🎯 總分</div>
+                    <div style="font-size:48px; font-weight:700; color:${this.getScoreColor(scoreDetail.total)};">${Math.round(scoreDetail.total)}</div>
+                    <div style="font-size:12px; color:#666; margin-top:4px;">滿分 100 分</div>
+                </div>`;
+        
+        // 渲染每個大項
+        Object.keys(metricMap).forEach(key => {
+            const metric = metricMap[key];
+            const groupScore = breakdown[key] || 0;
+            const groupWeight = groupWeights[key] || 0;
+            const percentage = groupWeight > 0 ? (groupScore / groupWeight * 100) : 0;
+            
+            modalHtml += `
+                <div style="border:1px solid #e0e0e0; border-radius:8px; padding:15px; margin-bottom:15px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <h4 style="margin:0; color:#2c3e50; font-size:16px;">
+                            ${metric.icon} ${metric.name}
+                        </h4>
+                        <div style="text-align:right;">
+                            <div style="font-size:20px; font-weight:600; color:#2196F3;">${Math.round(groupScore)} / ${Math.round(groupWeight)}</div>
+                            <div style="font-size:11px; color:#666;">${Math.round(percentage)}%</div>
+                        </div>
+                    </div>
+                    
+                    <div style="width:100%; height:6px; background:#e0e0e0; border-radius:3px; overflow:hidden; margin-bottom:10px;">
+                        <div style="width:${percentage}%; height:100%; background:#2196F3;"></div>
+                    </div>
+                    
+                    <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:8px;">`;
+            
+            metric.items.forEach(item => {
+                const itemScore = subBreakdown[item.key];
+                if (itemScore !== undefined) {
+                    modalHtml += `
+                        <div style="padding:8px; background:#f8f9fa; border-radius:4px;">
+                            <div style="font-size:11px; color:#666;">${item.name}</div>
+                            <div style="font-size:14px; font-weight:600; color:#333;">${Math.round(itemScore * 10) / 10}</div>
+                        </div>`;
+                }
+            });
+            
+            modalHtml += `
+                    </div>
+                </div>`;
+        });
+        
+        modalHtml += `
+                <div style="text-align:center; margin-top:20px;">
+                    <button id="closeScoreDetail" style="padding:10px 30px; background:#3498db; color:white; border:none; border-radius:8px; cursor:pointer; font-size:16px;">
+                        關閉
+                    </button>
+                </div>
+            </div>
+        </div>`;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        document.getElementById('closeScoreDetail').onclick = () => {
+            document.getElementById('scoreDetailModal').remove();
+        };
     },
     
     /**
@@ -414,4 +637,4 @@ const AISchedulerComparison = {
     }
 };
 
-console.log('✅ AISchedulerComparison 已載入');
+console.log('✅ AISchedulerComparison 已載入 (整合評分系統)');
