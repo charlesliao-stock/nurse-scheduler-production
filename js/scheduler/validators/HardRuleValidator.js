@@ -21,35 +21,81 @@ const HardRuleValidator = {
         return gap >= 11;
     },
     
-    validateMaxDiversity3: function(assignments, uid, day, newShift, rules) {
-        if (!rules?.hard?.maxDiversity3) return true;
+    /**
+     * 驗證單週班別種類不超過2種（以下班時間區分）
+     */
+    validateMaxDiversity2: function(assignments, uid, day, newShift, rules, year, month) {
+        // 相容舊版 maxDiversity3，優先使用新版 maxDiversity2
+        const isDiversityCheckEnabled = (rules?.hard?.maxDiversity2 !== undefined) ? 
+            rules.hard.maxDiversity2 : (rules?.hard?.maxDiversity3 !== false);
+        
+        if (!isDiversityCheckEnabled) return true;
         if (!newShift || newShift === 'OFF' || newShift === 'REQ_OFF') return true;
         
         const weekStartDay = rules.hard?.weekStartDay || 1;
-        const weekStart = this.getWeekStart(day, weekStartDay);
-        const weekEnd = Math.min(weekStart + 6, new Date(assignments.year, assignments.month, 0).getDate());
+        const weekStart = this.getWeekStart(day, year, month, weekStartDay);
+        const daysInMonth = new Date(year, month, 0).getDate();
+        const weekEnd = Math.min(weekStart + 6, daysInMonth);
         
-        const shiftsThisWeek = new Set();
+        // 收集本週已排的班別分類（以下班時間）
+        const categoriesThisWeek = new Set();
         
         for (let d = weekStart; d <= weekEnd; d++) {
-            if (d === day) continue;
+            if (d === day) continue; // 不包含當天
             const shift = assignments[uid]?.[`current_${d}`];
             if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
-                shiftsThisWeek.add(shift);
+                const category = this.getShiftCategory(shift, rules);
+                if (category !== null) {
+                    categoriesThisWeek.add(category);
+                }
             }
         }
         
-        shiftsThisWeek.add(newShift);
+        // 加入新班別的分類
+        const newCategory = this.getShiftCategory(newShift, rules);
+        if (newCategory !== null) {
+            categoriesThisWeek.add(newCategory);
+        }
         
-        return shiftsThisWeek.size <= 3;
+        // 檢查是否超過2種
+        return categoriesThisWeek.size <= 2;
     },
     
-    getWeekStart: function(day, weekStartDay) {
-        const date = new Date(2024, 0, day);
-        const dayOfWeek = date.getDay();
-        const adjustedDay = (dayOfWeek === 0) ? 6 : dayOfWeek - 1;
-        const diff = (adjustedDay - weekStartDay + 7) % 7;
-        return day - diff;
+    /**
+     * 取得班別分類（以下班時間的小時數）
+     */
+    getShiftCategory: function(shiftCode, rules) {
+        if (!shiftCode || shiftCode === 'OFF' || shiftCode === 'REQ_OFF') return null;
+        
+        const shifts = rules.shifts || [];
+        const shift = shifts.find(s => s.code === shiftCode);
+        
+        if (!shift || !shift.endTime) return null;
+        
+        // 提取下班時間的小時數（忽略分鐘）
+        const [hour] = shift.endTime.split(':').map(Number);
+        return hour;
+    },
+    
+    /**
+     * 計算週的起始日（月內第幾天）
+     */
+    getWeekStart: function(day, year, month, weekStartDay) {
+        const date = new Date(year, month - 1, day);
+        const dayOfWeek = date.getDay(); // 0=週日, 1=週一, ..., 6=週六
+        
+        // 計算距離週起始日的天數差
+        let daysFromWeekStart;
+        if (weekStartDay === 1) {
+            // 週一起算
+            daysFromWeekStart = (dayOfWeek === 0) ? 6 : (dayOfWeek - 1);
+        } else {
+            // 週日起算
+            daysFromWeekStart = dayOfWeek;
+        }
+        
+        const weekStart = day - daysFromWeekStart;
+        return Math.max(1, weekStart);
     },
     
     validateProtectPregnant: function(staff, shift, rules) {
@@ -159,15 +205,15 @@ const HardRuleValidator = {
         return h + m / 60;
     },
     
-    validateAll: function(staff, assignments, day, shift, lastShift, rules, shiftTimeMap, daysInMonth) {
+    validateAll: function(staff, assignments, day, shift, lastShift, rules, shiftTimeMap, daysInMonth, year, month) {
         const uid = staff.uid || staff.id;
         
         if (!this.validateMinGap11Hours(lastShift, shift, shiftTimeMap)) {
             return { valid: false, reason: '未滿11小時休息' };
         }
         
-        if (!this.validateMaxDiversity3(assignments, uid, day, shift, rules)) {
-            return { valid: false, reason: '週內班別超過3種' };
+        if (!this.validateMaxDiversity2(assignments, uid, day, shift, rules, year, month)) {
+            return { valid: false, reason: '週內班別超過2種' };
         }
         
         if (!this.validateProtectPregnant(staff, shift, rules)) {
@@ -190,4 +236,4 @@ const HardRuleValidator = {
     }
 };
 
-console.log('✅ HardRuleValidator 已載入');
+console.log('✅ HardRuleValidator 已載入 (單週2種班別限制)');
