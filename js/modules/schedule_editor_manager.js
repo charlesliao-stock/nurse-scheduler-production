@@ -1,4 +1,5 @@
 // js/modules/schedule_editor_manager.js
+// 🔥 整合 AI 排班多版本比較 + 評分系統
 
 const scheduleEditorManager = {
     scheduleId: null, 
@@ -81,8 +82,10 @@ const scheduleEditorManager = {
                 this.assignments = this.data.assignments || {};
             }
             
+            // 🔥 載入評分設定
             if(typeof scoringManager !== 'undefined') {
                 await scoringManager.loadSettings(this.data.unitId);
+                console.log('✅ 評分系統已載入');
             }
 
             this.renderToolbar(); 
@@ -266,7 +269,7 @@ const scheduleEditorManager = {
             h += `<th style="background:#f5f5f5; color:#999; font-size:0.7rem; border:1px solid #bbb;">${d}</th>`;
         }
         for(let d=1; d<=days; d++) {
-            h += `<th style="font-size:0.8rem; border:1px solid #bbb;">${['日','一','二','三','四','五','六'][new Date(year, month-1, d).getDay()]}</th>`;
+            h += `<th style="font-size:0.8rem; border:1px solid #bbb;">${'[日','一','二','三','四','五','六'][new Date(year, month-1, d).getDay()]}</th>`;
         }
         h += `<th style="border:1px solid #bbb;">總OFF</th><th style="border:1px solid #bbb;">假OFF</th><th style="border:1px solid #bbb;">E</th><th style="border:1px solid #bbb;">N</th></tr>`;
         thead.innerHTML = h;
@@ -470,10 +473,10 @@ const scheduleEditorManager = {
         if (!toolbar) return;
         if (document.getElementById('scoreBoard')) return;
         const scoreHtml = `
-            <div id="scoreBoard" style="display:flex; align-items:center; gap:10px; background:#f8f9fa; padding:5px 15px; border-radius:20px; border:1px solid #eee; margin-left:15px;">
+            <div id="scoreBoard" style="display:flex; align-items:center; gap:10px; background:#f8f9fa; padding:5px 15px; border-radius:20px; border:1px solid #eee; margin-left:15px; cursor:pointer;" onclick="scheduleEditorManager.showScoreDetail()">
                 <span style="font-size:0.85rem; color:#666;"><i class="fas fa-chart-line"></i> 排班評分</span>
                 <b id="scoreValue" style="font-size:1.1rem; color:#2c3e50;">--</b>
-                <button class="btn btn-sm" onclick="scheduleEditorManager.showScoreDetail()" style="padding:2px 8px; font-size:0.75rem; background:none; color:#3498db; border:none; text-decoration:underline;">詳情</button>
+                <i class="fas fa-chevron-right" style="font-size:0.75rem; color:#999;"></i>
             </div>
         `;
         const title = document.getElementById('schTitle');
@@ -481,16 +484,34 @@ const scheduleEditorManager = {
     },
 
     showScoreDetail: function() {
-        if (!this.lastScoreResult) return;
-        alert("當前排班總分: " + this.lastScoreResult.total + "\n(詳細評分報告功能開發中)");
+        if (!this.lastScoreResult) {
+            alert('⚠️ 尚未計算評分');
+            return;
+        }
+        
+        AISchedulerComparison.showScoreDetailModal('Current', this.lastScoreResult);
     },
 
     updateScheduleScore: function() { 
         if (typeof scoringManager === 'undefined') return; 
+        
         const res = scoringManager.calculate(this.assignments, this.data.staffList, this.data.year, this.data.month); 
         const scoreEl = document.getElementById('scoreValue');
-        if (scoreEl) scoreEl.innerText = Math.round(res.total); 
+        if (scoreEl) {
+            const score = Math.round(res.total);
+            scoreEl.innerText = score;
+            scoreEl.style.color = this.getScoreColor(score);
+        }
+        
         this.lastScoreResult = res; 
+        console.log('📊 更新評分:', res.total);
+    },
+    
+    getScoreColor: function(score) {
+        if (score >= 80) return '#4CAF50';
+        if (score >= 60) return '#FFC107';
+        if (score >= 40) return '#FF9800';
+        return '#f44336';
     },
 
     publishSchedule: async function() {
@@ -521,10 +542,17 @@ const scheduleEditorManager = {
         if(!confirm("確定要發布此班表嗎？發布後員工將可查看。")) return;
         
         try {
-            await db.collection('schedules').doc(this.scheduleId).update({ 
-                status: 'published', 
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp() 
-            });
+            // 🔥 儲存評分
+            const updateData = {
+                status: 'published',
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            
+            if (this.lastScoreResult) {
+                updateData.scoreResult = this.lastScoreResult;
+            }
+            
+            await db.collection('schedules').doc(this.scheduleId).update(updateData);
             this.data.status = 'published';
             this.renderToolbar();
             alert("✅ 發布成功！");
@@ -601,10 +629,17 @@ const scheduleEditorManager = {
 
     performSave: async function() {
         try {
-            await db.collection('schedules').doc(this.scheduleId).update({
+            // 🔥 儲存時記錄評分
+            const updateData = {
                 assignments: this.assignments,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
+            };
+            
+            if (this.lastScoreResult) {
+                updateData.scoreResult = this.lastScoreResult;
+            }
+            
+            await db.collection('schedules').doc(this.scheduleId).update(updateData);
             alert("✅ 儲存成功！");
         } catch (e) {
             alert("❌ 儲存失敗: " + e.message);
@@ -619,132 +654,120 @@ const scheduleEditorManager = {
             return;
         }
         
-        if(!confirm("啟動 AI 自動排班？這將覆蓋目前的排班結果。")) return;
-        
-        this.lastAIRunTime = now;
-        this.showLoading();
-        
-        console.log('🤖 AI 排班開始執行，時間:', new Date().toLocaleTimeString());
-        
-        try {
-            if(typeof SchedulerFactory === 'undefined') throw new Error("排班引擎未載入");
-            
-            const staffListWithId = this.data.staffList.map(s => {
-                const uid = s.uid || s.id;
-                const userAssign = this.assignments[uid] || {};
-                
-                const combinedParams = {
-                    ...(this.usersMap[uid]?.schedulingParams || {}),
-                    ...(s.schedulingParams || {})
-                };
-                
-                const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
-                for (let d = 1; d <= daysInMonth; d++) {
-                    const key = `current_${d}`;
-                    if (userAssign[key]) {
-                        combinedParams[key] = userAssign[key];
-                    }
-                }
-                
-                return {
-                    ...s,
-                    id: uid,
-                    schedulingParams: combinedParams,
-                    preferences: userAssign.preferences || {}
-                };
-            });
-            
-            console.log('🔍 傳入 AI 排班的人員資料範例:');
-            if (staffListWithId.length > 0) {
-                const sample = staffListWithId[0];
-                console.log({
-                    name: sample.name,
-                    id: sample.id,
-                    schedulingParams: sample.schedulingParams,
-                    preferences: sample.preferences
-                });
-                
-                const preScheduleDays = Object.keys(sample.schedulingParams || {})
-                    .filter(k => k.startsWith('current_') && sample.schedulingParams[k] !== 'OFF')
-                    .concat(Object.keys(sample.preferences || {}).filter(k => k.startsWith('current_') && sample.preferences[k] !== 'OFF'));
-                
-                console.log('包含預班資料的天數:', preScheduleDays.length, preScheduleDays.slice(0, 5));
-            }
-            
-            const rules = { 
-                ...this.unitRules, 
-                shifts: this.shifts,
-                dailyNeeds: this.data.dailyNeeds || {},
-                specificNeeds: this.data.specificNeeds || {},
-                avgOff: this.data.schedulingParams?.avgOff || 9,
-                daysInMonth: new Date(this.data.year, this.data.month, 0).getDate()
-            };
-
-            console.log(`   📊 使用 avgOff: ${rules.avgOff.toFixed(1)} 天`);
-            
-            const scheduler = SchedulerFactory.create('V3', staffListWithId, this.data.year, this.data.month, this.lastMonthData, rules);
-            const result = scheduler.run();
-            
-            console.log("🤖 AI 排班結果樣本:", result[Object.keys(result)[0]]);
-            
-            const newAssignments = {};
-            this.data.staffList.forEach(s => {
-                const uid = s.uid.trim();
-                const oldAssign = this.assignments[uid] || {};
-                newAssignments[uid] = { preferences: (oldAssign.preferences || {}) };
-                
-                for(let d=1; d<=new Date(this.data.year, this.data.month, 0).getDate(); d++) {
-                    const key = `current_${d}`;
-                    const oldValue = oldAssign[key];
+        // 🔥 使用 AI 比較模組
+        if (typeof AISchedulerComparison !== 'undefined') {
+            try {
+                const staffListWithId = this.data.staffList.map(s => {
+                    const uid = s.uid || s.id;
+                    const userAssign = this.assignments[uid] || {};
                     
-                    if (oldValue === 'REQ_OFF') {
-                        newAssignments[uid][key] = 'REQ_OFF';
-                        console.log(`  🔒 保留預休: ${s.name} 第${d}日 = REQ_OFF`);
-                        continue;
-                    }
+                    const combinedParams = {
+                        ...(this.usersMap[uid]?.schedulingParams || {}),
+                        ...(s.schedulingParams || {})
+                    };
                     
-                    const ds = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-                    let shift = 'OFF';
-                    
-                    if (result[ds]) {
-                        for(let code in result[ds]) {
-                            if(result[ds][code].includes(uid)) { 
-                                shift = code; 
-                                break; 
-                            }
+                    const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
+                    for (let d = 1; d <= daysInMonth; d++) {
+                        const key = `current_${d}`;
+                        if (userAssign[key]) {
+                            combinedParams[key] = userAssign[key];
                         }
                     }
                     
-                    newAssignments[uid][key] = shift;
-                }
-            });
-            
-            console.log("📊 轉換後的 assignments 樣本:", Object.keys(newAssignments)[0], newAssignments[Object.keys(newAssignments)[0]]);
-            
-            this.assignments = newAssignments;
-            
-            await db.collection('schedules').doc(this.scheduleId).update({ 
-                assignments: this.assignments,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            
-            console.log('✅ AI 排班完成，僅寫入 Firebase 1 次');
-            
-            this.violationCells.clear();
-            this.needsCheck = false;
-            this.lastCheckResult = null;
-            
-            this.renderMatrix();
-            this.updateScheduleScore();
-            alert("✅ AI 排班完成！");
-            
-        } catch(e) { 
-            console.error("❌ AI 排班錯誤:", e);
-            alert("AI 排班失敗: " + e.message); 
-        } finally { 
-            const l = document.getElementById('globalLoader'); 
-            if(l) l.remove(); 
+                    return {
+                        ...s,
+                        id: uid,
+                        schedulingParams: combinedParams,
+                        preferences: userAssign.preferences || {}
+                    };
+                });
+                
+                const rules = { 
+                    ...this.unitRules, 
+                    shifts: this.shifts,
+                    dailyNeeds: this.data.dailyNeeds || {},
+                    specificNeeds: this.data.specificNeeds || {},
+                    avgOff: this.data.schedulingParams?.avgOff || 9,
+                    daysInMonth: new Date(this.data.year, this.data.month, 0).getDate()
+                };
+                
+                AISchedulerComparison.showComparisonDialog(
+                    staffListWithId,
+                    this.data.year,
+                    this.data.month,
+                    this.lastMonthData,
+                    rules,
+                    (selectedSchedule, selectedStrategy, scoreDetail) => {
+                        this.applyAIResult(selectedSchedule, selectedStrategy, scoreDetail);
+                    }
+                );
+                
+                this.lastAIRunTime = now;
+                
+            } catch (e) {
+                console.error('❌ AI 排班比較失敗:', e);
+                alert('AI 排班失敗: ' + e.message);
+            }
+        } else {
+            alert('❌ AI 比較模組未載入');
         }
+    },
+    
+    applyAIResult: async function(schedule, strategy, scoreDetail) {
+        console.log(`🎯 套用 ${strategy} 排班結果`);
+        
+        const newAssignments = {};
+        this.data.staffList.forEach(s => {
+            const uid = s.uid.trim();
+            const oldAssign = this.assignments[uid] || {};
+            newAssignments[uid] = { preferences: (oldAssign.preferences || {}) };
+            
+            for(let d=1; d<=new Date(this.data.year, this.data.month, 0).getDate(); d++) {
+                const key = `current_${d}`;
+                const oldValue = oldAssign[key];
+                
+                if (oldValue === 'REQ_OFF') {
+                    newAssignments[uid][key] = 'REQ_OFF';
+                    continue;
+                }
+                
+                const ds = `${this.data.year}-${String(this.data.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                let shift = 'OFF';
+                
+                if (schedule[ds]) {
+                    for(let code in schedule[ds]) {
+                        if(schedule[ds][code].includes(uid)) { 
+                            shift = code; 
+                            break; 
+                        }
+                    }
+                }
+                
+                newAssignments[uid][key] = shift;
+            }
+        });
+        
+        this.assignments = newAssignments;
+        
+        // 🔥 設定 AI 基準分
+        if (typeof scoringManager !== 'undefined' && scoreDetail) {
+            scoringManager.setBase(scoreDetail.total);
+        }
+        
+        await db.collection('schedules').doc(this.scheduleId).update({ 
+            assignments: this.assignments,
+            aiStrategy: strategy,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        this.violationCells.clear();
+        this.needsCheck = false;
+        this.lastCheckResult = null;
+        
+        this.renderMatrix();
+        this.updateScheduleScore();
+        
+        alert(`✅ 已套用 ${strategy} 排班結果！`);
     },
 
     initContextMenu: function() {},
@@ -895,7 +918,7 @@ const scheduleEditorManager = {
         
         console.log(`🔄 交換檢查: ${uid1} Day${day} (${source.shift}) ↔ ${uid2} Day${day} (${target.shift})`);
         
-        // 執行7項檢查
+        // 執衁7項檢查
         const violations = [];
         
         // 檢查 uid1
@@ -1548,3 +1571,5 @@ const scheduleEditorManager = {
         return h + m / 60;
     }
 };
+
+console.log('✅ schedule_editor_manager.js 已載入 (整合 AI 比較 + 評分系統)');
