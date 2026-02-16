@@ -1,4 +1,4 @@
-// js/modules/unit_manager.js (完整版 - 雙向同步)
+// js/modules/unit_manager.js (完整版 - 雙向同步 + 跨單位管理者)
 
 const unitManager = {
     allUnits: [],
@@ -44,9 +44,8 @@ const unitManager = {
             
             let query = db.collection('users').where('isActive', '==', true);
             
-            if ((activeRole === 'unit_manager' || activeRole === 'unit_scheduler') && activeUnitId) {
-                query = query.where('unitId', '==', activeUnitId);
-            }
+            // ⚠️ 跨單位管理者功能需要載入所有使用者
+            // 不再限制只載入當前單位的使用者
             
             const snapshot = await query.get();
             this.allUsers = snapshot.docs.map(doc => ({
@@ -150,10 +149,14 @@ const unitManager = {
         const fragment = document.createDocumentFragment();
         filtered.forEach(u => {
             const tr = document.createElement('tr');
+            
+            // ✨ 顯示本單位管理者和跨單位管理者
+            const managersDisplay = this.getManagersDisplay(u);
+            
             tr.innerHTML = `
                 <td><strong>${u.id}</strong></td>
                 <td>${u.name}</td>
-                <td>${this.getNames(u.managers)}</td>
+                <td>${managersDisplay}</td>
                 <td>${this.getNames(u.schedulers)}</td>
                 <td>
                     <button class="btn btn-edit" onclick="unitManager.openModal('${u.id}')">編輯</button>
@@ -163,6 +166,39 @@ const unitManager = {
             fragment.appendChild(tr);
         });
         tbody.appendChild(fragment);
+    },
+
+    // ✨ 新增：分別顯示本單位管理者和跨單位管理者
+    getManagersDisplay: function(unit) {
+        const localManagers = this.getNames(unit.managers);
+        const crossManagers = unit.crossUnitManagers && unit.crossUnitManagers.length > 0
+            ? this.getCrossManagersNames(unit.crossUnitManagers)
+            : null;
+        
+        if (localManagers === '<span style="color:#999;">(未設定)</span>' && !crossManagers) {
+            return '<span style="color:#999;">(未設定)</span>';
+        }
+        
+        let html = '';
+        if (localManagers !== '<span style="color:#999;">(未設定)</span>') {
+            html += localManagers;
+        }
+        if (crossManagers) {
+            if (html) html += '<br>';
+            html += `<span style="color:#27ae60;">${crossManagers} <small>(跨單位)</small></span>`;
+        }
+        return html;
+    },
+
+    getCrossManagersNames: function(uidArray) {
+        if(!uidArray || !Array.isArray(uidArray) || uidArray.length === 0) return null;
+        
+        const names = uidArray.map(uid => {
+            const user = this.allUsers.find(p => p.uid === uid);
+            return user ? user.name : null;
+        }).filter(n => n);
+        
+        return names.length > 0 ? names.join(', ') : null;
     },
 
     getNames: function(uidArray) {
@@ -208,6 +244,9 @@ const unitManager = {
             const unitStaff = this.allUsers.filter(u => u.unitId === unit.id);
             this.renderCheckboxList('managerList', 'mgr_', unitStaff, unit.managers || []);
             this.renderCheckboxList('schedulerList', 'sch_', unitStaff, unit.schedulers || []);
+            
+            // ✨ 渲染跨單位管理者列表
+            this.renderCrossUnitManagersList(unit.crossUnitManagers || []);
         } else {
             document.getElementById('currentMode').value = 'add';
             inputId.value = '';
@@ -216,6 +255,12 @@ const unitManager = {
             inputName.disabled = false;
             document.getElementById('managerList').innerHTML = '<div style="padding:20px; text-align:center; color:#999;">請先儲存建立單位再指派人員。</div>';
             document.getElementById('schedulerList').innerHTML = '<div style="padding:20px; text-align:center; color:#999;">請先儲存建立單位再指派人員。</div>';
+            
+            // ✨ 清空跨單位管理者
+            const crossContainer = document.getElementById('crossUnitManagersContainer');
+            if (crossContainer) {
+                crossContainer.style.display = 'none';
+            }
         }
     },
 
@@ -244,6 +289,200 @@ const unitManager = {
         });
     },
 
+    // ✨ 新增：渲染跨單位管理者列表
+    renderCrossUnitManagersList: function(crossManagerUids) {
+        const container = document.getElementById('crossUnitManagersList');
+        const containerDiv = document.getElementById('crossUnitManagersContainer');
+        
+        if (!container || !containerDiv) return;
+        
+        container.innerHTML = '';
+        
+        if (!crossManagerUids || crossManagerUids.length === 0) {
+            container.innerHTML = '<div style="padding:10px; text-align:center; color:#999; font-size:0.9rem;">尚未設定跨單位管理者</div>';
+            containerDiv.style.display = 'block';
+            return;
+        }
+        
+        containerDiv.style.display = 'block';
+        
+        crossManagerUids.forEach(uid => {
+            const user = this.allUsers.find(u => u.uid === uid);
+            if (user) {
+                const item = document.createElement('div');
+                item.style.cssText = 'display:flex; align-items:center; padding:8px; border-bottom:1px solid #eee; background:#f8f9fa;';
+                item.innerHTML = `
+                    <span style="flex:1;">
+                        <strong>${user.name}</strong> (${user.empId})
+                        <small style="color:#666; margin-left:8px;">來自：${this.getUnitName(user.unitId)}</small>
+                    </span>
+                    <button class="btn" style="background:#e74c3c; color:white; padding:4px 8px; font-size:0.8rem;"
+                            onclick="unitManager.removeCrossUnitManager('${uid}')">
+                        <i class="fas fa-times"></i> 移除
+                    </button>
+                `;
+                container.appendChild(item);
+            }
+        });
+    },
+
+    getUnitName: function(unitId) {
+        const unit = this.allUnits.find(u => u.id === unitId);
+        return unit ? unit.name : unitId;
+    },
+
+    // ✨ 新增：打開跨單位管理者搜尋對話框
+    openCrossUnitManagerModal: function() {
+        const modal = document.getElementById('crossUnitManagerModal');
+        if (!modal) {
+            // 如果 modal 不存在，創建它
+            this.createCrossUnitManagerModal();
+            return this.openCrossUnitManagerModal();
+        }
+        
+        modal.classList.add('show');
+        document.getElementById('searchCrossManagerInput').value = '';
+        this.renderCrossManagerSearchResults();
+    },
+
+    closeCrossUnitManagerModal: function() {
+        const modal = document.getElementById('crossUnitManagerModal');
+        if (modal) modal.classList.remove('show');
+    },
+
+    // ✨ 新增：創建跨單位管理者搜尋 Modal
+    createCrossUnitManagerModal: function() {
+        const modalHtml = `
+        <div id="crossUnitManagerModal" class="custom-modal" style="display:none;">
+            <div class="modal-content" style="width:600px; max-width:90%;">
+                <div class="modal-header">
+                    <h2><i class="fas fa-user-plus"></i> 新增跨單位管理者</h2>
+                    <button class="modal-close" onclick="unitManager.closeCrossUnitManagerModal()">&times;</button>
+                </div>
+                <div class="modal-body" style="max-height:500px; overflow-y:auto;">
+                    <div style="margin-bottom:15px;">
+                        <label style="display:block; margin-bottom:5px; font-weight:bold;">
+                            <i class="fas fa-search"></i> 搜尋人員
+                        </label>
+                        <input type="text" id="searchCrossManagerInput" 
+                               placeholder="輸入姓名或員工編號搜尋..." 
+                               style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;"
+                               oninput="unitManager.renderCrossManagerSearchResults()">
+                    </div>
+                    <div id="crossManagerSearchResults" style="margin-top:15px;">
+                        <!-- 搜尋結果將顯示在這裡 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    },
+
+    // ✨ 新增：渲染跨單位管理者搜尋結果
+    renderCrossManagerSearchResults: function() {
+        const container = document.getElementById('crossManagerSearchResults');
+        if (!container) return;
+        
+        const unitId = document.getElementById('inputUnitId').value;
+        const searchTerm = (document.getElementById('searchCrossManagerInput')?.value || '').toLowerCase().trim();
+        
+        // 取得當前單位資料
+        const unit = this.allUnits.find(u => u.id === unitId);
+        const currentCrossManagers = unit?.crossUnitManagers || [];
+        const currentManagers = unit?.managers || [];
+        
+        // 過濾：1) 不是本單位的人員 2) 尚未加入跨單位管理者 3) 符合搜尋條件
+        let filtered = this.allUsers.filter(u => {
+            if (u.unitId === unitId) return false; // 排除本單位人員
+            if (currentCrossManagers.includes(u.uid)) return false; // 排除已加入的
+            if (currentManagers.includes(u.uid)) return false; // 排除已是本單位管理者的
+            
+            if (!searchTerm) return true;
+            return u.name.toLowerCase().includes(searchTerm) || 
+                   u.empId.toLowerCase().includes(searchTerm);
+        });
+        
+        container.innerHTML = '';
+        
+        if (searchTerm && filtered.length === 0) {
+            container.innerHTML = '<div style="padding:20px; text-align:center; color:#999;">查無符合的人員</div>';
+            return;
+        }
+        
+        if (!searchTerm) {
+            container.innerHTML = '<div style="padding:20px; text-align:center; color:#999;"><i class="fas fa-info-circle"></i> 請輸入關鍵字搜尋</div>';
+            return;
+        }
+        
+        // 限制顯示前 20 筆
+        filtered = filtered.slice(0, 20);
+        
+        filtered.forEach(user => {
+            const item = document.createElement('div');
+            item.style.cssText = 'display:flex; align-items:center; padding:10px; border-bottom:1px solid #eee; cursor:pointer; transition:background 0.2s;';
+            item.onmouseover = function() { this.style.background = '#f0f0f0'; };
+            item.onmouseout = function() { this.style.background = ''; };
+            item.onclick = () => this.addCrossUnitManager(user.uid);
+            
+            item.innerHTML = `
+                <div style="flex:1;">
+                    <div style="font-weight:bold;">${user.name}</div>
+                    <div style="font-size:0.85rem; color:#666;">
+                        員工編號：${user.empId} | 單位：${this.getUnitName(user.unitId)}
+                    </div>
+                </div>
+                <button class="btn btn-sm" style="background:#27ae60; color:white;">
+                    <i class="fas fa-plus"></i> 加入
+                </button>
+            `;
+            container.appendChild(item);
+        });
+        
+        if (filtered.length === 20) {
+            const hint = document.createElement('div');
+            hint.style.cssText = 'padding:10px; text-align:center; color:#999; font-size:0.85rem;';
+            hint.textContent = '顯示前 20 筆結果，請輸入更精確的關鍵字';
+            container.appendChild(hint);
+        }
+    },
+
+    // ✨ 新增：加入跨單位管理者
+    addCrossUnitManager: function(uid) {
+        const unitId = document.getElementById('inputUnitId').value;
+        const unit = this.allUnits.find(u => u.id === unitId);
+        if (!unit) return;
+        
+        const currentCrossManagers = unit.crossUnitManagers || [];
+        
+        if (!currentCrossManagers.includes(uid)) {
+            currentCrossManagers.push(uid);
+            unit.crossUnitManagers = currentCrossManagers;
+            
+            // 更新顯示
+            this.renderCrossUnitManagersList(currentCrossManagers);
+            this.closeCrossUnitManagerModal();
+            
+            const user = this.allUsers.find(u => u.uid === uid);
+            console.log(`✅ 已加入跨單位管理者: ${user?.name}`);
+        }
+    },
+
+    // ✨ 新增：移除跨單位管理者
+    removeCrossUnitManager: function(uid) {
+        const unitId = document.getElementById('inputUnitId').value;
+        const unit = this.allUnits.find(u => u.id === unitId);
+        if (!unit) return;
+        
+        const user = this.allUsers.find(u => u.uid === uid);
+        if (!confirm(`確定要移除 ${user?.name} 的跨單位管理權限嗎？`)) return;
+        
+        unit.crossUnitManagers = (unit.crossUnitManagers || []).filter(id => id !== uid);
+        this.renderCrossUnitManagersList(unit.crossUnitManagers);
+        
+        console.log(`✅ 已移除跨單位管理者: ${user?.name}`);
+    },
+
     getCheckedValues: function(containerId) {
         const container = document.getElementById(containerId);
         if(!container) return [];
@@ -251,7 +490,7 @@ const unitManager = {
         return Array.from(inputs).map(cb => cb.value);
     },
 
-    // --- 5. 儲存（含雙向同步） ---
+    // --- 5. 儲存（含雙向同步 + 跨單位管理者） ---
     saveData: async function() {
         const mode = document.getElementById('currentMode').value;
         const unitId = document.getElementById('inputUnitId').value.trim();
@@ -263,10 +502,15 @@ const unitManager = {
         const managers = this.getCheckedValues('managerList');
         const schedulers = this.getCheckedValues('schedulerList');
         
+        // ✨ 取得跨單位管理者
+        const unit = this.allUnits.find(u => u.id === unitId);
+        const crossUnitManagers = unit?.crossUnitManagers || [];
+        
         const unitData = {
             name: unitName,
             managers: managers,
             schedulers: schedulers,
+            crossUnitManagers: crossUnitManagers, // ✨ 儲存跨單位管理者
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
@@ -379,6 +623,7 @@ const unitManager = {
                         name: uname,
                         managers: [],
                         schedulers: [],
+                        crossUnitManagers: [], // ✨ 初始化跨單位管理者
                         groups: [],
                         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
