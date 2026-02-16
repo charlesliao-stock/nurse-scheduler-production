@@ -98,7 +98,7 @@ const unitManager = {
         }
     },
 
-    // --- 3. 渲染列表 ---
+    // --- 3. 渲柔列表 ---
     renderTable: function() {
         const tbody = document.getElementById('unitTableBody');
         if(!tbody) return;
@@ -162,8 +162,8 @@ const unitManager = {
                 <td>${managersDisplay}</td>
                 <td>${this.getNames(u.schedulers)}</td>
                 <td>
-                    <button class="btn btn-edit" onclick="unitManager.openModal('${u.id}')"編輯</button>
-                    ${isSystemAdmin ? `<button class="btn btn-delete" onclick="unitManager.deleteUnit('${u.id}')"刪除</button>` : ''}
+                    <button class="btn btn-edit" onclick="unitManager.openModal('${u.id}')">編輯</button>
+                    ${isSystemAdmin ? `<button class="btn btn-delete" onclick="unitManager.deleteUnit('${u.id}')">刪除</button>` : ''}
                 </td>
             `;
             fragment.appendChild(tr);
@@ -248,7 +248,7 @@ const unitManager = {
             this.renderCheckboxList('managerList', 'mgr_', unitStaff, unit.managers || []);
             this.renderCheckboxList('schedulerList', 'sch_', unitStaff, unit.schedulers || []);
             
-            // ✨ 渲染跨單位管理者列表
+            // ✨ 渲柔跨單位管理者列表
             this.renderCrossUnitManagersList(unit.crossUnitManagers || []);
         } else {
             document.getElementById('currentMode').value = 'add';
