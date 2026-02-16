@@ -6,6 +6,7 @@ class SchedulerV3 extends BaseScheduler {
         console.log('🚀 SchedulerV3 初始化 (階段1全部填班 + 階段2調整OFF + 階段3回溯1 + 階段4回溯2)');
         this.assignments = {};
         this.dailyCount = {};
+        this.whitelistCache = {}; // 新增：白名單快取
         this.initializeAssignments();
         this.initializeDailyCount();
     }
@@ -21,6 +22,59 @@ class SchedulerV3 extends BaseScheduler {
         for (let day = 1; day <= this.daysInMonth; day++) {
             this.dailyCount[day] = {};
             for (let shift of this.shifts) this.dailyCount[day][shift.code] = 0;
+        }
+    }
+    
+    /**
+     * 取得白名單（含快取）
+     * 快取策略：以 uid_day 為 key，避免重複計算
+     */
+    getWhitelistCached(staff, day) {
+        const uid = staff.uid || staff.id;
+        const cacheKey = `${uid}_${day}`;
+        
+        // 檢查快取
+        if (this.whitelistCache[cacheKey]) {
+            return this.whitelistCache[cacheKey];
+        }
+        
+        // 計算白名單
+        const whitelist = WhitelistCalculator.calculate(
+            staff,
+            this.assignments,
+            day,
+            this.year,
+            this.month,
+            this.rules,
+            this.dailyCount[day],
+            this.daysInMonth,
+            this.shiftTimeMap,
+            this.lastMonthData
+        );
+        
+        // 存入快取
+        this.whitelistCache[cacheKey] = whitelist;
+        return whitelist;
+    }
+    
+    /**
+     * 清除特定人員和日期的白名單快取
+     */
+    clearWhitelistCache(uid, day) {
+        const cacheKey = `${uid}_${day}`;
+        delete this.whitelistCache[cacheKey];
+    }
+    
+    /**
+     * 清除某天所有人的白名單快取（當該天的排班被修改時）
+     */
+    invalidateWhitelistForDay(day) {
+        for (let staff of this.allStaff) {
+            const uid = staff.uid || staff.id;
+            // 清除當天及相鄰日期的快取（因為排班會影響前後天的白名單）
+            for (let d = Math.max(1, day - 1); d <= Math.min(this.daysInMonth, day + 1); d++) {
+                this.clearWhitelistCache(uid, d);
+            }
         }
     }
     
@@ -91,19 +145,8 @@ class SchedulerV3 extends BaseScheduler {
                 continue;
             }
             
-            // 計算白名單
-            const whitelist = WhitelistCalculator.calculate(
-                staff,
-                this.assignments,
-                day,
-                this.year,
-                this.month,
-                this.rules,
-                this.dailyCount[day],
-                this.daysInMonth,
-                this.shiftTimeMap,
-                this.lastMonthData
-            );
+            // 使用快取版本計算白名單
+            const whitelist = this.getWhitelistCached(staff, day);
             
             // Step 2.6：填入班別（按優先順序，不檢查是否已滿）
             const shift = this.selectShiftFromWhitelist(whitelist, staff);
@@ -241,6 +284,9 @@ class SchedulerV3 extends BaseScheduler {
             console.log(`      → ${staffName} (總OFF=${validCandidates[i].totalOff}) 改為 OFF`);
             this.assignments[uid][key] = 'OFF';
             this.dailyCount[day][shiftCode]--;
+            
+            // 清除快取（因為排班被修改）
+            this.invalidateWhitelistForDay(day);
         }
     }
     
@@ -367,6 +413,9 @@ class SchedulerV3 extends BaseScheduler {
                 console.log(`    ✅ ${staffName} 從 OFF 改為 ${shiftCode}`);
                 this.assignments[uid][`current_${day}`] = shiftCode;
                 this.dailyCount[day][shiftCode]++;
+                
+                // 清除快取（因為排班被修改）
+                this.invalidateWhitelistForDay(day);
             }
             
             // 檢查是否完全補足
@@ -390,19 +439,8 @@ class SchedulerV3 extends BaseScheduler {
             // 只找排班OFF（不包含預班OFF）
             if (shift !== 'OFF') continue;
             
-            // 計算白名單
-            const whitelist = WhitelistCalculator.calculate(
-                staff,
-                this.assignments,
-                day,
-                this.year,
-                this.month,
-                this.rules,
-                this.dailyCount[day],
-                this.daysInMonth,
-                this.shiftTimeMap,
-                this.lastMonthData
-            );
+            // 使用快取版本計算白名單
+            const whitelist = this.getWhitelistCached(staff, day);
             
             // 檢查白名單是否包含需求班別
             if (whitelist.includes(shiftCode)) {
@@ -560,6 +598,11 @@ class SchedulerV3 extends BaseScheduler {
             this.assignments[uid][`current_${adjustDay}`] = 'OFF';
             this.assignments[replacement.uid][`current_${adjustDay}`] = originalShift;
             
+            // 清除快取（回溯範圍內的所有日期）
+            for (let d = adjustDay; d <= currentDay; d++) {
+                this.invalidateWhitelistForDay(d);
+            }
+            
             // 重新執行adjustDay的階段2-3
             this.rerunStages23(adjustDay);
             
@@ -610,19 +653,8 @@ class SchedulerV3 extends BaseScheduler {
             // 只找排班OFF
             if (shift !== 'OFF') continue;
             
-            // 計算白名單
-            const whitelist = WhitelistCalculator.calculate(
-                staff,
-                this.assignments,
-                day,
-                this.year,
-                this.month,
-                this.rules,
-                this.dailyCount[day],
-                this.daysInMonth,
-                this.shiftTimeMap,
-                this.lastMonthData
-            );
+            // 使用快取版本計算白名單
+            const whitelist = this.getWhitelistCached(staff, day);
             
             if (whitelist.includes(targetShift)) {
                 return {
@@ -663,6 +695,9 @@ class SchedulerV3 extends BaseScheduler {
         
         // 重新計算dailyCount
         this.recalculateDailyCount();
+        
+        // 清除所有快取（因為恢復後狀態改變）
+        this.whitelistCache = {};
     }
     
     /**
@@ -711,6 +746,9 @@ class SchedulerV3 extends BaseScheduler {
                 delete this.assignments[uid][`current_${day}`];
             }
         }
+        
+        // 清除該天的快取
+        this.invalidateWhitelistForDay(day);
         
         // 重新執行階段1-3
         this.stage1_FillAllShifts(day);
@@ -818,4 +856,4 @@ class SchedulerV3 extends BaseScheduler {
     }
 }
 
-console.log('✅ SchedulerV3 已載入 (階段1-4完整版)');
+console.log('✅ SchedulerV3 已載入 (階段1-4完整版 + 白名單快取機制)');
