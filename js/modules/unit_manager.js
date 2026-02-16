@@ -24,6 +24,9 @@ const unitManager = {
             if(btnImport) btnImport.style.display = 'none';
         }
 
+        // ✨ 確保跨單位管理者 Modal 存在
+        this.ensureCrossUnitManagerModalExists();
+
         await this.fetchAllUsers(); 
         await this.fetchUnits();    
     },
@@ -159,8 +162,8 @@ const unitManager = {
                 <td>${managersDisplay}</td>
                 <td>${this.getNames(u.schedulers)}</td>
                 <td>
-                    <button class="btn btn-edit" onclick="unitManager.openModal('${u.id}')">編輯</button>
-                    ${isSystemAdmin ? `<button class="btn btn-delete" onclick="unitManager.deleteUnit('${u.id}')">刪除</button>` : ''}
+                    <button class="btn btn-edit" onclick="unitManager.openModal('${u.id}')"編輯</button>
+                    ${isSystemAdmin ? `<button class="btn btn-delete" onclick="unitManager.deleteUnit('${u.id}')"刪除</button>` : ''}
                 </td>
             `;
             fragment.appendChild(tr);
@@ -289,7 +292,7 @@ const unitManager = {
         });
     },
 
-    // ✨ 新增：渲染跨單位管理者列表
+    // ✨ 新增：渲柔跨單位管理者列表
     renderCrossUnitManagersList: function(crossManagerUids) {
         const container = document.getElementById('crossUnitManagersList');
         const containerDiv = document.getElementById('crossUnitManagersContainer');
@@ -331,18 +334,57 @@ const unitManager = {
         return unit ? unit.name : unitId;
     },
 
+    // ✨ 新增：確保跨單位管理者 Modal 存在
+    ensureCrossUnitManagerModalExists: function() {
+        if (document.getElementById('crossUnitManagerModal')) {
+            return; // 已經存在
+        }
+        
+        const modalHtml = `
+        <div id="crossUnitManagerModal" class="modal">
+            <div class="modal-content" style="width:600px; max-width:90%;">
+                <h3><i class="fas fa-user-plus"></i> 新增跨單位管理者</h3>
+                <div style="margin-bottom:15px;">
+                    <label style="display:block; margin-bottom:5px; font-weight:bold;">
+                        <i class="fas fa-search"></i> 搜尋人員
+                    </label>
+                    <input type="text" id="searchCrossManagerInput" 
+                           placeholder="輸入姓名或員工編號搜尋..." 
+                           style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;"
+                           oninput="unitManager.renderCrossManagerSearchResults()">
+                </div>
+                <div id="crossManagerSearchResults" style="max-height:400px; overflow-y:auto; margin-top:15px; border:1px solid #ddd; border-radius:4px;">
+                    <!-- 搜尋結果將顯示在這裡 -->
+                </div>
+                <div style="text-align:right; margin-top:20px;">
+                    <button class="btn btn-close" onclick="unitManager.closeCrossUnitManagerModal()">關閉</button>
+                </div>
+            </div>
+        </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        console.log("✅ 跨單位管理者 Modal 已建立");
+    },
+
     // ✨ 新增：打開跨單位管理者搜尋對話框
     openCrossUnitManagerModal: function() {
+        this.ensureCrossUnitManagerModalExists();
+        
         const modal = document.getElementById('crossUnitManagerModal');
         if (!modal) {
-            // 如果 modal 不存在，創建它
-            this.createCrossUnitManagerModal();
-            return this.openCrossUnitManagerModal();
+            console.error("❌ 找不到 crossUnitManagerModal");
+            alert("系統錯誤：無法打開搜尋視窗");
+            return;
         }
         
         modal.classList.add('show');
-        document.getElementById('searchCrossManagerInput').value = '';
+        const searchInput = document.getElementById('searchCrossManagerInput');
+        if (searchInput) {
+            searchInput.value = '';
+            searchInput.focus();
+        }
         this.renderCrossManagerSearchResults();
+        console.log("✅ 跨單位管理者 Modal 已打開");
     },
 
     closeCrossUnitManagerModal: function() {
@@ -350,36 +392,7 @@ const unitManager = {
         if (modal) modal.classList.remove('show');
     },
 
-    // ✨ 新增：創建跨單位管理者搜尋 Modal
-    createCrossUnitManagerModal: function() {
-        const modalHtml = `
-        <div id="crossUnitManagerModal" class="custom-modal" style="display:none;">
-            <div class="modal-content" style="width:600px; max-width:90%;">
-                <div class="modal-header">
-                    <h2><i class="fas fa-user-plus"></i> 新增跨單位管理者</h2>
-                    <button class="modal-close" onclick="unitManager.closeCrossUnitManagerModal()">&times;</button>
-                </div>
-                <div class="modal-body" style="max-height:500px; overflow-y:auto;">
-                    <div style="margin-bottom:15px;">
-                        <label style="display:block; margin-bottom:5px; font-weight:bold;">
-                            <i class="fas fa-search"></i> 搜尋人員
-                        </label>
-                        <input type="text" id="searchCrossManagerInput" 
-                               placeholder="輸入姓名或員工編號搜尋..." 
-                               style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;"
-                               oninput="unitManager.renderCrossManagerSearchResults()">
-                    </div>
-                    <div id="crossManagerSearchResults" style="margin-top:15px;">
-                        <!-- 搜尋結果將顯示在這裡 -->
-                    </div>
-                </div>
-            </div>
-        </div>
-        `;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-    },
-
-    // ✨ 新增：渲染跨單位管理者搜尋結果
+    // ✨ 新增：渲柔跨單位管理者搜尋結果
     renderCrossManagerSearchResults: function() {
         const container = document.getElementById('crossManagerSearchResults');
         if (!container) return;
