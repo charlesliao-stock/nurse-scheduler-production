@@ -100,7 +100,11 @@
     <script src="js/modules/staff_pre_schedule_manager.js"></script>
     <script src="js/modules/staff_pre_schedule_list_manager.js"></script>
 
-    <!-- 排班引擎區塊 -->
+    <!-- ========================================= -->
+    <!-- 排班引擎區塊 (Scheduling Engines)         -->
+    <!-- ========================================= -->
+    
+    <!-- 基礎排班引擎 -->
     <script src="js/scheduler/BaseScheduler.js"></script>
     
     <!-- ✅ V3 驗證層（第 2 週） -->
@@ -111,15 +115,25 @@
     <script src="js/scheduler/algorithms/BacktrackSolver.js"></script>
     <script src="js/scheduler/algorithms/BalanceAdjuster.js"></script>
     
-    <!-- ✅ V3 排班引擎（第 4-5 週） -->
+    <!-- ✅ V3 四階段回溯法（第 4-5 週）- 實用穩定，速度快 (3-5秒) -->
     <script src="js/scheduler/SchedulerV3.js"></script>
     
-    <!-- 🆕 V4 改良式基因演算法（多目標優化） -->
+    <!-- 🆕 V4 改良式基因演算法 - 品質最佳，多目標優化 (12-15秒) -->
     <script src="js/scheduler/SchedulerV4.js"></script>
     
-    <!-- 舊版引擎（暫時保留，將於測試完成後移除） -->
+    <!-- 🆕 V5 兩階段IP+GA - 公平性最優，休假均衡 (10-12秒) -->
+    <script src="js/scheduler/SchedulerV5.js"></script>
+    
+    <!-- 🆕 V6 混合式貪婪+GA - 速度與品質平衡 (8-10秒) -->
+    <script src="js/scheduler/SchedulerV6.js"></script>
+    
+    <!-- 排班引擎工廠（支援 V3, V4, V5, V6） -->
     <script src="js/scheduler/SchedulerFactory.js"></script>
 
+    <!-- ========================================= -->
+    <!-- 排班管理模組 (Schedule Management)        -->
+    <!-- ========================================= -->
+    
     <script src="js/modules/schedule_list_manager.js"></script>
     <script src="js/modules/schedule_editor_manager.js"></script>
     <script src="js/modules/schedule_rule_manager.js"></script>
@@ -128,7 +142,13 @@
     <script src="js/modules/staff_schedule_manager.js"></script>
     <script src="js/modules/shift_exchange_manager.js"></script>
     
-    <!-- 系統統計模組 -->
+    <!-- 🆕 AI 排班多演算法比較模組 -->
+    <script src="js/modules/ai_scheduler_comparison.js"></script>
+    
+    <!-- ========================================= -->
+    <!-- 系統統計與報表模組 (Statistics & Reports) -->
+    <!-- ========================================= -->
+    
     <script src="js/modules/system_statistics_calculator.js"></script>
     <script src="js/modules/system_statistics_ui_manager.js"></script>
     <script src="js/modules/analysis_report_generator.js"></script>
