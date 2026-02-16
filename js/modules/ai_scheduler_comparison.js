@@ -1,5 +1,5 @@
 // js/modules/ai_scheduler_comparison.js
-// AI排班多版本比較模組 + 評分系統整合
+// AI排班多版本比較模組 + 評分系統完整整合
 
 const AISchedulerComparison = {
     
@@ -17,6 +17,11 @@ const AISchedulerComparison = {
         this.showLoading(dialog);
         
         try {
+            // 🔥 確保 scoringManager 已載入
+            if (typeof scoringManager === 'undefined') {
+                throw new Error('評分系統未載入');
+            }
+            
             // 執行所有演算法
             const results = await SchedulerFactory.runMultiple(
                 ['V3', 'V4', 'V5', 'V6'],
@@ -28,12 +33,10 @@ const AISchedulerComparison = {
             );
             
             // 🔥 為每個結果計算評分
-            if (typeof scoringManager !== 'undefined') {
-                for (let result of results) {
-                    if (result.success && result.schedule) {
-                        result.scoreDetail = this.calculateScheduleScore(result.schedule, allStaff, year, month);
-                        console.log(`📊 ${result.strategy} 評分:`, result.scoreDetail.total);
-                    }
+            for (let result of results) {
+                if (result.success && result.schedule) {
+                    result.scoreDetail = this.calculateScheduleScore(result.schedule, allStaff, year, month);
+                    console.log(`📊 ${result.strategy} 評分:`, result.scoreDetail.total);
                 }
             }
             
@@ -56,7 +59,9 @@ const AISchedulerComparison = {
         
         staffList.forEach(staff => {
             const uid = staff.uid || staff.id;
-            assignments[uid] = {};
+            assignments[uid] = {
+                preferences: staff.preferences || {}
+            };
             
             for (let day = 1; day <= daysInMonth; day++) {
                 const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -215,13 +220,13 @@ const AISchedulerComparison = {
     showResults: function(dialog, results, onSelectCallback) {
         const content = dialog.querySelector('div');
         
-        // 排序: 由高到低 (優先使用 scoreDetail.total，再用 metrics.overallScore)
+        // 排序: 由高到低 (優先使用 scoreDetail.total)
         results.sort((a, b) => {
             if (!a.success) return 1;
             if (!b.success) return -1;
             
-            const scoreA = a.scoreDetail ? a.scoreDetail.total : (a.metrics ? parseFloat(a.metrics.overallScore) : 0);
-            const scoreB = b.scoreDetail ? b.scoreDetail.total : (b.metrics ? parseFloat(b.metrics.overallScore) : 0);
+            const scoreA = a.scoreDetail ? a.scoreDetail.total : 0;
+            const scoreB = b.scoreDetail ? b.scoreDetail.total : 0;
             
             return scoreB - scoreA;
         });
@@ -264,7 +269,7 @@ const AISchedulerComparison = {
             </div>
         `;
         
-        // 綁定事件
+        // 繫定事件
         results.forEach((result, index) => {
             if (result.success) {
                 const btn = content.querySelector(`#select-${result.strategy}`);
@@ -273,7 +278,7 @@ const AISchedulerComparison = {
                     this.closeDialog(dialog);
                 });
                 
-                // 🔥 綁定評分詳情按鈕
+                // 🔥 繫定評分詳情按鈕
                 const scoreBtn = content.querySelector(`#score-detail-${result.strategy}`);
                 if (scoreBtn && result.scoreDetail) {
                     scoreBtn.addEventListener('click', (e) => {
@@ -308,8 +313,8 @@ const AISchedulerComparison = {
             `;
         }
         
-        // 🔥 優先使用 scoreDetail，再用 metrics
-        const score = result.scoreDetail ? result.scoreDetail.total : (result.metrics ? parseFloat(result.metrics.overallScore) : 0);
+        // 🔥 使用 scoreDetail
+        const score = result.scoreDetail ? result.scoreDetail.total : 0;
         const hasScoreDetail = !!result.scoreDetail;
         
         const borderColor = isBest ? '#4CAF50' : '#e0e0e0';
@@ -346,7 +351,7 @@ const AISchedulerComparison = {
                     </div>
                 </div>
                 
-                ${result.scoreDetail ? this.renderScoreBreakdown(result.scoreDetail) : this.renderMetrics(result.metrics)}
+                ${result.scoreDetail ? this.renderScoreBreakdown(result.scoreDetail) : ''}
                 
                 <div style="margin-bottom: 16px;">
                     <div style="font-size: 12px; color: #666; margin-bottom: 4px;">⏱️ 執行時間</div>
@@ -376,7 +381,6 @@ const AISchedulerComparison = {
      */
     renderScoreBreakdown: function(scoreDetail) {
         const breakdown = scoreDetail.breakdown || {};
-        const subBreakdown = scoreDetail.subBreakdown || {};
         
         return `
             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 16px;">
@@ -395,34 +399,6 @@ const AISchedulerComparison = {
                 <div style="padding: 8px; background: white; border-radius: 8px; border: 1px solid #e0e0e0;">
                     <div style="font-size: 11px; color: #666; margin-bottom: 4px;">⚡ 效率</div>
                     <div style="font-size: 16px; font-weight: 600; color: #4CAF50;">${Math.round(breakdown.efficiency || 0)}</div>
-                </div>
-            </div>
-        `;
-    },
-    
-    /**
-     * 渲染指標 (metrics)
-     */
-    renderMetrics: function(metrics) {
-        if (!metrics) return '';
-        
-        return `
-            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 16px;">
-                <div style="padding: 8px; background: white; border-radius: 8px; border: 1px solid #e0e0e0;">
-                    <div style="font-size: 11px; color: #666; margin-bottom: 4px;">人力達成</div>
-                    <div style="font-size: 16px; font-weight: 600; color: #2196F3;">${metrics.staffingRate}</div>
-                </div>
-                <div style="padding: 8px; background: white; border-radius: 8px; border: 1px solid #e0e0e0;">
-                    <div style="font-size: 11px; color: #666; margin-bottom: 4px;">偏好滿足</div>
-                    <div style="font-size: 16px; font-weight: 600; color: #9C27B0;">${metrics.preferenceScore}</div>
-                </div>
-                <div style="padding: 8px; background: white; border-radius: 8px; border: 1px solid #e0e0e0;">
-                    <div style="font-size: 11px; color: #666; margin-bottom: 4px;">公平性</div>
-                    <div style="font-size: 16px; font-weight: 600; color: #FF9800;">${metrics.fairnessScore}</div>
-                </div>
-                <div style="padding: 8px; background: white; border-radius: 8px; border: 1px solid #e0e0e0;">
-                    <div style="font-size: 11px; color: #666; margin-bottom: 4px;">硬限制</div>
-                    <div style="font-size: 16px; font-weight: 600; color: ${metrics.hardViolations === 0 ? '#4CAF50' : '#e74c3c'};">${metrics.hardViolations}</div>
                 </div>
             </div>
         `;
@@ -561,7 +537,8 @@ const AISchedulerComparison = {
             'V3': '🔄',
             'V4': '🧬',
             'V5': '🔢',
-            'V6': '⚡'
+            'V6': '⚡',
+            'Current': '📄'
         };
         return icons[strategy] || '🤖';
     },
@@ -637,4 +614,4 @@ const AISchedulerComparison = {
     }
 };
 
-console.log('✅ AISchedulerComparison 已載入 (整合評分系統)');
+console.log('✅ AISchedulerComparison 已載入 (完整整合評分系統)');
