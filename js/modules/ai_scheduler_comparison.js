@@ -191,18 +191,26 @@ const AISchedulerComparison = {
             if (algoProgress > currentAlgo) {
                 if (currentAlgo > 0) {
                     const prevStatus = content.querySelector(`.algo-status[data-algo="${algos[currentAlgo - 1]}"]`);
-                    const prevText = prevStatus.querySelector('.status-text');
-                    prevText.textContent = '✅ 完成';
-                    prevText.style.color = '#4CAF50';
-                    prevStatus.style.borderColor = '#4CAF50';
+                    if (prevStatus) {
+                        const prevText = prevStatus.querySelector('.status-text');
+                        if (prevText) {
+                            prevText.textContent = '✅ 完成';
+                            prevText.style.color = '#4CAF50';
+                        }
+                        prevStatus.style.borderColor = '#4CAF50';
+                    }
                 }
                 
                 if (algoProgress < algos.length) {
                     const currentStatus = content.querySelector(`.algo-status[data-algo="${algos[algoProgress]}"]`);
-                    const currentText = currentStatus.querySelector('.status-text');
-                    currentText.textContent = '⚙️ 執行中...';
-                    currentText.style.color = '#ffa500';
-                    currentStatus.style.borderColor = '#ffa500';
+                    if (currentStatus) {
+                        const currentText = currentStatus.querySelector('.status-text');
+                        if (currentText) {
+                            currentText.textContent = '⚙️ 執行中...';
+                            currentText.style.color = '#ffa500';
+                        }
+                        currentStatus.style.borderColor = '#ffa500';
+                    }
                 }
                 
                 currentAlgo = algoProgress;
