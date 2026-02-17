@@ -1,5 +1,5 @@
 // js/modules/schedule_editor_manager.js
-// 🔥 整合 AI 排班多版本比較 + 評分系統
+// 🔥 整合 AI 排班多版本比較 + 評分系統 + 引用 HardRuleValidator
 
 const scheduleEditorManager = {
     scheduleId: null, 
@@ -986,7 +986,7 @@ const scheduleEditorManager = {
         
         console.log(`🔄 交換檢查: ${uid1} Day${day} (${source.shift}) ↔ ${uid2} Day${day} (${target.shift})`);
         
-        // 執衁7項檢查
+        // 執行7項檢查
         const violations = [];
         
         // 檢查 uid1
@@ -1102,33 +1102,60 @@ const scheduleEditorManager = {
         };
     },
 
-    // ==================== 7項規則檢查 ====================
+    // ==================== 7項規則檢查（🔥 重構：引用 HardRuleValidator）====================
     
     check7Rules: function(uid, day, newShift) {
         const violations = [];
         const staff = this.staffMap[uid];
         const staffName = staff?.name || uid;
+        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
         
-        // 1. 11小時休息檢查
-        const v1 = this.check11HourRest(uid, day, newShift);
-        if (v1) violations.push({ type: 'hard', uid, day, person: staffName, rule: v1.rule, detail: v1.detail });
+        // 🔥 使用 HardRuleValidator 進行硬規則檢查（1-5項）
+        if (typeof HardRuleValidator !== 'undefined') {
+            const enrichedStaff = {
+                ...staff,
+                uid: uid,
+                schedulingParams: {
+                    ...(staff?.schedulingParams || {}),
+                    ...(this.usersMap[uid]?.schedulingParams || {})
+                }
+            };
+            
+            const lastShift = this.getLastShift(uid, day);
+            const shiftTimeMap = this.buildShiftTimeMap();
+            const rules = {
+                ...this.unitRules,
+                shifts: this.shifts
+            };
+            
+            const hardResult = HardRuleValidator.validateAll(
+                enrichedStaff,
+                this.assignments,
+                day,
+                newShift,
+                lastShift,
+                rules,
+                shiftTimeMap,
+                daysInMonth,
+                this.data.year,
+                this.data.month
+            );
+            
+            if (!hardResult.valid) {
+                violations.push({
+                    type: 'hard',
+                    uid,
+                    day,
+                    person: staffName,
+                    rule: hardResult.reason,
+                    detail: ''
+                });
+            }
+        } else {
+            console.warn('⚠️ HardRuleValidator 未載入，跳過硬規則檢查');
+        }
         
-        // 2. 週內班別多樣性
-        const v2 = this.checkWeeklyDiversity(uid, day, newShift);
-        if (v2) violations.push({ type: 'hard', uid, day, person: staffName, rule: v2.rule, detail: v2.detail });
-        
-        // 3. 特殊身分保護
-        const v3 = this.checkSpecialStatus(uid, newShift);
-        if (v3) violations.push({ type: 'hard', uid, day, person: staffName, rule: v3.rule, detail: v3.detail });
-        
-        // 4. 兩週內OFF數量
-        const v4 = this.checkTwoWeekOffs(uid, day, newShift);
-        if (v4) violations.push({ type: 'hard', uid, day, person: staffName, rule: v4.rule, detail: v4.detail });
-        
-        // 5. OFF間隔
-        const v5 = this.checkOffGap(uid, day, newShift);
-        if (v5) violations.push({ type: 'hard', uid, day, person: staffName, rule: v5.rule, detail: v5.detail });
-        
+        // 🔥 保留軟規則檢查（6-7項）
         // 6. 包班/志願匹配
         const v6 = this.checkPreference(uid, newShift);
         if (v6) violations.push({ type: 'soft', uid, day, person: staffName, rule: v6.rule, detail: v6.detail });
@@ -1140,241 +1167,27 @@ const scheduleEditorManager = {
         return violations;
     },
 
-    check11HourRest: function(uid, day, newShift) {
-        if (!newShift || newShift === 'OFF' || newShift === 'REQ_OFF') return null;
-        
-        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
-        
-        // 檢查前一天
-        let prevShift = null;
-        if (day === 1) {
-            prevShift = this.lastMonthData[uid]?.lastShift;
-        } else {
-            prevShift = this.assignments[uid]?.[`current_${day - 1}`];
-        }
-        
-        if (prevShift && prevShift !== 'OFF' && prevShift !== 'REQ_OFF') {
-            const prevShiftData = this.shifts.find(s => s.code === prevShift);
-            const newShiftData = this.shifts.find(s => s.code === newShift);
-            
-            if (prevShiftData && newShiftData) {
-                const prevEnd = this.parseTime(prevShiftData.endTime);
-                const newStart = this.parseTime(newShiftData.startTime);
-                
-                // 🔥 修正：計算跨日間隔
-                let gap = newStart - prevEnd;
-                
-                // 🔥 關鍵修正：如果間隔 <= 0，一定是跨日（隔天）
-                if (gap <= 0) {
-                    gap += 24;
-                }
-                
-                if (gap < 11) {
-                    return {
-                        rule: '11小時休息不足',
-                        detail: `Day ${day-1} ${prevShift}班下班${prevShiftData.endTime} → Day ${day} ${newShift}班上班${newShiftData.startTime}（間隔${gap.toFixed(1)}小時）`
-                    };
-                }
-            }
-        }
-        
-        // 檢查隔天
-        if (day < daysInMonth) {
-            const nextShift = this.assignments[uid]?.[`current_${day + 1}`];
-            
-            if (nextShift && nextShift !== 'OFF' && nextShift !== 'REQ_OFF') {
-                const newShiftData = this.shifts.find(s => s.code === newShift);
-                const nextShiftData = this.shifts.find(s => s.code === nextShift);
-                
-                if (newShiftData && nextShiftData) {
-                    const newEnd = this.parseTime(newShiftData.endTime);
-                    const nextStart = this.parseTime(nextShiftData.startTime);
-                    
-                    // 🔥 修正：計算跨日間隔
-                    let gap = nextStart - newEnd;
-                    
-                    // 🔥 關鍵修正：如果間隔 <= 0，一定是跨日（隔天）
-                    if (gap <= 0) {
-                        gap += 24;
-                    }
-                    
-                    if (gap < 11) {
-                        return {
-                            rule: '11小時休息不足',
-                            detail: `Day ${day} ${newShift}班下班${newShiftData.endTime} → Day ${day+1} ${nextShift}班上班${nextShiftData.startTime}（間隔${gap.toFixed(1)}小時）`
-                        };
-                    }
-                }
-            }
-        }
-        
-        return null;
-    },
-
-    checkWeeklyDiversity: function(uid, day, newShift) {
-        if (!newShift || newShift === 'OFF' || newShift === 'REQ_OFF') return null;
-        
-        const weekStartDay = this.unitRules?.hard?.weekStartDay || 1;
-        const weekStart = this.calculateWeekStart(day, weekStartDay);
-        const weekEnd = Math.min(weekStart + 6, new Date(this.data.year, this.data.month, 0).getDate());
-        
-        const shifts = new Set();
-        for (let d = weekStart; d <= weekEnd; d++) {
-            let shift;
-            if (d === day) {
-                shift = newShift;
-            } else {
-                shift = this.assignments[uid]?.[`current_${d}`];
-            }
-            
-            if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
-                shifts.add(shift);
-            }
-        }
-        
-        if (shifts.size > 2) {
-            return {
-                rule: '週內班別超過2種',
-                detail: `Week (Day ${weekStart}-${weekEnd}): ${Array.from(shifts).join(', ')}（${shifts.size}種班別）`
+    // ==================== 輔助函式（用於 HardRuleValidator）====================
+    
+    buildShiftTimeMap: function() {
+        const map = {};
+        this.shifts.forEach(s => {
+            map[s.code] = {
+                start: this.parseTime(s.startTime),
+                end: this.parseTime(s.endTime)
             };
-        }
-        
-        return null;
+        });
+        return map;
     },
 
-    checkSpecialStatus: function(uid, newShift) {
-        if (!newShift || newShift === 'OFF' || newShift === 'REQ_OFF') return null;
-        
-        const user = this.usersMap[uid];
-        if (!user) return null;
-        
-        const params = user.schedulingParams || {};
-        const shiftData = this.shifts.find(s => s.code === newShift);
-        if (!shiftData) return null;
-        
-        // 孕婦/哺乳不能排大夜
-        if (params.isPregnant || params.isBreastfeeding) {
-            const nightStart = this.parseTime(this.unitRules?.policy?.nightStart || '22:00');
-            const nightEnd = this.parseTime(this.unitRules?.policy?.nightEnd || '06:00');
-            const shiftStart = this.parseTime(shiftData.startTime);
-            
-            const isNight = (nightStart > nightEnd) 
-                ? (shiftStart >= nightStart || shiftStart <= nightEnd) 
-                : (shiftStart >= nightStart && shiftStart <= nightEnd);
-            
-            if (isNight) {
-                const status = params.isPregnant ? '孕婦' : '哺乳';
-                return {
-                    rule: '特殊身分違規',
-                    detail: `${status}不可排大夜班（${newShift}班）`
-                };
-            }
+    getLastShift: function(uid, day) {
+        if (day === 1) {
+            return this.lastMonthData[uid]?.lastShift || 'OFF';
         }
-        
-        // PGY 禁止班別
-        if (params.isPGY) {
-            const pgyList = this.unitRules?.policy?.protectPGY_List || [];
-            if (pgyList.includes(newShift)) {
-                return {
-                    rule: '特殊身分違規',
-                    detail: `PGY不可排${newShift}班`
-                };
-            }
-        }
-        
-        return null;
+        return this.assignments[uid]?.[`current_${day - 1}`] || 'OFF';
     },
 
-    checkTwoWeekOffs: function(uid, day, newShift) {
-        const weekStartDay = this.unitRules?.hard?.weekStartDay || 1;
-        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
-        
-        const weekStart = this.calculateWeekStart(day, weekStartDay);
-        const weekEnd = weekStart + 6;
-        
-        // 檢查1：前一週 + 當週
-        const prevWeekStart = weekStart - 7;
-        const prevWeekEnd = weekEnd - 7;
-        
-        if (prevWeekStart >= 1) {
-            const offs1 = this.countOffsInRange(uid, prevWeekStart, weekEnd, day, newShift);
-            if (offs1 < 2) {
-                return {
-                    rule: '兩週內OFF不足',
-                    detail: `前一週+當週 (Day ${prevWeekStart}-${weekEnd}): 只有${offs1}個OFF`
-                };
-            }
-        }
-        
-        // 檢查2：當週 + 下一週
-        const nextWeekStart = weekStart + 7;
-        const nextWeekEnd = weekEnd + 7;
-        
-        if (nextWeekStart <= daysInMonth) {
-            const offs2 = this.countOffsInRange(uid, weekStart, Math.min(nextWeekEnd, daysInMonth), day, newShift);
-            if (offs2 < 2) {
-                return {
-                    rule: '兩週內OFF不足',
-                    detail: `當週+下一週 (Day ${weekStart}-${Math.min(nextWeekEnd, daysInMonth)}): 只有${offs2}個OFF`
-                };
-            }
-        }
-        
-        return null;
-    },
-
-    checkOffGap: function(uid, day, newShift) {
-        const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
-        const maxGap = this.unitRules?.hard?.offGapMax || 12;
-        
-        // 如果新班別是OFF，不檢查
-        if (newShift === 'OFF' || newShift === 'REQ_OFF') return null;
-        
-        // 找前一個OFF
-        let prevOff = null;
-        for (let d = day - 1; d >= 1; d--) {
-            let shift;
-            if (d === day) {
-                shift = newShift;
-            } else {
-                shift = this.assignments[uid]?.[`current_${d}`];
-            }
-            
-            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') {
-                prevOff = d;
-                break;
-            }
-        }
-        
-        // 找下一個OFF
-        let nextOff = null;
-        for (let d = day + 1; d <= daysInMonth; d++) {
-            let shift;
-            if (d === day) {
-                shift = newShift;
-            } else {
-                shift = this.assignments[uid]?.[`current_${d}`];
-            }
-            
-            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') {
-                nextOff = d;
-                break;
-            }
-        }
-        
-        // 檢查間隔
-        if (prevOff && nextOff) {
-            const gap = nextOff - prevOff - 1;
-            if (gap > maxGap) {
-                return {
-                    rule: 'OFF間隔超過限制',
-                    detail: `Day ${prevOff} OFF → Day ${nextOff} OFF（間隔${gap}天，限制${maxGap}天）`
-                };
-            }
-        }
-        
-        return null;
-    },
+    // ==================== 軟規則檢查（6-7項）====================
 
     checkPreference: function(uid, newShift) {
         if (!newShift || newShift === 'OFF' || newShift === 'REQ_OFF') return null;
@@ -1609,30 +1422,6 @@ const scheduleEditorManager = {
 
     // ==================== 輔助函式 ====================
     
-    calculateWeekStart: function(day, weekStartDay) {
-        const date = new Date(this.data.year, this.data.month - 1, day);
-        const dayOfWeek = date.getDay();
-        let offset = (dayOfWeek - weekStartDay + 7) % 7;
-        return day - offset;
-    },
-
-    countOffsInRange: function(uid, startDay, endDay, changedDay, changedShift) {
-        let count = 0;
-        for (let d = startDay; d <= endDay; d++) {
-            let shift;
-            if (d === changedDay) {
-                shift = changedShift;
-            } else {
-                shift = this.assignments[uid]?.[`current_${d}`];
-            }
-            
-            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') {
-                count++;
-            }
-        }
-        return count;
-    },
-
     parseTime: function(timeStr) {
         if (!timeStr) return null;
         const [h, m] = timeStr.split(':').map(Number);
@@ -1640,4 +1429,4 @@ const scheduleEditorManager = {
     }
 };
 
-console.log('✅ schedule_editor_manager.js 已載入 (整合 AI 比較 + 評分系統)');
+console.log('✅ schedule_editor_manager.js 已載入 (整合 AI 比較 + 評分系統 + 引用 HardRuleValidator)');
