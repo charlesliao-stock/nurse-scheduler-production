@@ -11,13 +11,15 @@ const HardRuleValidator = {
         
         if (!last || !curr) return true;
         
-        let lastEnd = last.end;
-        let currStart = curr.start;
+        const lastEnd = last.end;
+        const currStart = curr.start;
         
-        if (lastEnd < last.start) lastEnd += 24;
-        if (currStart < lastEnd) currStart += 24;
+        // 🔥 修正：統一跨日計算邏輯
+        let gap = currStart - lastEnd;
+        if (gap <= 0) {  // 間隔 <= 0 代表跨日（隔天）
+            gap += 24;
+        }
         
-        const gap = currStart - lastEnd;
         return gap >= 11;
     },
     
@@ -236,4 +238,4 @@ const HardRuleValidator = {
     }
 };
 
-console.log('✅ HardRuleValidator 已載入 (單週2種班別限制)');
+console.log('✅ HardRuleValidator 已載入 (單週2種班別限制 + 統一11小時計算)');
