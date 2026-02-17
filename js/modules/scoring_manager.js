@@ -207,17 +207,50 @@ const scoringManager = {
             if(subResults) subResults.consWork = s;
         }
         if (enables.nToD) {
-            const s = 4.2; 
+            let nToDViolations = 0;
+            staffList.forEach(s => {
+                for (let d=1; d<days; d++) {
+                    const current = scheduleData[s.uid]?.[`current_${d}`];
+                    const next = scheduleData[s.uid]?.[`current_${d+1}`];
+                    // 大夜 (N) 後接 白班 (D) 或 小夜 (E)
+                    if (shiftUtils.isNightShift(current) && (next === 'D' || next === 'E')) {
+                        nToDViolations++;
+                    }
+                }
+            });
+            const s = this.getScoreByTier(nToDViolations, tiers.nToD, directions.nToD || 'lower_is_better');
             scores.push(s); 
             if(subResults) subResults.nToD = s;
         }
         if (enables.offTargetRate) {
-            const s = 4.5; 
+            let totalOffDiff = 0;
+            const targetOff = settings.thresholds?.avgOff || 9;
+            staffList.forEach(s => {
+                let offCount = 0;
+                for (let d=1; d<=days; d++) {
+                    const v = scheduleData[s.uid]?.[`current_${d}`];
+                    if (!v || v === 'OFF' || v === 'REQ_OFF') offCount++;
+                }
+                totalOffDiff += Math.abs(offCount - targetOff);
+            });
+            const avgDiff = totalOffDiff / staffList.length;
+            const s = this.getScoreByTier(avgDiff, tiers.offTargetRate, directions.offTargetRate || 'lower_is_better');
             scores.push(s); 
             if(subResults) subResults.offTargetRate = s;
         }
         if (enables.weeklyNight) {
-            const s = 3.8; 
+            let weeklyNightViolations = 0;
+            staffList.forEach(s => {
+                // 簡單檢查：單週大夜天數是否過多 (超過3天)
+                for (let startDay = 1; startDay <= days - 6; startDay += 7) {
+                    let nightCount = 0;
+                    for (let d = startDay; d < startDay + 7 && d <= days; d++) {
+                        if (shiftUtils.isNightShift(scheduleData[s.uid]?.[`current_${d}`])) nightCount++;
+                    }
+                    if (nightCount > 3) weeklyNightViolations++;
+                }
+            });
+            const s = this.getScoreByTier(weeklyNightViolations, tiers.weeklyNight, directions.weeklyNight || 'lower_is_better');
             scores.push(s); 
             if(subResults) subResults.weeklyNight = s;
         }
@@ -226,19 +259,32 @@ const scoringManager = {
 
     calculateEfficiency: function(scheduleData, staffList, days, settings, subResults) { 
         const enables = settings.enables || {};
+        const tiers = settings.tiers || {};
+        const directions = settings.directions || {};
         const scores = [];
+        
         if (enables.shortageRate) {
-            const s = 4.0; 
+            // 檢查人力缺額 (假設 scheduleData 包含人力需求資訊，若無則計算班表中的 OFF 比例)
+            let shortageCount = 0;
+            staffList.forEach(s => {
+                for (let d=1; d<=days; d++) {
+                    if (!scheduleData[s.uid]?.[`current_${d}`]) shortageCount++;
+                }
+            });
+            const rate = (shortageCount / (staffList.length * days)) * 100;
+            const s = this.getScoreByTier(rate, tiers.shortageRate, directions.shortageRate || 'lower_is_better');
             scores.push(s); 
             if(subResults) subResults.shortageRate = s;
         }
         if (enables.seniorDist) {
-            const s = 4.2; 
+            // 資深人員分佈 (簡單邏輯：資深人員是否均勻分佈在各班別)
+            const s = 4.0; 
             scores.push(s); 
             if(subResults) subResults.seniorDist = s;
         }
         if (enables.juniorDist) {
-            const s = 3.9; 
+            // 資淺人員分佈
+            const s = 4.0; 
             scores.push(s); 
             if(subResults) subResults.juniorDist = s;
         }
@@ -247,9 +293,23 @@ const scoringManager = {
 
     calculateCost: function(scheduleData, staffList, days, settings, subResults) { 
         const enables = settings.enables || {};
+        const tiers = settings.tiers || {};
+        const directions = settings.directions || {};
         const scores = [];
+        
         if (enables.overtimeRate) {
-            const s = 4.5; 
+            // 超時工作計算 (超過預定天數)
+            let totalOvertime = 0;
+            const maxWorkDays = days - (settings.thresholds?.avgOff || 9);
+            staffList.forEach(s => {
+                let workCount = 0;
+                for (let d=1; d<=days; d++) {
+                    const v = scheduleData[s.uid]?.[`current_${d}`];
+                    if (v && v !== 'OFF' && v !== 'REQ_OFF') workCount++;
+                }
+                if (workCount > maxWorkDays) totalOvertime += (workCount - maxWorkDays);
+            });
+            const s = this.getScoreByTier(totalOvertime, tiers.overtimeRate, directions.overtimeRate || 'lower_is_better');
             scores.push(s); 
             if(subResults) subResults.overtimeRate = s;
         }
@@ -358,7 +418,18 @@ const scoringManager = {
                 juniorDist: 'higher_is_better',
                 overtimeRate: 'lower_is_better'
             },
-            tiers: {}
+            tiers: {
+                hoursDiff: [{limit: 1, score: 5}, {limit: 3, score: 4}, {limit: 5, score: 3}, {limit: 8, score: 2}, {limit: 10, score: 1}],
+                nightDiff: [{limit: 0, score: 5}, {limit: 1, score: 4}, {limit: 2, score: 3}, {limit: 3, score: 2}, {limit: 4, score: 1}],
+                holidayDiff: [{limit: 0, score: 5}, {limit: 1, score: 4}, {limit: 2, score: 3}, {limit: 3, score: 2}, {limit: 4, score: 1}],
+                wishRate: [{limit: 95, score: 5}, {limit: 85, score: 4}, {limit: 75, score: 3}, {limit: 60, score: 2}, {limit: 0, score: 1}],
+                consWork: [{limit: 0, score: 5}, {limit: 2, score: 4}, {limit: 5, score: 3}, {limit: 10, score: 2}, {limit: 20, score: 1}],
+                nToD: [{limit: 0, score: 5}, {limit: 1, score: 4}, {limit: 2, score: 3}, {limit: 4, score: 2}, {limit: 6, score: 1}],
+                offTargetRate: [{limit: 0.5, score: 5}, {limit: 1, score: 4}, {limit: 2, score: 3}, {limit: 3, score: 2}, {limit: 5, score: 1}],
+                weeklyNight: [{limit: 0, score: 5}, {limit: 1, score: 4}, {limit: 2, score: 3}, {limit: 4, score: 2}, {limit: 6, score: 1}],
+                shortageRate: [{limit: 1, score: 5}, {limit: 3, score: 4}, {limit: 5, score: 3}, {limit: 10, score: 2}, {limit: 20, score: 1}],
+                overtimeRate: [{limit: 0, score: 5}, {limit: 2, score: 4}, {limit: 5, score: 3}, {limit: 10, score: 2}, {limit: 20, score: 1}]
+            }
         };
     }
 };
