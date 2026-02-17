@@ -269,7 +269,7 @@ const scheduleEditorManager = {
             h += `<th style="background:#f5f5f5; color:#999; font-size:0.7rem; border:1px solid #bbb;">${d}</th>`;
         }
         for(let d=1; d<=days; d++) {
-            h += `<th style="font-size:0.8rem; border:1px solid #bbb;">${'[日','一','二','三','四','五','六'][new Date(year, month-1, d).getDay()]}</th>`;
+            h += `<th style="font-size:0.8rem; border:1px solid #bbb;">${['日','一','二','三','四','五','六'][new Date(year, month-1, d).getDay()]}</th>`;
         }
         h += `<th style="border:1px solid #bbb;">總OFF</th><th style="border:1px solid #bbb;">假OFF</th><th style="border:1px solid #bbb;">E</th><th style="border:1px solid #bbb;">N</th></tr>`;
         thead.innerHTML = h;
