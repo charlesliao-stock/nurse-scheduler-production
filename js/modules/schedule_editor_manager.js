@@ -714,7 +714,10 @@ const scheduleEditorManager = {
     },
     
     applyAIResult: async function(schedule, strategy, scoreDetail) {
-        console.log(`🎯 套用 ${strategy} 排班結果`);
+        console.log(`🔍 預覽 ${strategy} 排班結果`);
+        
+        // 備份原始排班，以便取消預覽
+        const originalAssignments = JSON.parse(JSON.stringify(this.assignments));
         
         const newAssignments = {};
         this.data.staffList.forEach(s => {
@@ -747,27 +750,92 @@ const scheduleEditorManager = {
             }
         });
         
+        // 暫時套用預覽
         this.assignments = newAssignments;
-        
-        // 🔥 設定 AI 基準分
-        if (typeof scoringManager !== 'undefined' && scoreDetail) {
-            scoringManager.setBase(scoreDetail.total);
-        }
-        
-        await db.collection('schedules').doc(this.scheduleId).update({ 
-            assignments: this.assignments,
-            aiStrategy: strategy,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        this.violationCells.clear();
-        this.needsCheck = false;
-        this.lastCheckResult = null;
-        
         this.renderMatrix();
         this.updateScheduleScore();
         
-        alert(`✅ 已套用 ${strategy} 排班結果！`);
+        // 顯示預覽控制列
+        this.showPreviewBar(strategy, async () => {
+            // 確認套用
+            console.log(`🎯 正式套用 ${strategy} 排班結果`);
+            
+            // 🔥 設定 AI 基準分
+            if (typeof scoringManager !== 'undefined' && scoreDetail) {
+                scoringManager.setBase(scoreDetail.total);
+            }
+            
+            await db.collection('schedules').doc(this.scheduleId).update({ 
+                assignments: this.assignments,
+                aiStrategy: strategy,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            this.violationCells.clear();
+            this.needsCheck = false;
+            this.lastCheckResult = null;
+            
+            this.renderMatrix();
+            this.updateScheduleScore();
+            this.removePreviewBar();
+            
+            alert(`✅ 已正式套用 ${strategy} 排班結果！`);
+        }, () => {
+            // 取消預覽
+            console.log(`↩️ 取消預覽 ${strategy}`);
+            this.assignments = originalAssignments;
+            this.renderMatrix();
+            this.updateScheduleScore();
+            this.removePreviewBar();
+            
+            // 重新開啟 AI 比較對話框，讓使用者可以選別的
+            this.runAI();
+        });
+    },
+
+    showPreviewBar: function(strategy, onConfirm, onCancel) {
+        this.removePreviewBar();
+        
+        const bar = document.createElement('div');
+        bar.id = 'ai-preview-bar';
+        bar.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #2c3e50;
+            color: white;
+            padding: 15px 30px;
+            border-radius: 50px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            z-index: 9999;
+            border: 2px solid #3498db;
+        `;
+        
+        bar.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 20px;">👀</span>
+                <span style="font-weight: 600;">正在預覽：${strategy} 方案</span>
+            </div>
+            <div style="height: 20px; width: 1px; background: rgba(255,255,255,0.3);"></div>
+            <div style="display: flex; gap: 10px;">
+                <button id="preview-cancel" style="padding: 8px 20px; background: #95a5a6; color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: 600;">取消並重選</button>
+                <button id="preview-confirm" style="padding: 8px 20px; background: #27ae60; color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: 600;">✅ 確定套用此方案</button>
+            </div>
+        `;
+        
+        document.body.appendChild(bar);
+        
+        document.getElementById('preview-confirm').onclick = onConfirm;
+        document.getElementById('preview-cancel').onclick = onCancel;
+    },
+
+    removePreviewBar: function() {
+        const bar = document.getElementById('ai-preview-bar');
+        if (bar) bar.remove();
     },
 
     initContextMenu: function() {},

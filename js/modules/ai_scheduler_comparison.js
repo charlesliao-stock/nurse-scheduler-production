@@ -366,20 +366,20 @@ const AISchedulerComparison = {
                     <div style="font-size: 16px; font-weight: 600; color: #607D8B;">${result.executionTime}s</div>
                 </div>
                 
-                <button id="select-${result.strategy}" style="
-                    width: 100%;
-                    padding: 14px;
-                    background: ${isBest ? '#4CAF50' : '#2196F3'};
-                    color: white;
-                    border: none;
-                    border-radius: 8px;
-                    font-size: 16px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    transition: all 0.2s;
-                " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
-                    ${isBest ? '✨ 選擇最佳方案' : '👉 選擇此方案'}
-                </button>
+	                <button id="select-${result.strategy}" style="
+	                    width: 100%;
+	                    padding: 14px;
+	                    background: ${isBest ? '#4CAF50' : '#2196F3'};
+	                    color: white;
+	                    border: none;
+	                    border-radius: 8px;
+	                    font-size: 16px;
+	                    font-weight: 600;
+	                    cursor: pointer;
+	                    transition: all 0.2s;
+	                " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+	                    ${isBest ? '✨ 預覽最佳方案' : '🔍 預覽此方案'}
+	                </button>
             </div>
         `;
     },
