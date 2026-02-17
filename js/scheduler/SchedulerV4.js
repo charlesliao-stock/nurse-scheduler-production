@@ -686,17 +686,7 @@ class SchedulerV4 extends BaseScheduler {
         return result;
     }
     
-    /**
-     * 計算硬限制違規數 (供外部調用)
-     */
-    calculateHardViolations(schedule) {
-        if (typeof schedule === 'object' && !Array.isArray(schedule)) {
-            // 如果 schedule 是個體格式
-            return this.calculateHardViolations(schedule);
-        }
-        // 如果是日期格式，需要轉換
-        return 0; // 簡化處理
-    }
+
 }
 
 console.log('✅ SchedulerV4 已載入 (改良式基因演算法)');
