@@ -1,35 +1,45 @@
 // js/utils/CacheManager.js
 /**
- * 全域快取管理器 (升級版：支援 localStorage 持久化)
- * 用途：減少重複的 Firebase 讀取，提升效能並降低成本
+ * 全域快取管理器 (優化整合版)
+ * 整合雙層快取、Firebase 載入、統計與自動清理功能
  * 
- * 功能：
- * - 支援 TTL（過期時間）機制
- * - 支援記憶體與 localStorage 雙層快取
- * - 支援模式化清除（例如：清除某單位的所有快取）
- * - 自動過期檢查與清理
+ * 主要功能：
+ * - 記憶體 + localStorage 雙層快取
+ * - TTL 自動過期機制
+ * - Firebase 資料載入整合
+ * - 快取命中率統計
+ * - 模式化清除與自動清理
+ * - 預熱機制
  */
 
 const CacheManager = {
     // 記憶體快取儲存區
     cache: {},
     
-    // 持久化前綴，避免與其他 localStorage 衝突
+    // 持久化前綴
     STORAGE_PREFIX: 'ns_cache_',
     
-    // TTL 設定（毫秒）
+    // TTL 配置（毫秒）
     ttl: {
-        units: 60 * 60 * 1000,      // 1 小時（單位資料很少變動）
-        shifts: 30 * 60 * 1000,     // 30 分鐘（班別偶爾調整）
-        staff: 10 * 60 * 1000,      // 10 分鐘（人員資料較常變動）
-        schedules: 5 * 60 * 1000,   // 5 分鐘（排班資料頻繁變動）
-        rules: 30 * 60 * 1000,      // 30 分鐘（規則偶爾調整）
-        menus: 24 * 60 * 60 * 1000, // 24 小時（選單設定極少變動）
-        default: 5 * 60 * 1000      // 5 分鐘（預設值）
+        units: 60 * 60 * 1000,      // 1 小時
+        shifts: 30 * 60 * 1000,     // 30 分鐘
+        users: 10 * 60 * 1000,      // 10 分鐘
+        rules: 30 * 60 * 1000,      // 30 分鐘
+        schedules: 2 * 60 * 1000,   // 2 分鐘
+        preSchedules: 5 * 60 * 1000, // 5 分鐘
+        menus: 24 * 60 * 60 * 1000, // 24 小時
+        default: 5 * 60 * 1000      // 5 分鐘
+    },
+    
+    // 快取統計
+    stats: {
+        hits: 0,
+        misses: 0,
+        saves: 0
     },
 
     /**
-     * 儲存資料到快取 (記憶體 + localStorage)
+     * 儲存資料到快取
      * @param {string} key - 快取鍵值
      * @param {any} data - 要快取的資料
      * @param {string} type - 資料類型（決定 TTL）
@@ -43,44 +53,44 @@ const CacheManager = {
         
         const ttl = this.ttl[type] || this.ttl.default;
         const cacheItem = {
-            data: data,
+            data: JSON.parse(JSON.stringify(data)), // 深拷貝避免引用問題
             timestamp: Date.now(),
             ttl: ttl,
             type: type
         };
         
-        // 1. 存入記憶體
+        // 存入記憶體
         this.cache[key] = cacheItem;
         
-        // 2. 存入 localStorage (如果需要持久化)
+        // 存入 localStorage（如果需要）
         if (persist) {
             try {
                 localStorage.setItem(this.STORAGE_PREFIX + key, JSON.stringify(cacheItem));
             } catch (e) {
-                console.warn('⚠️ CacheManager: localStorage 寫入失敗 (可能空間不足)', e);
+                console.warn('⚠️ localStorage 寫入失敗 (可能空間不足)', e);
             }
         }
         
-        console.log(`✅ 快取已建立: ${key} (類型: ${type}, TTL: ${ttl/1000}秒, 持久化: ${persist})`);
+        this.stats.saves++;
+        console.log(`💾 快取已建立: ${key} (類型: ${type}, TTL: ${ttl/1000}秒)`);
     },
     
     /**
-     * 從快取取得資料 (先查記憶體，再查 localStorage)
+     * 從快取取得資料
      * @param {string} key - 快取鍵值
      * @returns {any|null} - 快取的資料，若過期或不存在則回傳 null
      */
     get: function(key) {
-        // 1. 先從記憶體找
+        // 先從記憶體找
         let cached = this.cache[key];
         
-        // 2. 記憶體沒有，從 localStorage 找
+        // 記憶體沒有，從 localStorage 找
         if (!cached) {
             const stored = localStorage.getItem(this.STORAGE_PREFIX + key);
             if (stored) {
                 try {
                     cached = JSON.parse(stored);
-                    // 放入記憶體以便下次快速讀取
-                    this.cache[key] = cached;
+                    this.cache[key] = cached; // 放入記憶體
                 } catch (e) {
                     localStorage.removeItem(this.STORAGE_PREFIX + key);
                 }
@@ -88,6 +98,7 @@ const CacheManager = {
         }
         
         if (!cached) {
+            this.stats.misses++;
             console.log(`📭 快取未命中: ${key}`);
             return null;
         }
@@ -97,14 +108,16 @@ const CacheManager = {
         // 檢查是否過期
         if (age > cached.ttl) {
             this.remove(key);
-            console.log(`⏰ 快取已過期: ${key} (存活時間: ${Math.round(age/1000)}秒)`);
+            this.stats.misses++;
+            console.log(`⏰ 快取已過期: ${key} (存活: ${Math.round(age/1000)}秒)`);
             return null;
         }
         
+        this.stats.hits++;
         const remainingTime = Math.round((cached.ttl - age) / 1000);
         console.log(`✅ 快取命中: ${key} (剩餘: ${remainingTime}秒)`);
         
-        return cached.data;
+        return JSON.parse(JSON.stringify(cached.data)); // 返回深拷貝
     },
 
     /**
@@ -127,7 +140,7 @@ const CacheManager = {
         
         let count = 0;
         
-        // 1. 清除記憶體
+        // 清除記憶體
         Object.keys(this.cache).forEach(key => {
             if (key.includes(pattern)) {
                 delete this.cache[key];
@@ -135,16 +148,17 @@ const CacheManager = {
             }
         });
 
-        // 2. 清除 localStorage
+        // 清除 localStorage
+        const keysToRemove = [];
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
             if (key && key.startsWith(this.STORAGE_PREFIX) && key.includes(pattern)) {
-                localStorage.removeItem(key);
-                // 由於 removeItem 會改變 length，這裡不增加 count 以免重複計算
+                keysToRemove.push(key);
             }
         }
+        keysToRemove.forEach(k => localStorage.removeItem(k));
         
-        console.log(`✅ 已清除符合模式「${pattern}」的快取項目`);
+        console.log(`🗑️ 已清除符合模式「${pattern}」的 ${count} 個快取項目`);
     },
     
     /**
@@ -152,7 +166,6 @@ const CacheManager = {
      */
     clear: function() {
         this.cache = {};
-        // 只清除屬於本系統的 localStorage
         const keysToRemove = [];
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
@@ -171,7 +184,7 @@ const CacheManager = {
         const now = Date.now();
         let cleaned = 0;
         
-        // 1. 清理記憶體
+        // 清理記憶體
         Object.keys(this.cache).forEach(key => {
             const item = this.cache[key];
             if (now - item.timestamp > item.ttl) {
@@ -180,7 +193,7 @@ const CacheManager = {
             }
         });
 
-        // 2. 清理 localStorage
+        // 清理 localStorage
         const keysToRemove = [];
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
@@ -204,14 +217,190 @@ const CacheManager = {
             console.log(`🧹 已清理 ${cleaned} 個過期快取項目`);
         }
         return cleaned;
+    },
+
+    // ==================== Firebase 整合方法 ====================
+    
+    /**
+     * 載入班別資料（帶快取）
+     */
+    loadShifts: async function(unitId) {
+        const key = `shifts_${unitId}`;
+        const cached = this.get(key);
+        if (cached) return cached;
+        
+        console.log(`📡 從資料庫載入班別: ${unitId}`);
+        const snapshot = await db.collection('shifts')
+            .where('unitId', '==', unitId)
+            .orderBy('order')
+            .get();
+        
+        const shifts = [];
+        snapshot.forEach(doc => {
+            shifts.push({ id: doc.id, ...doc.data() });
+        });
+        
+        this.set(key, shifts, 'shifts');
+        return shifts;
+    },
+    
+    /**
+     * 載入員工資料（帶快取）
+     */
+    loadUsers: async function(unitId) {
+        const key = `users_${unitId}`;
+        const cached = this.get(key);
+        if (cached) return cached;
+        
+        console.log(`📡 從資料庫載入員工: ${unitId}`);
+        const snapshot = await db.collection('users')
+            .where('unitId', '==', unitId)
+            .where('active', '==', true)
+            .get();
+        
+        const users = {};
+        snapshot.forEach(doc => {
+            users[doc.id] = { id: doc.id, ...doc.data() };
+        });
+        
+        this.set(key, users, 'users');
+        return users;
+    },
+    
+    /**
+     * 載入規則資料（帶快取）
+     */
+    loadRules: async function(unitId) {
+        const key = `rules_${unitId}`;
+        const cached = this.get(key);
+        if (cached) return cached;
+        
+        console.log(`📡 從資料庫載入規則: ${unitId}`);
+        const doc = await db.collection('scheduling_rules').doc(unitId).get();
+        
+        const rules = doc.exists ? doc.data() : {};
+        this.set(key, rules, 'rules');
+        return rules;
+    },
+    
+    /**
+     * 載入排班資料（帶快取）
+     */
+    loadSchedule: async function(scheduleId) {
+        const key = `schedule_${scheduleId}`;
+        const cached = this.get(key);
+        if (cached) return cached;
+        
+        console.log(`📡 從資料庫載入排班: ${scheduleId}`);
+        const doc = await db.collection('schedules').doc(scheduleId).get();
+        
+        if (!doc.exists) {
+            throw new Error('排班不存在');
+        }
+        
+        const schedule = { id: doc.id, ...doc.data() };
+        this.set(key, schedule, 'schedules');
+        return schedule;
+    },
+    
+    /**
+     * 載入預班資料（帶快取）
+     */
+    loadPreSchedule: async function(preScheduleId) {
+        const key = `preSchedule_${preScheduleId}`;
+        const cached = this.get(key);
+        if (cached) return cached;
+        
+        console.log(`📡 從資料庫載入預班: ${preScheduleId}`);
+        const doc = await db.collection('pre_schedules').doc(preScheduleId).get();
+        
+        if (!doc.exists) {
+            throw new Error('預班不存在');
+        }
+        
+        const preSchedule = { id: doc.id, ...doc.data() };
+        this.set(key, preSchedule, 'preSchedules');
+        return preSchedule;
+    },
+    
+    /**
+     * 預熱快取（提前載入常用資料）
+     */
+    preload: async function(unitId) {
+        console.log(`🔥 預熱快取: ${unitId}`);
+        try {
+            await Promise.all([
+                this.loadShifts(unitId),
+                this.loadUsers(unitId),
+                this.loadRules(unitId)
+            ]);
+            console.log(`✅ 快取預熱完成: ${unitId}`);
+        } catch (error) {
+            console.error(`❌ 快取預熱失敗:`, error);
+        }
+    },
+    
+    // ==================== 統計與監控 ====================
+    
+    /**
+     * 獲取快取統計
+     */
+    getStats: function() {
+        const total = this.stats.hits + this.stats.misses;
+        const hitRate = total > 0 ? (this.stats.hits / total * 100).toFixed(2) : 0;
+        
+        return {
+            hits: this.stats.hits,
+            misses: this.stats.misses,
+            saves: this.stats.saves,
+            total: total,
+            hitRate: `${hitRate}%`,
+            memorySize: Object.keys(this.cache).length,
+            storageSize: this.getStorageSize()
+        };
+    },
+    
+    /**
+     * 獲取 localStorage 快取數量
+     */
+    getStorageSize: function() {
+        let count = 0;
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith(this.STORAGE_PREFIX)) {
+                count++;
+            }
+        }
+        return count;
+    },
+    
+    /**
+     * 顯示快取統計（開發用）
+     */
+    showStats: function() {
+        const stats = this.getStats();
+        console.log('📊 快取統計:');
+        console.log(`  命中: ${stats.hits} 次`);
+        console.log(`  未命中: ${stats.misses} 次`);
+        console.log(`  儲存: ${stats.saves} 次`);
+        console.log(`  命中率: ${stats.hitRate}`);
+        console.log(`  記憶體快取: ${stats.memorySize} 項`);
+        console.log(`  持久化快取: ${stats.storageSize} 項`);
     }
 };
 
-// 定期清理過期快取（每 10 分鐘執行一次）
+// 🔄 DataLoader 相容層（向後相容）
+const DataLoader = {
+    loadShifts: (unitId) => CacheManager.loadShifts(unitId),
+    loadUsersMap: (unitId) => CacheManager.loadUsers(unitId),
+    loadSchedulingRules: (unitId) => CacheManager.loadRules(unitId)
+};
+
+// 定期清理過期快取（每 10 分鐘）
 if (typeof window !== 'undefined') {
     setInterval(() => {
         CacheManager.cleanup();
     }, 10 * 60 * 1000);
 }
 
-console.log('✅ CacheManager (持久化版) 已載入');
+console.log('✅ CacheManager (優化整合版) 已載入');
