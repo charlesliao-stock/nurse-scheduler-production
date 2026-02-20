@@ -435,6 +435,18 @@ const DataLoader = {
             console.error('❌ 載入使用者失敗:', error);
             return null;
         }
+    },
+    
+    loadShiftsCompat: async function(unitId) {
+        return this.loadShifts(unitId);
+    },
+    
+    loadUsersMapCompat: async function(unitId) {
+        return this.loadUsersMap(unitId);
+    },
+    
+    loadSchedulingRulesCompat: async function(unitId) {
+        return this.loadSchedulingRules(unitId);
     }
 };
 

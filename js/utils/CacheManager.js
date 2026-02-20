@@ -389,12 +389,8 @@ const CacheManager = {
     }
 };
 
-// 🔄 DataLoader 相容層（向後相容）
-const DataLoader = {
-    loadShifts: (unitId) => CacheManager.loadShifts(unitId),
-    loadUsersMap: (unitId) => CacheManager.loadUsers(unitId),
-    loadSchedulingRules: (unitId) => CacheManager.loadRules(unitId)
-};
+// 🔄 DataLoader 相容層已移至 DataLoader.js
+// 此處不再重複宣告，避免 SyntaxError
 
 // 定期清理過期快取（每 10 分鐘）
 if (typeof window !== 'undefined') {

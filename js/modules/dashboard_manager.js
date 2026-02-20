@@ -272,6 +272,71 @@ const dashboardManager = {
                     console.log(`  ✅ 結果: ${val} 個已發布排班表`);
                     break;
 
+                case 'my_schedule_status':
+                    if (!uid) {
+                        val = '-';
+                        break;
+                    }
+                    
+                    const myScheduleSnap = await db.collection('schedules')
+                        .where('status', '==', 'published')
+                        .limit(1)
+                        .get();
+                    
+                    if (!myScheduleSnap.empty) {
+                        const schedule = myScheduleSnap.docs[0].data();
+                        const assignments = schedule.assignments || {};
+                        const myAssignment = assignments[uid];
+                        
+                        if (myAssignment) {
+                            val = '✅ 已排班';
+                        } else {
+                            val = '⚠️ 未排班';
+                        }
+                    } else {
+                        val = '-';
+                    }
+                    console.log(`  ✅ 結果: ${val}`);
+                    break;
+                
+                case 'my_pending_exchanges':
+                    if (!uid) {
+                        val = '0';
+                        break;
+                    }
+                    
+                    const exchangeSnap = await db.collection('shift_exchanges')
+                        .where('status', '==', 'pending')
+                        .get();
+                    
+                    let pendingCount = 0;
+                    exchangeSnap.forEach(doc => {
+                        const exchange = doc.data();
+                        if (exchange.requesterUid === uid || exchange.targetUid === uid) {
+                            pendingCount++;
+                        }
+                    });
+                    
+                    val = pendingCount;
+                    console.log(`  ✅ 結果: ${val} 個待審核交換`);
+                    break;
+                
+                case 'unit_pending_approvals':
+                    if (!unitId) {
+                        console.warn('  ⚠️ unitId 為 null，無法查詢待核准申請');
+                        val = '0';
+                        break;
+                    }
+                    
+                    const approvalSnap = await db.collection('shift_exchanges')
+                        .where('targetUnitId', '==', unitId)
+                        .where('status', '==', 'pending')
+                        .get();
+                    
+                    val = approvalSnap.size;
+                    console.log(`  ✅ 結果: ${val} 個待核准申請`);
+                    break;
+
                 default:
                     console.warn(`  ⚠️ 未知的資料來源: ${source}`);
                     val = '0';
