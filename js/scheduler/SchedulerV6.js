@@ -1,6 +1,5 @@
 // js/scheduler/SchedulerV6.js
 // V6: 混合式貪婪+基因演算法 (Hybrid Greedy+GA)
-
 class SchedulerV6 extends BaseScheduler {
     constructor(allStaff, year, month, lastMonthData, rules) {
         super(allStaff, year, month, lastMonthData, rules);
@@ -46,19 +45,22 @@ class SchedulerV6 extends BaseScheduler {
         
         try {
             // === 步驟1: 貪婪法快速建構初始解 ===
-            console.log('\n🚀 步驟1: 貪婪法建構初始解 (1-2秒)');
+            console.log('
+🚀 步驟1: 貪婪法建構初始解 (1-2秒)');
             const greedySolution = this.greedyConstruction();
             const greedyFitness = this.evaluateSolutionFitness(greedySolution);
             console.log(`  ✅ 貪婪解適應度: ${greedyFitness.toFixed(1)}`);
             
             // === 步驟2: GA精煉優化 ===
-            console.log('\n🧬 步驟2: GA精煉優化 (8-10秒)');
+            console.log('
+🧬 步驟2: GA精煉優化 (8-10秒)');
             const optimizedSolution = this.geneticOptimization(greedySolution);
             const optimizedFitness = this.evaluateSolutionFitness(optimizedSolution);
             console.log(`  ✅ 優化後適應度: ${optimizedFitness.toFixed(1)}`);
             
             // === 步驟3: 局部搜尋微調 ===
-            console.log('\n🔍 步驟3: 局部搜尋微調 (1-2秒)');
+            console.log('
+🔍 步驟3: 局部搜尋微調 (1-2秒)');
             const finalSolution = this.localSearch(optimizedSolution);
             const finalFitness = this.evaluateSolutionFitness(finalSolution);
             console.log(`  ✅ 最終適應度: ${finalFitness.toFixed(1)}`);
@@ -67,8 +69,9 @@ class SchedulerV6 extends BaseScheduler {
             const executionTime = ((endTime - startTime) / 1000).toFixed(2);
             
             const improvement = ((finalFitness - greedyFitness) / Math.abs(greedyFitness) * 100).toFixed(1);
-            console.log(`\n✅ SchedulerV6 完成: ${executionTime}秒`);
-            console.log(`  改善幅度: ${improvement}%`);
+            console.log(`
+✅ SchedulerV6 完成: ${executionTime}秒`);
+            console.log(`   改善幅度: ${improvement}%`);
             
             return this.convertToDateFormat(finalSolution);
             
@@ -529,34 +532,66 @@ class SchedulerV6 extends BaseScheduler {
         
         for (let staff of this.allStaff) {
             const uid = staff.uid || staff.id;
+            const params = staff.schedulingParams || {};
+            const today = new Date();
+            const isPregnant = (params.isPregnant && params.pregnantExpiry && new Date(params.pregnantExpiry) >= today) ||
+                               (params.isBreastfeeding && params.breastfeedingExpiry && new Date(params.breastfeedingExpiry) >= today);
             
             for (let day = 1; day <= this.daysInMonth; day++) {
                 const shift = solution[uid]?.[`current_${day}`];
-                const prevShift = (day === 1) ? this.lastMonthData?.[uid]?.lastShift : solution[uid]?.[`current_${day - 1}`];
+                const isWork = s => s && s !== 'OFF' && s !== 'REQ_OFF' && !s.startsWith('!');
                 
-                if (!shift || shift === 'OFF' || shift === 'REQ_OFF') continue;
-                if (!prevShift || prevShift === 'OFF' || prevShift === 'REQ_OFF') continue;
-
-                // 1. 大夜後不能接白班/小夜 (傳統規則)
-                if (this.isNightShift(prevShift) && !this.isNightShift(shift)) {
-                    violations++;
-                }
-
-                // 2. 11 小時休息間隔檢查 (精確規則)
-                const prevEnd = this.shiftTimeMap[prevShift]?.end;
-                const currStart = this.shiftTimeMap[shift]?.start;
+                if (!isWork(shift)) continue;
                 
-                if (prevEnd !== undefined && currStart !== undefined) {
-                    let gap = currStart - prevEnd;
-                    if (gap < 0) gap += 24;
-                    if (gap < 11) {
+                // 1. 孕婦/哺乳夜班阻擋 (22:00-06:00) 精確判斷
+                if (isPregnant) {
+                    const shiftDef = this.getShiftByCode(shift);
+                    if (shiftDef && this.isNightTimeShift(shiftDef)) {
                         violations++;
                     }
+                }
+                
+                // 2. 11 小時休息間隔檢查 (精確規則)
+                const prevShift = (day === 1) ? this.lastMonthData?.[uid]?.lastShift : solution[uid]?.[`current_${day - 1}`];
+                
+                if (isWork(prevShift)) {
+                    const prevEnd = this.shiftTimeMap[prevShift]?.end;
+                    const currStart = this.shiftTimeMap[shift]?.start;
+                    
+                    if (prevEnd !== undefined && currStart !== undefined) {
+                        let gap = currStart - prevEnd;
+                        if (gap < 0) gap += 24;
+                        if (gap < 11) {
+                            violations++;
+                        }
+                    }
+                }
+                
+                // 3. 傳統大夜規則備份 (若 timeMap 沒定義時的保險)
+                if (!this.shiftTimeMap[shift] && prevShift && this.isNightShift(prevShift) && !this.isNightShift(shift)) {
+                    violations++;
                 }
             }
         }
         
         return violations;
+    }
+    
+    /**
+     * 輔助：判斷是否為夜間班 (時段重疊 22:00-06:00) - 配合孕哺保護
+     */
+    isNightTimeShift(shiftDef) {
+        if (!shiftDef.startTime || !shiftDef.endTime) return false;
+        const toMin = t => {
+            const [h, m] = t.split(':').map(Number);
+            return h * 60 + m;
+        };
+        const start = toMin(shiftDef.startTime);
+        let end = toMin(shiftDef.endTime);
+        if (end <= start) end += 1440;
+        const forbidStart = 22 * 60;
+        const forbidEnd = 1440 + 6 * 60;
+        return !(end <= forbidStart || start >= forbidEnd);
     }
     
     /**
@@ -569,13 +604,14 @@ class SchedulerV6 extends BaseScheduler {
             const uid = staff.uid || staff.id;
             const prefs = staff.preferences || {};
             
+            // 包班達成度
             if (prefs.bundleShift) {
                 let bundleCount = 0;
                 let workDays = 0;
                 
                 for (let day = 1; day <= this.daysInMonth; day++) {
                     const shift = solution[uid]?.[`current_${day}`];
-                    if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
+                    if (shift && shift !== 'OFF' && shift !== 'REQ_OFF' && !shift.startsWith('!')) {
                         workDays++;
                         if (shift === prefs.bundleShift) {
                             bundleCount++;
@@ -583,9 +619,25 @@ class SchedulerV6 extends BaseScheduler {
                     }
                 }
                 
-                const expectedBundle = workDays * 0.7;
+                const expectedBundle = workDays * 0.8; // 期望 80% 以上
                 if (bundleCount < expectedBundle) {
-                    violations += (expectedBundle - bundleCount) * 0.3;
+                    violations += (expectedBundle - bundleCount) * 0.5;
+                }
+            }
+            
+            // 多樣性檢查 (一週內班別種類)
+            for (let day = 1; day <= this.daysInMonth; day += 7) {
+                const weekCategories = new Set();
+                const endDay = Math.min(day + 6, this.daysInMonth);
+                for (let d = day; d <= endDay; d++) {
+                    const shift = solution[uid]?.[`current_${d}`];
+                    if (shift && shift !== 'OFF' && shift !== 'REQ_OFF' && !shift.startsWith('!')) {
+                        const cat = this.shiftTimeMap[shift]?.end;
+                        if (cat !== undefined) weekCategories.add(cat);
+                    }
+                }
+                if (weekCategories.size > 2) {
+                    violations += (weekCategories.size - 2) * 2;
                 }
             }
         }
@@ -645,7 +697,7 @@ class SchedulerV6 extends BaseScheduler {
             for (let day = 1; day <= this.daysInMonth; day++) {
                 const shift = solution[uid]?.[`current_${day}`];
                 
-                if (!shift || shift === 'OFF' || shift === 'REQ_OFF') continue;
+                if (!shift || shift === 'OFF' || shift === 'REQ_OFF' || shift.startsWith('!')) continue;
                 
                 maxScore += 10;
                 
@@ -682,7 +734,7 @@ class SchedulerV6 extends BaseScheduler {
             const uid = staff.uid || staff.id;
             for (let day = 1; day <= this.daysInMonth; day++) {
                 const shift = solution[uid]?.[`current_${day}`];
-                if (shift && shift !== 'OFF' && shift !== 'REQ_OFF') {
+                if (shift && shift !== 'OFF' && shift !== 'REQ_OFF' && !shift.startsWith('!')) {
                     const dateStr = this.getDateKey(day);
                     if (result[dateStr][shift]) {
                         result[dateStr][shift].push(uid);
@@ -694,5 +746,4 @@ class SchedulerV6 extends BaseScheduler {
         return result;
     }
 }
-
 console.log('✅ SchedulerV6 已載入 (混合式貪婪+GA)');
