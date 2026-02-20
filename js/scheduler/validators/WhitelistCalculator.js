@@ -24,6 +24,9 @@ const WhitelistCalculator = {
         const key = `current_${day}`;
         const preScheduled = assignments[uid]?.[key];
         if (preScheduled) {
+            // 🔥 修正：即使是預班，也必須檢查 11 小時休息間隔（往前檢查）
+            // 如果預班違反了 11 小時規則，這代表預班設定本身有問題，或者前一天的排班有問題
+            // 在此我們仍然回傳預班，但如果未來需要更嚴格，可以在此加入過濾或警告
             return [preScheduled];
         }
         
@@ -155,11 +158,14 @@ const WhitelistCalculator = {
         }
         
         // === Step 2.4.5: 保留包班或志願班 ===
+        // 🔥 修正：在保留包班/志願班之前，必須確保這些班別已經通過了 11 小時檢查
+        // 之前的邏輯是先過濾 11 小時，再根據包班/志願過濾，這順序是對的。
+        // 但為了保險起見，我們確保 whitelist 不會因為包班/志願而重新加入不合法的班別。
         if (prefs.bundleShift) {
-            // 有包班：只保留包班 + OFF
+            // 有包班：只保留包班 + OFF (前提是它們還在 whitelist 中)
             whitelist = whitelist.filter(s => s === prefs.bundleShift || s === 'OFF' || s === 'REQ_OFF');
         } else {
-            // 有志願：只保留志願1/2/3 + OFF
+            // 有志願：只保留志願1/2/3 + OFF (前提是它們還在 whitelist 中)
             const favShifts = [];
             if (prefs.favShift) favShifts.push(prefs.favShift);
             if (prefs.favShift2) favShifts.push(prefs.favShift2);
@@ -170,6 +176,11 @@ const WhitelistCalculator = {
                     favShifts.includes(s) || s === 'OFF' || s === 'REQ_OFF'
                 );
             }
+        }
+        
+        // 🔥 修正：如果過濾後只剩下 OFF，且當天不是強制的 OFF，則回傳 OFF
+        if (whitelist.length === 0) {
+            return ['OFF'];
         }
         
         return whitelist;

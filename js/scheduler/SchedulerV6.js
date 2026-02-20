@@ -532,11 +532,26 @@ class SchedulerV6 extends BaseScheduler {
             
             for (let day = 1; day <= this.daysInMonth; day++) {
                 const shift = solution[uid]?.[`current_${day}`];
-                const prevShift = solution[uid]?.[`current_${day - 1}`];
+                const prevShift = (day === 1) ? this.lastMonthData?.[uid]?.lastShift : solution[uid]?.[`current_${day - 1}`];
                 
-                // 大夜後不能接白班/小夜
-                if (this.isNightShift(prevShift) && shift && shift !== 'OFF' && !this.isNightShift(shift)) {
+                if (!shift || shift === 'OFF' || shift === 'REQ_OFF') continue;
+                if (!prevShift || prevShift === 'OFF' || prevShift === 'REQ_OFF') continue;
+
+                // 1. 大夜後不能接白班/小夜 (傳統規則)
+                if (this.isNightShift(prevShift) && !this.isNightShift(shift)) {
                     violations++;
+                }
+
+                // 2. 11 小時休息間隔檢查 (精確規則)
+                const prevEnd = this.shiftTimeMap[prevShift]?.end;
+                const currStart = this.shiftTimeMap[shift]?.start;
+                
+                if (prevEnd !== undefined && currStart !== undefined) {
+                    let gap = currStart - prevEnd;
+                    if (gap < 0) gap += 24;
+                    if (gap < 11) {
+                        violations++;
+                    }
                 }
             }
         }
