@@ -45,22 +45,19 @@ class SchedulerV6 extends BaseScheduler {
         
         try {
             // === 步驟1: 貪婪法快速建構初始解 ===
-            console.log('
-🚀 步驟1: 貪婪法建構初始解 (1-2秒)');
+            console.log(`\n🚀 步驟1: 貪婪法建構初始解 (1-2秒)`);
             const greedySolution = this.greedyConstruction();
             const greedyFitness = this.evaluateSolutionFitness(greedySolution);
             console.log(`  ✅ 貪婪解適應度: ${greedyFitness.toFixed(1)}`);
             
             // === 步驟2: GA精煉優化 ===
-            console.log('
-🧬 步驟2: GA精煉優化 (8-10秒)');
+            console.log(`\n🧬 步驟2: GA精煉優化 (8-10秒)`);
             const optimizedSolution = this.geneticOptimization(greedySolution);
             const optimizedFitness = this.evaluateSolutionFitness(optimizedSolution);
             console.log(`  ✅ 優化後適應度: ${optimizedFitness.toFixed(1)}`);
             
             // === 步驟3: 局部搜尋微調 ===
-            console.log('
-🔍 步驟3: 局部搜尋微調 (1-2秒)');
+            console.log(`\n🔍 步驟3: 局部搜尋微調 (1-2秒)`);
             const finalSolution = this.localSearch(optimizedSolution);
             const finalFitness = this.evaluateSolutionFitness(finalSolution);
             console.log(`  ✅ 最終適應度: ${finalFitness.toFixed(1)}`);
@@ -69,8 +66,7 @@ class SchedulerV6 extends BaseScheduler {
             const executionTime = ((endTime - startTime) / 1000).toFixed(2);
             
             const improvement = ((finalFitness - greedyFitness) / Math.abs(greedyFitness) * 100).toFixed(1);
-            console.log(`
-✅ SchedulerV6 完成: ${executionTime}秒`);
+            console.log(`\n✅ SchedulerV6 完成: ${executionTime}秒`);
             console.log(`   改善幅度: ${improvement}%`);
             
             return this.convertToDateFormat(finalSolution);
