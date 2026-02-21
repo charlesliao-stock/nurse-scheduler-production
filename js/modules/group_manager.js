@@ -5,6 +5,7 @@ const groupManager = {
     currentUnitData: null,
     staffList: [],
     isLoading: false,
+    isSaving: false, // ✅ 修正：將「儲存中」狀態獨立出來，避免與 isLoading 混用導致 loadStaffList 被封鎖
 
     // 預設設定
     defaultConfig: {
@@ -309,7 +310,8 @@ const groupManager = {
                     <select class="cluster-rule-select" 
                             onchange="groupManager.updateClusterRule('${clusterId}', this.value)"
                             title="設定換班限制"
-                            onclick="event.stopPropagation()"> <option value="any" ${swapRule === 'any' ? 'selected' : ''}>無限制</option>
+                            onclick="event.stopPropagation()">
+                        <option value="any" ${swapRule === 'any' ? 'selected' : ''}>無限制</option>
                         <option value="same_tier" ${swapRule === 'same_tier' ? 'selected' : ''}>限同階級</option>
                     </select>
                     <button class="btn-icon" onclick="groupManager.deleteCluster('${clusterId}')"><i class="fas fa-trash-alt"></i></button>
@@ -318,7 +320,6 @@ const groupManager = {
         }
 
         // --- 標題區 (雙擊改名) ---
-        // 注意：標題本身只有文字部分可以點擊改名
         const titleHtml = isUnassigned ? 
             `<span class="cluster-title" style="cursor:default;">${clusterName}</span>` : 
             `<span class="cluster-title" onclick="groupManager.editName(this, 'cluster', '${clusterId}')" title="雙擊改名">${clusterName}</span>`;
@@ -458,7 +459,7 @@ const groupManager = {
         }
     },
 
-    // 通用改名 (雙擊)
+    // 通用改名 (點擊)
     editName: function(el, type, id) {
         const currentText = el.innerText;
         const input = document.createElement('input');
@@ -470,7 +471,10 @@ const groupManager = {
         el.replaceWith(input);
         input.focus();
 
+        let saved = false; // ✅ 修正：防止 onblur + Enter 重複觸發 save
         const save = async () => {
+            if (saved) return;
+            saved = true;
             const newName = input.value.trim();
             if (newName && newName !== currentText) {
                 if (type === 'cluster') {
@@ -495,7 +499,7 @@ const groupManager = {
         };
 
         input.onblur = save;
-        input.onkeydown = (e) => { if(e.key === 'Enter') save(); };
+        input.onkeydown = (e) => { if(e.key === 'Enter') { e.preventDefault(); save(); } };
     },
 
     // 新增 Cluster (預設無限制)
@@ -519,7 +523,9 @@ const groupManager = {
         if (this.currentUnitData.config.groups.find(g => g.name === name)) { alert("名稱重複"); return; }
 
         const realClusterId = (clusterId === 'unassigned') ? '' : clusterId;
-        this.currentUnitData.config.groups.push({ id: name, name: name, clusterId: realClusterId });
+        // ✅ 修正：使用時間戳記作為唯一 ID，避免名稱含特殊字元或重名時造成衝突
+        const newId = 'g_' + Date.now();
+        this.currentUnitData.config.groups.push({ id: newId, name: name, clusterId: realClusterId });
         await this.saveConfig();
         this.renderKanban();
         this.renderStaffList();
@@ -565,9 +571,10 @@ const groupManager = {
     },
 
     // --- 資料庫儲存 ---
+    // ✅ 修正：改用獨立的 isSaving 旗標，不再污染 isLoading，防止 loadStaffList 被誤擋
     saveConfig: async function(showLoading = true) {
         try {
-            if(showLoading) this.isLoading = true;
+            if(showLoading) this.isSaving = true;
             await db.collection('units').doc(this.currentUnitId).update({
                 config: this.currentUnitData.config,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -576,11 +583,12 @@ const groupManager = {
             console.error(e);
             alert("儲存失敗");
         } finally {
-            this.isLoading = false;
+            this.isSaving = false;
         }
     },
 
     // --- 人員資料載入與更新 ---
+    // ✅ 修正：移除 isLoading 守衛，改用獨立 isLoading 旗標，避免 saveConfig 完成前封鎖此函式
     loadStaffList: async function() {
         if(this.isLoading) return;
         this.isLoading = true;
