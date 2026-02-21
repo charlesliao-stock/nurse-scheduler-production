@@ -24,26 +24,24 @@ const WhitelistCalculator = {
         }
     },
 
-shouldContinueLastMonth: function(staff, assignments, day, lastMonthData) {
-    if (day > 7) return false;
+    shouldContinueLastMonth: function(staff, assignments, day, lastMonthData) {
+        if (day > 7) return false;
 
-    const uid = staff.uid || staff.id;
-    const lastShift = lastMonthData?.[uid]?.lastShift;
+        const uid = staff.uid || staff.id;
+        const lastShift = lastMonthData?.[uid]?.lastShift;
 
-    // lastShift 必須是有效工作班（排除 OFF/REQ_OFF/FF）
-    if (!lastShift || lastShift === 'OFF' || lastShift === 'REQ_OFF' || lastShift === 'FF') return false;
+        // lastShift 必須是有效工作班（排除 OFF/REQ_OFF/FF）
+        if (!lastShift || lastShift === 'OFF' || lastShift === 'REQ_OFF' || lastShift === 'FF') return false;
 
-    // 1~(day-1) 必須每天都有工作班，且班別要等於 lastShift
-    for (let d = 1; d < day; d++) {
-        const shift = assignments[uid]?.[`current_${d}`];
+        // 1~(day-1) 必須每天都有工作班，且班別要等於 lastShift
+        for (let d = 1; d < day; d++) {
+            const shift = assignments[uid]?.[`current_${d}`];
+            if (!shift || shift === 'OFF' || shift === 'REQ_OFF' || shift === 'FF') return false;
+            if (shift !== lastShift) return false;
+        }
 
-        if (!shift || shift === 'OFF' || shift === 'REQ_OFF' || shift === 'FF') return false;
-        if (shift !== lastShift) return false;
-    }
-
-    return true;
-},
-
+        return true;
+    },
 
     calculateStage1_1: function(staff, assignments, day, year, month, rules, shiftTimeMap, lastMonthData, daysInMonth) {
         const uid = staff.uid || staff.id;
@@ -145,11 +143,19 @@ shouldContinueLastMonth: function(staff, assignments, day, lastMonthData) {
         return whitelist;
     },
 
+    /**
+     * 取得班別類別（以 end 時間為 key）
+     * 相容 BaseScheduler.buildShiftTimeMap() 的 {start, end}(number)
+     * 與 {startTime, endTime}(string) 兩種格式
+     */
     getShiftCategory: function(shiftCode, shiftTimeMap) {
         const info = shiftTimeMap[shiftCode];
-        if (!info || !info.endTime) return null;
-        const [hour] = info.endTime.split(':').map(Number);
-        return hour;
+        if (!info) return null;
+        // 優先讀字串 endTime，其次讀數值 end
+        const endVal = info.endTime ?? info.end;
+        const end = this.parseTime(endVal);
+        if (end === null) return null;
+        return Math.floor(end); // e.g. 24.0 → 24, 16.0 → 16
     },
 
     getWeekRange: function(day, year, month, weekStartDay) {
@@ -166,16 +172,23 @@ shouldContinueLastMonth: function(staff, assignments, day, lastMonthData) {
         return { start: Math.max(1, weekStart), end: Math.min(daysInMonth, weekStart + 6) };
     },
 
+    /**
+     * 前向 11 小時篩選
+     * 相容 {start, end}(number) 與 {startTime, endTime}(string)
+     */
     filterByMinGap11Forward: function(whitelist, staff, assignments, day, shiftTimeMap, lastMonthData) {
         const uid = staff.uid || staff.id;
         let prevShift = (day === 1) ? lastMonthData?.[uid]?.lastShift : assignments[uid]?.[`current_${day - 1}`];
         if (!prevShift || prevShift === 'OFF' || prevShift === 'REQ_OFF') return whitelist;
-        const prevEnd = this.parseTime(shiftTimeMap[prevShift]?.endTime);
+
+        const prevInfo = shiftTimeMap[prevShift];
+        const prevEnd = this.parseTime(prevInfo?.endTime ?? prevInfo?.end);
         if (prevEnd === null) return whitelist;
 
         return whitelist.filter(s => {
             if (s === 'OFF' || s === 'REQ_OFF') return true;
-            const start = this.parseTime(shiftTimeMap[s]?.startTime);
+            const info = shiftTimeMap[s];
+            const start = this.parseTime(info?.startTime ?? info?.start);
             if (start === null) return true;
             let gap = start - prevEnd;
             if (gap < 0) gap += 24;
@@ -183,18 +196,24 @@ shouldContinueLastMonth: function(staff, assignments, day, lastMonthData) {
         });
     },
 
+    /**
+     * 後向 11 小時篩選
+     * 相容 {start, end}(number) 與 {startTime, endTime}(string)
+     */
     filterByMinGap11Backward: function(whitelist, staff, assignments, day, shiftTimeMap, rules) {
         const uid = staff.uid || staff.id;
         const nextShift = assignments[uid]?.[`current_${day + 1}`];
         if (!nextShift || nextShift === 'OFF' || nextShift === 'REQ_OFF') return whitelist;
         if ((rules?.policy?.prioritizePreReq || 'must') !== 'must') return whitelist;
 
-        const nextStart = this.parseTime(shiftTimeMap[nextShift]?.startTime);
+        const nextInfo = shiftTimeMap[nextShift];
+        const nextStart = this.parseTime(nextInfo?.startTime ?? nextInfo?.start);
         if (nextStart === null) return whitelist;
 
         return whitelist.filter(s => {
             if (s === 'OFF' || s === 'REQ_OFF') return true;
-            const end = this.parseTime(shiftTimeMap[s]?.endTime);
+            const info = shiftTimeMap[s];
+            const end = this.parseTime(info?.endTime ?? info?.end);
             if (end === null) return true;
             let gap = nextStart - end;
             if (gap < 0) gap += 24;
@@ -202,19 +221,37 @@ shouldContinueLastMonth: function(staff, assignments, day, lastMonthData) {
         });
     },
 
+    /**
+     * 孕哺夜班保護篩選
+     * 相容 {start, end}(number) 與 {startTime, endTime}(string)
+     */
     filterProtectPregnant: function(whitelist, shiftTimeMap, rules) {
         return whitelist.filter(s => {
             if (s === 'OFF' || s === 'REQ_OFF') return true;
             const info = shiftTimeMap[s];
-            if (!info || !info.startTime || !info.endTime) return true;
+            if (!info) return true;
 
-            const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
-            const start = toMin(info.startTime);
-            let end = toMin(info.endTime);
+            // 相容兩種格式取值
+            const toMin = v => {
+                if (typeof v === 'number' && !Number.isNaN(v)) return Math.round(v * 60);
+                if (typeof v === 'string') {
+                    const [h, m] = v.split(':').map(Number);
+                    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+                    return h * 60 + m;
+                }
+                return null;
+            };
+
+            const startRaw = info.startTime ?? info.start;
+            const endRaw   = info.endTime   ?? info.end;
+            const start = toMin(startRaw);
+            let end     = toMin(endRaw);
+            if (start === null || end === null) return true;
+
             if (end <= start) end += 1440;
 
             const forbidStart = 22 * 60;
-            const forbidEnd = 1440 + 6 * 60;
+            const forbidEnd   = 1440 + 6 * 60;
             const isNight = !(end <= forbidStart || start >= forbidEnd);
             return !isNight;
         });
@@ -239,10 +276,28 @@ shouldContinueLastMonth: function(staff, assignments, day, lastMonthData) {
         return count;
     },
 
-    parseTime: function(timeStr) {
-        if (!timeStr) return null;
-        const [h, m] = timeStr.split(':').map(Number);
-        return h + m / 60;
+    /**
+     * 解析時間為小時數值
+     * 相容:
+     *   - number: BaseScheduler.buildShiftTimeMap() 建出的 start/end (e.g. 16, 0, 24)
+     *   - string: 字串格式 HH:MM (e.g. "16:00", "24:00", "00:00")
+     */
+    parseTime: function(timeVal) {
+        if (timeVal === undefined || timeVal === null) return null;
+
+        // 支援數值格式 (BaseScheduler: start/end)
+        if (typeof timeVal === 'number' && !Number.isNaN(timeVal)) {
+            return timeVal;
+        }
+
+        // 支援字串格式 (HH:MM)
+        if (typeof timeVal === 'string') {
+            const [h, m] = timeVal.split(':').map(Number);
+            if (Number.isNaN(h) || Number.isNaN(m)) return null;
+            return h + m / 60;
+        }
+
+        return null;
     }
 };
-console.log('✅ WhitelistCalculator 已更新 (統一讀取 schedulingParams + 孕哺夜班 22-06 精確區間判斷)');
+console.log('✅ WhitelistCalculator 已更新 (相容 BaseScheduler shiftTimeMap 格式 + shouldContinueLastMonth 班別一致性檢查)');
