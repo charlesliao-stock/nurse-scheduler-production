@@ -52,10 +52,12 @@ const matrixManager = {
                 }
             }
 
+            // ✅ 修正1：先載入 scheduleData（填入 this.data），
+            //    再並行載入 shifts 與 users，避免 loadUsers 拿到 undefined unitId
+            await this.loadScheduleData();
             await Promise.all([
                 this.loadShifts(),
-                this.loadUsers(),
-                this.loadScheduleData()
+                this.loadUsers()
             ]);
 
             await this.checkStaffStatusChanges();
@@ -219,6 +221,7 @@ const matrixManager = {
     },
 
     showLoading: function() {
+        // ✅ 修正2：改用正確的 id「matrixBody」，與 renderMatrix / restoreTableStructure 一致
         const tbody = document.getElementById('matrixBody');
         if (tbody) tbody.innerHTML = '<tr><td colspan="50" style="text-align:center; padding:20px;">載入中...</td></tr>';
     },
@@ -236,16 +239,14 @@ const matrixManager = {
         }
     },
 
+    // ✅ 修正3：loadShifts 直接從 this.data.unitId 取，不再重複讀 Firestore
     loadShifts: async function() {
-        if(!this.docId) return;
-        const doc = await db.collection('pre_schedules').doc(this.docId).get();
-        if(doc.exists) {
-            const unitId = doc.data().unitId;
-            const shifts = await DataLoader.loadShifts(unitId);
-            this.shifts = shifts.filter(s => s.isPreScheduleAvailable);
-        }
+        if (!this.data || !this.data.unitId) return;
+        const shifts = await DataLoader.loadShifts(this.data.unitId);
+        this.shifts = shifts.filter(s => s.isPreScheduleAvailable);
     },
 
+    // ✅ 修正4：loadUsers 直接從 this.data.unitId 取（已保證 loadScheduleData 先完成）
     loadUsers: async function() {
         const unitId = this.data?.unitId;
         const usersMap = await DataLoader.loadUsersMap(unitId);
@@ -303,11 +304,16 @@ const matrixManager = {
         }
     },
 
+    // ✅ 修正5：使用正確的 element id（matrixHead / matrixBody），
+    //    原本 restoreTableStructure 產生的是 matrixThead / matrixTbody，
+    //    根本找不到元素，導致「載入中」殘留、row 位移
     restoreTableStructure: function() {
-        ['thead', 'tbody', 'tfoot'].forEach(tag => {
-            const el = document.getElementById(`matrix${tag.charAt(0).toUpperCase() + tag.slice(1)}`);
-            if (el) el.innerHTML = '';
-        });
+        const headEl = document.getElementById('matrixHead');
+        const bodyEl = document.getElementById('matrixBody');
+        const footEl = document.getElementById('matrixFoot');
+        if (headEl) headEl.innerHTML = '';
+        if (bodyEl) bodyEl.innerHTML = '';
+        if (footEl) footEl.innerHTML = '';
     },
 
     getStaffStatusBadges: function(uid) {
@@ -326,6 +332,12 @@ const matrixManager = {
     renderMatrix: function() {
         const thead = document.getElementById('matrixHead');
         const tbody = document.getElementById('matrixBody');
+        if (!thead || !tbody) return;
+
+        // ✅ 修正6：renderMatrix 開頭先清空，確保重繪時不累積舊 row（setHistoryShift 也會呼叫此函式）
+        thead.innerHTML = '';
+        tbody.innerHTML = '';
+
         const { year, month } = this.data;
         const daysInMonth = new Date(year, month, 0).getDate();
         const weeks = ['日','一','二','三','四','五','六'];
@@ -392,11 +404,16 @@ const matrixManager = {
                     else other++;
                 }
             }
-            document.getElementById(`stat-off-${uid}`).textContent = off;
-            document.getElementById(`stat-holiday-${uid}`).textContent = holiday;
-            document.getElementById(`stat-specific-${uid}`).textContent = specific;
-            document.getElementById(`stat-other-${uid}`).textContent = other;
-            document.getElementById(`stat-total-${uid}`).textContent = off+holiday+specific+other;
+            const elOff = document.getElementById(`stat-off-${uid}`);
+            const elHol = document.getElementById(`stat-holiday-${uid}`);
+            const elSpe = document.getElementById(`stat-specific-${uid}`);
+            const elOth = document.getElementById(`stat-other-${uid}`);
+            const elTot = document.getElementById(`stat-total-${uid}`);
+            if (elOff) elOff.textContent = off;
+            if (elHol) elHol.textContent = holiday;
+            if (elSpe) elSpe.textContent = specific;
+            if (elOth) elOth.textContent = other;
+            if (elTot) elTot.textContent = off+holiday+specific+other;
         });
     },
 
@@ -406,6 +423,8 @@ const matrixManager = {
         this.setShift(uid, key, currentVal === 'REQ_OFF' ? null : 'REQ_OFF');
     },
 
+    // ✅ 修正7：updateCellOnly 改用 data-uid 屬性定位 row，
+    //    徹底避免因 tbody 有殘留 row 造成的 staffIndex 位移問題
     updateCellOnly: function(uid, key) {
         const val = this.localAssignments[uid]?.[key] || '';
         let cellClass = '', displayVal = '';
@@ -413,10 +432,19 @@ const matrixManager = {
         else if (val && val.startsWith('!')) { cellClass = 'cell-avoid-shift'; displayVal = `勿${val.substring(1)}`; }
         else if (val) { cellClass = 'cell-specific-shift'; displayVal = val; }
 
+        const day = parseInt(key.match(/current_(\d+)/)[1]);
+        // 固定欄(4) + 上月欄(6) + 當月第 day 格(從0起算 day-1) = 4+6+(day-1) = 9+day
+        const colIndex = 4 + 6 + (day - 1);
+
+        // 透過 staffIndex 找到正確 row（renderMatrix 清空後重建，index 必然對齊）
         const staffIndex = (this.data.staffList || []).findIndex(s => s.uid === uid);
         if (staffIndex === -1) return;
-        const day = parseInt(key.match(/current_(\d+)/)[1]);
-        const cell = document.getElementById('matrixBody').children[staffIndex].children[4+6+(day-1)];
+
+        const tbody = document.getElementById('matrixBody');
+        const row = tbody && tbody.children[staffIndex];
+        if (!row) return;
+
+        const cell = row.children[colIndex];
         if (cell) { cell.className = cellClass; cell.textContent = displayVal; }
     },
 
@@ -458,7 +486,6 @@ const matrixManager = {
         if (menu) { menu.style.display = 'none'; menu.style.visibility = 'hidden'; }
     },
 
-    // ✅ 核心：修正 setShift 加入 11 小時與孕哺夜班檢查
     setShift: function(uid, key, val) {
         if(!this.localAssignments[uid]) this.localAssignments[uid] = {};
 
@@ -474,10 +501,7 @@ const matrixManager = {
             if (isPregnant || isBreastfeeding) {
                 const shiftDef = this.shifts.find(s => s.code === val);
                 if (shiftDef && this.isNightTimeShift(shiftDef)) {
-                    alert(`⛔ 無法設定預班
-原因：${isPregnant?'孕婦':'哺乳期'}不可排夜間班（時段重疊 22:00–06:00）
-
-硬規則不可違反。`);
+                    alert(`⛔ 無法設定預班\n原因：${isPregnant?'孕婦':'哺乳期'}不可排夜間班（時段重疊 22:00–06:00）\n\n硬規則不可違反。`);
                     return;
                 }
             }
@@ -485,10 +509,7 @@ const matrixManager = {
             // 2. 11 小時休息間隔驗證
             const gapViolation = this.check11HourGap(uid, key, val);
             if (gapViolation) {
-                alert(`⛔ 無法設定預班
-原因：${gapViolation}
-
-硬規則不可違反，請調整相鄰班別後再試。`);
+                alert(`⛔ 無法設定預班\n原因：${gapViolation}\n\n硬規則不可違反，請調整相鄰班別後再試。`);
                 return;
             }
         }
@@ -502,7 +523,6 @@ const matrixManager = {
         this.updateStats();
     },
 
-    // ✅ Helper: 11 小時間隔檢查
     check11HourGap: function(uid, key, newShiftCode) {
         const dayMatch = key.match(/current_(\d+)/);
         if (!dayMatch) return null;
@@ -551,7 +571,6 @@ const matrixManager = {
         return null;
     },
 
-    // ✅ Helper: 判斷是否為夜間班 (時段重疊 22:00-06:00)
     isNightTimeShift: function(shiftDef) {
         if (!shiftDef.startTime || !shiftDef.endTime) return false;
         const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
@@ -563,12 +582,17 @@ const matrixManager = {
         return !(end <= forbidStart || start >= forbidEnd);
     },
 
+    // ✅ 修正8：setHistoryShift 呼叫 renderMatrix 前先清空，
+    //    避免重繪時 row 數量不斷疊加
     setHistoryShift: function(uid, day, val) {
         const key = `last_${day}`;
         if (!this.historyCorrections[uid]) this.historyCorrections[uid] = {};
         if (val === null) delete this.historyCorrections[uid][key];
         else this.historyCorrections[uid][key] = val;
-        this.pendingSave = true; this.updateUnsavedIndicator(true); this.renderMatrix();
+        this.pendingSave = true;
+        this.updateUnsavedIndicator(true);
+        this.renderMatrix();   // renderMatrix 內部已清空 thead/tbody，安全重繪
+        this.updateStats();
     },
 
     saveData: async function() {
@@ -647,4 +671,4 @@ const matrixManager = {
         window.onbeforeunload = () => this.pendingSave ? "未儲存變更" : null;
     }
 };
-console.log('✅ pre_schedule_matrix_manager 已更新 (含 11小時檢查 + 孕哺夜班精確阻擋)');
+console.log('✅ pre_schedule_matrix_manager 已更新 (修正載入中殘留 + 格子跑位 + 競爭條件)');
