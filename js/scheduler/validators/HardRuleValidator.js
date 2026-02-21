@@ -161,7 +161,7 @@ const HardRuleValidator = {
         return !(end <= forbidStart || start >= forbidEnd);
     },
 
-    validateAll: function(staff, assignments, day, shift, lastShift, rules, shiftTimeMap, daysInMonth, year, month, lastMonthDatfix: 完善硬規則驗證邏輯 (OFF間隔、孕哺夜班精確判斷)a) {
+    validateAll: function(staff, assignments, day, shift, lastShift, rules, shiftTimeMap, daysInMonth, year, month, lastMonthData) {
         const uid = staff.uid || staff.id;
 
         if (!this.validateMinGap11Hours(lastShift, shift, shiftTimeMap)) {
