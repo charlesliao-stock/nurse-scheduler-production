@@ -23,6 +23,8 @@ class BaseScheduler {
             map[s.code] = {
                 start: this.parseTime(s.startTime),
                 end: this.parseTime(s.endTime),
+                startTime: s.startTime,   // ✅ 修正：保留字串，供 WhitelistCalculator 的 parseTime 使用
+                endTime: s.endTime,       // ✅ 修正：保留字串，供 WhitelistCalculator 的 parseTime 使用
                 duration: s.duration || 8
             };
         });
@@ -115,4 +117,4 @@ class BaseScheduler {
     }
 }
 
-console.log('✅ BaseScheduler 已載入（精簡版）');
+console.log('✅ BaseScheduler 已載入（精簡版）- 修正 buildShiftTimeMap 保留 startTime/endTime 字串欄位');
