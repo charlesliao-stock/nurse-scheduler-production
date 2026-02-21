@@ -24,17 +24,26 @@ const WhitelistCalculator = {
         }
     },
 
-    shouldContinueLastMonth: function(staff, assignments, day, lastMonthData) {
-        if (day > 7) return false;
-        const uid = staff.uid || staff.id;
-        const lastShift = lastMonthData?.[uid]?.lastShift;
-        if (!lastShift || lastShift === 'OFF' || lastShift === 'REQ_OFF') return false;
-        for (let d = 1; d < day; d++) {
-            const shift = assignments[uid]?.[`current_${d}`];
-            if (!shift || shift === 'OFF' || shift === 'REQ_OFF') return false;
-        }
-        return true;
-    },
+shouldContinueLastMonth: function(staff, assignments, day, lastMonthData) {
+    if (day > 7) return false;
+
+    const uid = staff.uid || staff.id;
+    const lastShift = lastMonthData?.[uid]?.lastShift;
+
+    // lastShift 必須是有效工作班（排除 OFF/REQ_OFF/FF）
+    if (!lastShift || lastShift === 'OFF' || lastShift === 'REQ_OFF' || lastShift === 'FF') return false;
+
+    // 1~(day-1) 必須每天都有工作班，且班別要等於 lastShift
+    for (let d = 1; d < day; d++) {
+        const shift = assignments[uid]?.[`current_${d}`];
+
+        if (!shift || shift === 'OFF' || shift === 'REQ_OFF' || shift === 'FF') return false;
+        if (shift !== lastShift) return false;
+    }
+
+    return true;
+},
+
 
     calculateStage1_1: function(staff, assignments, day, year, month, rules, shiftTimeMap, lastMonthData, daysInMonth) {
         const uid = staff.uid || staff.id;
