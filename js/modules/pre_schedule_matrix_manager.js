@@ -126,27 +126,19 @@ const matrixManager = {
 
         const oldPregnant = oldParams.isPregnant && oldParams.pregnantExpiry && new Date(oldParams.pregnantExpiry) >= today;
         const newPregnant = newParams.isPregnant && newParams.pregnantExpiry && new Date(newParams.pregnantExpiry) >= today;
-        if (oldPregnant !== newPregnant) {
-            changes.push(newPregnant ? '新增「孕」狀態' : '移除「孕」狀態');
-        }
+        if (oldPregnant !== newPregnant) changes.push(newPregnant ? '新增「孕」狀態' : '移除「孕」狀態');
 
         const oldBreastfeeding = oldParams.isBreastfeeding && oldParams.breastfeedingExpiry && new Date(oldParams.breastfeedingExpiry) >= today;
         const newBreastfeeding = newParams.isBreastfeeding && newParams.breastfeedingExpiry && new Date(newParams.breastfeedingExpiry) >= today;
-        if (oldBreastfeeding !== newBreastfeeding) {
-            changes.push(newBreastfeeding ? '新增「哺」狀態' : '移除「哺」狀態');
-        }
+        if (oldBreastfeeding !== newBreastfeeding) changes.push(newBreastfeeding ? '新增「哺」狀態' : '移除「哺」狀態');
 
         const oldPGY = oldParams.isPGY && oldParams.pgyExpiry && new Date(oldParams.pgyExpiry) >= today;
         const newPGY = newParams.isPGY && newParams.pgyExpiry && new Date(newParams.pgyExpiry) >= today;
-        if (oldPGY !== newPGY) {
-            changes.push(newPGY ? '新增「PGY」狀態' : '移除「PGY」狀態');
-        }
+        if (oldPGY !== newPGY) changes.push(newPGY ? '新增「PGY」狀態' : '移除「PGY」狀態');
 
         const oldDependent = oldParams.independence === 'dependent';
         const newDependent = newParams.independence === 'dependent';
-        if (oldDependent !== newDependent) {
-            changes.push(newDependent ? '變更為「未獨立」' : '變更為「獨立」');
-        }
+        if (oldDependent !== newDependent) changes.push(newDependent ? '變更為「未獨立」' : '變更為「獨立」');
 
         return changes;
     },
@@ -178,15 +170,8 @@ const matrixManager = {
                 </div>
             `;
             document.body.insertAdjacentHTML('beforeend', modalHtml);
-
-            document.getElementById('btnConfirmStatusSync').onclick = () => {
-                document.getElementById('statusChangesModal').remove();
-                resolve(true);
-            };
-            document.getElementById('btnCancelStatusSync').onclick = () => {
-                document.getElementById('statusChangesModal').remove();
-                resolve(false);
-            };
+            document.getElementById('btnConfirmStatusSync').onclick = () => { document.getElementById('statusChangesModal').remove(); resolve(true); };
+            document.getElementById('btnCancelStatusSync').onclick = () => { document.getElementById('statusChangesModal').remove(); resolve(false); };
         });
     },
 
@@ -195,17 +180,13 @@ const matrixManager = {
             const updatedStaffList = [...this.data.staffList];
             statusChanges.forEach(change => {
                 const staffIdx = updatedStaffList.findIndex(s => s.uid === change.uid);
-                if (staffIdx !== -1) {
-                    updatedStaffList[staffIdx].schedulingParams = change.newParams;
-                }
+                if (staffIdx !== -1) updatedStaffList[staffIdx].schedulingParams = change.newParams;
             });
-
             await db.collection('pre_schedules').doc(this.docId).update({
                 staffList: updatedStaffList,
                 lastStatusSyncAt: firebase.firestore.FieldValue.serverTimestamp(),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-
             this.data.staffList = updatedStaffList;
             console.log('✅ 人員狀態已同步更新');
         } catch (error) {
@@ -249,7 +230,8 @@ const matrixManager = {
         this.data = doc.data();
         this.localAssignments = JSON.parse(JSON.stringify(this.data.assignments || {}));
         this.historyCorrections = JSON.parse(JSON.stringify(this.data.historyCorrections || {}));
-        if(!this.data.specificNeeds) this.data.specificNeeds = {};
+        if (!this.data.specificNeeds) this.data.specificNeeds = {};
+        if (!this.data.dailyNeeds) this.data.dailyNeeds = {};
         await this.loadLastMonthSchedule();
     },
 
@@ -283,7 +265,6 @@ const matrixManager = {
                     .where('year', '==', lastYear)
                     .where('month', '==', lastMonth)
                     .where('status', '==', 'published').get();
-
                 for (let doc of allSchedulesSnap.docs) {
                     const schData = doc.data();
                     if (schData.assignments && schData.assignments[uid]) {
@@ -317,6 +298,32 @@ const matrixManager = {
         return badges.join('');
     },
 
+    // 取得指定日期、指定班別的需求人數
+    // 優先查 specificNeeds[日期YYYY-MM-DD][班別code]，否則用 dailyNeeds[班別code_星期索引]
+    // 星期索引：0=週一 ... 5=週六 6=週日（與 pre_schedule_manager 一致）
+    getDailyNeedCount: function(shiftCode, year, month, day) {
+        const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const specificNeeds = this.data.specificNeeds || {};
+        const dailyNeeds = this.data.dailyNeeds || {};
+
+        // specificNeeds 有該日期該班別的設定，直接帶出
+        if (specificNeeds[dateStr] && specificNeeds[dateStr][shiftCode] !== undefined) {
+            return specificNeeds[dateStr][shiftCode];
+        }
+
+        // 否則用週循環設定
+        // getDay(): 0=日 1=一 ... 6=六
+        // dailyNeeds key 靠 jsDay===0 ? 6 : jsDay-1（與 calculateAvgOff 一致）
+        const jsDay = new Date(year, month - 1, day).getDay();
+        const weekdayIdx = (jsDay === 0) ? 6 : jsDay - 1;
+        const weeklyKey = `${shiftCode}_${weekdayIdx}`;
+        if (dailyNeeds[weeklyKey] !== undefined) {
+            return dailyNeeds[weeklyKey];
+        }
+
+        return '';
+    },
+
     renderMatrix: function() {
         const thead = document.getElementById('matrixHead');
         const tbody = document.getElementById('matrixBody');
@@ -332,42 +339,42 @@ const matrixManager = {
         const weeks = ['日','一','二','三','四','五','六'];
         const lastMonthDays = this.lastMonthDays || 31;
 
+        // --- thead ---
         let h1 = `<tr><th rowspan="2">職編</th><th rowspan="2">姓名</th><th rowspan="2">狀態</th><th rowspan="2">偏好</th><th colspan="6">上月月底</th>`;
-        for(let d=1; d<=daysInMonth; d++) {
-            const w = new Date(year, month-1, d).getDay();
-            h1 += `<th style="${w===0||w===6?'color:red':''}">${d}</th>`;
+        for (let d = 1; d <= daysInMonth; d++) {
+            const w = new Date(year, month - 1, d).getDay();
+            h1 += `<th style="${w === 0 || w === 6 ? 'color:red' : ''}">${d}</th>`;
         }
         h1 += `<th colspan="5">統計</th></tr><tr>`;
-        for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) h1 += `<th>${d}</th>`;
-        for(let d=1; d<=daysInMonth; d++) {
-            const w = new Date(year, month-1, d).getDay();
-            h1 += `<th style="${w===0||w===6?'color:red':''}">${weeks[w]}</th>`;
+        for (let d = lastMonthDays - 5; d <= lastMonthDays; d++) h1 += `<th>${d}</th>`;
+        for (let d = 1; d <= daysInMonth; d++) {
+            const w = new Date(year, month - 1, d).getDay();
+            h1 += `<th style="${w === 0 || w === 6 ? 'color:red' : ''}">${weeks[w]}</th>`;
         }
         h1 += `<th>休</th><th>假</th><th>指</th><th>其</th><th>總</th></tr>`;
         thead.innerHTML = h1;
 
+        // --- tbody ---
         const staffList = this.data.staffList || [];
         staffList.forEach(staff => {
             const uid = staff.uid;
             const tr = document.createElement('tr');
             let rowHtml = `<td>${staff.empId}</td><td>${staff.name}</td><td>${this.getStaffStatusBadges(uid)}</td>
                 <td><button onclick="matrixManager.openPrefModal('${uid}', '${staff.name}')" class="btn btn-sm btn-outline-info">偏好</button></td>`;
-            
-            for(let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
+
+            for (let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
                 const val = this.historyCorrections[uid]?.[`last_${d}`] || this.lastMonthAssignments[uid]?.[`current_${d}`] || this.lastMonthAssignments[uid]?.[d] || 'OFF';
                 rowHtml += `<td class="history-cell" oncontextmenu="matrixManager.showHistoryMenu(event, '${uid}', ${d})">${val}</td>`;
             }
 
             const assign = this.localAssignments[uid] || {};
-            for(let d=1; d<=daysInMonth; d++) {
+            for (let d = 1; d <= daysInMonth; d++) {
                 const key = `current_${d}`;
                 const val = assign[key] || '';
-                let cellClass = '';
-                let displayVal = '';
+                let cellClass = '', displayVal = '';
                 if (val === 'REQ_OFF' || val === 'OFF') { cellClass = val === 'REQ_OFF' ? 'cell-req-off' : 'cell-off'; displayVal = 'FF'; }
                 else if (val && val.startsWith('!')) { cellClass = 'cell-avoid-shift'; displayVal = `勿${val.substring(1)}`; }
                 else if (val) { cellClass = 'cell-specific-shift'; displayVal = val; }
-                
                 rowHtml += `<td class="${cellClass}" onclick="matrixManager.toggleReqOff('${uid}', '${key}')" oncontextmenu="matrixManager.showShiftMenu(event, '${uid}', '${key}')">${displayVal}</td>`;
             }
             rowHtml += `<td id="stat-off-${uid}">0</td><td id="stat-holiday-${uid}">0</td><td id="stat-specific-${uid}">0</td><td id="stat-other-${uid}">0</td><td id="stat-total-${uid}">0</td>`;
@@ -375,58 +382,38 @@ const matrixManager = {
             tbody.appendChild(tr);
         });
 
-        // ✅ 渲染每日各班需求人數列（tfoot）
+        // --- tfoot: 每日各班需求人數 ---
         if (tfoot && this.shifts.length > 0) {
             this.shifts.forEach(shift => {
                 const tr = document.createElement('tr');
-                let html = `<td colspan="4" style="text-align:right; font-weight:bold; background:#f0f4f8; color:#2c3e50;">${shift.code}<br><span style="font-size:0.8em; color:#7f8c8d;">需求人數</span></td>`;
-                // 上月底 6 格（空白）
+                // 前 4 欄 標題
+                let html = `<td colspan="4" style="text-align:right; font-weight:bold; background:#f0f4f8; color:#2c3e50; white-space:nowrap;">
+                    ${shift.code} <span style="font-size:0.8em; color:#7f8c8d; font-weight:normal;">需求人數</span>
+                </td>`;
+                // 上月底 6 格 空白
                 for (let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
-                    html += `<td style="background:#f9f9f9;"></td>`;
+                    html += `<td style="background:#f5f5f5;"></td>`;
                 }
-                // 當月每日需求格
+                // 當月每日
                 for (let d = 1; d <= daysInMonth; d++) {
-                    const key = `${shift.code}_${d}`;
-                    const val = (this.data.specificNeeds && this.data.specificNeeds[key] !== undefined)
-                        ? this.data.specificNeeds[key]
-                        : (shift.defaultDailyNeed !== undefined ? shift.defaultDailyNeed : '');
                     const w = new Date(year, month - 1, d).getDay();
-                    const bgColor = w === 0 || w === 6 ? '#fff8f0' : '#eaf4fb';
-                    html += `<td style="cursor:pointer; background:${bgColor}; text-align:center; font-weight:bold; color:#1a5276;"
-                                 onclick="matrixManager.editDailyNeed('${shift.code}', ${d})"
-                                 title="點擊調整 ${shift.code} 第${d}日需求人數">${val}</td>`;
+                    const isWeekend = (w === 0 || w === 6);
+                    const bgColor = isWeekend ? '#fff0e6' : '#eaf4fb';
+                    const val = this.getDailyNeedCount(shift.code, year, month, d);
+                    // 有 specificNeeds 覆寫的日期，加深色警示區別
+                    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    const isOverride = (this.data.specificNeeds[dateStr] && this.data.specificNeeds[dateStr][shift.code] !== undefined);
+                    const cellStyle = isOverride
+                        ? `background:#fde8a8; font-weight:bold; color:#7d4e00; text-align:center;`
+                        : `background:${bgColor}; font-weight:bold; color:#1a5276; text-align:center;`;
+                    html += `<td style="${cellStyle}" title="${isOverride ? '臨時設定' : '週循環'}：${shift.code} ${d}日 ${val}人">${val}</td>`;
                 }
-                // 統計欄 5 格（空白）
-                html += `<td colspan="5" style="background:#f9f9f9;"></td>`;
+                // 統計 5 格 空白
+                html += `<td colspan="5" style="background:#f5f5f5;"></td>`;
                 tr.innerHTML = html;
                 tfoot.appendChild(tr);
             });
         }
-    },
-
-    // ✅ 點擊調整每日各班需求人數
-    editDailyNeed: function(shiftCode, day) {
-        const key = `${shiftCode}_${day}`;
-        const current = (this.data.specificNeeds && this.data.specificNeeds[key] !== undefined)
-            ? this.data.specificNeeds[key]
-            : '';
-        const newVal = prompt(`${shiftCode}  第 ${day} 日需求人數（留空則清除）：`, current);
-        if (newVal === null) return; // 按取消
-        if (!this.data.specificNeeds) this.data.specificNeeds = {};
-        if (newVal.trim() === '') {
-            delete this.data.specificNeeds[key];
-        } else {
-            const parsed = parseInt(newVal);
-            if (isNaN(parsed) || parsed < 0) {
-                alert('請輸入有效的正整數');
-                return;
-            }
-            this.data.specificNeeds[key] = parsed;
-        }
-        this.pendingSave = true;
-        this.updateUnsavedIndicator(true);
-        this.renderMatrix();
-        this.updateStats();
     },
 
     updateStats: function() {
@@ -435,8 +422,8 @@ const matrixManager = {
         staffList.forEach(staff => {
             const uid = staff.uid;
             const assign = this.localAssignments[uid] || {};
-            let off=0, holiday=0, specific=0, other=0;
-            for(let d=1; d<=daysInMonth; d++) {
+            let off = 0, holiday = 0, specific = 0, other = 0;
+            for (let d = 1; d <= daysInMonth; d++) {
                 const val = assign[`current_${d}`];
                 if (val === 'OFF' || val === 'REQ_OFF') off++;
                 else if (val && val.startsWith('!')) specific++;
@@ -455,12 +442,12 @@ const matrixManager = {
             if (elHol) elHol.textContent = holiday;
             if (elSpe) elSpe.textContent = specific;
             if (elOth) elOth.textContent = other;
-            if (elTot) elTot.textContent = off+holiday+specific+other;
+            if (elTot) elTot.textContent = off + holiday + specific + other;
         });
     },
 
     toggleReqOff: function(uid, key) {
-        if(!this.localAssignments[uid]) this.localAssignments[uid] = {};
+        if (!this.localAssignments[uid]) this.localAssignments[uid] = {};
         const currentVal = this.localAssignments[uid][key];
         this.setShift(uid, key, currentVal === 'REQ_OFF' ? null : 'REQ_OFF');
     },
@@ -504,7 +491,7 @@ const matrixManager = {
         event.preventDefault();
         const menu = document.getElementById('customContextMenu');
         let html = `<div class="menu-header">修正上月紀錄</div><div class="menu-item" onclick="matrixManager.setHistoryShift('${uid}',${day},'OFF')">OFF</div>`;
-        this.shifts.forEach(s => { if(s.code!=='OFF') html += `<div class="menu-item" onclick="matrixManager.setHistoryShift('${uid}',${day},'${s.code}')">${s.code}</div>`; });
+        this.shifts.forEach(s => { if (s.code !== 'OFF') html += `<div class="menu-item" onclick="matrixManager.setHistoryShift('${uid}',${day},'${s.code}')">${s.code}</div>`; });
         menu.innerHTML = html;
         this.positionMenu(event.target, menu);
     },
@@ -525,7 +512,7 @@ const matrixManager = {
     },
 
     setShift: function(uid, key, val) {
-        if(!this.localAssignments[uid]) this.localAssignments[uid] = {};
+        if (!this.localAssignments[uid]) this.localAssignments[uid] = {};
 
         if (val && val !== 'OFF' && val !== 'REQ_OFF' && !val.startsWith('!')) {
             const staffEntry = (this.data.staffList || []).find(s => s.uid === uid);
@@ -537,7 +524,7 @@ const matrixManager = {
             if (isPregnant || isBreastfeeding) {
                 const shiftDef = this.shifts.find(s => s.code === val);
                 if (shiftDef && this.isNightTimeShift(shiftDef)) {
-                    alert(`⛔ 無法設定預班\n原因：${isPregnant?'孕婦':'哺乳期'}不可排夜間班（時段重疊 22:00–06:00）\n\n硬規則不可違反。`);
+                    alert(`⛔ 無法設定預班\n原因：${isPregnant ? '孕婦' : '哺乳期'}不可排夜間班（時段重疊 22:00–06:00）\n\n硬規則不可違反。`);
                     return;
                 }
             }
@@ -549,7 +536,7 @@ const matrixManager = {
             }
         }
 
-        if(val === null) delete this.localAssignments[uid][key];
+        if (val === null) delete this.localAssignments[uid][key];
         else this.localAssignments[uid][key] = val;
 
         this.pendingSave = true;
@@ -566,7 +553,7 @@ const matrixManager = {
         const shiftTimeMap = {};
         this.shifts.forEach(s => {
             if (s.startTime && s.endTime) {
-                const parseT = t => { const [h,m] = t.split(':').map(Number); return h + m/60; };
+                const parseT = t => { const [h, m] = t.split(':').map(Number); return h + m / 60; };
                 shiftTimeMap[s.code] = { start: parseT(s.startTime), end: parseT(s.endTime) };
             }
         });
@@ -576,9 +563,9 @@ const matrixManager = {
 
         const isWork = s => s && s !== 'OFF' && s !== 'REQ_OFF' && !s.startsWith('!');
 
-        let prevShift = (day === 1) 
+        let prevShift = (day === 1)
             ? (this.historyCorrections[uid]?.[`last_${this.lastMonthDays}`] || this.lastMonthAssignments[uid]?.[`current_${this.lastMonthDays}`] || 'OFF')
-            : this.localAssignments[uid]?.[`current_${day-1}`];
+            : this.localAssignments[uid]?.[`current_${day - 1}`];
 
         if (isWork(prevShift)) {
             const prevInfo = shiftTimeMap[prevShift];
@@ -591,7 +578,7 @@ const matrixManager = {
 
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
         if (day < daysInMonth) {
-            const nextShift = this.localAssignments[uid]?.[`current_${day+1}`];
+            const nextShift = this.localAssignments[uid]?.[`current_${day + 1}`];
             if (isWork(nextShift)) {
                 const nextInfo = shiftTimeMap[nextShift];
                 if (nextInfo) {
@@ -633,10 +620,11 @@ const matrixManager = {
             await db.collection('pre_schedules').doc(this.docId).update({
                 assignments: this.localAssignments,
                 historyCorrections: this.historyCorrections,
-                specificNeeds: this.data.specificNeeds,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            this.pendingSave = false; this.updateUnsavedIndicator(false); alert("✅ 草稿已儲存");
+            this.pendingSave = false;
+            this.updateUnsavedIndicator(false);
+            alert("✅ 草稿已儲存");
         } catch(e) { alert("❌ 儲存失敗: " + e.message); } finally { this.isLoading = false; }
     },
 
@@ -653,10 +641,10 @@ const matrixManager = {
         document.getElementById('prefTargetName').innerText = `人員：${name}`;
         const assign = this.localAssignments[uid] || {};
         const prefs = assign.preferences || {};
-        
+
         const bundleSelect = document.getElementById('editBundleShift');
         let bundleHtml = '<option value="">無 (不包班)</option>';
-        this.shifts.forEach(s => { if (s.isBundleAvailable) bundleHtml += `<option value="${s.code}" ${prefs.bundleShift===s.code?'selected':''}>${s.code} (${s.name})</option>`; });
+        this.shifts.forEach(s => { if (s.isBundleAvailable) bundleHtml += `<option value="${s.code}" ${prefs.bundleShift === s.code ? 'selected' : ''}>${s.code} (${s.name})</option>`; });
         bundleSelect.innerHTML = bundleHtml;
 
         const renderPrefs = () => {
@@ -674,8 +662,8 @@ const matrixManager = {
             });
 
             document.getElementById('editPrefContainer').innerHTML = `
-                <div class="form-group">第一志願 <select id="editFavShift" class="form-control"><option value="">無</option>${filtered.map(s=>`<option value="${s.code}" ${fav1===s.code?'selected':''}>${s.code}</option>`).join('')}</select></div>
-                <div class="form-group">第二志願 <select id="editFavShift2" class="form-control"><option value="">無</option>${filtered.map(s=>`<option value="${s.code}" ${fav2===s.code?'selected':''}>${s.code}</option>`).join('')}</select></div>
+                <div class="form-group">第一志願 <select id="editFavShift" class="form-control"><option value="">無</option>${filtered.map(s => `<option value="${s.code}" ${fav1 === s.code ? 'selected' : ''}>${s.code}</option>`).join('')}</select></div>
+                <div class="form-group">第二志願 <select id="editFavShift2" class="form-control"><option value="">無</option>${filtered.map(s => `<option value="${s.code}" ${fav2 === s.code ? 'selected' : ''}>${s.code}</option>`).join('')}</select></div>
             `;
         };
         bundleSelect.onchange = renderPrefs;
@@ -691,7 +679,8 @@ const matrixManager = {
             favShift: document.getElementById('editFavShift').value,
             favShift2: document.getElementById('editFavShift2').value
         };
-        this.pendingSave = true; this.updateUnsavedIndicator(true);
+        this.pendingSave = true;
+        this.updateUnsavedIndicator(true);
         document.getElementById('prefModal').classList.remove('show');
         this.updateStats();
     },
@@ -703,4 +692,4 @@ const matrixManager = {
         window.onbeforeunload = () => this.pendingSave ? "未儲存變更" : null;
     }
 };
-console.log('✅ pre_schedule_matrix_manager 已更新 (修復 tfoot 每日需求人數列 + editDailyNeed + saveData 補存 specificNeeds)');
+console.log('✅ pre_schedule_matrix_manager 已更新 (tfoot 每日需求人數正確讀取 dailyNeeds/specificNeeds 資料結構)');
