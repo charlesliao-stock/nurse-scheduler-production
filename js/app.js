@@ -224,9 +224,17 @@ const app = {
 
         if (!this._allUsersForImp) {
             try {
-                const users = await DataLoader.loadAllUsers();
-                // 確保 _allUsersForImp 總是陣列
-                this._allUsersForImp = Array.isArray(users) ? users : [];
+                const usersMap = await DataLoader.loadAllUsers();
+                // loadAllUsers 返回的是物件 {uid: {...}, uid2: {...}}
+                // 需要轉換為陣列 [{uid, displayName, role, unitId, ...}, ...]
+                if (usersMap && typeof usersMap === 'object' && !Array.isArray(usersMap)) {
+                    this._allUsersForImp = Object.values(usersMap);
+                    console.log(`✅ 已轉換 ${this._allUsersForImp.length} 位使用者為陣列格式`);
+                } else if (Array.isArray(usersMap)) {
+                    this._allUsersForImp = usersMap;
+                } else {
+                    this._allUsersForImp = [];
+                }
             } catch(e) {
                 console.error("Load All Users Error:", e);
                 this._allUsersForImp = [];
@@ -263,6 +271,13 @@ const app = {
         }
         
         const filtered = unitId ? this._allUsersForImp.filter(u => u.unitId === unitId) : this._allUsersForImp;
+        
+        console.log(`[updateImpUserList] unitId: ${unitId}, total users: ${this._allUsersForImp.length}, filtered: ${filtered.length}`);
+        
+        if (filtered.length === 0) {
+            console.warn(`[updateImpUserList] No users found for unit: ${unitId}`);
+        }
+        
         filtered.forEach(u => {
             const data = { uid: u.uid, role: u.role, unitId: u.unitId, name: u.displayName };
             const selected = this.impersonatedUid === u.uid ? 'selected' : '';
