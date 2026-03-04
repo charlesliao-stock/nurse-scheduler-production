@@ -52,8 +52,6 @@ const matrixManager = {
                 }
             }
 
-            // ✅ 修正1：先載入 scheduleData（填入 this.data），
-            //    再並行載入 shifts 與 users，避免 loadUsers 拿到 undefined unitId
             await this.loadScheduleData();
             await Promise.all([
                 this.loadShifts(),
@@ -82,13 +80,9 @@ const matrixManager = {
         const styleElement = document.createElement('style');
         styleElement.id = 'schedule-cell-styles';
         styleElement.textContent = `
-            /* 預休 (REQ_OFF) - 黃色底 */
             .cell-req-off { background: #fff3cd !important; color: #856404 !important; font-weight: bold; border: 2px solid #f39c12 !important; }
-            /* 系統排休 (OFF) - 白底 */
             .cell-off { background: #fff !important; color: #95a5a6 !important; }
-            /* 指定班別 - 藍色底 */
             .cell-specific-shift { background: #d6eaf8 !important; color: #1565c0 !important; font-weight: bold; border: 2px solid #3498db !important; }
-            /* 希望避開 - 紅色底 */
             .cell-avoid-shift { background: #fadbd8 !important; color: #c0392b !important; font-weight: bold; border: 2px solid #e74c3c !important; }
         `;
         document.head.appendChild(styleElement);
@@ -221,7 +215,6 @@ const matrixManager = {
     },
 
     showLoading: function() {
-        // ✅ 修正2：改用正確的 id「matrixBody」，與 renderMatrix / restoreTableStructure 一致
         const tbody = document.getElementById('matrixBody');
         if (tbody) tbody.innerHTML = '<tr><td colspan="50" style="text-align:center; padding:20px;">載入中...</td></tr>';
     },
@@ -239,14 +232,12 @@ const matrixManager = {
         }
     },
 
-    // ✅ 修正3：loadShifts 直接從 this.data.unitId 取，不再重複讀 Firestore
     loadShifts: async function() {
         if (!this.data || !this.data.unitId) return;
         const shifts = await DataLoader.loadShifts(this.data.unitId);
         this.shifts = shifts.filter(s => s.isPreScheduleAvailable);
     },
 
-    // ✅ 修正4：loadUsers 直接從 this.data.unitId 取（已保證 loadScheduleData 先完成）
     loadUsers: async function() {
         const unitId = this.data?.unitId;
         const usersMap = await DataLoader.loadUsersMap(unitId);
@@ -304,9 +295,6 @@ const matrixManager = {
         }
     },
 
-    // ✅ 修正5：使用正確的 element id（matrixHead / matrixBody），
-    //    原本 restoreTableStructure 產生的是 matrixThead / matrixTbody，
-    //    根本找不到元素，導致「載入中」殘留、row 位移
     restoreTableStructure: function() {
         const headEl = document.getElementById('matrixHead');
         const bodyEl = document.getElementById('matrixBody');
@@ -332,11 +320,12 @@ const matrixManager = {
     renderMatrix: function() {
         const thead = document.getElementById('matrixHead');
         const tbody = document.getElementById('matrixBody');
+        const tfoot = document.getElementById('matrixFoot');
         if (!thead || !tbody) return;
 
-        // ✅ 修正6：renderMatrix 開頭先清空，確保重繪時不累積舊 row（setHistoryShift 也會呼叫此函式）
         thead.innerHTML = '';
         tbody.innerHTML = '';
+        if (tfoot) tfoot.innerHTML = '';
 
         const { year, month } = this.data;
         const daysInMonth = new Date(year, month, 0).getDate();
@@ -385,6 +374,59 @@ const matrixManager = {
             tr.innerHTML = rowHtml;
             tbody.appendChild(tr);
         });
+
+        // ✅ 渲染每日各班需求人數列（tfoot）
+        if (tfoot && this.shifts.length > 0) {
+            this.shifts.forEach(shift => {
+                const tr = document.createElement('tr');
+                let html = `<td colspan="4" style="text-align:right; font-weight:bold; background:#f0f4f8; color:#2c3e50;">${shift.code}<br><span style="font-size:0.8em; color:#7f8c8d;">需求人數</span></td>`;
+                // 上月底 6 格（空白）
+                for (let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
+                    html += `<td style="background:#f9f9f9;"></td>`;
+                }
+                // 當月每日需求格
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const key = `${shift.code}_${d}`;
+                    const val = (this.data.specificNeeds && this.data.specificNeeds[key] !== undefined)
+                        ? this.data.specificNeeds[key]
+                        : (shift.defaultDailyNeed !== undefined ? shift.defaultDailyNeed : '');
+                    const w = new Date(year, month - 1, d).getDay();
+                    const bgColor = w === 0 || w === 6 ? '#fff8f0' : '#eaf4fb';
+                    html += `<td style="cursor:pointer; background:${bgColor}; text-align:center; font-weight:bold; color:#1a5276;"
+                                 onclick="matrixManager.editDailyNeed('${shift.code}', ${d})"
+                                 title="點擊調整 ${shift.code} 第${d}日需求人數">${val}</td>`;
+                }
+                // 統計欄 5 格（空白）
+                html += `<td colspan="5" style="background:#f9f9f9;"></td>`;
+                tr.innerHTML = html;
+                tfoot.appendChild(tr);
+            });
+        }
+    },
+
+    // ✅ 點擊調整每日各班需求人數
+    editDailyNeed: function(shiftCode, day) {
+        const key = `${shiftCode}_${day}`;
+        const current = (this.data.specificNeeds && this.data.specificNeeds[key] !== undefined)
+            ? this.data.specificNeeds[key]
+            : '';
+        const newVal = prompt(`${shiftCode}  第 ${day} 日需求人數（留空則清除）：`, current);
+        if (newVal === null) return; // 按取消
+        if (!this.data.specificNeeds) this.data.specificNeeds = {};
+        if (newVal.trim() === '') {
+            delete this.data.specificNeeds[key];
+        } else {
+            const parsed = parseInt(newVal);
+            if (isNaN(parsed) || parsed < 0) {
+                alert('請輸入有效的正整數');
+                return;
+            }
+            this.data.specificNeeds[key] = parsed;
+        }
+        this.pendingSave = true;
+        this.updateUnsavedIndicator(true);
+        this.renderMatrix();
+        this.updateStats();
     },
 
     updateStats: function() {
@@ -423,8 +465,6 @@ const matrixManager = {
         this.setShift(uid, key, currentVal === 'REQ_OFF' ? null : 'REQ_OFF');
     },
 
-    // ✅ 修正7：updateCellOnly 改用 data-uid 屬性定位 row，
-    //    徹底避免因 tbody 有殘留 row 造成的 staffIndex 位移問題
     updateCellOnly: function(uid, key) {
         const val = this.localAssignments[uid]?.[key] || '';
         let cellClass = '', displayVal = '';
@@ -433,10 +473,8 @@ const matrixManager = {
         else if (val) { cellClass = 'cell-specific-shift'; displayVal = val; }
 
         const day = parseInt(key.match(/current_(\d+)/)[1]);
-        // 固定欄(4) + 上月欄(6) + 當月第 day 格(從0起算 day-1) = 4+6+(day-1) = 9+day
         const colIndex = 4 + 6 + (day - 1);
 
-        // 透過 staffIndex 找到正確 row（renderMatrix 清空後重建，index 必然對齊）
         const staffIndex = (this.data.staffList || []).findIndex(s => s.uid === uid);
         if (staffIndex === -1) return;
 
@@ -489,9 +527,7 @@ const matrixManager = {
     setShift: function(uid, key, val) {
         if(!this.localAssignments[uid]) this.localAssignments[uid] = {};
 
-        // 規則驗證（只針對真正的班別，排除 OFF/REQ_OFF/!勿/清除）
         if (val && val !== 'OFF' && val !== 'REQ_OFF' && !val.startsWith('!')) {
-            // 1. 孕婦/哺乳夜班阻擋 (22:00-06:00)
             const staffEntry = (this.data.staffList || []).find(s => s.uid === uid);
             const params = staffEntry?.schedulingParams || {};
             const today = new Date();
@@ -506,7 +542,6 @@ const matrixManager = {
                 }
             }
 
-            // 2. 11 小時休息間隔驗證
             const gapViolation = this.check11HourGap(uid, key, val);
             if (gapViolation) {
                 alert(`⛔ 無法設定預班\n原因：${gapViolation}\n\n硬規則不可違反，請調整相鄰班別後再試。`);
@@ -541,7 +576,6 @@ const matrixManager = {
 
         const isWork = s => s && s !== 'OFF' && s !== 'REQ_OFF' && !s.startsWith('!');
 
-        // 往前檢查
         let prevShift = (day === 1) 
             ? (this.historyCorrections[uid]?.[`last_${this.lastMonthDays}`] || this.lastMonthAssignments[uid]?.[`current_${this.lastMonthDays}`] || 'OFF')
             : this.localAssignments[uid]?.[`current_${day-1}`];
@@ -555,7 +589,6 @@ const matrixManager = {
             }
         }
 
-        // 往後檢查
         const daysInMonth = new Date(this.data.year, this.data.month, 0).getDate();
         if (day < daysInMonth) {
             const nextShift = this.localAssignments[uid]?.[`current_${day+1}`];
@@ -582,8 +615,6 @@ const matrixManager = {
         return !(end <= forbidStart || start >= forbidEnd);
     },
 
-    // ✅ 修正8：setHistoryShift 呼叫 renderMatrix 前先清空，
-    //    避免重繪時 row 數量不斷疊加
     setHistoryShift: function(uid, day, val) {
         const key = `last_${day}`;
         if (!this.historyCorrections[uid]) this.historyCorrections[uid] = {};
@@ -591,7 +622,7 @@ const matrixManager = {
         else this.historyCorrections[uid][key] = val;
         this.pendingSave = true;
         this.updateUnsavedIndicator(true);
-        this.renderMatrix();   // renderMatrix 內部已清空 thead/tbody，安全重繪
+        this.renderMatrix();
         this.updateStats();
     },
 
@@ -602,6 +633,7 @@ const matrixManager = {
             await db.collection('pre_schedules').doc(this.docId).update({
                 assignments: this.localAssignments,
                 historyCorrections: this.historyCorrections,
+                specificNeeds: this.data.specificNeeds,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             this.pendingSave = false; this.updateUnsavedIndicator(false); alert("✅ 草稿已儲存");
@@ -671,4 +703,4 @@ const matrixManager = {
         window.onbeforeunload = () => this.pendingSave ? "未儲存變更" : null;
     }
 };
-console.log('✅ pre_schedule_matrix_manager 已更新 (修正載入中殘留 + 格子跑位 + 競爭條件)');
+console.log('✅ pre_schedule_matrix_manager 已更新 (修復 tfoot 每日需求人數列 + editDailyNeed + saveData 補存 specificNeeds)');
