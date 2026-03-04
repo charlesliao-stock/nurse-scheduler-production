@@ -299,40 +299,78 @@ const matrixManager = {
     },
 
     // 取得指定日期、指定班別的需求人數
-    // 優先查 specificNeeds[日期YYYY-MM-DD][班別code]，否則用 dailyNeeds[班別code_星期索引]
-    // 星期索引：0=週一 ... 5=週六 6=週日（與 pre_schedule_manager 一致）
+    // 優先 specificNeeds[YYYY-MM-DD][shiftCode]，其次 dailyNeeds[shiftCode_weekdayIdx(0=週一...6=週日)]
     getDailyNeedCount: function(shiftCode, year, month, day) {
         const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const specificNeeds = this.data.specificNeeds || {};
         const dailyNeeds = this.data.dailyNeeds || {};
 
-        // specificNeeds 有該日期該班別的設定，直接帶出
         if (specificNeeds[dateStr] && specificNeeds[dateStr][shiftCode] !== undefined) {
             return specificNeeds[dateStr][shiftCode];
         }
-
-        // 否則用週循環設定
-        // getDay(): 0=日 1=一 ... 6=六
-        // dailyNeeds key 靠 jsDay===0 ? 6 : jsDay-1（與 calculateAvgOff 一致）
         const jsDay = new Date(year, month - 1, day).getDay();
         const weekdayIdx = (jsDay === 0) ? 6 : jsDay - 1;
         const weeklyKey = `${shiftCode}_${weekdayIdx}`;
-        if (dailyNeeds[weeklyKey] !== undefined) {
-            return dailyNeeds[weeklyKey];
+        if (dailyNeeds[weeklyKey] !== undefined) return dailyNeeds[weeklyKey];
+        return '';
+    },
+
+    // 點擊 tfoot 格子修改指定日需求人數，寫入 specificNeeds[YYYY-MM-DD][shiftCode] 並即存 Firestore
+    editDailyNeed: async function(shiftCode, day) {
+        const { year, month } = this.data;
+        const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        if (!this.data.specificNeeds) this.data.specificNeeds = {};
+
+        const current = (this.data.specificNeeds[dateStr] && this.data.specificNeeds[dateStr][shiftCode] !== undefined)
+            ? this.data.specificNeeds[dateStr][shiftCode]
+            : this.getDailyNeedCount(shiftCode, year, month, day);
+
+        const newVal = prompt(
+            `${shiftCode}  ${month}/${day} 需求人數\n（留空 = 恢復週循環設定）：`,
+            current !== '' ? current : ''
+        );
+        if (newVal === null) return; // 按取消
+
+        if (!this.data.specificNeeds[dateStr]) this.data.specificNeeds[dateStr] = {};
+
+        if (newVal.trim() === '') {
+            // 删除臨時設定，復原週循環
+            delete this.data.specificNeeds[dateStr][shiftCode];
+            if (Object.keys(this.data.specificNeeds[dateStr]).length === 0) {
+                delete this.data.specificNeeds[dateStr];
+            }
+        } else {
+            const parsed = parseInt(newVal);
+            if (isNaN(parsed) || parsed < 0) {
+                alert('請輸入有效的非負整數');
+                return;
+            }
+            this.data.specificNeeds[dateStr][shiftCode] = parsed;
         }
 
-        return '';
+        // 即存 Firestore
+        try {
+            await db.collection('pre_schedules').doc(this.docId).update({
+                specificNeeds: this.data.specificNeeds,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log(`✅ specificNeeds 已更新：${dateStr} ${shiftCode}`);
+        } catch(e) {
+            alert('儲存失敗: ' + e.message);
+            return;
+        }
+
+        // 重繪 tfoot（不需重繪整張表）
+        this.renderTfoot();
     },
 
     renderMatrix: function() {
         const thead = document.getElementById('matrixHead');
         const tbody = document.getElementById('matrixBody');
-        const tfoot = document.getElementById('matrixFoot');
         if (!thead || !tbody) return;
 
         thead.innerHTML = '';
         tbody.innerHTML = '';
-        if (tfoot) tfoot.innerHTML = '';
 
         const { year, month } = this.data;
         const daysInMonth = new Date(year, month, 0).getDate();
@@ -382,38 +420,58 @@ const matrixManager = {
             tbody.appendChild(tr);
         });
 
-        // --- tfoot: 每日各班需求人數 ---
-        if (tfoot && this.shifts.length > 0) {
-            this.shifts.forEach(shift => {
-                const tr = document.createElement('tr');
-                // 前 4 欄 標題
-                let html = `<td colspan="4" style="text-align:right; font-weight:bold; background:#f0f4f8; color:#2c3e50; white-space:nowrap;">
-                    ${shift.code} <span style="font-size:0.8em; color:#7f8c8d; font-weight:normal;">需求人數</span>
-                </td>`;
-                // 上月底 6 格 空白
-                for (let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
-                    html += `<td style="background:#f5f5f5;"></td>`;
+        // tfoot 由 renderTfoot 獨立處理
+        this.renderTfoot();
+    },
+
+    // 單獨渲染 tfoot，修改需求人數後可局部重繪
+    renderTfoot: function() {
+        const tfoot = document.getElementById('matrixFoot');
+        if (!tfoot) return;
+        tfoot.innerHTML = '';
+        if (!this.shifts.length) return;
+
+        const { year, month } = this.data;
+        const daysInMonth = new Date(year, month, 0).getDate();
+        const lastMonthDays = this.lastMonthDays || 31;
+
+        this.shifts.forEach(shift => {
+            const tr = document.createElement('tr');
+            let html = `<td colspan="4" style="text-align:right; font-weight:bold; background:#f0f4f8; color:#2c3e50; white-space:nowrap; padding:4px 8px;">
+                ${shift.code} <span style="font-size:0.8em; color:#7f8c8d; font-weight:normal;">需求人數</span>
+            </td>`;
+            // 上月底 6 格 空白
+            for (let d = lastMonthDays - 5; d <= lastMonthDays; d++) {
+                html += `<td style="background:#f5f5f5;"></td>`;
+            }
+            // 當月每日
+            for (let d = 1; d <= daysInMonth; d++) {
+                const w = new Date(year, month - 1, d).getDay();
+                const isWeekend = (w === 0 || w === 6);
+                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const isOverride = (this.data.specificNeeds[dateStr] && this.data.specificNeeds[dateStr][shift.code] !== undefined);
+                const val = this.getDailyNeedCount(shift.code, year, month, d);
+
+                let bgColor, textColor;
+                if (isOverride) {
+                    bgColor = '#fde8a8'; textColor = '#7d4e00';
+                } else if (isWeekend) {
+                    bgColor = '#fff0e6'; textColor = '#1a5276';
+                } else {
+                    bgColor = '#eaf4fb'; textColor = '#1a5276';
                 }
-                // 當月每日
-                for (let d = 1; d <= daysInMonth; d++) {
-                    const w = new Date(year, month - 1, d).getDay();
-                    const isWeekend = (w === 0 || w === 6);
-                    const bgColor = isWeekend ? '#fff0e6' : '#eaf4fb';
-                    const val = this.getDailyNeedCount(shift.code, year, month, d);
-                    // 有 specificNeeds 覆寫的日期，加深色警示區別
-                    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                    const isOverride = (this.data.specificNeeds[dateStr] && this.data.specificNeeds[dateStr][shift.code] !== undefined);
-                    const cellStyle = isOverride
-                        ? `background:#fde8a8; font-weight:bold; color:#7d4e00; text-align:center;`
-                        : `background:${bgColor}; font-weight:bold; color:#1a5276; text-align:center;`;
-                    html += `<td style="${cellStyle}" title="${isOverride ? '臨時設定' : '週循環'}：${shift.code} ${d}日 ${val}人">${val}</td>`;
-                }
-                // 統計 5 格 空白
-                html += `<td colspan="5" style="background:#f5f5f5;"></td>`;
-                tr.innerHTML = html;
-                tfoot.appendChild(tr);
-            });
-        }
+
+                const tooltip = `${isOverride ? '●臨時設定' : '週循環'}：${shift.code} ${month}/${d} ${val !== '' ? val + '人' : '未設定'}\n點擊可修改`;
+                html += `<td
+                    style="cursor:pointer; background:${bgColor}; color:${textColor}; font-weight:bold; text-align:center; user-select:none;"
+                    onclick="matrixManager.editDailyNeed('${shift.code}', ${d})"
+                    title="${tooltip}">${val}</td>`;
+            }
+            // 統計欄 5 格 空白
+            html += `<td colspan="5" style="background:#f5f5f5;"></td>`;
+            tr.innerHTML = html;
+            tfoot.appendChild(tr);
+        });
     },
 
     updateStats: function() {
@@ -692,4 +750,4 @@ const matrixManager = {
         window.onbeforeunload = () => this.pendingSave ? "未儲存變更" : null;
     }
 };
-console.log('✅ pre_schedule_matrix_manager 已更新 (tfoot 每日需求人數正確讀取 dailyNeeds/specificNeeds 資料結構)');
+console.log('✅ pre_schedule_matrix_manager 已更新 (editDailyNeed 寫入 specificNeeds + renderTfoot 獨立方法)');
