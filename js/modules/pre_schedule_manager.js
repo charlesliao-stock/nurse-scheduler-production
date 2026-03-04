@@ -442,7 +442,8 @@ const preScheduleManager = {
             const results = [];
             const searchTerm = keyword.toLowerCase();
             
-            users.forEach(u => {
+            // DataLoader.loadAllUsers() 返回的是物件 {uid: {...}}，需轉換為陣列
+            Object.values(users).forEach(u => {
                 const empId = (u.employeeId || '').toLowerCase();
                 const name = (u.displayName || '').toLowerCase();
                 if (empId.includes(searchTerm) || name.includes(searchTerm)) {
