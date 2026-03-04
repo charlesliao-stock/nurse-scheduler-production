@@ -224,7 +224,9 @@ const app = {
 
         if (!this._allUsersForImp) {
             try {
-                this._allUsersForImp = await DataLoader.loadAllUsers();
+                const users = await DataLoader.loadAllUsers();
+                // 確保 _allUsersForImp 總是陣列
+                this._allUsersForImp = Array.isArray(users) ? users : [];
             } catch(e) {
                 console.error("Load All Users Error:", e);
                 this._allUsersForImp = [];
@@ -253,6 +255,12 @@ const app = {
         const select = document.getElementById('impUserSelect');
         if (!select) return;
         select.innerHTML = '<option value="">--- 選擇人員 ---</option>';
+        
+        // 防守性檢查：確保 _allUsersForImp 是陣列
+        if (!Array.isArray(this._allUsersForImp)) {
+            console.warn("_allUsersForImp is not an array:", this._allUsersForImp);
+            return;
+        }
         
         const filtered = unitId ? this._allUsersForImp.filter(u => u.unitId === unitId) : this._allUsersForImp;
         filtered.forEach(u => {
