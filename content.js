@@ -250,7 +250,29 @@ function runDetailedCheck(old, exc, dict, cycleRanges, ffRanges) {
             return d ? d.sys : s;
         });
 
-        // FF 雙週檢查：每個 FF 週別內應有恰好 2 個 FF
+        // 1. 檢查 W+ 與 N+ 班別代號 (檢查時機同四周變形與雙週 FF)
+        // 遍歷新月班表中的每一天
+        exc[id].shifts.forEach((code, i) => {
+            const cStr = String(code || "").trim();
+            if (cStr === 'W+' || cStr === 'N+') {
+                const gi = oldMonthDays + i;
+                // 檢查此日期是否落在任何一個四週週期或 FF 週別內
+                const inCycle = cycleRanges.some(r => gi >= r.startIdx && gi <= r.endIdx);
+                const inFF    = ffRanges.some(r => gi >= r.startIdx && gi <= r.endIdx);
+                
+                if (inCycle || inFF) {
+                    err.push({
+                        empId:    id,
+                        startIdx: gi,
+                        endIdx:   gi,
+                        type:     'INVALID_CODE',
+                        msg:      `此代號(${cStr})另須於逾時輸入HR的班別代號，請更換`,
+                    });
+                }
+            }
+        });
+
+        // 2. FF 雙週檢查：每個 FF 週別內應有恰好 2 個 FF
         // 僅統計當月（新月）內的 FF，跨月部分不計
         ffRanges.forEach((r, i) => {
             // 計算當月邊界內的實際檢查範圍
@@ -272,7 +294,7 @@ function runDetailedCheck(old, exc, dict, cycleRanges, ffRanges) {
             }
         });
 
-        // 四週變形檢查：每個四週週期內應有恰好 4 個 WW/W+
+        // 3. 四週變形檢查：每個四週週期內應有恰好 4 個 WW/W+
         // 僅統計當月（新月）內的 WW/W+，跨月部分不計
         cycleRanges.forEach((r, i) => {
             // 計算當月邊界內的實際檢查範圍
@@ -509,45 +531,38 @@ function showModal(title, dataset, info) {
 
 // ─────────────────────────────────────────────────────────────────
 // 網頁班表擷取
-// ─────────────────────────────────────────────────────────────────
+// ──────────────────
 function captureWebSchedule() {
-    const h = getHeaders();
-    const d = h.dates.filter(x => x !== "").length;
-    const yymm = document.getElementById("ctl00_ContentPlaceHolder1_FIELD_yymm")?.value || "";
-    const res = [];
+    const yymm = document.getElementById("Field_yymm")?.value || "";
+    const monthDays = document.querySelectorAll("th[id^='Header_day_']").length;
+    const data = [];
     document.querySelectorAll("input[id^='Hidden_empno_']").forEach(f => {
-        const sfx = f.id.split('_').pop();
-        const parts = f.value.split('-');
-        const empId = formatEmpId(parts[0]?.trim());
-        const name  = parts[1]?.trim() || "";
+        const empId = f.value.split('-')[0];
+        const name  = f.value.split('-')[1] || "";
+        const sfx   = f.id.split('_').pop();
         const shifts = [];
-        for (let i = 1; i <= d; i++) {
-            const el = document.getElementById(`Field_day${String(i).padStart(2, '0')}_${sfx}`);
-            shifts.push(el ? el.value : "");
+        for (let i = 1; i <= monthDays; i++) {
+            const day = String(i).padStart(2, '0');
+            shifts.push(document.getElementById(`Field_day${day}_${sfx}`)?.value || "");
         }
-        res.push({ empId, name, shifts });
+        data.push({ empId, name, shifts });
     });
-    return { headers: h, data: res, monthDays: d, yymm };
+    return { yymm, monthDays, data };
 }
 
 function getHeaders() {
-    const w = Array(31).fill(""), d = Array(31).fill("");
-    const td = Array.from(document.querySelectorAll("td")).find(t => t.innerText.trim() === "01");
-    if (td) {
-        const r = td.parentElement, wr = r.previousElementSibling, idx = Array.from(r.children).indexOf(td);
-        for (let i = 0; i < 31; i++) {
-            const dt = r.children[idx + i];
-            if (dt && /^\d+$/.test(dt.innerText.trim())) {
-                d[i] = dt.innerText.trim();
-                if (wr?.children[idx + i]) w[i] = wr.children[idx + i].innerText.trim();
-            }
-        }
-    }
-    return { weekdays: w, dates: d };
+    const dates = [], weekdays = [];
+    document.querySelectorAll("th[id^='Header_day_']").forEach(th => {
+        dates.push(th.innerText.trim());
+    });
+    document.querySelectorAll("th[id^='Header_week_']").forEach(th => {
+        weekdays.push(th.innerText.trim());
+    });
+    return { dates, weekdays };
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Excel 解析：強制職編與姓名分欄，以 7 碼職編為主要索引
+// Excel 解析
 // ─────────────────────────────────────────────────────────────────
 function parseCellDate(val) {
     if (val === undefined || val === null) return null;
@@ -622,7 +637,7 @@ function detectExcelLayout(data, targetYymm) {
         }
     }
 
-    // 姓名欄預設為職編欄右邊一欄
+    // 姓名欄預設為職編欄專邊一欄
     if (nameColIdx === -1 && empIdColIdx !== -1) nameColIdx = empIdColIdx + 1;
     if (day1ColIdx === -1) console.warn("[Excel 解析] 未找到日期 1 號欄位，請確認 Excel 格式");
 
