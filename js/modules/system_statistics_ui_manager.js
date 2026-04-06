@@ -226,7 +226,7 @@ const systemStatisticsManager = {
             Object.keys(byReason).forEach(reason => {
                 const r = byReason[reason];
                 const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${this.translateAdjReason(reason)}</td><td>${r.count}</td><td>-</td>`;
+                tr.innerHTML = `<td>${this.translateAdjReason(reason)}</td><td>${r.count}</td><td>${r.percentage}%</td>`;
                 adjBody.appendChild(tr);
             });
         }
@@ -248,7 +248,16 @@ const systemStatisticsManager = {
     },
 
     translateAdjReason: function(reason) {
-        const map = { 'vacancy': '缺額調整', 'scheduling': '排班優化', 'staffing': '人力調度' };
+        const map = { 
+            'vacancy': '缺額調整', 
+            'scheduling': '排班優化', 
+            'staffing': '人力調度',
+            'unit_staffing_adjustment': '單位人力調度',
+            'personal_factors': '個人因素/志願調整',
+            'rule_violation_fix': '修正規則違規',
+            'fairness_adjustment': '公平性調整',
+            'other': '其他'
+        };
         return map[reason] || reason;
     },
 

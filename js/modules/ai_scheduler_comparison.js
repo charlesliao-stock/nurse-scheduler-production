@@ -43,6 +43,12 @@ const AISchedulerComparison = {
             // 顯示結果
             this.showResults(dialog, results, onSelectCallback);
             
+            // 🔥 渲染優化選項
+            if (typeof PostSchedulerOptimizer !== 'undefined') {
+                const optContainer = document.getElementById('optimizer-options-container');
+                PostSchedulerOptimizer.renderOptions(optContainer);
+            }
+            
         } catch (error) {
             console.error('❌ 比較模式失敗:', error);
             this.showError(dialog, error.message);
@@ -242,13 +248,16 @@ const AISchedulerComparison = {
         const bestAlgo = results[0];
         
         content.innerHTML = `
-            <div style="margin-bottom: 24px;">
-                <h2 style="font-size: 28px; margin-bottom: 8px; color: #333;">
-                    🏆 AI 排班比較結果
-                </h2>
-                <p style="color: #666; font-size: 16px;">
-                    已完成 4 種演算法的排班，請選擇最適合的方案
-                </p>
+            <div style="margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                    <h2 style="font-size: 28px; margin-bottom: 8px; color: #333;">
+                        🏆 AI 排班比較結果
+                    </h2>
+                    <p style="color: #666; font-size: 16px;">
+                        已完成 4 種演算法的排班，請選擇最適合的方案
+                    </p>
+                </div>
+                <div id="optimizer-options-container" style="width: 400px;"></div>
             </div>
             
             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 24px;">

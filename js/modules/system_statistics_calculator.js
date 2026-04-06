@@ -102,40 +102,85 @@ const systemStatisticsCalculator = {
         return stats;
     },
     
-    // --- 2. 修正率計算 ---
+    // --- 2. 修正率計算 (🔥 重構：基於 V0 與當前班表的差異) ---
     calculateAdjustmentRate: function(originalSchedule, currentSchedule, year, month) {
         const daysInMonth = new Date(year, month, 0).getDate();
-        const dailyNeeds = currentSchedule.dailyNeeds || {};
+        const v0 = currentSchedule.v0Assignments || {}; // AI 原始排班 (V0)
+        const current = currentSchedule.assignments || {}; // 當前排班
+        const adjustments = currentSchedule.adjustments || []; // 調整紀錄
         
         let totalRequired = 0;
+        // 1. 計算總需求天數 (作為分母)
+        const dailyNeeds = currentSchedule.dailyNeeds || {};
         Object.values(dailyNeeds).forEach(val => {
             totalRequired += (parseInt(val) || 0);
         });
-        // 因為 dailyNeeds 是週循環，要乘以週數 (約 4.3 週)
         totalRequired = Math.round(totalRequired * (daysInMonth / 7));
         
+        if (totalRequired === 0) {
+            // 如果沒有需求設定，嘗試從實際排班總數估算
+            Object.values(current).forEach(userAssign => {
+                Object.values(userAssign).forEach(shift => {
+                    if (shift && shift !== 'OFF' && !shift.startsWith('REQ_')) totalRequired++;
+                });
+            });
+        }
+
+        // 2. 計算實際差異天數 (Diff Count)
+        let diffCount = 0;
+        if (Object.keys(v0).length > 0) {
+            Object.keys(current).forEach(uid => {
+                const v0User = v0[uid] || {};
+                const currentUser = current[uid] || {};
+                
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const key = `current_${d}`;
+                    if (v0User[key] !== currentUser[key]) {
+                        // 排除預班 (REQ_OFF) 的變動，只計算 AI 排出的班別變動
+                        if (v0User[key] !== 'REQ_OFF' && currentUser[key] !== 'REQ_OFF') {
+                            diffCount++;
+                        }
+                    }
+                }
+            });
+        } else {
+            // 如果沒有 V0，則退而求其次使用手動調整計數
+            diffCount = currentSchedule.adjustmentCount || 0;
+        }
+
         const stats = {
-            totalAdjustments: currentSchedule.adjustmentCount || 0,
+            totalAdjustments: diffCount,
             adjustmentRate: 0,
             byReason: {
-                vacancy: { count: 0 },
-                scheduling: { count: 0 },
-                staffing: { count: 0 }
+                'unit_staffing_adjustment': { count: 0, percentage: 0 },
+                'personal_factors': { count: 0, percentage: 0 },
+                'rule_violation_fix': { count: 0, percentage: 0 },
+                'fairness_adjustment': { count: 0, percentage: 0 },
+                'other': { count: 0, percentage: 0 }
             }
         };
 
-        if (totalRequired === 0) {
-            // 如果沒有需求設定，嘗試從實際排班總數估算
-            const assignments = currentSchedule.assignments || {};
-            Object.values(assignments).forEach(userAssign => {
-                Object.values(userAssign).forEach(shift => {
-                    if (shift && shift !== 'OFF') totalRequired++;
-                });
+        // 3. 統計調整原因
+        adjustments.forEach(adj => {
+            const reason = adj.reason || 'other';
+            if (stats.byReason[reason]) {
+                stats.byReason[reason].count++;
+            } else {
+                stats.byReason['other'].count++;
+            }
+        });
+
+        // 4. 計算百分比
+        const totalRecorded = adjustments.length;
+        if (totalRecorded > 0) {
+            Object.keys(stats.byReason).forEach(reason => {
+                stats.byReason[reason].percentage = 
+                    Math.round((stats.byReason[reason].count / totalRecorded * 100) * 10) / 10;
             });
         }
         
         stats.adjustmentRate = totalRequired > 0 
-            ? Math.round((stats.totalAdjustments / totalRequired * 100) * 10) / 10 
+            ? Math.round((diffCount / totalRequired * 100) * 10) / 10 
             : 0;
         
         return stats;
