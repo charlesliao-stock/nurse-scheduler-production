@@ -143,6 +143,70 @@ const dashboardManager = {
             let val = '-';
 
             switch(source) {
+                case 'my_personal_stats':
+                    if (!uid) { val = '-'; break; }
+                    const myStatsSnap = await db.collection('schedules')
+                        .where('status', '==', 'published')
+                        .orderBy('year', 'desc').orderBy('month', 'desc').limit(1).get();
+                    if (!myStatsSnap.empty) {
+                        const data = myStatsSnap.docs[0].data();
+                        const assign = data.assignments?.[uid] || {};
+                        let workDays = 0, nightDays = 0;
+                        Object.keys(assign).forEach(k => {
+                            if (k.startsWith('current_') && assign[k] !== 'OFF' && assign[k] !== 'REQ_OFF') {
+                                workDays++;
+                                if (shiftUtils.isNightShift({code: assign[k]})) nightDays++;
+                            }
+                        });
+                        val = `${workDays}天 / 夜${nightDays}`;
+                    } else { val = '無資料'; }
+                    break;
+
+                case 'unit_schedule_status':
+                    if (!unitId) { val = '-'; break; }
+                    const unitSchedSnap = await db.collection('schedules')
+                        .where('unitId', '==', unitId)
+                        .orderBy('year', 'desc').orderBy('month', 'desc').limit(1).get();
+                    if (!unitSchedSnap.empty) {
+                        val = unitSchedSnap.docs[0].data().status === 'published' ? '✅ 已發布' : '📝 草稿';
+                    } else { val = '未建立'; }
+                    break;
+
+                case 'unit_statistics_summary':
+                    if (!unitId) { val = '-'; break; }
+                    const unitStatSnap = await db.collection('schedules')
+                        .where('unitId', '==', unitId).where('status', '==', 'published')
+                        .orderBy('year', 'desc').orderBy('month', 'desc').limit(1).get();
+                    if (!unitStatSnap.empty) {
+                        const d = unitStatSnap.docs[0].data();
+                        val = `評分: ${d.currentScore || 0}`;
+                    } else { val = '無統計'; }
+                    break;
+
+                case 'sys_avg_vacancy_rate':
+                case 'sys_avg_adjustment_rate':
+                case 'sys_avg_exchange_rate':
+                    const allPublishedSnap = await db.collection('schedules')
+                        .where('status', '==', 'published').limit(10).get();
+                    if (allPublishedSnap.empty) { val = '0%'; break; }
+                    let totalRate = 0;
+                    allPublishedSnap.forEach(doc => {
+                        const d = doc.data();
+                        if (source === 'sys_avg_vacancy_rate') totalRate += (d.vacancyRate || 0);
+                        else if (source === 'sys_avg_adjustment_rate') totalRate += (d.adjustmentRate || 0);
+                        else totalRate += 5.2; // 模擬數據
+                    });
+                    val = `${(totalRate / allPublishedSnap.size).toFixed(1)}%`;
+                    break;
+
+                case 'sys_score_avg':
+                    const allScoresSnap = await db.collection('schedules')
+                        .where('status', '==', 'published').get();
+                    if (allScoresSnap.empty) { val = '0'; break; }
+                    let sumScore = 0;
+                    allScoresSnap.forEach(doc => sumScore += (doc.data().currentScore || 0));
+                    val = (sumScore / allScoresSnap.size).toFixed(1);
+                    break;
                 case 'my_active_pre_schedule':
                     if (!uid) {
                         val = '0';
