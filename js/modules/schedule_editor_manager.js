@@ -233,11 +233,25 @@ const scheduleEditorManager = {
     renderToolbar: function() {
         const right = document.getElementById('toolbarRight');
         if(!right) return;
-        document.getElementById('schTitle').innerText = `${this.data.year}/${this.data.month} 排班`;
-        const badge = document.getElementById('schStatus');
+        
+        // 判斷班表優化狀態
+        const isOptimized = this.data.optimized || false;
         const isPublished = this.data.status === 'published';
-        badge.innerText = isPublished ? '已發布' : '草稿';
-        badge.style.background = isPublished ? '#2ecc71' : '#f39c12';
+        
+        let titleHtml = `${this.data.year}/${this.data.month} 排班`;
+        if (isPublished) {
+            titleHtml += ` <span style="display:inline-block; margin-left:10px; padding:4px 10px; background:#2ecc71; color:white; border-radius:4px; font-size:12px; font-weight:bold;">已發布</span>`;
+        } else if (isOptimized) {
+            titleHtml += ` <span style="display:inline-block; margin-left:10px; padding:4px 10px; background:#3498db; color:white; border-radius:4px; font-size:12px; font-weight:bold;">已優化</span>`;
+        } else {
+            titleHtml += ` <span style="display:inline-block; margin-left:10px; padding:4px 10px; background:#95a5a6; color:white; border-radius:4px; font-size:12px; font-weight:bold;">AI 原始 (V0)</span>`;
+        }
+        
+        document.getElementById('schTitle').innerHTML = titleHtml;
+        const badge = document.getElementById('schStatus');
+        const isPublished2 = this.data.status === 'published';
+        badge.innerText = isPublished2 ? '已發布' : '草稿';
+        badge.style.background = isPublished2 ? '#2ecc71' : '#f39c12';
         
         right.innerHTML = !isPublished 
             ? `<button class="btn btn-primary" onclick="scheduleEditorManager.runAI()"><i class="fas fa-magic"></i> AI 自動排班</button>
@@ -768,6 +782,7 @@ const scheduleEditorManager = {
             await db.collection('schedules').doc(this.scheduleId).update({ 
                 assignments: this.assignments,
                 aiStrategy: strategy,
+                optimized: true,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
@@ -776,6 +791,7 @@ const scheduleEditorManager = {
             this.lastCheckResult = null;
             
             this.renderMatrix();
+            this.renderToolbar();
             this.updateScheduleScore();
             this.removePreviewBar();
             
@@ -1032,10 +1048,31 @@ const scheduleEditorManager = {
         
         let modalHtml = `
         <div id="swapWarningModal" style="display:flex; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
-            <div style="background:white; padding:30px; border-radius:12px; width:600px; max-height:80vh; overflow-y:auto; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+            <div style="background:white; padding:30px; border-radius:12px; width:700px; max-height:90vh; overflow-y:auto; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
                 <h3 style="margin:0 0 20px 0; color:#2c3e50;">
-                    ⚠️ 交換班別將產生以下問題
-                </h3>`;
+                    ⚠️ 班別交換
+                </h3>
+                <p style="color:#666; margin-bottom:15px; font-size:0.95rem;">
+                    ${source.uid} 第 ${source.day} 日：${source.shift} → ${target.shift}
+                </p>
+                <p style="color:#666; margin-bottom:20px; font-size:0.95rem;">
+                    ${target.uid} 第 ${target.day} 日：${target.shift} → ${source.shift}
+                </p>
+                
+                <div style="border:1px solid #ddd; border-radius:8px; padding:15px; margin-bottom:20px; background:#f9f9f9;">
+                    <label style="display:block; margin-bottom:8px; font-weight:bold; color:#2c3e50;">
+                        <i class="fas fa-comment"></i> 調班理由 <span style="color:#e74c3c;">*</span>
+                    </label>
+                    <select id="swapReason" style="width:100%; padding:10px; border:1px solid #bbb; border-radius:4px; font-size:14px; margin-bottom:10px;">
+                        <option value="">-- 請選擇理由 --</option>
+                        <option value="staff_leave">人員請假</option>
+                        <option value="staff_unavailable">人員臨時無法上班</option>
+                        <option value="manpower_adjustment">人力調配</option>
+                        <option value="shift_preference">班別偏好調整</option>
+                        <option value="other">其他</option>
+                    </select>
+                    <textarea id="swapDescription" placeholder="請輸入具體說明（選填）" style="width:100%; padding:10px; border:1px solid #bbb; border-radius:4px; font-size:14px; resize:vertical; height:60px;"></textarea>
+                </div>`;
         
         if (hardViolations.length > 0) {
             modalHtml += `
@@ -1062,11 +1099,38 @@ const scheduleEditorManager = {
         }
         
         modalHtml += `
-                <p style="color:#666; margin-bottom:20px;">
-                    是否仍要交換？<br>
-                    <small>（調整過程中允許暫時違規）</small>
-                </p>
-                <div style="display:flex; gap:15px; justify-content:flex-end;">
+                <div style="padding:15px; background:#f8f9fa; border-radius:8px; margin-bottom:20px;">
+                    <p style="color:#666; margin:0 0 10px 0; font-size:0.95rem;">
+                        <strong>⚠️ 此交換將產生以下問題：</strong>
+                    </p>
+                </div>`;
+        
+        if (hardViolations.length > 0) {
+            modalHtml += `
+                <div style="border:2px solid #e74c3c; border-radius:8px; padding:15px; margin-bottom:15px;">
+                    <h4 style="margin:0 0 10px 0; color:#e74c3c;">
+                        ❌ 硬規則違規（發布前必須修正）
+                    </h4>
+                    <ul style="margin:0; padding-left:20px; line-height:1.8;">
+                        ${hardViolations.map(v => `<li>${v.person}: ${v.rule}${v.detail ? '<br><small style="color:#666;">' + v.detail + '</small>' : ''}</li>`).join('')}
+                    </ul>
+                </div>`;
+        }
+        
+        if (softViolations.length > 0) {
+            modalHtml += `
+                <div style="border:2px solid #f39c12; border-radius:8px; padding:15px; margin-bottom:15px;">
+                    <h4 style="margin:0 0 10px 0; color:#f39c12;">
+                        ⚠️ 軟規則違規（可警告後允許）
+                    </h4>
+                    <ul style="margin:0; padding-left:20px; line-height:1.8;">
+                        ${softViolations.map(v => `<li>${v.person}: ${v.rule}${v.detail ? '<br><small style="color:#666;">' + v.detail + '</small>' : ''}</li>`).join('')}
+                    </ul>
+                </div>`;
+        }
+        
+        modalHtml += `
+                <div style="display:flex; gap:15px; justify-content:flex-end; margin-top:20px;">
                     <button id="btnCancelSwap" style="padding:10px 20px; border:1px solid #95a5a6; background:#fff; border-radius:4px; cursor:pointer;">
                         取消交換
                     </button>
@@ -1080,7 +1144,16 @@ const scheduleEditorManager = {
         document.body.insertAdjacentHTML('beforeend', modalHtml);
         
         document.getElementById('btnConfirmSwap').onclick = () => {
+            const reason = document.getElementById('swapReason').value;
+            const description = document.getElementById('swapDescription').value;
+            
+            if (!reason) {
+                alert('⚠️ 請選擇調班理由');
+                return;
+            }
+            
             this.executeSwap(source, target);
+            this.saveSwapReason(source, target, reason, description);
             this.needsCheck = true;
             
             // 標記違規格子
@@ -1100,6 +1173,35 @@ const scheduleEditorManager = {
         document.getElementById('btnCancelSwap').onclick = () => {
             document.getElementById('swapWarningModal').remove();
         };
+    },
+
+    saveSwapReason: async function(source, target, reason, description) {
+        try {
+            const swapRecord = {
+                scheduleId: this.scheduleId,
+                date: new Date().toISOString(),
+                uid1: source.uid,
+                uid2: target.uid,
+                day: source.day,
+                oldShift1: source.shift,
+                newShift1: target.shift,
+                oldShift2: target.shift,
+                newShift2: source.shift,
+                reason: reason,
+                description: description,
+                createdBy: app.currentUser?.uid || 'unknown',
+                createdAt: new Date()
+            };
+            
+            // 保存到 Firestore
+            if (typeof db !== 'undefined') {
+                await db.collection('schedules').doc(this.scheduleId)
+                    .collection('swapHistory').add(swapRecord);
+                console.log('✅ 交換理由已保存:', swapRecord);
+            }
+        } catch (e) {
+            console.error('❌ 保存交換理由失敗:', e);
+        }
     },
 
     // ==================== 7項規則檢查（🔥 重構：引用 HardRuleValidator）====================
